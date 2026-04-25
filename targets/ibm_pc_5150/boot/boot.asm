@@ -37,6 +37,7 @@ read_stage2:
     mov dl, [boot_drive]
     int 0x13
     jc .read_failed
+    mov dl, [boot_drive]
     jmp 0x0000:stage2_offset
 
 .read_failed:

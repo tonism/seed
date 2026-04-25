@@ -5,6 +5,32 @@ org 0x8000
 %define STAGE2_SECTORS 4
 %endif
 
+build_number equ 4
+handoff_addr equ 0x0600
+handoff_magic equ 0
+handoff_version equ 4
+handoff_size equ 5
+handoff_build equ 6
+handoff_flags equ 8
+handoff_boot_drive equ 10
+handoff_video_mode equ 11
+handoff_video_cols equ 12
+handoff_seed_col equ 13
+handoff_nic_base equ 14
+handoff_nic_family equ 16
+handoff_config_source equ 17
+handoff_nic_irq equ 18
+handoff_mac equ 19
+handoff_status equ 25
+handoff_size_bytes equ 26
+handoff_struct_version equ 1
+handoff_flag_mda equ 0x0001
+handoff_flag_nic_present equ 0x0002
+handoff_flag_config_resolved equ 0x0004
+handoff_flag_mac_valid equ 0x0008
+handoff_status_booting equ 1
+handoff_status_no_nic equ 2
+handoff_status_ready equ 3
 seed_attr_cga equ 0x0f
 build_attr_cga equ 0x08
 load_attr_cga equ 0x0f
@@ -41,6 +67,7 @@ start:
     sti
     cld
 
+    call init_handoff
     call detect_display
     call clear_screen
     call hide_cursor
@@ -60,6 +87,7 @@ start:
     call set_seed_cursor
     mov al, 'o'
     call print_char
+    mov byte [handoff_addr + handoff_status], handoff_status_ready
     mov cx, load_ticks
     call wait_ticks
 
@@ -83,6 +111,7 @@ halt:
     jmp halt
 
 network_error:
+    mov byte [handoff_addr + handoff_status], handoff_status_no_nic
     call set_seed_cursor
     mov bl, [error_attr]
     mov al, '+'
@@ -100,15 +129,37 @@ set_seed_cursor:
     mov [cursor_col], al
     ret
 
+init_handoff:
+    mov di, handoff_addr
+    xor ax, ax
+    mov cx, handoff_size_bytes / 2
+.clear:
+    stosw
+    loop .clear
+    mov byte [handoff_addr + handoff_magic], 'S'
+    mov byte [handoff_addr + handoff_magic + 1], 'E'
+    mov byte [handoff_addr + handoff_magic + 2], 'E'
+    mov byte [handoff_addr + handoff_magic + 3], 'D'
+    mov byte [handoff_addr + handoff_version], handoff_struct_version
+    mov byte [handoff_addr + handoff_size], handoff_size_bytes
+    mov word [handoff_addr + handoff_build], build_number
+    mov byte [handoff_addr + handoff_boot_drive], dl
+    mov byte [handoff_addr + handoff_status], handoff_status_booting
+    ret
+
 detect_display:
     mov ah, 0x0f
     int 0x10
+    mov [handoff_addr + handoff_video_mode], al
+    mov [handoff_addr + handoff_video_cols], ah
     mov [screen_cols], ah
     sub ah, seed_len
     shr ah, 1
     mov [seed_col], ah
+    mov [handoff_addr + handoff_seed_col], ah
     cmp al, 0x07
     jne .color
+    or word [handoff_addr + handoff_flags], handoff_flag_mda
     mov byte [seed_attr], seed_attr_mda
     mov byte [build_attr], build_attr_mda
     mov byte [load_attr], load_attr_mda
@@ -201,7 +252,8 @@ probe_network_card:
     in al, dx
     cmp al, 0xff
     je .next
-    mov [nic_base], dx
+    mov [handoff_addr + handoff_nic_base], dx
+    or word [handoff_addr + handoff_flags], handoff_flag_nic_present
     clc
     ret
 .missing:
@@ -209,7 +261,7 @@ probe_network_card:
     ret
 
 resolve_network_config:
-    mov ax, [nic_base]
+    mov ax, [handoff_addr + handoff_nic_base]
     cmp ax, 0x250
     je .known_3c503
     cmp ax, 0x280
@@ -220,8 +272,9 @@ resolve_network_config:
     call wait_ticks
     ret
 .known_3c503:
-    mov byte [nic_family], family_3c503
-    mov byte [config_status], config_auto
+    mov byte [handoff_addr + handoff_nic_family], family_3c503
+    mov byte [handoff_addr + handoff_config_source], config_auto
+    or word [handoff_addr + handoff_flags], handoff_flag_config_resolved
     mov cx, load_ticks
     call wait_ticks
     ret
@@ -268,8 +321,9 @@ ask_adapter:
     je .store
     mov al, [menu_value_b]
 .store:
-    mov [nic_family], al
-    mov byte [config_status], config_user
+    mov [handoff_addr + handoff_nic_family], al
+    mov byte [handoff_addr + handoff_config_source], config_user
+    or word [handoff_addr + handoff_flags], handoff_flag_config_resolved
     call clear_question_area
     ret
 
@@ -411,9 +465,6 @@ load_attr db load_attr_cga
 error_attr db error_attr_cga
 menu_selected_attr db menu_selected_attr_cga
 menu_idle_attr db menu_idle_attr_cga
-nic_base dw 0
-nic_family db 0
-config_status db 0
 menu_option_a dw 0
 menu_option_b dw 0
 menu_value_a db 0
@@ -421,7 +472,7 @@ menu_value_b db 0
 menu_index db 0
 blink_state db 0
 seed_text db 'seed', 0
-build_text db 'build 4', 0
+build_text db 'build ', '0' + build_number, 0
 network_error_text db 'no network card', 0
 adapter_prompt_text db 'adapter', 0
 adapter_ne2000_text db 'ne2000', 0

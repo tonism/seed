@@ -75,6 +75,7 @@ Makefile                         build raw 160 KiB floppy image
 docs/config.md                   optional user config policy
 docs/ui.md                       text UI and fast-type rules
 targets/ibm_pc_5150/README.md    current target details
+targets/ibm_pc_5150/HANDOFF.md   current low-memory runtime handoff block
 targets/ibm_pc_5150/boot/        8088 stage 1 and stage 2 sources
 targets/ibm_pc_5150/86box/       86Box profiles and NIC inventory
 tools/run-86box.sh               build and launch a 86Box profile

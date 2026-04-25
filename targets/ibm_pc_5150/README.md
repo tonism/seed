@@ -13,6 +13,7 @@ BIOS loads boot sector
   -> shows the phase-one load marker at the centered project start column
   -> probes common ISA network card I/O bases
   -> records the responding NIC I/O base if one is found
+  -> publishes boot, video, and NIC state to the handoff block at 0000:0600
   -> shows + no network card and plays a low failure tone if no card responds
   -> asks for adapter family when the responding I/O base is ambiguous
   -> otherwise types seed build 4 rightward from that column
@@ -42,13 +43,19 @@ documented in:
 docs/ui.md
 ```
 
+The stage 2 runtime handoff block is documented in:
+
+```text
+targets/ibm_pc_5150/HANDOFF.md
+```
+
 Build 4 introduces a fixed-sector stage 2 boot core and treats phase one as
-network hardware discovery. Stage 2 probes common ISA Ethernet I/O bases, stores
-the responding I/O base as in-memory network config, and starts resolving an
-adapter family. Known single-card bases continue automatically. Shared bases ask
-the user to choose the adapter family through a minimal color-selected menu.
-This is intentionally still a hardware/config handoff only; packet I/O, IP,
-TLS, and model API calls are later milestones.
+network hardware discovery. Stage 2 probes common ISA Ethernet I/O bases,
+publishes boot/video/NIC state to a low-memory handoff block, and starts
+resolving an adapter family. Known single-card bases continue automatically.
+Shared bases ask the user to choose the adapter family through a minimal
+color-selected menu. This is intentionally still a hardware/config handoff
+only; packet I/O, IP, TLS, and model API calls are later milestones.
 
 The boot path does not switch video modes. It keeps the BIOS-provided text
 mode, reads the active column count, and uses that value for clearing and for

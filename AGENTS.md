@@ -33,6 +33,8 @@ contains no files.
   packet I/O, IP, TLS, or model API logic unless explicitly scoped.
 - Do not switch video modes on the current target. Keep the BIOS-provided text
   mode and use the detected column count for layout.
+- Keep the IBM PC 5150 runtime handoff block at `0000:0600` compatible with
+  `targets/ibm_pc_5150/HANDOFF.md`.
 - Keep the cursor hidden unless an input field is actively accepting text.
 - Use BIOS text services for current display output.
 - Avoid BIOS bell for notifications. Use low PC speaker tones through PIT
@@ -117,6 +119,7 @@ README.md
 docs/config.md
 docs/ui.md
 targets/ibm_pc_5150/README.md
+targets/ibm_pc_5150/HANDOFF.md
 targets/ibm_pc_5150/86box/README.md
 targets/ibm_pc_5150/86box/NICS.md
 ```
