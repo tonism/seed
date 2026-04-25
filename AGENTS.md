@@ -19,12 +19,15 @@ The current boot artifact is:
 build/ibm_pc_5150/floppy-160k.img
 ```
 
-That image is a raw 160 KiB floppy image with one boot sector and zero-filled
-padding. It is not a DOS filesystem and contains no files.
+That image is a raw 160 KiB floppy image with a stage 1 boot sector, fixed
+stage 2 sectors, and zero-filled padding. It is not a DOS filesystem and
+contains no files.
 
 ## Constraints
 
-- Keep the boot sector within 512 bytes, including the `55 aa` signature.
+- Keep the stage 1 boot sector within 512 bytes, including the `55 aa`
+  signature.
+- Keep stage 2 within the fixed sector count declared in `Makefile`.
 - Target 8088-compatible 16-bit real-mode code for `ibm_pc_5150`.
 - Do not introduce protected mode, graphics mode, a filesystem, config parsing,
   packet I/O, IP, TLS, or model API logic unless explicitly scoped.
@@ -97,7 +100,7 @@ Useful expected screens:
 ```text
 vm                   + no network card
 vm-mda               + no network card
-vm-net-ne2k8         seed build 3
+vm-net-ne2k8         seed build 4
 ```
 
 ## Documentation

@@ -16,19 +16,21 @@ CPU       8088, 4.77 MHz
 media     160 KiB 5.25-inch floppy image
 video     BIOS text mode, no mode switch
 emulator  86Box
-build     seed build 3
+build     seed build 4
 ```
 
-The current boot image is a raw boot sector, not a filesystem:
+The current boot image is raw sectors, not a filesystem:
 
 ```text
-sector 1    boot sector
-sector 2+   zero-filled padding
+sector 1      stage 1 boot sector
+sectors 2-5   stage 2 boot core
+sector 6+     zero-filled padding
 ```
 
-Build 3 treats the first loading phase as network hardware discovery. It probes
-common ISA Ethernet I/O bases, shows `+ no network card` with a low PC speaker
-failure tone if no card responds, and otherwise fast-types `seed build 3`.
+Build 4 keeps network hardware discovery in the first loading phase, records the
+responding NIC I/O base for the configuration phase, and otherwise preserves the
+minimal screen behavior. If no card responds, it shows `+ no network card` with
+a low PC speaker failure tone. If a card responds, it fast-types `seed build 4`.
 
 ## Build
 
@@ -71,7 +73,7 @@ Makefile                         build raw 160 KiB floppy image
 docs/config.md                   optional user config policy
 docs/ui.md                       text UI and fast-type rules
 targets/ibm_pc_5150/README.md    current target details
-targets/ibm_pc_5150/boot/        8088 boot sector source
+targets/ibm_pc_5150/boot/        8088 stage 1 and stage 2 sources
 targets/ibm_pc_5150/86box/       86Box profiles and NIC inventory
 tools/run-86box.sh               build and launch a 86Box profile
 ```
@@ -88,5 +90,5 @@ Stored user config is optional. Missing, unreadable, unparseable, or invalid
 config means ask the user. Failed writes are ignored so read-only boot media
 remain usable.
 
-The current floppy image has no files. Do not add a filesystem, config file, or
-boot-time seeking unless that becomes an explicit milestone.
+The current floppy image has no files. Do not add a filesystem or config file
+unless that becomes an explicit milestone.

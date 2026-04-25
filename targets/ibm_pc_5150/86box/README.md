@@ -55,7 +55,7 @@ Expected first screen:
 phase one       " " at centered project start for active text columns
 no card         +, low descending PC speaker tone, fast-typed no network card
 question        low PC speaker attention tone, fast-typed prompt
-success         " " -> "." -> "o" -> seed build 3
+success         " " -> "." -> "o" -> seed build 4
 ```
 
 Seed does not switch video modes in this target. It reads the active BIOS text
@@ -72,14 +72,13 @@ Default CGA colors:
 
 ```text
 seed       white
-build 3    dark gray
+build 4    dark gray
 error      red
 ```
 
-The floppy is a raw boot image, not a DOS filesystem. Sector 1 is the boot
-sector. The remaining sectors are zero-filled padding. There are no files,
-directory entries, metadata sectors, or boot-time seeks beyond the BIOS boot
-sector load.
+The floppy is a raw boot image, not a DOS filesystem. Sector 1 is the stage 1
+boot sector. Sectors 2-5 are the fixed-sector stage 2 boot core. The remaining
+sectors are zero-filled padding. There are no files or directory entries.
 
 This launcher builds the floppy and starts a VM profile:
 
@@ -108,14 +107,14 @@ fdd_01_type = 525_1dd
 fdd_01_check_bpb = 0
 ```
 
-Boot-tested on 86Box 5.3 build 8200 on 25 April 2026 with the CGA no-card,
-MDA no-card, and `vm-net-ne2k8` configs. The no-card screen showed:
+Build 4 was boot-tested on 86Box 5.3 build 8200 on 26 April 2026 with the CGA
+no-card and `vm-net-ne2k8` configs. The no-card screen showed:
 
 ```text
 + no network card
 ```
 
-On MDA, the error rendered bright because monochrome adapters do not have red.
-The no-card path also plays the low failure tone through the PC speaker using
-the PIT rather than the BIOS bell. The `vm-net-ne2k8` screen advanced to
-`seed build 3`.
+On MDA, the error is expected to render bright because monochrome adapters do
+not have red. The no-card path also plays the low failure tone through the PC
+speaker using the PIT rather than the BIOS bell. The `vm-net-ne2k8` screen
+advanced to `seed build 4`.
