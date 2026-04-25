@@ -29,4 +29,8 @@ Questions should use the low attention tone, then fast-type the prompt and
 minimal fields. Fatal errors should switch the status marker first, play the low
 failure tone, then fast-type the error text.
 
+Menus use color to indicate selection. The selected item uses the active prompt
+color; inactive items use the dim prompt color. Do not add marker glyphs solely
+to show selection.
+
 The cursor stays hidden unless a field is actively accepting typed input.

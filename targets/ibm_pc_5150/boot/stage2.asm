@@ -9,15 +9,27 @@ seed_attr_cga equ 0x0f
 build_attr_cga equ 0x08
 load_attr_cga equ 0x0f
 error_attr_cga equ 0x0c
+menu_selected_attr_cga equ 0x0f
+menu_idle_attr_cga equ 0x08
 seed_attr_mda equ 0x0f
 build_attr_mda equ 0x07
 load_attr_mda equ 0x0f
 error_attr_mda equ 0x0f
+menu_selected_attr_mda equ 0x0f
+menu_idle_attr_mda equ 0x07
 seed_len equ 4
 seed_row equ 12
+question_row equ seed_row + 2
 load_ticks equ 6
 type_ticks equ 1
 done_ticks equ 9
+config_auto equ 1
+config_user equ 2
+family_3c503 equ 1
+family_ne2000 equ 2
+family_ne1000 equ 3
+family_3c501 equ 4
+family_wd8003 equ 5
 
 start:
     cli
@@ -101,6 +113,8 @@ detect_display:
     mov byte [build_attr], build_attr_mda
     mov byte [load_attr], load_attr_mda
     mov byte [error_attr], error_attr_mda
+    mov byte [menu_selected_attr], menu_selected_attr_mda
+    mov byte [menu_idle_attr], menu_idle_attr_mda
     ret
 .color:
     ret
@@ -195,8 +209,157 @@ probe_network_card:
     ret
 
 resolve_network_config:
+    mov ax, [nic_base]
+    cmp ax, 0x250
+    je .known_3c503
+    cmp ax, 0x280
+    je .ask_io_280
+    cmp ax, 0x300
+    je .ask_ne
     mov cx, load_ticks
     call wait_ticks
+    ret
+.known_3c503:
+    mov byte [nic_family], family_3c503
+    mov byte [config_status], config_auto
+    mov cx, load_ticks
+    call wait_ticks
+    ret
+.ask_io_280:
+    mov word [menu_option_a], adapter_3c501_text
+    mov word [menu_option_b], adapter_wd8003_text
+    mov byte [menu_value_a], family_3c501
+    mov byte [menu_value_b], family_wd8003
+    call ask_adapter
+    ret
+.ask_ne:
+    mov word [menu_option_a], adapter_ne2000_text
+    mov word [menu_option_b], adapter_ne1000_text
+    mov byte [menu_value_a], family_ne2000
+    mov byte [menu_value_b], family_ne1000
+    call ask_adapter
+    ret
+
+ask_adapter:
+    mov byte [menu_index], 0
+    mov byte [blink_state], 0
+    call notify_question
+    call render_adapter_question
+.input:
+    call blink_load_marker
+    mov ah, 0x01
+    int 0x16
+    jz .input
+    xor ah, ah
+    int 0x16
+    cmp al, 0x0d
+    je .accept
+    cmp ah, 0x48
+    je .toggle
+    cmp ah, 0x50
+    jne .input
+.toggle:
+    xor byte [menu_index], 1
+    call draw_menu_options
+    jmp .input
+.accept:
+    mov al, [menu_value_a]
+    cmp byte [menu_index], 0
+    je .store
+    mov al, [menu_value_b]
+.store:
+    mov [nic_family], al
+    mov byte [config_status], config_user
+    call clear_question_area
+    ret
+
+render_adapter_question:
+    mov byte [cursor_row], seed_row
+    mov al, [seed_col]
+    add al, 2
+    mov [cursor_col], al
+    mov bl, [load_attr]
+    mov si, adapter_prompt_text
+    call type_z
+
+    call type_menu_options
+    ret
+
+type_menu_options:
+    mov byte [cursor_row], question_row
+    mov al, [seed_col]
+    add al, 2
+    mov [cursor_col], al
+    mov bl, [menu_selected_attr]
+    mov si, [menu_option_a]
+    call type_z
+
+    mov byte [cursor_row], question_row + 1
+    mov al, [seed_col]
+    add al, 2
+    mov [cursor_col], al
+    mov bl, [menu_idle_attr]
+    mov si, [menu_option_b]
+    call type_z
+    ret
+
+draw_menu_options:
+    mov byte [cursor_row], question_row
+    mov al, [seed_col]
+    add al, 2
+    mov [cursor_col], al
+    mov bl, [menu_idle_attr]
+    cmp byte [menu_index], 0
+    jne .first
+    mov bl, [menu_selected_attr]
+.first:
+    mov si, [menu_option_a]
+    call print_z
+
+    mov byte [cursor_row], question_row + 1
+    mov al, [seed_col]
+    add al, 2
+    mov [cursor_col], al
+    mov bl, [menu_idle_attr]
+    cmp byte [menu_index], 1
+    jne .second
+    mov bl, [menu_selected_attr]
+.second:
+    mov si, [menu_option_b]
+    call print_z
+    ret
+
+print_z:
+    lodsb
+    or al, al
+    jz .done
+    call print_char
+    jmp print_z
+.done:
+    ret
+
+blink_load_marker:
+    call set_seed_cursor
+    mov bl, [load_attr]
+    mov al, '.'
+    xor byte [blink_state], 1
+    jnz .show
+    mov al, ' '
+.show:
+    call print_char
+    mov cx, 2
+    call wait_ticks
+    ret
+
+clear_question_area:
+    mov ax, 0x0600
+    mov bh, 0x07
+    mov ch, seed_row
+    xor cl, cl
+    mov dh, question_row + 1
+    mov dl, [screen_cols]
+    dec dl
+    int 0x10
     ret
 
 notify_question:
@@ -246,10 +409,25 @@ seed_attr db seed_attr_cga
 build_attr db build_attr_cga
 load_attr db load_attr_cga
 error_attr db error_attr_cga
+menu_selected_attr db menu_selected_attr_cga
+menu_idle_attr db menu_idle_attr_cga
 nic_base dw 0
+nic_family db 0
+config_status db 0
+menu_option_a dw 0
+menu_option_b dw 0
+menu_value_a db 0
+menu_value_b db 0
+menu_index db 0
+blink_state db 0
 seed_text db 'seed', 0
 build_text db 'build 4', 0
 network_error_text db 'no network card', 0
+adapter_prompt_text db 'adapter', 0
+adapter_ne2000_text db 'ne2000', 0
+adapter_ne1000_text db 'ne1000', 0
+adapter_3c501_text db '3c501', 0
+adapter_wd8003_text db 'wd8003', 0
 nic_ports dw 0x250, 0x280, 0x2a0, 0x2c0, 0x2e0
           dw 0x300, 0x310, 0x320, 0x330, 0x340
           dw 0x350, 0x360, 0x380, 0x3a0, 0x3c0

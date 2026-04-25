@@ -28,9 +28,11 @@ sector 6+     zero-filled padding
 ```
 
 Build 4 keeps network hardware discovery in the first loading phase, records the
-responding NIC I/O base for the configuration phase, and otherwise preserves the
-minimal screen behavior. If no card responds, it shows `+ no network card` with
-a low PC speaker failure tone. If a card responds, it fast-types `seed build 4`.
+responding NIC I/O base, and begins the network configuration handoff. If no
+card responds, it shows `+ no network card` with a low PC speaker failure tone.
+If the responding I/O base maps cleanly to one supported card, it fast-types
+`seed build 4`. If the base is shared by multiple 86Box adapters, it pauses on
+`.` and asks for the adapter family before continuing.
 
 ## Build
 

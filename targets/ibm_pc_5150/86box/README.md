@@ -58,6 +58,10 @@ question        low PC speaker attention tone, fast-typed prompt
 success         " " -> "." -> "o" -> seed build 4
 ```
 
+Build 4 adapter prompts use color for selection. The selected adapter is bright
+and the inactive adapter is dim; Up and Down toggle the selected row, and Enter
+accepts it.
+
 Seed does not switch video modes in this target. It reads the active BIOS text
 column count and uses that for screen clearing and centering, so 40-column and
 80-column text modes share the same path.
@@ -74,6 +78,7 @@ Default CGA colors:
 seed       white
 build 4    dark gray
 error      red
+menu       selected white, inactive dark gray
 ```
 
 The floppy is a raw boot image, not a DOS filesystem. Sector 1 is the stage 1
@@ -117,4 +122,5 @@ no-card and `vm-net-ne2k8` configs. The no-card screen showed:
 On MDA, the error is expected to render bright because monochrome adapters do
 not have red. The no-card path also plays the low failure tone through the PC
 speaker using the PIT rather than the BIOS bell. The `vm-net-ne2k8` screen
-advanced to `seed build 4`.
+showed the adapter prompt, Down changed selection by color, and Enter advanced
+to `seed build 4`.

@@ -14,6 +14,7 @@ BIOS loads boot sector
   -> probes common ISA network card I/O bases
   -> records the responding NIC I/O base if one is found
   -> shows + no network card and plays a low failure tone if no card responds
+  -> asks for adapter family when the responding I/O base is ambiguous
   -> otherwise types seed build 4 rightward from that column
   -> waits about 500 ms
   -> halts
@@ -43,9 +44,11 @@ docs/ui.md
 
 Build 4 introduces a fixed-sector stage 2 boot core and treats phase one as
 network hardware discovery. Stage 2 probes common ISA Ethernet I/O bases, stores
-the responding I/O base as in-memory network config, and stops at a minimal
-error if no card responds. This is intentionally still a hardware/config
-handoff only; packet I/O, IP, TLS, and model API calls are later milestones.
+the responding I/O base as in-memory network config, and starts resolving an
+adapter family. Known single-card bases continue automatically. Shared bases ask
+the user to choose the adapter family through a minimal color-selected menu.
+This is intentionally still a hardware/config handoff only; packet I/O, IP,
+TLS, and model API calls are later milestones.
 
 The boot path does not switch video modes. It keeps the BIOS-provided text
 mode, reads the active column count, and uses that value for clearing and for
@@ -60,12 +63,22 @@ question        low PC speaker attention tone, fast-typed prompt
 success         " " -> "." -> "o" -> seed build 4
 ```
 
+Build 4 adapter prompts:
+
+```text
+0x250       auto 3c503
+0x280       ask 3c501 or wd8003
+0x300       ask ne2000 or ne1000
+other base  keep base only
+```
+
 Default display attributes:
 
 ```text
 seed       CGA white / MDA bright
 build 4    CGA dark gray / MDA normal
 error      CGA red / MDA bright
+menu       selected white/bright, inactive dark gray/normal
 ```
 
 Build:

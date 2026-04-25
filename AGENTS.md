@@ -67,7 +67,8 @@ Small status markers may appear immediately because they represent state:
 
 Fatal errors should switch the marker first, play the low failure tone, then
 fast-type the error text. Questions should use the low attention tone and
-fast-type the prompt.
+fast-type the prompt. Menus indicate selection by color rather than marker
+glyphs.
 
 ## Build And Test
 
@@ -100,7 +101,8 @@ Useful expected screens:
 ```text
 vm                   + no network card
 vm-mda               + no network card
-vm-net-ne2k8         seed build 4
+vm-net-3c503         seed build 4
+vm-net-ne2k8         adapter prompt, then seed build 4 after Enter
 ```
 
 ## Documentation
