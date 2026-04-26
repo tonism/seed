@@ -31,8 +31,10 @@ contains no files.
 - Target 8088-compatible 16-bit real-mode code for `ibm_pc_5150`.
 - Do not introduce protected mode, graphics mode, a filesystem, config parsing,
   packet I/O, IP, TLS, or model API logic unless explicitly scoped.
-- 3c503 and NE1000/NE2000 station-address PROM reads are allowed in build 4,
-  but must stay non-fatal and must not grow into packet I/O.
+- 3c501, 3c503, NE1000/NE2000, and WD8003 station-address PROM reads are
+  allowed in build 4, but must stay non-fatal and must not grow into packet I/O.
+- Build 4 may record the current 86Box IBM PC 5150 profile IRQ after adapter
+  family resolution, but that is not real IRQ discovery.
 - Do not switch video modes on the current target. Keep the BIOS-provided text
   mode and use the detected column count for layout.
 - Keep the IBM PC 5150 runtime handoff block at `0000:0600` compatible with
@@ -105,8 +107,13 @@ Useful expected screens:
 ```text
 vm                   + no network card
 vm-mda               + no network card
+vm-net-3c501         adapter prompt, MAC read, then seed build 4 after Enter
 vm-net-3c503         MAC read, then seed build 4
+vm-net-ne1k          adapter prompt, MAC read, then seed build 4 after Down/Enter
 vm-net-ne2k8         adapter prompt, MAC read, then seed build 4 after Enter
+vm-net-novell-ne1k   adapter prompt, MAC read, then seed build 4 after Down/Enter
+vm-net-wd8003e       adapter prompt, MAC read, then seed build 4 after Down/Enter
+vm-net-wd8003eb      adapter prompt, MAC read, then seed build 4 after Down/Enter
 ```
 
 ## Documentation

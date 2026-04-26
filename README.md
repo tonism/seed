@@ -28,13 +28,15 @@ sector 6+     zero-filled padding
 ```
 
 Build 4 keeps network hardware discovery in the first loading phase, records the
-responding NIC I/O base, and begins the network configuration handoff. It also
-reads the station-address PROM for 3c503 and NE1000/NE2000-family cards, then
-publishes the MAC only when it validates. If no card responds, it shows `+ no
-network card` with a low PC speaker failure tone. If the responding I/O base
-maps cleanly to one supported card, it fast-types `seed build 4`. If the base is
-shared by multiple 86Box adapters, it pauses on `.` and asks for the adapter
-family before continuing.
+responding NIC I/O base, and begins the network configuration handoff. It reads
+the station-address PROM for 3c501, 3c503, NE1000/NE2000-family, and
+WD8003-family cards, then publishes the MAC only when it validates. For the
+current 86Box IBM PC 5150 profiles, it also records the profile IRQ after the
+adapter family is resolved; real IRQ probing is later scope. If no card
+responds, it shows `+ no network card` with a low PC speaker failure tone. If
+the responding I/O base maps cleanly to one supported card, it fast-types `seed
+build 4`. If the base is shared by multiple 86Box adapters, it pauses on `.` and
+asks for the adapter family before continuing.
 
 ## Build
 

@@ -119,7 +119,9 @@ fdd_01_check_bpb = 0
 ```
 
 Build 4 was boot-tested on 86Box 5.3 build 8200 on 26 April 2026 with the CGA
-no-card and `vm-net-ne2k8` configs. The no-card screen showed:
+no-card, `vm-net-3c501`, `vm-net-3c503`, `vm-net-ne1k`, `vm-net-ne2k8`,
+`vm-net-novell-ne1k`, `vm-net-wd8003e`, and `vm-net-wd8003eb` configs. The
+no-card screen showed:
 
 ```text
 + no network card
@@ -127,6 +129,6 @@ no-card and `vm-net-ne2k8` configs. The no-card screen showed:
 
 On MDA, the error is expected to render bright because monochrome adapters do
 not have red. The no-card path also plays the low failure tone through the PC
-speaker using the PIT rather than the BIOS bell. The `vm-net-ne2k8` screen
-showed the adapter prompt, Down changed selection by color, and Enter advanced
-to `seed build 4`.
+speaker using the PIT rather than the BIOS bell. Ambiguous adapter profiles show
+the adapter prompt, use color for selection, and advance to `seed build 4` after
+the correct adapter family is accepted.

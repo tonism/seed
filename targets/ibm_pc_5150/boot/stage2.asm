@@ -51,11 +51,14 @@ type_ticks equ 1
 done_ticks equ 9
 config_auto equ 1
 config_user equ 2
+profile_irq equ 3
 family_3c503 equ 1
 family_ne2000 equ 2
 family_ne1000 equ 3
 family_3c501 equ 4
 family_wd8003 equ 5
+el1_dataptr equ 0x08
+el1_saprom equ 0x0c
 el2_ctrl equ 0x406
 el2_ctrl_thin equ 0x02
 el2_ctrl_saprom equ 0x04
@@ -72,6 +75,7 @@ ne_cmd_remote_read equ 0x0a
 ne_isr_reset equ 0x80
 ne_dcr_bytewide equ 0x48
 ne_prom_len equ 32
+wd_saprom equ 0x08
 
 start:
     cli
@@ -291,6 +295,7 @@ resolve_network_config:
 .known_3c503:
     mov byte [handoff_addr + handoff_nic_family], family_3c503
     mov byte [handoff_addr + handoff_config_source], config_auto
+    mov byte [handoff_addr + handoff_nic_irq], profile_irq
     or word [handoff_addr + handoff_flags], handoff_flag_config_resolved
     mov cx, load_ticks
     call wait_ticks
@@ -340,18 +345,42 @@ ask_adapter:
 .store:
     mov [handoff_addr + handoff_nic_family], al
     mov byte [handoff_addr + handoff_config_source], config_user
+    mov byte [handoff_addr + handoff_nic_irq], profile_irq
     or word [handoff_addr + handoff_flags], handoff_flag_config_resolved
     call clear_question_area
     ret
 
 read_network_address:
     mov al, [handoff_addr + handoff_nic_family]
+    cmp al, family_3c501
+    je read_3c501_mac
     cmp al, family_3c503
     je read_3c503_mac
     cmp al, family_ne1000
     je read_ne_prom_mac
     cmp al, family_ne2000
     je read_ne_prom_mac
+    cmp al, family_wd8003
+    je read_wd8003_mac
+    ret
+
+read_3c501_mac:
+    xor ax, ax
+    mov cx, 6
+    mov di, handoff_addr + handoff_mac
+.read:
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, el1_dataptr
+    out dx, ax
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, el1_saprom
+    in al, dx
+    stosb
+    mov ax, di
+    sub ax, handoff_addr + handoff_mac
+    loop .read
+
+    call finish_handoff_mac
     ret
 
 read_3c503_mac:
@@ -375,6 +404,20 @@ read_3c503_mac:
     add dx, el2_ctrl
     pop ax
     out dx, al
+
+    call finish_handoff_mac
+    ret
+
+read_wd8003_mac:
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, wd_saprom
+    mov di, handoff_addr + handoff_mac
+    mov cx, 6
+.read:
+    in al, dx
+    stosb
+    inc dx
+    loop .read
 
     call finish_handoff_mac
     ret

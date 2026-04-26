@@ -72,6 +72,8 @@ offset  size  value
 3  ready
 ```
 
-Build 4 fills the block through adapter-family resolution plus 3c503 and
-NE1000/NE2000 station-address PROM reads. IRQ discovery, packet I/O, IP config,
-TLS, and model API connection are later milestones.
+Build 4 fills the block through adapter-family resolution plus 3c501, 3c503,
+NE1000/NE2000, and WD8003 station-address PROM reads. It records IRQ 3 for the
+current 86Box IBM PC 5150 profiles after adapter family resolution; IRQ
+discovery, packet I/O, IP config, TLS, and model API connection are later
+milestones.
