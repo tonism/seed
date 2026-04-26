@@ -40,7 +40,7 @@ DNS resolution
 TCP or chosen transport reachability proof
 ```
 
-Current build 5 checkpoints completed for the first NE-family path:
+Current build 5 checkpoints completed for the current NE-family 5150 profiles:
 NE-family packet hardware init, bounded receive polling, receive-path
 diagnostics, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DHCP subnet/router/DNS
 capture, DNS-server ARP, DNS A resolution for `example.com`, subnet-aware

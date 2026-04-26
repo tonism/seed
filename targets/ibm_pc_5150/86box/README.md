@@ -128,8 +128,8 @@ fdd_01_check_bpb = 0
 ```
 
 Build 5 was boot-tested on 86Box 5.3 build 8200 on 26 April 2026 with the CGA
-no-card, `vm-net-ne1k`, `vm-net-ne2k8`, and `vm-net-3c503` configs. The no-card
-screen showed:
+no-card, `vm-net-ne1k`, `vm-net-ne2k8`, `vm-net-novell-ne1k`, and
+`vm-net-3c503` configs. The no-card screen showed:
 
 ```text
 + no network card
@@ -141,12 +141,12 @@ On MDA, the error is expected to render bright because monochrome adapters do
 not have red. The no-card path also plays the low failure tone through the PC
 speaker using the PIT rather than the BIOS bell. Retry returns to the HAL setup
 phase without rereading floppy sectors; restart performs a warm machine restart.
-`vm-net-ne1k` and
-`vm-net-ne2k8` showed the adapter prompt, accepted their NE family, initialized
-packet hardware, checked the receive-ring read path, sent DHCPDISCOVER, and
-performed a two-pass bounded filtered DHCPOFFER wait. When an offer was
-available, Seed sent DHCPREQUEST and performed a bounded DHCPACK wait before
-sending ARP for the DHCP-provided DNS server, resolving `example.com`, selecting
-and ARPing the TCP next hop, and receiving a TCP SYN-ACK from port 80. The
-outbound-gated `vm-net-ne2k8` path advanced to `seed build 5`. `vm-net-3c503`
-preserved the non-NE handoff path and advanced to `seed build 5`.
+`vm-net-ne1k`, `vm-net-ne2k8`, and `vm-net-novell-ne1k` showed the adapter
+prompt when needed, accepted their NE family, initialized packet hardware,
+checked the receive-ring read path, sent DHCPDISCOVER, and performed a two-pass
+bounded filtered DHCPOFFER wait. When an offer was available, Seed sent
+DHCPREQUEST and performed a bounded DHCPACK wait before sending ARP for the
+DHCP-provided DNS server, resolving `example.com`, selecting and ARPing the TCP
+next hop, and receiving a TCP SYN-ACK from port 80. All three outbound-gated NE
+paths advanced to `seed build 5`. `vm-net-3c503` preserved the non-NE handoff
+path and advanced to `seed build 5`.
