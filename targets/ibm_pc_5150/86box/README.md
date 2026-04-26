@@ -130,6 +130,6 @@ On MDA, the error is expected to render bright because monochrome adapters do
 not have red. The no-card path also plays the low failure tone through the PC
 speaker using the PIT rather than the BIOS bell. `vm-net-ne1k` and
 `vm-net-ne2k8` showed the adapter prompt, accepted their NE family, initialized
-packet hardware, sent the Ethernet proof frame, checked the receive-ring read
-path, and advanced to `seed build 5`. `vm-net-3c503` preserved the non-NE
-handoff path and advanced to `seed build 5`.
+packet hardware, checked the receive-ring read path, sent DHCPDISCOVER, and
+advanced to `seed build 5`. `vm-net-3c503` preserved the non-NE handoff path
+and advanced to `seed build 5`.

@@ -84,9 +84,10 @@ offset  size  value
 0  none
 1  adapter identity ready
 2  packet hardware ready
-3  NE-family transmit proof sent
+3  NE-family transmit path ready
 4  NE-family receive ring poll ready
 5  NE-family receive frame read
+6  DHCPDISCOVER sent
 ```
 
 ## Network Error
@@ -94,7 +95,7 @@ offset  size  value
 ```text
 0  none
 1  NE-family packet hardware init failed
-2  NE-family transmit proof failed
+2  NE-family transmit failed
 3  NE-family receive read failed
 ```
 
@@ -106,7 +107,7 @@ milestones.
 
 Build 5 extends the block for internet readiness. The current checkpoint marks
 adapter identity readiness for all resolved NICs, then advances
-NE1000/NE2000-family cards through packet hardware readiness, transmit proof,
-receive-ring poll readiness, and one receive-frame read when a packet is
-already pending. IP, router, and DNS fields remain zero until DHCP or an
-equivalent network configuration path exists.
+NE1000/NE2000-family cards through packet hardware readiness, receive-ring poll
+readiness, one receive-frame read when a packet is already pending, and
+DHCPDISCOVER transmit. IP, router, and DNS fields remain zero until DHCP offer
+parsing or an equivalent network configuration path exists.

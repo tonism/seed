@@ -40,9 +40,10 @@ handoff_status_network_failed equ 4
 net_status_none equ 0
 net_status_identity_ready equ 1
 net_status_packet_ready equ 2
-net_status_tx_probe_sent equ 3
+net_status_tx_ready equ 3
 net_status_rx_poll_ready equ 4
 net_status_rx_frame_read equ 5
+net_status_dhcp_discover_sent equ 6
 net_error_none equ 0
 net_error_ne_init equ 1
 net_error_ne_tx equ 2
@@ -104,7 +105,6 @@ ne_isr_txe equ 0x08
 ne_isr_ptx equ 0x02
 ne_dcr_bytewide equ 0x48
 ne_prom_len equ 32
-ne_tx_probe_len equ 60
 ne_rx_header_len equ 4
 ne_rx_sample_len equ 64
 ne_rcr_broadcast equ 0x04
@@ -116,6 +116,16 @@ ne_rx_stop_1k equ 0x40
 ne_tx_start_2k equ 0x40
 ne_rx_start_2k equ 0x46
 ne_rx_stop_2k equ 0x80
+eth_header_len equ 14
+ipv4_header_len equ 20
+udp_header_len equ 8
+dhcp_fixed_len equ 236
+dhcp_options_len equ 26
+dhcp_payload_len equ dhcp_fixed_len + dhcp_options_len
+dhcp_udp_len equ udp_header_len + dhcp_payload_len
+dhcp_ip_len equ ipv4_header_len + dhcp_udp_len
+dhcp_frame_len equ eth_header_len + dhcp_ip_len
+dhcp_ip_checksum equ 0x79cc
 wd_saprom equ 0x08
 
 start:
@@ -638,9 +648,9 @@ prepare_network_path:
 .ne:
     call init_ne_packet_io
     jc .done
-    call ne_transmit_probe_frame
-    jc .done
     call ne_try_receive_frame
+    jc .done
+    call ne_transmit_dhcp_discover
 .done:
     ret
 
@@ -753,8 +763,19 @@ init_ne_packet_io:
     clc
     ret
 
-ne_transmit_probe_frame:
-    call build_ne_probe_frame
+ne_transmit_dhcp_discover:
+    call build_dhcp_discover_frame
+
+    mov si, ne_tx_frame
+    mov cx, dhcp_frame_len
+    call ne_transmit_frame
+    jc .done
+    mov byte [handoff_addr + handoff_net_status], net_status_dhcp_discover_sent
+.done:
+    ret
+
+ne_transmit_frame:
+    mov [ne_tx_len], cx
 
     mov dx, [handoff_addr + handoff_nic_base]
     add dx, ne_isr
@@ -763,10 +784,10 @@ ne_transmit_probe_frame:
 
     mov dx, [handoff_addr + handoff_nic_base]
     add dx, ne_rbcr0
-    mov al, ne_tx_probe_len
+    mov ax, [ne_tx_len]
     out dx, al
     inc dx
-    xor al, al
+    mov al, ah
     out dx, al
 
     mov dx, [handoff_addr + handoff_nic_base]
@@ -784,8 +805,7 @@ ne_transmit_probe_frame:
 
     mov dx, [handoff_addr + handoff_nic_base]
     add dx, ne_data
-    mov si, ne_tx_frame
-    mov cx, ne_tx_probe_len
+    mov cx, [ne_tx_len]
 .write_frame:
     lodsb
     out dx, al
@@ -811,10 +831,10 @@ ne_transmit_probe_frame:
 
     mov dx, [handoff_addr + handoff_nic_base]
     add dx, ne_tbcr0
-    mov al, ne_tx_probe_len
+    mov ax, [ne_tx_len]
     out dx, al
     inc dx
-    xor al, al
+    mov al, ah
     out dx, al
 
     mov dx, [handoff_addr + handoff_nic_base]
@@ -834,7 +854,7 @@ ne_transmit_probe_frame:
 .tx_done:
     mov al, ne_isr_ptx | ne_isr_txe
     out dx, al
-    mov byte [handoff_addr + handoff_net_status], net_status_tx_probe_sent
+    mov byte [handoff_addr + handoff_net_status], net_status_tx_ready
     clc
     ret
 .failed:
@@ -842,7 +862,12 @@ ne_transmit_probe_frame:
     stc
     ret
 
-build_ne_probe_frame:
+build_dhcp_discover_frame:
+    mov di, ne_tx_frame
+    xor al, al
+    mov cx, dhcp_frame_len
+    rep stosb
+
     mov di, ne_tx_frame
     mov al, 0xff
     mov cx, 6
@@ -852,23 +877,125 @@ build_ne_probe_frame:
     mov cx, 6
     rep movsb
 
-    mov al, 0x88
+    mov al, 0x08
     stosb
-    mov al, 0xb5
+    xor al, al
     stosb
 
-    mov si, ne_probe_payload
-.payload:
-    lodsb
-    or al, al
-    jz .pad
+    mov al, 0x45
     stosb
-    jmp .payload
-.pad:
-    mov cx, ne_tx_frame + ne_tx_probe_len
-    sub cx, di
     xor al, al
+    stosb
+    mov al, dhcp_ip_len >> 8
+    stosb
+    mov al, dhcp_ip_len & 0xff
+    stosb
+    xor ax, ax
+    stosw
+    stosw
+    mov al, 64
+    stosb
+    mov al, 17
+    stosb
+    mov al, dhcp_ip_checksum >> 8
+    stosb
+    mov al, dhcp_ip_checksum & 0xff
+    stosb
+    xor al, al
+    mov cx, 4
     rep stosb
+    mov al, 0xff
+    mov cx, 4
+    rep stosb
+
+    xor al, al
+    stosb
+    mov al, 68
+    stosb
+    xor al, al
+    stosb
+    mov al, 67
+    stosb
+    mov al, dhcp_udp_len >> 8
+    stosb
+    mov al, dhcp_udp_len & 0xff
+    stosb
+    xor ax, ax
+    stosw
+
+    mov al, 1
+    stosb
+    stosb
+    mov al, 6
+    stosb
+    xor al, al
+    stosb
+    mov al, 'S'
+    stosb
+    mov al, 'E'
+    stosb
+    stosb
+    mov al, 'D'
+    stosb
+    xor ax, ax
+    stosw
+    mov al, 0x80
+    stosb
+    xor al, al
+    stosb
+    add di, 16
+
+    mov si, handoff_addr + handoff_mac
+    mov cx, 6
+    rep movsb
+    add di, 10 + 64 + 128
+
+    mov al, 99
+    stosb
+    mov al, 130
+    stosb
+    mov al, 83
+    stosb
+    mov al, 99
+    stosb
+
+    mov al, 53
+    stosb
+    mov al, 1
+    stosb
+    stosb
+
+    mov al, 55
+    stosb
+    mov al, 3
+    stosb
+    mov al, 1
+    stosb
+    mov al, 3
+    stosb
+    mov al, 6
+    stosb
+
+    mov al, 61
+    stosb
+    mov al, 7
+    stosb
+    mov al, 1
+    stosb
+    mov si, handoff_addr + handoff_mac
+    mov cx, 6
+    rep movsb
+
+    mov al, 57
+    stosb
+    mov al, 2
+    stosb
+    stosb
+    mov al, 64
+    stosb
+
+    mov al, 255
+    stosb
     ret
 
 ne_try_receive_frame:
@@ -1181,16 +1308,16 @@ ne_next_page db 0
 ne_rx_header times ne_rx_header_len db 0
 ne_rx_count dw 0
 ne_rx_sample_count dw 0
+ne_tx_len dw 0
 ne_dma_addr dw 0
 ne_dma_count dw 0
 ne_prom times ne_prom_len db 0
-ne_tx_frame times ne_tx_probe_len db 0
+ne_tx_frame times dhcp_frame_len db 0
 ne_rx_sample times ne_rx_sample_len db 0
 seed_text db 'seed', 0
 build_text db 'build ', '0' + build_number, 0
 network_error_text db 'no network card', 0
 network_setup_error_text db 'network setup failed', 0
-ne_probe_payload db 'seed build 5', 0
 adapter_prompt_text db 'adapter', 0
 adapter_ne2000_text db 'ne2000', 0
 adapter_ne1000_text db 'ne1000', 0
