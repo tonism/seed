@@ -42,8 +42,9 @@ TCP or chosen transport reachability proof
 Current build 5 checkpoints completed: NE-family packet hardware init,
 bounded receive polling, receive-path diagnostics, DHCPDISCOVER transmit, and a
 two-pass bounded filtered DHCPOFFER wait that records offer details in the
-handoff block when one is observed. DHCP lease acceptance, DNS, and outbound
-reachability are still open.
+handoff block when one is observed. When an offer is available, Seed now sends
+DHCPREQUEST and performs a bounded DHCPACK wait to mark the lease accepted. DNS
+and outbound reachability are still open.
 
 TLS, model API calls, agent session creation, and environment handover belong
 to build 6 unless build 5 proves that a different split is required.

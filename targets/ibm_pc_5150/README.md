@@ -25,6 +25,7 @@ BIOS loads boot sector
   -> switches to a dim o marker for internet prep
   -> sends one NE1000/NE2000-family DHCPDISCOVER
   -> performs a two-pass filtered DHCPOFFER wait and parses it when available
+  -> sends DHCPREQUEST and waits for DHCPACK when an offer is available
   -> switches to a bright o marker for agent prep
   -> currently performs no build-6 agent prep work
   -> otherwise types seed build 5 rightward from that column
@@ -36,8 +37,8 @@ The floppy image is intentionally not a filesystem. It contains no files:
 
 ```text
 sector 1      stage 1 boot sector
-sectors 2-8   stage 2 boot core
-sector 9+     zero-filled padding
+sectors 2-9   stage 2 boot core
+sector 10+    zero-filled padding
 ```
 
 Optional persisted user config is a later environment feature, not a dependency
@@ -75,7 +76,8 @@ after a valid MAC read, polls the receive-ring pointers, reads one pending
 receive frame when available, sends a minimal DHCPDISCOVER, and performs a
 two-pass bounded filtered DHCPOFFER wait. When a DHCPOFFER is observed, stage 2
 records the offered IPv4 address, router, and DNS server in the handoff block.
-DHCP lease acceptance, DNS, and outbound reachability remain in build 5 scope.
+It then sends DHCPREQUEST and performs a bounded DHCPACK wait to mark the lease
+accepted. DNS and outbound reachability remain in build 5 scope.
 
 The boot path does not switch video modes. It keeps the BIOS-provided text
 mode, reads the active column count, and uses that value for clearing and for

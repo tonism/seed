@@ -97,7 +97,7 @@ menu       selected white, inactive dark gray
 ```
 
 The floppy is a raw boot image, not a DOS filesystem. Sector 1 is the stage 1
-boot sector. Sectors 2-8 are the fixed-sector stage 2 boot core. The remaining
+boot sector. Sectors 2-9 are the fixed-sector stage 2 boot core. The remaining
 sectors are zero-filled padding. There are no files or directory entries.
 
 This launcher builds the floppy and starts a VM profile:
@@ -144,6 +144,7 @@ phase without rereading floppy sectors; restart performs a warm machine restart.
 `vm-net-ne1k` and
 `vm-net-ne2k8` showed the adapter prompt, accepted their NE family, initialized
 packet hardware, checked the receive-ring read path, sent DHCPDISCOVER, and
-performed a two-pass bounded filtered DHCPOFFER wait without requiring an offer
-before advancing to `seed build 5`. `vm-net-3c503` preserved the non-NE handoff
-path and advanced to `seed build 5`.
+performed a two-pass bounded filtered DHCPOFFER wait. When an offer was
+available, Seed sent DHCPREQUEST and performed a bounded DHCPACK wait before
+advancing to `seed build 5`. `vm-net-3c503` preserved the non-NE handoff path
+and advanced to `seed build 5`.
