@@ -50,6 +50,9 @@ net_error_ne_init equ 1
 net_error_ne_tx equ 2
 net_error_ne_rx equ 3
 net_error_dhcp_offer equ 4
+net_error_ne_rx_dma equ 5
+net_error_ne_rx_header equ 6
+net_error_ne_rx_count equ 7
 seed_attr_cga equ 0x0f
 build_attr_cga equ 0x08
 load_attr_cga equ 0x0f
@@ -110,6 +113,7 @@ ne_read_dma_wait_count equ 0x0800
 ne_prom_len equ 32
 ne_rx_header_len equ 4
 ne_rx_sample_len equ 64
+ne_rx_max_count equ 1600
 dhcp_rx_frame_len equ 384
 ne_rcr_broadcast equ 0x04
 ne_rsr_prx equ 0x01
@@ -1061,13 +1065,13 @@ ne_try_receive_frame:
     mov cx, ne_rx_header_len
     mov di, ne_rx_header
     call ne_remote_read_bytes
-    jc .failed
+    jc .dma_failed
 
     mov al, [ne_rx_header + 1]
     cmp al, [ne_rx_start]
-    jb .failed
+    jb .header_failed
     cmp al, [ne_rx_stop]
-    jae .failed
+    jae .header_failed
 
     test byte [ne_rx_header], ne_rsr_prx
     jz .release_frame
@@ -1076,7 +1080,9 @@ ne_try_receive_frame:
     mov ah, [ne_rx_header + 3]
     mov [ne_rx_count], ax
     cmp ax, ne_rx_header_len
-    jbe .release_frame
+    jbe .count_failed
+    cmp ax, ne_rx_max_count
+    ja .count_failed
     sub ax, ne_rx_header_len
     mov [ne_rx_sample_count], ax
     or ax, ax
@@ -1092,7 +1098,7 @@ ne_try_receive_frame:
     mov cx, ax
     mov di, ne_tx_frame
     call ne_remote_read_bytes
-    jc .failed
+    jc .dma_failed
 
     mov byte [handoff_addr + handoff_net_status], net_status_rx_frame_read
 
@@ -1101,8 +1107,17 @@ ne_try_receive_frame:
     clc
     ret
 
-.failed:
-    mov byte [handoff_addr + handoff_net_error], net_error_ne_rx
+.count_failed:
+    mov byte [handoff_addr + handoff_net_error], net_error_ne_rx_count
+    jmp .release_frame
+
+.dma_failed:
+    mov byte [handoff_addr + handoff_net_error], net_error_ne_rx_dma
+    stc
+    ret
+
+.header_failed:
+    mov byte [handoff_addr + handoff_net_error], net_error_ne_rx_header
     stc
     ret
 
@@ -1341,12 +1356,25 @@ ne_remote_read_bytes:
     test al, ne_isr_rdc
     jnz .done
     loop .wait_dma
+    call ne_finish_remote_dma
     stc
     ret
 .done:
     mov al, ne_isr_rdc
     out dx, al
+    call ne_finish_remote_dma
     clc
+    ret
+
+ne_finish_remote_dma:
+    push ax
+    push dx
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, ne_cr
+    mov al, ne_cmd_start_nodma
+    out dx, al
+    pop dx
+    pop ax
     ret
 
 render_adapter_question:
