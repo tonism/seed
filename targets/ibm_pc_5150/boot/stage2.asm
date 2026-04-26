@@ -55,13 +55,17 @@ net_error_ne_rx_header equ 6
 net_error_ne_rx_count equ 7
 seed_attr_cga equ 0x0f
 build_attr_cga equ 0x08
-load_attr_cga equ 0x0f
+load_attr_cga equ 0x08
+ready_attr_cga equ 0x0f
+question_attr_cga equ 0x0f
 error_attr_cga equ 0x0c
 menu_selected_attr_cga equ 0x0f
 menu_idle_attr_cga equ 0x08
 seed_attr_mda equ 0x0f
 build_attr_mda equ 0x07
-load_attr_mda equ 0x0f
+load_attr_mda equ 0x07
+ready_attr_mda equ 0x0f
+question_attr_mda equ 0x0f
 error_attr_mda equ 0x0f
 menu_selected_attr_mda equ 0x0f
 menu_idle_attr_mda equ 0x07
@@ -160,21 +164,28 @@ start:
     call set_seed_cursor
     mov bl, [load_attr]
     mov al, ' '
-    call print_char
+    call show_load_marker
+
+    mov bl, [load_attr]
+    mov al, '.'
+    call show_load_marker
     call probe_network_card
     jc network_error
 
-    call set_seed_cursor
-    mov al, '.'
-    call print_char
     call resolve_network_config
     call read_network_address
-    call prepare_network_path
+    call prepare_adapter_path
     jc network_setup_error
 
-    call set_seed_cursor
+    mov bl, [load_attr]
     mov al, 'o'
-    call print_char
+    call show_load_marker
+    call prepare_internet_path
+    jc network_setup_error
+
+    mov bl, [ready_attr]
+    mov al, 'o'
+    call show_load_marker
     mov byte [handoff_addr + handoff_status], handoff_status_ready
     mov cx, load_ticks
     call wait_ticks
@@ -266,6 +277,8 @@ detect_display:
     mov byte [seed_attr], seed_attr_mda
     mov byte [build_attr], build_attr_mda
     mov byte [load_attr], load_attr_mda
+    mov byte [ready_attr], ready_attr_mda
+    mov byte [question_attr], question_attr_mda
     mov byte [error_attr], error_attr_mda
     mov byte [menu_selected_attr], menu_selected_attr_mda
     mov byte [menu_idle_attr], menu_idle_attr_mda
@@ -430,6 +443,9 @@ ask_adapter:
     mov byte [handoff_addr + handoff_nic_irq], profile_irq
     or word [handoff_addr + handoff_flags], handoff_flag_config_resolved
     call clear_question_area
+    mov bl, [load_attr]
+    mov al, [load_marker_char]
+    call show_load_marker
     ret
 
 ask_failure_action:
@@ -683,7 +699,7 @@ validate_handoff_mac:
     stc
     ret
 
-prepare_network_path:
+prepare_adapter_path:
     mov byte [handoff_addr + handoff_net_status], net_status_identity_ready
     mov al, [handoff_addr + handoff_nic_family]
     cmp al, family_ne1000
@@ -698,6 +714,19 @@ prepare_network_path:
     mov word [ne_rx_read_limit], ne_rx_sample_len
     call ne_try_receive_frame
     jc .done
+    clc
+.done:
+    ret
+
+prepare_internet_path:
+    mov al, [handoff_addr + handoff_nic_family]
+    cmp al, family_ne1000
+    je .ne
+    cmp al, family_ne2000
+    je .ne
+    clc
+    ret
+.ne:
     call ne_transmit_dhcp_discover
     jc .done
     call ne_wait_for_dhcp_offer
@@ -1132,7 +1161,8 @@ ne_wait_for_dhcp_offer:
     call parse_dhcp_offer
     jnc .done
 .wait:
-    call blink_load_marker
+    mov cx, 2
+    call wait_ticks
     dec word [dhcp_wait_count]
     jnz .poll
     mov byte [handoff_addr + handoff_net_status], net_status_dhcp_discover_sent
@@ -1382,7 +1412,7 @@ render_adapter_question:
     mov al, [seed_col]
     add al, 2
     mov [cursor_col], al
-    mov bl, [load_attr]
+    mov bl, [question_attr]
     mov si, adapter_prompt_text
     call type_z
 
@@ -1445,7 +1475,7 @@ print_z:
 blink_load_marker:
     call set_seed_cursor
     mov bl, [load_attr]
-    mov al, '.'
+    mov al, [load_marker_char]
     xor byte [blink_state], 1
     jnz .show
     mov al, ' '
@@ -1453,6 +1483,13 @@ blink_load_marker:
     call print_char
     mov cx, 2
     call wait_ticks
+    ret
+
+show_load_marker:
+    mov [load_marker_char], al
+    call set_seed_cursor
+    mov al, [load_marker_char]
+    call print_char
     ret
 
 clear_question_area:
@@ -1512,9 +1549,12 @@ seed_col db (80 - seed_len) / 2
 seed_attr db seed_attr_cga
 build_attr db build_attr_cga
 load_attr db load_attr_cga
+ready_attr db ready_attr_cga
+question_attr db question_attr_cga
 error_attr db error_attr_cga
 menu_selected_attr db menu_selected_attr_cga
 menu_idle_attr db menu_idle_attr_cga
+load_marker_char db ' '
 menu_option_a dw 0
 menu_option_b dw 0
 menu_value_a db 0
@@ -1547,7 +1587,7 @@ network_error_text db 'no network card', 0
 network_setup_error_text db 'network setup failed', 0
 retry_text db 'retry', 0
 restart_text db 'restart', 0
-adapter_prompt_text db 'adapter', 0
+adapter_prompt_text db 'adapter?', 0
 adapter_ne2000_text db 'ne2000', 0
 adapter_ne1000_text db 'ne1000', 0
 adapter_3c501_text db '3c501', 0

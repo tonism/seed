@@ -10,7 +10,8 @@ BIOS loads boot sector
   -> stage 1 loads the fixed-sector stage 2 boot core
   -> stage 2 reads the current BIOS text-mode column count
   -> stage 2 clears text mode
-  -> shows the phase-one load marker at the centered project start column
+  -> shows the reset-prep load marker at the centered project start column
+  -> switches to a dim . marker for local machine and adapter readiness
   -> probes common ISA network card I/O bases
   -> records the responding NIC I/O base if one is found
   -> publishes boot, video, and NIC state to the handoff block at 0000:0600
@@ -21,8 +22,10 @@ BIOS loads boot sector
   -> reads station-address PROMs into handoff when valid
   -> initializes NE1000/NE2000-family packet hardware
   -> reads one NE1000/NE2000-family pending receive-ring frame when available
+  -> switches to a dim o marker for internet readiness
   -> sends one NE1000/NE2000-family DHCPDISCOVER
   -> performs a short bounded DHCPOFFER poll and parses it when available
+  -> switches to a bright o marker before the ready splash
   -> otherwise types seed build 5 rightward from that column
   -> waits about 500 ms
   -> halts
@@ -80,10 +83,13 @@ the centered project-name anchor.
 The first screen text is hardcoded in the boot sector for now:
 
 ```text
-phase one       " "
+reset prep      " "
+adapter phase   dim "."
+internet phase  dim "o"
+ready gate      bright "o"
 failure         +, low descending PC speaker tone, fast-typed no network card, then retry/restart
-question        low PC speaker attention tone, fast-typed prompt
-success         " " -> "." -> "o" -> seed build 5
+question        phase-colored blinking marker, low PC speaker attention tone, bright fast-typed prompt ending with ?
+success         " " -> dim "." -> dim "o" -> bright "o" -> seed build 5
 ```
 
 Adapter prompts:
@@ -100,6 +106,9 @@ Default display attributes:
 ```text
 seed       CGA white / MDA bright
 build 5    CGA dark gray / MDA normal
+loading    CGA dark gray / MDA normal
+ready      CGA white / MDA bright
+question   CGA white / MDA bright
 error      CGA red / MDA bright
 menu       selected white/bright, inactive dark gray/normal
 ```

@@ -52,15 +52,18 @@ targets/ibm_pc_5150/86box/NICS.md
 Expected first screen:
 
 ```text
-phase one       " " at centered project start for active text columns
+reset prep      " " at centered project start for active text columns
+adapter phase   dim "." for local machine and adapter readiness
+internet phase  dim "o" for internet readiness
+ready gate      bright "o" before the splash
 no card         +, low descending PC speaker tone, fast-typed no network card, then retry/restart
-question        low PC speaker attention tone, fast-typed prompt
-success         " " -> "." -> "o" -> seed build 5
+question        phase-colored blinking marker, low PC speaker attention tone, bright fast-typed prompt ending with ?
+success         " " -> dim "." -> dim "o" -> bright "o" -> seed build 5
 ```
 
-Build 5 adapter prompts use color for selection. The selected adapter is bright
-and the inactive adapter is dim; Up and Down toggle the selected row, and Enter
-accepts it.
+Build 5 adapter prompts ask `adapter?` in bright text. Menu selection still uses
+color: the selected adapter is bright and the inactive adapter is dim; Up and
+Down toggle the selected row, and Enter accepts it.
 
 Seed does not switch video modes in this target. It reads the active BIOS text
 column count and uses that for screen clearing and centering, so 40-column and
@@ -83,6 +86,9 @@ Default CGA colors:
 ```text
 seed       white
 build 5    dark gray
+loading    dark gray
+ready      white
+question   white
 error      red
 menu       selected white, inactive dark gray
 ```
