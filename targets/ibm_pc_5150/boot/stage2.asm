@@ -44,10 +44,12 @@ net_status_tx_ready equ 3
 net_status_rx_poll_ready equ 4
 net_status_rx_frame_read equ 5
 net_status_dhcp_discover_sent equ 6
+net_status_dhcp_offer_received equ 7
 net_error_none equ 0
 net_error_ne_init equ 1
 net_error_ne_tx equ 2
 net_error_ne_rx equ 3
+net_error_dhcp_offer equ 4
 seed_attr_cga equ 0x0f
 build_attr_cga equ 0x08
 load_attr_cga equ 0x0f
@@ -104,9 +106,11 @@ ne_isr_rdc equ 0x40
 ne_isr_txe equ 0x08
 ne_isr_ptx equ 0x02
 ne_dcr_bytewide equ 0x48
+ne_read_dma_wait_count equ 0x0800
 ne_prom_len equ 32
 ne_rx_header_len equ 4
 ne_rx_sample_len equ 64
+dhcp_rx_frame_len equ 384
 ne_rcr_broadcast equ 0x04
 ne_rsr_prx equ 0x01
 ne_tcr_loopback equ 0x02
@@ -126,6 +130,12 @@ dhcp_udp_len equ udp_header_len + dhcp_payload_len
 dhcp_ip_len equ ipv4_header_len + dhcp_udp_len
 dhcp_frame_len equ eth_header_len + dhcp_ip_len
 dhcp_ip_checksum equ 0x79cc
+dhcp_bootp_offset equ eth_header_len + ipv4_header_len + udp_header_len
+dhcp_yiaddr_offset equ dhcp_bootp_offset + 16
+dhcp_chaddr_offset equ dhcp_bootp_offset + 28
+dhcp_cookie_offset equ dhcp_bootp_offset + dhcp_fixed_len
+dhcp_options_offset equ dhcp_cookie_offset + 4
+dhcp_offer_wait_count equ 1
 wd_saprom equ 0x08
 
 start:
@@ -681,9 +691,12 @@ prepare_network_path:
 .ne:
     call init_ne_packet_io
     jc .done
+    mov word [ne_rx_read_limit], ne_rx_sample_len
     call ne_try_receive_frame
     jc .done
     call ne_transmit_dhcp_discover
+    jc .done
+    call ne_wait_for_dhcp_offer
 .done:
     ret
 
@@ -1032,6 +1045,7 @@ build_dhcp_discover_frame:
     ret
 
 ne_try_receive_frame:
+    mov word [ne_rx_sample_count], 0
     call ne_read_ring_pointers
     call ne_select_next_rx_page
     mov al, [ne_next_page]
@@ -1061,18 +1075,22 @@ ne_try_receive_frame:
     mov al, [ne_rx_header + 2]
     mov ah, [ne_rx_header + 3]
     mov [ne_rx_count], ax
+    cmp ax, ne_rx_header_len
+    jbe .release_frame
+    sub ax, ne_rx_header_len
+    mov [ne_rx_sample_count], ax
     or ax, ax
     jz .release_frame
-    cmp ax, ne_rx_sample_len
+    cmp ax, [ne_rx_read_limit]
     jbe .sample_count_ready
-    mov ax, ne_rx_sample_len
+    mov ax, [ne_rx_read_limit]
 .sample_count_ready:
     mov [ne_rx_sample_count], ax
 
     mov bl, ne_rx_header_len
     mov bh, [ne_next_page]
     mov cx, ax
-    mov di, ne_rx_sample
+    mov di, ne_tx_frame
     call ne_remote_read_bytes
     jc .failed
 
@@ -1085,6 +1103,149 @@ ne_try_receive_frame:
 
 .failed:
     mov byte [handoff_addr + handoff_net_error], net_error_ne_rx
+    stc
+    ret
+
+ne_wait_for_dhcp_offer:
+    mov word [ne_rx_read_limit], dhcp_rx_frame_len
+    mov word [dhcp_wait_count], dhcp_offer_wait_count
+.poll:
+    call ne_try_receive_frame
+    jc .failed
+    cmp word [ne_rx_sample_count], 0
+    je .wait
+    call parse_dhcp_offer
+    jnc .done
+.wait:
+    call blink_load_marker
+    dec word [dhcp_wait_count]
+    jnz .poll
+    mov byte [handoff_addr + handoff_net_status], net_status_dhcp_discover_sent
+    mov byte [handoff_addr + handoff_net_error], net_error_dhcp_offer
+    clc
+    ret
+.failed:
+    mov byte [handoff_addr + handoff_net_status], net_status_dhcp_discover_sent
+    clc
+    ret
+.done:
+    mov byte [handoff_addr + handoff_net_status], net_status_dhcp_offer_received
+    mov byte [handoff_addr + handoff_net_error], net_error_none
+    clc
+    ret
+
+parse_dhcp_offer:
+    cmp word [ne_rx_sample_count], dhcp_options_offset + 3
+    jb .not_offer
+    cmp word [ne_tx_frame + 12], 0x0008
+    jne .not_offer
+    cmp byte [ne_tx_frame + eth_header_len + 9], 17
+    jne .not_offer
+    cmp word [ne_tx_frame + eth_header_len + ipv4_header_len], 0x4300
+    jne .not_offer
+    cmp word [ne_tx_frame + eth_header_len + ipv4_header_len + 2], 0x4400
+    jne .not_offer
+    cmp byte [ne_tx_frame + dhcp_bootp_offset], 2
+    jne .not_offer
+    cmp byte [ne_tx_frame + dhcp_bootp_offset + 1], 1
+    jne .not_offer
+    cmp byte [ne_tx_frame + dhcp_bootp_offset + 2], 6
+    jne .not_offer
+    cmp word [ne_tx_frame + dhcp_bootp_offset + 4], 0x4553
+    jne .not_offer
+    cmp word [ne_tx_frame + dhcp_bootp_offset + 6], 0x4445
+    jne .not_offer
+
+    mov si, ne_tx_frame + dhcp_chaddr_offset
+    mov di, handoff_addr + handoff_mac
+    mov cx, 6
+.check_mac:
+    lodsb
+    cmp al, [di]
+    jne .not_offer
+    inc di
+    loop .check_mac
+
+    cmp word [ne_tx_frame + dhcp_cookie_offset], 0x8263
+    jne .not_offer
+    cmp word [ne_tx_frame + dhcp_cookie_offset + 2], 0x6353
+    jne .not_offer
+
+    mov di, handoff_addr + handoff_ip_addr
+    xor ax, ax
+    mov cx, 6
+    rep stosw
+    mov byte [dhcp_message_type], 0
+
+    mov ax, [ne_rx_sample_count]
+    sub ax, dhcp_options_offset
+    mov [dhcp_options_left], ax
+    mov si, ne_tx_frame + dhcp_options_offset
+.option:
+    cmp word [dhcp_options_left], 0
+    je .check_type
+    lodsb
+    dec word [dhcp_options_left]
+    cmp al, 0
+    je .option
+    cmp al, 255
+    je .check_type
+    mov [dhcp_option_code], al
+    cmp word [dhcp_options_left], 0
+    je .check_type
+    lodsb
+    dec word [dhcp_options_left]
+    xor ah, ah
+    mov [dhcp_option_len], ax
+    cmp [dhcp_options_left], ax
+    jb .check_type
+    cmp byte [dhcp_option_code], 53
+    jne .router
+    cmp ax, 1
+    jb .skip
+    mov al, [si]
+    mov [dhcp_message_type], al
+    jmp .skip
+.router:
+    cmp byte [dhcp_option_code], 3
+    jne .dns
+    cmp ax, 4
+    jb .skip
+    push si
+    mov di, handoff_addr + handoff_router_addr
+    mov cx, 4
+    rep movsb
+    pop si
+    jmp .skip
+.dns:
+    cmp byte [dhcp_option_code], 6
+    jne .skip
+    cmp ax, 4
+    jb .skip
+    push si
+    mov di, handoff_addr + handoff_dns_addr
+    mov cx, 4
+    rep movsb
+    pop si
+.skip:
+    mov cx, [dhcp_option_len]
+    add si, cx
+    sub [dhcp_options_left], cx
+    jmp .option
+.check_type:
+    cmp byte [dhcp_message_type], 2
+    jne .not_offer
+    mov si, ne_tx_frame + dhcp_yiaddr_offset
+    mov di, handoff_addr + handoff_ip_addr
+    mov cx, 4
+    rep movsb
+    clc
+    ret
+.not_offer:
+    mov di, handoff_addr + handoff_ip_addr
+    xor ax, ax
+    mov cx, 6
+    rep stosw
     stc
     ret
 
@@ -1172,7 +1333,7 @@ ne_remote_read_bytes:
     stosb
     loop .read_byte
 
-    mov cx, 0xffff
+    mov cx, ne_read_dma_wait_count
 .wait_dma:
     mov dx, [handoff_addr + handoff_nic_base]
     add dx, ne_isr
@@ -1341,12 +1502,17 @@ ne_next_page db 0
 ne_rx_header times ne_rx_header_len db 0
 ne_rx_count dw 0
 ne_rx_sample_count dw 0
+ne_rx_read_limit dw ne_rx_sample_len
 ne_tx_len dw 0
 ne_dma_addr dw 0
 ne_dma_count dw 0
+dhcp_wait_count dw 0
+dhcp_options_left dw 0
+dhcp_option_len dw 0
+dhcp_option_code db 0
+dhcp_message_type db 0
 ne_prom times ne_prom_len db 0
-ne_tx_frame times dhcp_frame_len db 0
-ne_rx_sample times ne_rx_sample_len db 0
+ne_tx_frame times dhcp_rx_frame_len db 0
 seed_text db 'seed', 0
 build_text db 'build ', '0' + build_number, 0
 network_error_text db 'no network card', 0

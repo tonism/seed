@@ -34,5 +34,11 @@ DNS resolution
 TCP or chosen transport reachability proof
 ```
 
+Current build 5 checkpoints completed: NE-family packet hardware init,
+bounded receive polling, DHCPDISCOVER transmit, and opportunistic DHCPOFFER
+parsing into the handoff block. Lease acceptance, DNS, and outbound
+reachability are still open. The current DHCPOFFER poll is intentionally short;
+a longer DHCP wait loop needs more receive-path instrumentation first.
+
 TLS, model API calls, agent session creation, and environment handover belong
 to build 6 unless build 5 proves that a different split is required.
