@@ -35,6 +35,7 @@ internal sequence is:
 NE-family packet hardware init
 Ethernet transmit and receive
 DHCP network configuration
+ARP resolution for the next-hop or service endpoint
 DNS resolution
 TCP or chosen transport reachability proof
 ```
@@ -43,7 +44,9 @@ Current build 5 checkpoints completed: NE-family packet hardware init,
 bounded receive polling, receive-path diagnostics, DHCPDISCOVER transmit, and a
 two-pass bounded filtered DHCPOFFER wait that records offer details in the
 handoff block when one is observed. When an offer is available, Seed now sends
-DHCPREQUEST and performs a bounded DHCPACK wait to mark the lease accepted. DNS
+DHCPREQUEST and performs a bounded DHCPACK wait to mark the lease accepted.
+After DHCPACK, Seed sends a bounded ARP request for the DHCP-provided DNS server
+and records the resolved MAC before leaving the dark `"o"` phase. DNS queries
 and outbound reachability are still open.
 
 TLS, model API calls, agent session creation, and environment handover belong

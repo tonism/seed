@@ -91,6 +91,8 @@ offset  size  value
 7  DHCPOFFER received and parsed
 8  DHCPREQUEST sent
 9  DHCPACK received; lease accepted
+10 ARP request sent for DHCP-provided DNS server
+11 ARP reply received; destination MAC resolved
 ```
 
 ## Network Error
@@ -105,6 +107,7 @@ offset  size  value
 6  NE-family receive header was outside the configured ring
 7  NE-family receive byte count was invalid
 8  no matching DHCPACK observed before the bounded wait ended
+9  DNS-server ARP target was missing or did not resolve before the bounded wait ended
 ```
 
 Build 4 fills the block through adapter-family resolution plus 3c501, 3c503,
@@ -119,10 +122,13 @@ NE1000/NE2000-family cards through packet hardware readiness, receive-ring poll
 readiness, one receive-frame read when a packet is already pending,
 DHCPDISCOVER transmit, and a two-pass bounded filtered DHCPOFFER wait. When an
 offer is available, Seed sends DHCPREQUEST and performs a bounded DHCPACK wait.
+After DHCPACK, it sends a bounded ARP request for the DHCP-provided DNS server
+and records the resolved MAC internally for the next packet step.
 The NE receive path records separate DMA, ring-header, and byte-count failures
 so DHCP receive behavior can be diagnosed without changing user-facing text.
 When status is 7, the IP, router, and DNS fields contain byte-order IPv4 values
 copied from the offer. When status is 9, the offered lease was acknowledged.
-If no offer is observed during the bounded wait, the boot can still continue
-with status 6 and network error 4. If no ACK is observed after DHCPREQUEST, the
-boot can still continue with status 8 and network error 8.
+When status is 11, the DNS server's Ethernet MAC has been resolved. If no offer,
+ACK, or DNS ARP reply is observed during the bounded waits, the dark `"o"`
+internet phase fails into the network setup error path with the corresponding
+status and network error.

@@ -10,8 +10,9 @@ NE1000/NE2000-family hardware, checks the receive-ring read path, and sends a
 minimal DHCPDISCOVER. It then performs a two-pass bounded filtered DHCPOFFER
 wait and parses the offered IPv4 address, router, and DNS server when one is
 observed. When an offer is available, it sends DHCPREQUEST and performs a
-bounded DHCPACK wait to mark the lease accepted. DNS and outbound reachability
-are next.
+bounded DHCPACK wait to mark the lease accepted. After DHCPACK, it sends ARP
+for the DHCP-provided DNS server and records the resolved destination MAC. DNS
+queries and outbound reachability are next.
 
 ## IBM PC 5150 Candidates
 
@@ -79,9 +80,9 @@ vm                   no network card; expected: + no network card, retry/restart
 vm-mda               no network card, MDA; expected: + no network card, retry/restart menu
 vm-net-3c501         3Com EtherLink; expected: adapter prompt, MAC read, then seed build 5
 vm-net-3c503         3Com EtherLink II; expected: MAC read, then seed build 5
-vm-net-ne1k          NE1000-compatible; expected: adapter prompt, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK wait, then seed build 5
-vm-net-ne2k8         8-bit NE2000-compatible; expected: adapter prompt, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK wait, then seed build 5
-vm-net-novell-ne1k   Novell NE1000; expected: adapter prompt, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK wait, then seed build 5
+vm-net-ne1k          NE1000-compatible; expected: adapter prompt, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP, then seed build 5
+vm-net-ne2k8         8-bit NE2000-compatible; expected: adapter prompt, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP, then seed build 5
+vm-net-novell-ne1k   Novell NE1000; expected: adapter prompt, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP, then seed build 5
 vm-net-wd8003e       Western Digital WD8003E; expected: adapter prompt, MAC read, then seed build 5
 vm-net-wd8003eb      Western Digital WD8003EB; expected: adapter prompt, MAC read, then seed build 5
 ```
