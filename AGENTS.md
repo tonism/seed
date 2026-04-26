@@ -67,18 +67,19 @@ button labels
 Small status markers may appear immediately because they represent state:
 
 ```text
-" "   active phase below 33%
-"."   active phase from 33% to 66%
-"o"   active phase above 66%
-"+"   fatal error marker
+" "          project init
+"." dark     HAL setup
+"o" dark     internet prep
+"o" bright   agent prep
+"+"          fatal error marker
 ```
 
 Fatal errors should switch the marker first, play the low failure tone,
-fast-type the error text, then offer `retry` and `restart`. Retry should rerun
-stage 2 from its start without rereading floppy sectors; restart should perform
-a warm machine restart. Questions should use the low attention tone and
-fast-type the prompt. Menus indicate selection by color rather than marker
-glyphs.
+fast-type the error text, then offer `retry` and `restart`. Retry should return
+to the dark `"."` HAL setup phase without rereading floppy sectors; restart
+should perform a warm machine restart. Questions should use the low attention
+tone and fast-type the prompt. Menus indicate selection by color rather than
+marker glyphs.
 
 ## Build And Test
 

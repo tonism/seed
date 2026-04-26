@@ -20,11 +20,11 @@ to a user-visible readiness goal; commits inside that build can still be small.
 
 ```text
 build 1   boot floppy proof
-build 2   loading animation and fast-type banner
-build 3   " " phase: project init and machine-readiness baseline
-build 4   "." dark phase: HAL setup and adapter handoff
-build 5   "o" dark phase: internet readiness
-build 6   "o" bright phase: agent prep and environment handover
+build 2   minimal boot presentation: centered marker and fast-type banner
+build 3   " " phase: project init, display baseline, handoff block, retry boundary
+build 4   "." dark phase: HAL setup, adapter questions, hardware handoff
+build 5   "o" dark phase: internet prep, IP config, reachability proof
+build 6   "o" bright phase: agent prep, session setup, environment handover
 ```
 
 Build 5 is intentionally broad. It should end when Seed can bring up a network
