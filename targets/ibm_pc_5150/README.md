@@ -31,22 +31,27 @@ BIOS loads boot sector
   -> selects and ARPs the TCP next hop
   -> sends a TCP SYN to port 80 and waits for a matching SYN-ACK
   -> switches to a bright o marker for agent prep
-  -> currently performs no build-6 agent prep work
-  -> otherwise types seed build 5 rightward from that column
+  -> reads the FAT12 root directory and finds AGENTS.CFG
+  -> reads the first AGENTS.CFG cluster and validates the agent declaration header
+  -> otherwise types seed build 6 rightward from that column
   -> waits about 500 ms
   -> halts
 ```
 
-The floppy image is intentionally not a filesystem. It contains no files:
+The floppy image is a minimal FAT12 filesystem with the boot core kept in
+reserved sectors:
 
 ```text
-sector 1      stage 1 boot sector
-sectors 2-12  stage 2 boot core
-sector 13+    zero-filled padding
+sector 1       stage 1 boot sector with FAT12 BPB
+sectors 2-14   stage 2 boot core in reserved sectors
+sectors 15-16  FAT copies
+sectors 17-20  root directory
+sector 21+     file data
 ```
 
-Optional persisted user config is a later environment feature, not a dependency
-of this raw boot sector. The project-level policy is documented in:
+`AGENTS.CFG` is shipped in the FAT12 root directory from `config/AGENTS.CFG`.
+`SEED.CFG` is optional ignored user-local state and is included only when
+`config/SEED.CFG` exists. The project-level policy is documented in:
 
 ```text
 docs/config.md
@@ -65,7 +70,7 @@ The stage 2 runtime handoff block is documented in:
 targets/ibm_pc_5150/HANDOFF.md
 ```
 
-Build 5 is the internet-readiness milestone. Stage 2 still probes common ISA
+Build 5 was the internet-readiness milestone. Stage 2 still probes common ISA
 Ethernet I/O bases, publishes boot/video/NIC state to a low-memory handoff
 block, and resolves the adapter family. Known single-card bases continue
 automatically. Shared bases ask the user to choose the adapter family through a
@@ -86,6 +91,13 @@ DHCP-provided DNS server, resolves `example.com`, selects a TCP next hop using
 the DHCP subnet/router data, ARPs that next hop, sends a TCP SYN to port 80,
 and waits for a matching SYN-ACK.
 
+Build 6 is the agent-prep milestone. The current checkpoint keeps the build 5
+internet path intact and adds the first filesystem-backed agent setup check:
+stage 2 reads the FAT12 root directory, finds `AGENTS.CFG`, reads its first
+cluster, and validates that it begins with an `agent ` declaration. Missing or
+invalid agent declarations fail in the bright `"o"` phase as `agent setup
+failed`.
+
 The boot path does not switch video modes. It keeps the BIOS-provided text
 mode, reads the active column count, and uses that value for clearing and for
 the centered project-name anchor.
@@ -99,7 +111,7 @@ internet prep   dim "o"
 agent prep      bright "o"
 failure         +, low descending PC speaker tone, fast-typed no network card, then retry/restart
 question        phase-colored blinking marker, low PC speaker attention tone, bright fast-typed prompt ending with ?
-success         " " -> dim "." -> dim "o" -> bright "o" -> seed build 5
+success         " " -> dim "." -> dim "o" -> bright "o" -> seed build 6
 ```
 
 The splash is only the ready handoff animation. No hardware setup, network
@@ -118,7 +130,7 @@ Default display attributes:
 
 ```text
 seed       CGA white / MDA bright
-build 5    CGA dark gray / MDA normal
+build 6    CGA dark gray / MDA normal
 loading    CGA dark gray / MDA normal
 ready      CGA white / MDA bright
 question   CGA white / MDA bright
@@ -138,7 +150,7 @@ Output:
 build/ibm_pc_5150/floppy-160k.img
 ```
 
-Inspect the generated raw image:
+Inspect the generated FAT12 image:
 
 ```sh
 make inspect

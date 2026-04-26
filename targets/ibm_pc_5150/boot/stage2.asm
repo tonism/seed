@@ -3,10 +3,10 @@ cpu 8086
 org 0x8000
 
 %ifndef STAGE2_SECTORS
-%define STAGE2_SECTORS 11
+%define STAGE2_SECTORS 13
 %endif
 
-build_number equ 5
+build_number equ 6
 handoff_addr equ 0x0600
 handoff_magic equ 0
 handoff_version equ 4
@@ -39,6 +39,7 @@ handoff_status_booting equ 1
 handoff_status_no_nic equ 2
 handoff_status_ready equ 3
 handoff_status_network_failed equ 4
+handoff_status_agent_failed equ 5
 net_status_none equ 0
 net_status_identity_ready equ 1
 net_status_packet_ready equ 2
@@ -190,6 +191,12 @@ tcp_source_port_word equ 0x02c0
 tcp_dest_port_word equ 0x5000
 tcp_wait_count equ 4
 wd_saprom equ 0x08
+fat_root_start_lba equ STAGE2_SECTORS + 3
+fat_data_start_lba equ STAGE2_SECTORS + 7
+fat_root_sectors equ 4
+fat_dir_entries_per_sector equ 16
+fat_dir_entry_size equ 32
+fat_first_data_cluster equ 2
 
 start:
     cli
@@ -235,7 +242,7 @@ hal_start:
     mov al, 'o'
     call show_load_marker
     call prepare_agent_path
-    jc network_setup_error
+    jc agent_setup_error
     mov byte [handoff_addr + handoff_status], handoff_status_ready
     mov cx, load_ticks
     call wait_ticks
@@ -283,6 +290,20 @@ network_setup_error:
     inc byte [cursor_col]
     call notify_failure
     mov si, network_setup_error_text
+    call type_z
+    call ask_failure_action
+    jmp halt
+
+agent_setup_error:
+    mov byte [handoff_addr + handoff_status], handoff_status_agent_failed
+    call set_seed_cursor
+    mov bl, [error_attr]
+    mov al, '+'
+    call print_char
+
+    inc byte [cursor_col]
+    call notify_failure
+    mov si, agent_setup_error_text
     call type_z
     call ask_failure_action
     jmp halt
@@ -827,7 +848,126 @@ prepare_internet_path:
     ret
 
 prepare_agent_path:
+    call find_agents_cfg
+    jc .failed
+    call read_agents_first_cluster
+    jc .failed
+    call validate_agents_cfg
+    jc .failed
     clc
+    ret
+.failed:
+    stc
+    ret
+
+find_agents_cfg:
+    mov word [fs_lba], fat_root_start_lba
+    mov word [fs_root_left], fat_root_sectors
+.next_sector:
+    cmp word [fs_root_left], 0
+    je .not_found
+    push ds
+    pop es
+    mov bx, fs_sector_buffer
+    mov ax, [fs_lba]
+    call read_abs_sector
+    jc .not_found
+    mov si, fs_sector_buffer
+    mov cx, fat_dir_entries_per_sector
+.next_entry:
+    mov al, [si]
+    or al, al
+    jz .not_found
+    cmp al, 0xe5
+    je .advance
+    test byte [si + 11], 0x18
+    jnz .advance
+    push si
+    push cx
+    mov di, agents_cfg_name
+    mov cx, 11
+.compare:
+    mov al, [si]
+    cmp al, [di]
+    jne .mismatch
+    inc si
+    inc di
+    loop .compare
+    pop cx
+    pop si
+    mov ax, [si + 26]
+    mov [agents_cluster], ax
+    mov ax, [si + 28]
+    mov [agents_size_low], ax
+    mov ax, [si + 30]
+    mov [agents_size_high], ax
+    clc
+    ret
+.mismatch:
+    pop cx
+    pop si
+.advance:
+    add si, fat_dir_entry_size
+    loop .next_entry
+    inc word [fs_lba]
+    dec word [fs_root_left]
+    jmp .next_sector
+.not_found:
+    stc
+    ret
+
+read_agents_first_cluster:
+    mov ax, [agents_cluster]
+    cmp ax, fat_first_data_cluster
+    jb .failed
+    sub ax, fat_first_data_cluster
+    add ax, fat_data_start_lba
+    push ds
+    pop es
+    mov bx, fs_sector_buffer
+    call read_abs_sector
+    ret
+.failed:
+    stc
+    ret
+
+validate_agents_cfg:
+    cmp word [agents_size_high], 0
+    jne .check_prefix
+    cmp word [agents_size_low], 6
+    jb .failed
+.check_prefix:
+    mov si, fs_sector_buffer
+    mov di, agent_prefix_text
+    mov cx, 6
+.next:
+    mov al, [si]
+    cmp al, [di]
+    jne .failed
+    inc si
+    inc di
+    loop .next
+    clc
+    ret
+.failed:
+    stc
+    ret
+
+read_abs_sector:
+    push ax
+    push cx
+    push dx
+    div byte [disk_sectors_per_track]
+    mov ch, al
+    mov cl, ah
+    inc cl
+    xor dh, dh
+    mov dl, [handoff_addr + handoff_boot_drive]
+    mov ax, 0x0201
+    int 0x13
+    pop dx
+    pop cx
+    pop ax
     ret
 
 init_ne_packet_io:
@@ -2473,13 +2613,20 @@ arp_status_sent db net_status_arp_request_sent
 arp_status_resolved db net_status_arp_resolved
 arp_error_code db net_error_arp
 tcp_target_ip times 4 db 0
+fs_lba dw 0
+fs_root_left dw 0
+agents_cluster dw 0
+agents_size_low dw 0
+agents_size_high dw 0
 ne_prom times ne_prom_len db 0
 ne_tx_frame times dhcp_rx_frame_len db 0
+fs_sector_buffer times 512 db 0
 dns_qname db 7, 'example', 3, 'com', 0
 seed_text db 'seed', 0
 build_text db 'build ', '0' + build_number, 0
 network_error_text db 'no network card', 0
 network_setup_error_text db 'network setup failed', 0
+agent_setup_error_text db 'agent setup failed', 0
 retry_text db 'retry', 0
 restart_text db 'restart', 0
 adapter_prompt_text db 'adapter?', 0
@@ -2487,6 +2634,9 @@ adapter_ne2000_text db 'ne2000', 0
 adapter_ne1000_text db 'ne1000', 0
 adapter_3c501_text db '3c501', 0
 adapter_wd8003_text db 'wd8003', 0
+agents_cfg_name db 'AGENTS  CFG'
+agent_prefix_text db 'agent '
+disk_sectors_per_track db 8
 nic_ports dw 0x250, 0x280, 0x2a0, 0x2c0, 0x2e0
           dw 0x300, 0x310, 0x320, 0x330, 0x340
           dw 0x350, 0x360, 0x380, 0x3a0, 0x3c0

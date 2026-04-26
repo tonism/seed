@@ -3,8 +3,31 @@ cpu 8086
 org 0x7c00
 
 %ifndef STAGE2_SECTORS
-%define STAGE2_SECTORS 11
+%define STAGE2_SECTORS 13
 %endif
+
+jmp short start
+nop
+
+db 'SEEDB006'
+dw 512
+db 1
+dw 1 + STAGE2_SECTORS
+db 2
+dw 64
+dw 320
+db 0xfc
+dw 1
+dw 8
+dw 1
+dd 0
+dd 0
+db 0
+db 0
+db 0x29
+dd 0x20260426
+db 'SEED       '
+db 'FAT12   '
 
 stage2_offset equ 0x8000
 floppy_sectors_per_track equ 8

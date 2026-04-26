@@ -7,7 +7,7 @@ general OS infrastructure early.
 ## Current Context
 
 Seed is a boot-first agent runtime experiment. The active implementation target
-is an IBM PC 5150-class raw boot floppy in:
+is an IBM PC 5150-class FAT12 boot floppy in:
 
 ```text
 targets/ibm_pc_5150/
@@ -19,22 +19,26 @@ The current boot artifact is:
 build/ibm_pc_5150/floppy-160k.img
 ```
 
-That image is a raw 160 KiB floppy image with a stage 1 boot sector, fixed
-stage 2 sectors, and zero-filled padding. It is not a DOS filesystem and
-contains no files.
+That image is a 160 KiB FAT12 floppy image with a stage 1 boot sector, fixed
+reserved stage 2 sectors, FAT copies, a root directory, and file data. The
+tracked `AGENTS.CFG` file is shipped in the root directory. Optional
+`SEED.CFG` user-local state is ignored and included only when
+`config/SEED.CFG` exists.
 
 ## Constraints
 
 - Keep the stage 1 boot sector within 512 bytes, including the `55 aa`
   signature.
 - Keep stage 2 within the fixed sector count declared in `Makefile`. The
-  current eleven-sector stage 2 spans sectors 2-8 on the first 160 KiB floppy
-  track plus track 1 sectors 1-4. Stage 1 loads one sector at a time with CHS
-  rollover.
+  current thirteen-sector stage 2 spans sectors 2-8 on the first 160 KiB
+  floppy track plus track 1 sectors 1-6. Stage 1 loads one sector at a time
+  with CHS rollover.
 - Target 8088-compatible 16-bit real-mode code for `ibm_pc_5150`. Keep NASM
   sources locked to `cpu 8086` so unsupported opcodes are caught at build time.
-- Do not introduce protected mode, graphics mode, a filesystem, config parsing,
-  packet I/O, IP, TLS, or model API logic unless explicitly scoped.
+- Do not introduce protected mode or graphics mode unless explicitly scoped.
+- Keep Build 6 focused on agent prep. Do not add TLS, model API requests,
+  agent sessions, or environment handover beyond the current Build 6 step
+  unless explicitly scoped.
 - 3c501, 3c503, NE1000/NE2000, and WD8003 station-address PROM reads must stay
   non-fatal.
 - Build 5 owns internet readiness. Keep its first packet path focused on
@@ -111,18 +115,21 @@ tools/run-86box.sh vm-net-ne2k8
 
 Useful expected screens:
 
-These current IBM PC 5150 profiles were validated on 26 April 2026.
+The Build 5 paths for these IBM PC 5150 profiles were validated on
+26 April 2026. Build 6 currently adds the FAT12 `AGENTS.CFG` validation before
+the ready screen; retest individual profiles when changing boot, filesystem, or
+agent-prep code.
 
 ```text
 vm                   + no network card, retry/restart menu
 vm-mda               + no network card, retry/restart menu
-vm-net-3c501         adapter prompt, MAC read, then seed build 5 after Enter
-vm-net-3c503         MAC read, then seed build 5
-vm-net-ne1k          adapter prompt, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP SYN-ACK, then seed build 5 after Down/Enter
-vm-net-ne2k8         adapter prompt, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP SYN-ACK, then seed build 5 after Enter
-vm-net-novell-ne1k   adapter prompt, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP SYN-ACK, then seed build 5 after Down/Enter
-vm-net-wd8003e       adapter prompt, MAC read, then seed build 5 after Down/Enter
-vm-net-wd8003eb      adapter prompt, MAC read, then seed build 5 after Down/Enter
+vm-net-3c501         adapter prompt, MAC read, then seed build 6 after Enter
+vm-net-3c503         MAC read, then seed build 6
+vm-net-ne1k          adapter prompt, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP SYN-ACK, then seed build 6 after Down/Enter
+vm-net-ne2k8         adapter prompt, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP SYN-ACK, then seed build 6 after Enter
+vm-net-novell-ne1k   adapter prompt, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP SYN-ACK, then seed build 6 after Down/Enter
+vm-net-wd8003e       adapter prompt, MAC read, then seed build 6 after Down/Enter
+vm-net-wd8003eb      adapter prompt, MAC read, then seed build 6 after Down/Enter
 ```
 
 ## Documentation

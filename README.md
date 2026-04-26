@@ -16,28 +16,32 @@ CPU       8088, 4.77 MHz
 media     160 KiB 5.25-inch floppy image
 video     BIOS text mode, no mode switch
 emulator  86Box
-build     seed build 5
+build     seed build 6
 ```
 
-The current boot image is raw sectors, not a filesystem:
+The current boot image is a minimal FAT12 floppy:
 
 ```text
-sector 1      stage 1 boot sector
-sectors 2-12  stage 2 boot core
-sector 13+    zero-filled padding
+sector 1       stage 1 boot sector with FAT12 BPB
+sectors 2-14   stage 2 boot core in reserved sectors
+sectors 15-16  FAT copies
+sectors 17-20  root directory
+sector 21+     file data
 ```
 
-Build 5 is the internet-readiness milestone. The current checkpoint keeps build
-4's NIC identity handoff, extends the handoff block for network readiness,
-initializes NE1000/NE2000-family packet hardware after a valid MAC read,
-reads one pending receive-ring frame when available, and sends a minimal
-DHCPDISCOVER. It then performs a two-pass bounded filtered DHCPOFFER wait and
-records the offered IPv4 address, subnet mask, router, and DNS server when one
-is observed. When an offer is available, it sends DHCPREQUEST and performs a
-bounded DHCPACK wait to mark the lease accepted. After the lease is accepted,
-it ARPs for the DHCP-provided DNS server, resolves `example.com`, selects the
-next hop, ARPs that next hop, sends a TCP SYN to port 80, and waits for a
-matching SYN-ACK before leaving the dark `"o"` phase.
+Build 6 is the agent-prep milestone. The current checkpoint keeps build 5's
+internet-readiness path, adds a FAT12 boot image, ships tracked agent interface
+declarations in `AGENTS.CFG`, reserves ignored local user state in `SEED.CFG`,
+and verifies `AGENTS.CFG` during the bright `"o"` phase before showing
+`seed build 6`. Credentials, TLS, model API calls, session creation, and
+environment handover remain later build 6 work.
+
+Build 5 completed the internet-readiness milestone. It initializes
+NE1000/NE2000-family packet hardware after a valid MAC read, reads one pending
+receive-ring frame when available, sends DHCPDISCOVER, performs bounded
+DHCPOFFER and DHCPACK waits, ARPs for the DHCP-provided DNS server, resolves
+`example.com`, selects and ARPs the TCP next hop, sends a TCP SYN to port 80,
+and waits for a matching SYN-ACK before leaving the dark `"o"` phase.
 
 If no card responds, Seed shows `+ no network card` with a low PC speaker
 failure tone, then offers `retry` or `restart`. Retry returns to the dark `.`
@@ -83,14 +87,16 @@ tools/run-86box.sh vm-net-ne2k8
 ## Repository Map
 
 ```text
-Makefile                         build raw 160 KiB floppy image
-docs/config.md                   optional user config policy
+Makefile                         build FAT12 160 KiB floppy image
+config/AGENTS.CFG                shipped agent interface declarations
+docs/config.md                   agent config and optional user state policy
 docs/builds.md                   loading phase and build scope map
 docs/ui.md                       text UI and fast-type rules
 targets/ibm_pc_5150/README.md    current target details
 targets/ibm_pc_5150/HANDOFF.md   current low-memory runtime handoff block
 targets/ibm_pc_5150/boot/        8088 stage 1 and stage 2 sources
 targets/ibm_pc_5150/86box/       86Box profiles and NIC inventory
+tools/build-fat12-image.py       deterministic 160 KiB FAT12 image builder
 tools/run-86box.sh               build and launch a 86Box profile
 ```
 
@@ -106,5 +112,6 @@ Stored user config is optional. Missing, unreadable, unparseable, or invalid
 config means ask the user. Failed writes are ignored so read-only boot media
 remain usable.
 
-The current floppy image has no files. Do not add a filesystem or config file
-unless that becomes an explicit milestone.
+`AGENTS.CFG` is shipped with Seed and describes available agent interfaces.
+`SEED.CFG` is ignored local state for validated user choices and secrets; if it
+is missing or unusable, Seed should ask and continue.

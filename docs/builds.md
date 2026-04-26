@@ -24,7 +24,7 @@ build 2   minimal boot presentation: centered marker and fast-type banner
 build 3   " " phase: project init, display baseline, handoff block, retry boundary
 build 4   "." dark phase: HAL setup, adapter questions, hardware handoff
 build 5   "o" dark phase: internet prep, IP config, reachability proof
-build 6   "o" bright phase: agent prep, session setup, environment handover
+build 6   "o" bright phase: agent prep, credentials, TLS, API, session, handover
 ```
 
 Build 5 is intentionally broad. It should end when Seed can bring up a network
@@ -48,5 +48,28 @@ next-hop ARP, TCP SYN transmit to port 80, and SYN-ACK receive. This gives the
 dark `"o"` phase a real outbound reachability proof without starting TLS,
 model API calls, or an agent session.
 
-TLS, model API calls, agent session creation, and environment handover belong
-to build 6 unless build 5 proves that a different split is required.
+## Build 6
+
+Build 6 owns the bright `"o"` phase. It starts after internet readiness is
+proven and ends when Seed can connect to an agent and hand over to the first
+agent/user environment.
+
+Current build 6 checkpoint:
+
+```text
+FAT12 160 KiB boot floppy with fixed reserved stage 2 sectors
+tracked AGENTS.CFG root file with gateway and vendor agent interfaces
+ignored SEED.CFG reserved for validated local user choices and secrets
+bright "o" validation that AGENTS.CFG exists and starts with an agent declaration
+```
+
+Still in build 6 scope:
+
+```text
+read optional SEED.CFG without making it a boot dependency
+ask for missing provider, endpoint, model, and credential values
+write validated user state best-effort when the boot image is writable
+attempt TLS directly from the 8088 runtime
+send the first model API request
+create the agent session and hand over to the environment path
+```

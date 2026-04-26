@@ -58,7 +58,7 @@ internet prep   dim "o" for network configuration and reachability
 agent prep      bright "o" for gateway, key, session, and environment setup
 no card         +, low descending PC speaker tone, fast-typed no network card, then retry/restart
 question        phase-colored blinking marker, low PC speaker attention tone, bright fast-typed prompt ending with ?
-success         " " -> dim "." -> dim "o" -> bright "o" -> seed build 5
+success         " " -> dim "." -> dim "o" -> bright "o" -> seed build 6
 ```
 
 The splash is only the ready handoff animation. No setup work happens during
@@ -88,7 +88,7 @@ Default CGA colors:
 
 ```text
 seed       white
-build 5    dark gray
+build 6    dark gray
 loading    dark gray
 ready      white
 question   white
@@ -96,9 +96,10 @@ error      red
 menu       selected white, inactive dark gray
 ```
 
-The floppy is a raw boot image, not a DOS filesystem. Sector 1 is the stage 1
-boot sector. Sectors 2-12 are the fixed-sector stage 2 boot core. The remaining
-sectors are zero-filled padding. There are no files or directory entries.
+The floppy is a minimal FAT12 filesystem. Sector 1 is the stage 1 boot sector
+with a FAT12 BPB. Sectors 2-14 are the fixed-sector stage 2 boot core in
+reserved sectors, sectors 15-16 are FAT copies, sectors 17-20 are the root
+directory, and sector 21 onward contains file data.
 
 This launcher builds the floppy and starts a VM profile:
 
@@ -118,8 +119,9 @@ VM config must explicitly use:
 fdc = fdc_xt
 ```
 
-The Seed floppy image is a raw boot image, not a DOS-formatted image with a
-BIOS Parameter Block, so BPB checking is disabled:
+The Seed floppy now has a FAT12 BIOS Parameter Block. Some 86Box profiles still
+keep BPB checking disabled so older boot-layout experiments remain easy to
+compare:
 
 ```ini
 [Floppy and CD-ROM drives]
@@ -152,3 +154,7 @@ next hop, and receiving a TCP SYN-ACK from port 80. All three outbound-gated NE
 paths advanced to `seed build 5`. `vm-net-3c501`, `vm-net-3c503`,
 `vm-net-wd8003e`, and `vm-net-wd8003eb` preserved the non-NE handoff path,
 read their MACs, and advanced to `seed build 5`.
+
+Build 6 started on 26 April 2026. `vm-net-3c503` reached `seed build 6` after
+the bright `"o"` FAT12 `AGENTS.CFG` validation, and `vm-net-ne2k8` preserved
+the full outbound path before reaching `seed build 6`.

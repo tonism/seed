@@ -2,3 +2,5 @@
 __pycache__/
 *.pyc
 build/
+/SEED.CFG
+/config/SEED.CFG
