@@ -143,7 +143,7 @@ dhcp_yiaddr_offset equ dhcp_bootp_offset + 16
 dhcp_chaddr_offset equ dhcp_bootp_offset + 28
 dhcp_cookie_offset equ dhcp_bootp_offset + dhcp_fixed_len
 dhcp_options_offset equ dhcp_cookie_offset + 4
-dhcp_offer_wait_count equ 4
+dhcp_offer_wait_count equ 1
 wd_saprom equ 0x08
 
 start:

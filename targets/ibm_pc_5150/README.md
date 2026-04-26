@@ -24,7 +24,7 @@ BIOS loads boot sector
   -> reads one NE1000/NE2000-family pending receive-ring frame when available
   -> switches to a dim o marker for internet prep
   -> sends one NE1000/NE2000-family DHCPDISCOVER
-  -> performs a bounded packet-filtered DHCPOFFER wait and parses it when available
+  -> performs a single bounded DHCPOFFER probe and parses it when available
   -> switches to a bright o marker for agent prep
   -> currently performs no build-6 agent prep work
   -> otherwise types seed build 5 rightward from that column
@@ -73,9 +73,10 @@ family is known; real IRQ discovery is later scope.
 The current build 5 checkpoint initializes NE1000/NE2000-family packet hardware
 after a valid MAC read, polls the receive-ring pointers, reads one pending
 receive frame when available, sends a minimal DHCPDISCOVER, and performs a
-bounded packet-filtered DHCPOFFER wait. When a DHCPOFFER is observed, stage 2
-records the offered IPv4 address, router, and DNS server in the handoff block.
-DHCP lease acceptance, DNS, and outbound reachability remain in build 5 scope.
+single bounded DHCPOFFER probe. When a DHCPOFFER is observed, stage 2 records
+the offered IPv4 address, router, and DNS server in the handoff block. Repeated
+DHCP receive, lease acceptance, DNS, and outbound reachability remain in build
+5 scope.
 
 The boot path does not switch video modes. It keeps the BIOS-provided text
 mode, reads the active column count, and uses that value for clearing and for

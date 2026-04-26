@@ -114,9 +114,9 @@ vm                   + no network card, retry/restart menu
 vm-mda               + no network card, retry/restart menu
 vm-net-3c501         adapter prompt, MAC read, then seed build 5 after Enter
 vm-net-3c503         MAC read, then seed build 5
-vm-net-ne1k          adapter prompt, MAC read, RX read check, DHCPDISCOVER, bounded DHCPOFFER wait, then seed build 5 after Down/Enter
-vm-net-ne2k8         adapter prompt, MAC read, RX read check, DHCPDISCOVER, bounded DHCPOFFER wait, then seed build 5 after Enter
-vm-net-novell-ne1k   adapter prompt, MAC read, RX read check, DHCPDISCOVER, bounded DHCPOFFER wait, then seed build 5 after Down/Enter
+vm-net-ne1k          adapter prompt, MAC read, RX read check, DHCPDISCOVER, bounded DHCPOFFER probe, then seed build 5 after Down/Enter
+vm-net-ne2k8         adapter prompt, MAC read, RX read check, DHCPDISCOVER, bounded DHCPOFFER probe, then seed build 5 after Enter
+vm-net-novell-ne1k   adapter prompt, MAC read, RX read check, DHCPDISCOVER, bounded DHCPOFFER probe, then seed build 5 after Down/Enter
 vm-net-wd8003e       adapter prompt, MAC read, then seed build 5 after Down/Enter
 vm-net-wd8003eb      adapter prompt, MAC read, then seed build 5 after Down/Enter
 ```
