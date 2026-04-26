@@ -29,8 +29,10 @@ contains no files.
   signature.
 - Keep stage 2 within the fixed sector count declared in `Makefile`. The
   current seven-sector stage 2 fits sectors 2-8 on the first 160 KiB floppy
-  track; going past seven sectors requires a stage 1 multi-track loader.
-- Target 8088-compatible 16-bit real-mode code for `ibm_pc_5150`.
+  track, and stage 1 loads one sector at a time with CHS rollover if the fixed
+  count grows beyond the first track.
+- Target 8088-compatible 16-bit real-mode code for `ibm_pc_5150`. Keep NASM
+  sources locked to `cpu 8086` so unsupported opcodes are caught at build time.
 - Do not introduce protected mode, graphics mode, a filesystem, config parsing,
   packet I/O, IP, TLS, or model API logic unless explicitly scoped.
 - 3c501, 3c503, NE1000/NE2000, and WD8003 station-address PROM reads must stay
@@ -114,9 +116,9 @@ vm                   + no network card, retry/restart menu
 vm-mda               + no network card, retry/restart menu
 vm-net-3c501         adapter prompt, MAC read, then seed build 5 after Enter
 vm-net-3c503         MAC read, then seed build 5
-vm-net-ne1k          adapter prompt, MAC read, RX read check, DHCPDISCOVER, bounded DHCPOFFER probe, then seed build 5 after Down/Enter
-vm-net-ne2k8         adapter prompt, MAC read, RX read check, DHCPDISCOVER, bounded DHCPOFFER probe, then seed build 5 after Enter
-vm-net-novell-ne1k   adapter prompt, MAC read, RX read check, DHCPDISCOVER, bounded DHCPOFFER probe, then seed build 5 after Down/Enter
+vm-net-ne1k          adapter prompt, MAC read, RX read check, DHCPDISCOVER, filtered DHCPOFFER wait, then seed build 5 after Down/Enter
+vm-net-ne2k8         adapter prompt, MAC read, RX read check, DHCPDISCOVER, filtered DHCPOFFER wait, then seed build 5 after Enter
+vm-net-novell-ne1k   adapter prompt, MAC read, RX read check, DHCPDISCOVER, filtered DHCPOFFER wait, then seed build 5 after Down/Enter
 vm-net-wd8003e       adapter prompt, MAC read, then seed build 5 after Down/Enter
 vm-net-wd8003eb      adapter prompt, MAC read, then seed build 5 after Down/Enter
 ```

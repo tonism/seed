@@ -41,13 +41,9 @@ TCP or chosen transport reachability proof
 
 Current build 5 checkpoints completed: NE-family packet hardware init,
 bounded receive polling, receive-path diagnostics, DHCPDISCOVER transmit, and a
-single bounded DHCPOFFER probe that records offer details in the handoff block
-when one is observed. Repeated DHCP receive, lease acceptance, DNS, and
-outbound reachability are still open.
-
-Repeated DHCPOFFER waits need a safer filtered receive primitive before they
-become the default path. A naive multi-iteration wait can leave the IBM PC 5150
-profile visibly stuck in the dark `"o"` phase.
+two-pass bounded filtered DHCPOFFER wait that records offer details in the
+handoff block when one is observed. DHCP lease acceptance, DNS, and outbound
+reachability are still open.
 
 TLS, model API calls, agent session creation, and environment handover belong
 to build 6 unless build 5 proves that a different split is required.
