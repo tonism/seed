@@ -7,9 +7,9 @@ AGENTS.CFG  shipped, tracked agent interface declarations
 SEED.CFG    ignored, optional local user choices and secrets
 ```
 
-`AGENTS.CFG` is not general OS configuration. It only describes agent-facing
-interfaces: gateways first, then direct vendors. The file is meant to stay
-plain enough for both humans and later agents to edit.
+`AGENTS.CFG` is not general OS configuration. It only describes five
+agent-facing interfaces: two gateways first, then three direct vendors. The
+file is meant to stay plain enough for both humans and later agents to edit.
 
 `SEED.CFG` is user-local state. It should only contain values that were entered
 by the user and validated by Seed, such as adapter choices, selected agent
@@ -56,7 +56,10 @@ no long filenames
 no dependency on writes succeeding
 ```
 
-The current build 6 checkpoint verifies that `AGENTS.CFG` exists in the FAT12
-root directory and begins with an `agent ` declaration. Full parsing,
-`SEED.CFG` reads and writes, credential prompts, TLS, and API calls are still
+The current build 6 checkpoint parses up to five `agent ` declarations from
+`AGENTS.CFG`. It reads `SEED.CFG` when present, accepts a saved `agent <id>`
+only if it matches one of those declarations, asks `agent?` otherwise, and
+writes the validated choice back as `agent <id>` on a best-effort basis.
+
+Credential prompts, endpoint/model overrides, TLS, and API calls are still
 build 6 follow-up work.

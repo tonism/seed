@@ -58,17 +58,18 @@ Current build 6 checkpoint:
 
 ```text
 FAT12 160 KiB boot floppy with fixed reserved stage 2 sectors
-tracked AGENTS.CFG root file with gateway and vendor agent interfaces
-ignored SEED.CFG reserved for validated local user choices and secrets
-bright "o" validation that AGENTS.CFG exists and starts with an agent declaration
+tracked AGENTS.CFG root file with five agent interfaces
+ignored SEED.CFG for validated local user choices and secrets
+bright "o" parsing of up to five AGENTS.CFG agent declarations
+agent? menu when SEED.CFG is missing, unreadable, unparseable, or invalid
+best-effort SEED.CFG write of the validated agent choice
 ```
 
 Still in build 6 scope:
 
 ```text
-read optional SEED.CFG without making it a boot dependency
-ask for missing provider, endpoint, model, and credential values
-write validated user state best-effort when the boot image is writable
+ask for missing endpoint, model, and credential values
+extend SEED.CFG beyond the selected agent interface
 attempt TLS directly from the 8088 runtime
 send the first model API request
 create the agent session and hand over to the environment path

@@ -30,9 +30,9 @@ tracked `AGENTS.CFG` file is shipped in the root directory. Optional
 - Keep the stage 1 boot sector within 512 bytes, including the `55 aa`
   signature.
 - Keep stage 2 within the fixed sector count declared in `Makefile`. The
-  current thirteen-sector stage 2 spans sectors 2-8 on the first 160 KiB
-  floppy track plus track 1 sectors 1-6. Stage 1 loads one sector at a time
-  with CHS rollover.
+  current sixteen-sector stage 2 spans sectors 2-8 on the first 160 KiB floppy
+  track plus track 1 sectors 1-8 and track 2 sector 1. Stage 1 loads one sector
+  at a time with CHS rollover.
 - Target 8088-compatible 16-bit real-mode code for `ibm_pc_5150`. Keep NASM
   sources locked to `cpu 8086` so unsupported opcodes are caught at build time.
 - Do not introduce protected mode or graphics mode unless explicitly scoped.
@@ -116,9 +116,10 @@ tools/run-86box.sh vm-net-ne2k8
 Useful expected screens:
 
 The Build 5 paths for these IBM PC 5150 profiles were validated on
-26 April 2026. Build 6 currently adds the FAT12 `AGENTS.CFG` validation before
-the ready screen; retest individual profiles when changing boot, filesystem, or
-agent-prep code.
+26 April 2026. Build 6 currently adds FAT12 `AGENTS.CFG` parsing, optional
+`SEED.CFG` selected-agent persistence, and `agent?` when the saved choice is
+missing or invalid; retest individual profiles when changing boot, filesystem,
+or agent-prep code.
 
 ```text
 vm                   + no network card, retry/restart menu

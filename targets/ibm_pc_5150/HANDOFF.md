@@ -152,8 +152,8 @@ internet phase fails into the network setup error path with the corresponding
 status and network error.
 
 Build 6 starts the bright `"o"` agent-prep phase. The current checkpoint does
-not extend this handoff layout. It verifies that the FAT12 root directory
-contains `AGENTS.CFG` and that the first cluster begins with an `agent `
-declaration before marking the runtime ready. If that agent setup check fails,
-status is set to 5 and Seed enters the agent setup error path before the ready
-splash.
+not extend this handoff layout. It parses up to five `AGENTS.CFG` `agent `
+declarations, validates a saved `SEED.CFG` selected-agent choice when present,
+asks `agent?` when that choice is missing or invalid, and writes the validated
+choice back best-effort. If agent declaration setup fails, status is set to 5
+and Seed enters the agent setup error path before the ready splash.

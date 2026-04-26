@@ -3,7 +3,7 @@ cpu 8086
 org 0x8000
 
 %ifndef STAGE2_SECTORS
-%define STAGE2_SECTORS 13
+%define STAGE2_SECTORS 16
 %endif
 
 build_number equ 6
@@ -93,6 +93,8 @@ question_row equ seed_row + 2
 load_ticks equ 6
 type_ticks equ 1
 done_ticks equ 9
+agent_slot_count equ 5
+agent_id_len equ 16
 config_auto equ 1
 config_user equ 2
 profile_irq equ 3
@@ -192,11 +194,13 @@ tcp_dest_port_word equ 0x5000
 tcp_wait_count equ 4
 wd_saprom equ 0x08
 fat_root_start_lba equ STAGE2_SECTORS + 3
+fat_fat_start_lba equ STAGE2_SECTORS + 1
 fat_data_start_lba equ STAGE2_SECTORS + 7
 fat_root_sectors equ 4
 fat_dir_entries_per_sector equ 16
 fat_dir_entry_size equ 32
 fat_first_data_cluster equ 2
+fat_max_cluster equ 300
 
 start:
     cli
@@ -514,7 +518,7 @@ ask_adapter:
     mov byte [handoff_addr + handoff_nic_irq], profile_irq
     or word [handoff_addr + handoff_flags], handoff_flag_config_resolved
     call clear_question_area
-    mov bl, [load_attr]
+    mov bl, [load_marker_attr]
     mov al, [load_marker_char]
     call show_load_marker
     ret
@@ -848,12 +852,27 @@ prepare_internet_path:
     ret
 
 prepare_agent_path:
+    call load_agents_cfg
+    jc .failed
+    call load_seed_cfg
+    jnc .ready
+    call ask_agent
+    call save_seed_cfg
+.ready:
+    clc
+    ret
+.failed:
+    stc
+    ret
+
+load_agents_cfg:
+    mov byte [agent_count], 0
     call find_agents_cfg
     jc .failed
-    call read_agents_first_cluster
+    call parse_agents_cfg
     jc .failed
-    call validate_agents_cfg
-    jc .failed
+    cmp byte [agent_count], 0
+    je .failed
     clc
     ret
 .failed:
@@ -861,8 +880,45 @@ prepare_agent_path:
     ret
 
 find_agents_cfg:
+    mov di, agents_cfg_name
+    call find_root_file
+    jc .not_found
+    mov ax, [fs_file_cluster]
+    mov [agents_cluster], ax
+    mov ax, [fs_file_size_low]
+    mov [agents_size_low], ax
+    mov ax, [fs_file_size_high]
+    mov [agents_size_high], ax
+    clc
+    ret
+.not_found:
+    stc
+    ret
+
+find_seed_cfg:
+    mov di, seed_cfg_name
+    call find_root_file
+    jc .not_found
+    mov ax, [fs_file_cluster]
+    mov [seed_cluster], ax
+    mov ax, [fs_file_size_low]
+    mov [seed_size_low], ax
+    mov ax, [fs_file_size_high]
+    mov [seed_size_high], ax
+    mov ax, [fs_file_root_lba]
+    mov [seed_root_lba], ax
+    mov ax, [fs_file_root_offset]
+    mov [seed_root_offset], ax
+    clc
+    ret
+.not_found:
+    stc
+    ret
+
+find_root_file:
     mov word [fs_lba], fat_root_start_lba
     mov word [fs_root_left], fat_root_sectors
+    mov byte [fs_free_root_found], 0
 .next_sector:
     cmp word [fs_root_left], 0
     je .not_found
@@ -877,14 +933,14 @@ find_agents_cfg:
 .next_entry:
     mov al, [si]
     or al, al
-    jz .not_found
+    jz .end_marker
     cmp al, 0xe5
-    je .advance
+    je .free_entry
     test byte [si + 11], 0x18
     jnz .advance
     push si
     push cx
-    mov di, agents_cfg_name
+    push di
     mov cx, 11
 .compare:
     mov al, [si]
@@ -893,31 +949,545 @@ find_agents_cfg:
     inc si
     inc di
     loop .compare
+    pop di
     pop cx
     pop si
     mov ax, [si + 26]
-    mov [agents_cluster], ax
+    mov [fs_file_cluster], ax
     mov ax, [si + 28]
-    mov [agents_size_low], ax
+    mov [fs_file_size_low], ax
     mov ax, [si + 30]
-    mov [agents_size_high], ax
+    mov [fs_file_size_high], ax
+    mov ax, [fs_lba]
+    mov [fs_file_root_lba], ax
+    mov ax, si
+    sub ax, fs_sector_buffer
+    mov [fs_file_root_offset], ax
     clc
     ret
 .mismatch:
+    pop di
     pop cx
     pop si
+    jmp .advance
+.free_entry:
+    call record_free_root_entry
 .advance:
     add si, fat_dir_entry_size
     loop .next_entry
     inc word [fs_lba]
     dec word [fs_root_left]
     jmp .next_sector
+.end_marker:
+    call record_free_root_entry
 .not_found:
     stc
     ret
 
-read_agents_first_cluster:
+record_free_root_entry:
+    cmp byte [fs_free_root_found], 0
+    jne .done
+    mov byte [fs_free_root_found], 1
+    mov ax, [fs_lba]
+    mov [fs_free_root_lba], ax
+    mov ax, si
+    sub ax, fs_sector_buffer
+    mov [fs_free_root_offset], ax
+.done:
+    ret
+
+parse_agents_cfg:
+    cmp word [agents_size_high], 0
+    jne .failed
     mov ax, [agents_cluster]
+    cmp ax, fat_first_data_cluster
+    jb .failed
+    mov [fs_current_cluster], ax
+    mov ax, [agents_size_low]
+    mov [fs_bytes_left], ax
+    or ax, ax
+    jz .failed
+.next_cluster:
+    cmp byte [agent_count], agent_slot_count
+    jae .done
+    cmp word [fs_bytes_left], 0
+    je .done
+    mov ax, [fs_current_cluster]
+    call read_cluster_to_buffer
+    jc .failed
+    mov ax, [fs_bytes_left]
+    cmp ax, 512
+    jbe .size_ready
+    mov ax, 512
+.size_ready:
+    mov [fs_bytes_this], ax
+    call parse_agent_sector
+    mov ax, [fs_bytes_left]
+    sub ax, [fs_bytes_this]
+    mov [fs_bytes_left], ax
+    inc word [fs_current_cluster]
+    jmp .next_cluster
+.done:
+    clc
+    ret
+.failed:
+    stc
+    ret
+
+parse_agent_sector:
+    mov si, fs_sector_buffer
+    mov cx, [fs_bytes_this]
+    mov byte [fs_line_start], 1
+.next_byte:
+    cmp cx, 0
+    je .done
+    cmp byte [fs_line_start], 1
+    jne .consume
+    cmp byte [agent_count], agent_slot_count
+    jae .done
+    cmp cx, 6
+    jb .consume
+    cmp byte [si], 'a'
+    jne .consume
+    cmp byte [si + 1], 'g'
+    jne .consume
+    cmp byte [si + 2], 'e'
+    jne .consume
+    cmp byte [si + 3], 'n'
+    jne .consume
+    cmp byte [si + 4], 't'
+    jne .consume
+    cmp byte [si + 5], ' '
+    jne .consume
+    call copy_agent_id_from_line
+.consume:
+    lodsb
+    dec cx
+    cmp al, 13
+    je .line_start
+    cmp al, 10
+    je .line_start
+    mov byte [fs_line_start], 0
+    jmp .next_byte
+.line_start:
+    mov byte [fs_line_start], 1
+    jmp .next_byte
+.done:
+    ret
+
+copy_agent_id_from_line:
+    push si
+    push cx
+    mov al, [agent_count]
+    xor ah, ah
+    mov di, ax
+    shl di, 1
+    shl di, 1
+    shl di, 1
+    shl di, 1
+    add di, agent_ids
+    add si, 6
+    mov bp, cx
+    sub bp, 6
+    mov dx, agent_id_len - 1
+.copy:
+    cmp bp, 0
+    je .terminate
+    cmp dx, 0
+    je .terminate
+    lodsb
+    dec bp
+    cmp al, 13
+    je .terminate
+    cmp al, 10
+    je .terminate
+    cmp al, ' '
+    je .terminate
+    cmp al, 9
+    je .terminate
+    stosb
+    dec dx
+    jmp .copy
+.terminate:
+    mov byte [di], 0
+    inc byte [agent_count]
+    pop cx
+    pop si
+    ret
+
+load_seed_cfg:
+    call find_seed_cfg
+    jc .failed
+    cmp word [seed_size_high], 0
+    jne .failed
+    cmp word [seed_size_low], 6
+    jb .failed
+    mov ax, [seed_cluster]
+    call read_cluster_to_buffer
+    jc .failed
+    call parse_seed_cfg
+    jc .failed
+    clc
+    ret
+.failed:
+    stc
+    ret
+
+parse_seed_cfg:
+    mov si, fs_sector_buffer
+    mov di, agent_prefix_text
+    mov cx, 6
+.compare_prefix:
+    mov al, [si]
+    cmp al, [di]
+    jne .failed
+    inc si
+    inc di
+    loop .compare_prefix
+    mov si, fs_sector_buffer + 6
+    call copy_seed_agent_from_buffer
+    call match_seed_agent
+    jc .failed
+    clc
+    ret
+.failed:
+    stc
+    ret
+
+copy_seed_agent_from_buffer:
+    mov di, seed_agent_id
+    mov cx, agent_id_len - 1
+.copy:
+    lodsb
+    cmp al, 13
+    je .terminate
+    cmp al, 10
+    je .terminate
+    cmp al, ' '
+    je .terminate
+    cmp al, 9
+    je .terminate
+    or al, al
+    jz .terminate
+    stosb
+    loop .copy
+.terminate:
+    mov byte [di], 0
+    ret
+
+match_seed_agent:
+    mov byte [agent_scan_index], 0
+.next_agent:
+    mov al, [agent_scan_index]
+    cmp al, [agent_count]
+    jae .failed
+    call agent_scan_ptr
+    mov di, seed_agent_id
+    call strings_equal
+    jnc .found
+    inc byte [agent_scan_index]
+    jmp .next_agent
+.found:
+    mov al, [agent_scan_index]
+    mov [menu_index], al
+    clc
+    ret
+.failed:
+    stc
+    ret
+
+strings_equal:
+    mov al, [si]
+    cmp al, [di]
+    jne .failed
+    or al, al
+    jz .equal
+    inc si
+    inc di
+    jmp strings_equal
+.equal:
+    clc
+    ret
+.failed:
+    stc
+    ret
+
+ask_agent:
+    mov byte [menu_index], 0
+    mov byte [blink_state], 0
+    call notify_question
+    call render_agent_question
+.input:
+    call blink_load_marker
+    mov ah, 0x01
+    int 0x16
+    jz .input
+    xor ah, ah
+    int 0x16
+    cmp al, 0x0d
+    je .accept
+    cmp ah, 0x48
+    je .previous
+    cmp ah, 0x50
+    jne .input
+.next:
+    mov al, [menu_index]
+    inc al
+    cmp al, [agent_count]
+    jb .store_index
+    xor al, al
+    jmp .store_index
+.previous:
+    cmp byte [menu_index], 0
+    jne .decrement
+    mov al, [agent_count]
+    dec al
+    jmp .store_index
+.decrement:
+    mov al, [menu_index]
+    dec al
+.store_index:
+    mov [menu_index], al
+    call draw_agent_options
+    jmp .input
+.accept:
+    call copy_selected_agent
+    call clear_question_area
+    mov bl, [load_marker_attr]
+    mov al, [load_marker_char]
+    call show_load_marker
+    ret
+
+copy_selected_agent:
+    mov al, [menu_index]
+    call agent_ptr_from_al
+    mov di, seed_agent_id
+    mov cx, agent_id_len
+.copy:
+    lodsb
+    stosb
+    or al, al
+    jz .done
+    loop .copy
+    mov byte [di - 1], 0
+.done:
+    ret
+
+save_seed_cfg:
+    call find_seed_cfg
+    jnc .have_root
+    cmp byte [fs_free_root_found], 0
+    je .done
+    call find_free_cluster
+    jc .done
+    mov ax, [fs_free_cluster]
+    mov [seed_cluster], ax
+    mov ax, [fs_free_root_lba]
+    mov [seed_root_lba], ax
+    mov ax, [fs_free_root_offset]
+    mov [seed_root_offset], ax
+.have_root:
+    cmp word [seed_cluster], fat_first_data_cluster
+    jb .done
+    call write_seed_data
+    jc .done
+    call write_seed_fat
+    jc .done
+    call write_seed_root
+.done:
+    clc
+    ret
+
+find_free_cluster:
+    push ds
+    pop es
+    mov bx, fs_sector_buffer
+    mov ax, fat_fat_start_lba
+    call read_abs_sector
+    jc .failed
+    mov word [fs_scan_cluster], fat_first_data_cluster
+.next:
+    mov ax, [fs_scan_cluster]
+    cmp ax, fat_max_cluster
+    jae .failed
+    call get_fat_entry
+    and ax, 0x0fff
+    jz .found
+    inc word [fs_scan_cluster]
+    jmp .next
+.found:
+    mov ax, [fs_scan_cluster]
+    mov [fs_free_cluster], ax
+    clc
+    ret
+.failed:
+    stc
+    ret
+
+get_fat_entry:
+    push bx
+    push dx
+    mov dx, ax
+    mov bx, ax
+    shr bx, 1
+    add bx, dx
+    mov al, [fs_sector_buffer + bx]
+    mov ah, [fs_sector_buffer + bx + 1]
+    test dl, 1
+    jz .even
+    shr ax, 1
+    shr ax, 1
+    shr ax, 1
+    shr ax, 1
+.even:
+    and ax, 0x0fff
+    pop dx
+    pop bx
+    ret
+
+write_seed_data:
+    call build_seed_cfg_buffer
+    mov ax, [seed_cluster]
+    call write_cluster_from_buffer
+    ret
+
+write_seed_fat:
+    push ds
+    pop es
+    mov bx, fs_sector_buffer
+    mov ax, fat_fat_start_lba
+    call read_abs_sector
+    jc .failed
+    mov ax, [seed_cluster]
+    call set_fat_entry_eoc
+    push ds
+    pop es
+    mov bx, fs_sector_buffer
+    mov ax, fat_fat_start_lba
+    call write_abs_sector
+    jc .failed
+    push ds
+    pop es
+    mov bx, fs_sector_buffer
+    mov ax, fat_fat_start_lba + 1
+    call write_abs_sector
+    ret
+.failed:
+    stc
+    ret
+
+set_fat_entry_eoc:
+    push ax
+    push bx
+    push dx
+    mov dx, ax
+    mov bx, ax
+    shr bx, 1
+    add bx, dx
+    test dl, 1
+    jnz .odd
+    mov byte [fs_sector_buffer + bx], 0xff
+    mov al, [fs_sector_buffer + bx + 1]
+    and al, 0xf0
+    or al, 0x0f
+    mov [fs_sector_buffer + bx + 1], al
+    jmp .done
+.odd:
+    mov al, [fs_sector_buffer + bx]
+    and al, 0x0f
+    or al, 0xf0
+    mov [fs_sector_buffer + bx], al
+    mov byte [fs_sector_buffer + bx + 1], 0xff
+.done:
+    pop dx
+    pop bx
+    pop ax
+    ret
+
+write_seed_root:
+    push ds
+    pop es
+    mov bx, fs_sector_buffer
+    mov ax, [seed_root_lba]
+    call read_abs_sector
+    jc .failed
+    call write_seed_root_entry
+    push ds
+    pop es
+    mov bx, fs_sector_buffer
+    mov ax, [seed_root_lba]
+    call write_abs_sector
+    ret
+.failed:
+    stc
+    ret
+
+write_seed_root_entry:
+    push ds
+    pop es
+    mov bx, [seed_root_offset]
+    mov di, fs_sector_buffer
+    add di, bx
+    xor ax, ax
+    mov cx, fat_dir_entry_size / 2
+    rep stosw
+    mov di, fs_sector_buffer
+    add di, bx
+    mov si, seed_cfg_name
+    mov cx, 11
+    rep movsb
+    mov bx, [seed_root_offset]
+    mov byte [fs_sector_buffer + bx + 11], 0x20
+    mov ax, [seed_cluster]
+    mov [fs_sector_buffer + bx + 26], ax
+    mov ax, [seed_cfg_size_current]
+    mov [fs_sector_buffer + bx + 28], ax
+    mov word [fs_sector_buffer + bx + 30], 0
+    ret
+
+build_seed_cfg_buffer:
+    call clear_fs_sector_buffer
+    push ds
+    pop es
+    mov di, fs_sector_buffer
+    mov si, agent_prefix_text
+    mov cx, 6
+    rep movsb
+    mov si, seed_agent_id
+.copy:
+    lodsb
+    or al, al
+    jz .suffix
+    stosb
+    jmp .copy
+.suffix:
+    mov al, 13
+    stosb
+    mov al, 10
+    stosb
+    mov ax, di
+    sub ax, fs_sector_buffer
+    mov [seed_cfg_size_current], ax
+    ret
+
+clear_fs_sector_buffer:
+    push ax
+    push cx
+    push di
+    push es
+    push ds
+    pop es
+    xor ax, ax
+    mov di, fs_sector_buffer
+    mov cx, 256
+    rep stosw
+    pop es
+    pop di
+    pop cx
+    pop ax
+    ret
+
+read_cluster_to_buffer:
     cmp ax, fat_first_data_cluster
     jb .failed
     sub ax, fat_first_data_cluster
@@ -931,23 +1501,15 @@ read_agents_first_cluster:
     stc
     ret
 
-validate_agents_cfg:
-    cmp word [agents_size_high], 0
-    jne .check_prefix
-    cmp word [agents_size_low], 6
+write_cluster_from_buffer:
+    cmp ax, fat_first_data_cluster
     jb .failed
-.check_prefix:
-    mov si, fs_sector_buffer
-    mov di, agent_prefix_text
-    mov cx, 6
-.next:
-    mov al, [si]
-    cmp al, [di]
-    jne .failed
-    inc si
-    inc di
-    loop .next
-    clc
+    sub ax, fat_first_data_cluster
+    add ax, fat_data_start_lba
+    push ds
+    pop es
+    mov bx, fs_sector_buffer
+    call write_abs_sector
     ret
 .failed:
     stc
@@ -964,6 +1526,23 @@ read_abs_sector:
     xor dh, dh
     mov dl, [handoff_addr + handoff_boot_drive]
     mov ax, 0x0201
+    int 0x13
+    pop dx
+    pop cx
+    pop ax
+    ret
+
+write_abs_sector:
+    push ax
+    push cx
+    push dx
+    div byte [disk_sectors_per_track]
+    mov ch, al
+    mov cl, ah
+    inc cl
+    xor dh, dh
+    mov dl, [handoff_addr + handoff_boot_drive]
+    mov ax, 0x0301
     int 0x13
     pop dx
     pop cx
@@ -2446,6 +3025,85 @@ render_adapter_question:
     call type_menu_options
     ret
 
+render_agent_question:
+    mov byte [cursor_row], seed_row
+    mov al, [seed_col]
+    add al, 2
+    mov [cursor_col], al
+    mov bl, [question_attr]
+    mov si, agent_prompt_text
+    call type_z
+
+    call type_agent_options
+    ret
+
+type_agent_options:
+    mov byte [agent_draw_index], 0
+.next:
+    mov al, [agent_draw_index]
+    cmp al, [agent_count]
+    jae .done
+    mov al, question_row
+    add al, [agent_draw_index]
+    mov [cursor_row], al
+    mov al, [seed_col]
+    add al, 2
+    mov [cursor_col], al
+    mov bl, [menu_idle_attr]
+    mov al, [agent_draw_index]
+    cmp al, [menu_index]
+    jne .attr_ready
+    mov bl, [menu_selected_attr]
+.attr_ready:
+    mov al, [agent_draw_index]
+    call agent_ptr_from_al
+    call type_z
+    inc byte [agent_draw_index]
+    jmp .next
+.done:
+    ret
+
+draw_agent_options:
+    mov byte [agent_draw_index], 0
+.next:
+    mov al, [agent_draw_index]
+    cmp al, [agent_count]
+    jae .done
+    mov al, question_row
+    add al, [agent_draw_index]
+    mov [cursor_row], al
+    mov al, [seed_col]
+    add al, 2
+    mov [cursor_col], al
+    mov bl, [menu_idle_attr]
+    mov al, [agent_draw_index]
+    cmp al, [menu_index]
+    jne .attr_ready
+    mov bl, [menu_selected_attr]
+.attr_ready:
+    mov al, [agent_draw_index]
+    call agent_ptr_from_al
+    call print_z
+    inc byte [agent_draw_index]
+    jmp .next
+.done:
+    ret
+
+agent_scan_ptr:
+    mov al, [agent_scan_index]
+    call agent_ptr_from_al
+    ret
+
+agent_ptr_from_al:
+    xor ah, ah
+    mov si, ax
+    shl si, 1
+    shl si, 1
+    shl si, 1
+    shl si, 1
+    add si, agent_ids
+    ret
+
 type_menu_options:
     mov byte [cursor_row], question_row
     mov al, [seed_col]
@@ -2501,7 +3159,7 @@ print_z:
 
 blink_load_marker:
     call set_seed_cursor
-    mov bl, [load_attr]
+    mov bl, [load_marker_attr]
     mov al, [load_marker_char]
     xor byte [blink_state], 1
     jnz .show
@@ -2514,6 +3172,7 @@ blink_load_marker:
 
 show_load_marker:
     mov [load_marker_char], al
+    mov [load_marker_attr], bl
     call set_seed_cursor
     mov al, [load_marker_char]
     call print_char
@@ -2524,7 +3183,7 @@ clear_question_area:
     mov bh, 0x07
     mov ch, seed_row
     xor cl, cl
-    mov dh, question_row + 1
+    mov dh, question_row + agent_slot_count
     mov dl, [screen_cols]
     dec dl
     int 0x10
@@ -2582,11 +3241,15 @@ error_attr db error_attr_cga
 menu_selected_attr db menu_selected_attr_cga
 menu_idle_attr db menu_idle_attr_cga
 load_marker_char db ' '
+load_marker_attr db load_attr_cga
 menu_option_a dw 0
 menu_option_b dw 0
 menu_value_a db 0
 menu_value_b db 0
 menu_index db 0
+agent_count db 0
+agent_draw_index db 0
+agent_scan_index db 0
 blink_state db 0
 ne_tx_start db 0
 ne_rx_start db 0
@@ -2615,12 +3278,34 @@ arp_error_code db net_error_arp
 tcp_target_ip times 4 db 0
 fs_lba dw 0
 fs_root_left dw 0
+fs_file_cluster dw 0
+fs_file_size_low dw 0
+fs_file_size_high dw 0
+fs_file_root_lba dw 0
+fs_file_root_offset dw 0
+fs_free_root_found db 0
+fs_free_root_lba dw 0
+fs_free_root_offset dw 0
+fs_current_cluster dw 0
+fs_bytes_left dw 0
+fs_bytes_this dw 0
+fs_line_start db 0
+fs_scan_cluster dw 0
+fs_free_cluster dw 0
 agents_cluster dw 0
 agents_size_low dw 0
 agents_size_high dw 0
+seed_cluster dw 0
+seed_size_low dw 0
+seed_size_high dw 0
+seed_root_lba dw 0
+seed_root_offset dw 0
+seed_cfg_size_current dw 0
 ne_prom times ne_prom_len db 0
 ne_tx_frame times dhcp_rx_frame_len db 0
 fs_sector_buffer times 512 db 0
+agent_ids times agent_slot_count * agent_id_len db 0
+seed_agent_id times agent_id_len db 0
 dns_qname db 7, 'example', 3, 'com', 0
 seed_text db 'seed', 0
 build_text db 'build ', '0' + build_number, 0
@@ -2635,7 +3320,9 @@ adapter_ne1000_text db 'ne1000', 0
 adapter_3c501_text db '3c501', 0
 adapter_wd8003_text db 'wd8003', 0
 agents_cfg_name db 'AGENTS  CFG'
+seed_cfg_name db 'SEED    CFG'
 agent_prefix_text db 'agent '
+agent_prompt_text db 'agent?', 0
 disk_sectors_per_track db 8
 nic_ports dw 0x250, 0x280, 0x2a0, 0x2c0, 0x2e0
           dw 0x300, 0x310, 0x320, 0x330, 0x340

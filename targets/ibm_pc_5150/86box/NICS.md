@@ -16,8 +16,8 @@ ARPs the TCP next hop, sends a TCP SYN to port 80, and waits for a matching
 SYN-ACK.
 
 Build 6 adds the bright `"o"` agent-prep checkpoint. The current ready screen
-also proves that the FAT12 root `AGENTS.CFG` file was found and its first
-cluster began with an agent declaration.
+also proves that the FAT12 root `AGENTS.CFG` file was parsed and that the
+selected agent came from either valid `SEED.CFG` state or the `agent?` menu.
 
 ## IBM PC 5150 Candidates
 
@@ -83,7 +83,8 @@ rtl8139c+            Realtek RTL8139C+
 All current 5150 candidate profiles were boot-tested for Build 5 on
 26 April 2026. The NE-family profiles complete the full Build 5 outbound proof;
 the 3Com and WD8003 profiles complete handoff/MAC validation. Current Build 6
-expectations add FAT12 `AGENTS.CFG` validation before the ready screen.
+expectations add FAT12 `AGENTS.CFG` parsing and selected-agent validation
+before the ready screen.
 
 ```text
 vm                   no network card; expected: + no network card, retry/restart menu

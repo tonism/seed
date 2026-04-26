@@ -3,7 +3,7 @@ cpu 8086
 org 0x7c00
 
 %ifndef STAGE2_SECTORS
-%define STAGE2_SECTORS 13
+%define STAGE2_SECTORS 16
 %endif
 
 jmp short start

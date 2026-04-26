@@ -23,18 +23,19 @@ The current boot image is a minimal FAT12 floppy:
 
 ```text
 sector 1       stage 1 boot sector with FAT12 BPB
-sectors 2-14   stage 2 boot core in reserved sectors
-sectors 15-16  FAT copies
-sectors 17-20  root directory
-sector 21+     file data
+sectors 2-17   stage 2 boot core in reserved sectors
+sectors 18-19  FAT copies
+sectors 20-23  root directory
+sector 24+     file data
 ```
 
 Build 6 is the agent-prep milestone. The current checkpoint keeps build 5's
 internet-readiness path, adds a FAT12 boot image, ships tracked agent interface
-declarations in `AGENTS.CFG`, reserves ignored local user state in `SEED.CFG`,
-and verifies `AGENTS.CFG` during the bright `"o"` phase before showing
-`seed build 6`. Credentials, TLS, model API calls, session creation, and
-environment handover remain later build 6 work.
+declarations in `AGENTS.CFG`, reads optional ignored local user state from
+`SEED.CFG`, asks `agent?` when the saved agent choice is missing or invalid,
+and writes `agent <id>` back best-effort after validation. Credentials, TLS,
+model API calls, session creation, and environment handover remain later
+build 6 work.
 
 Build 5 completed the internet-readiness milestone. It initializes
 NE1000/NE2000-family packet hardware after a valid MAC read, reads one pending
@@ -112,6 +113,7 @@ Stored user config is optional. Missing, unreadable, unparseable, or invalid
 config means ask the user. Failed writes are ignored so read-only boot media
 remain usable.
 
-`AGENTS.CFG` is shipped with Seed and describes available agent interfaces.
-`SEED.CFG` is ignored local state for validated user choices and secrets; if it
-is missing or unusable, Seed should ask and continue.
+`AGENTS.CFG` is shipped with Seed and describes five available agent
+interfaces: two gateways followed by three direct vendors. `SEED.CFG` is
+ignored local state for validated user choices and secrets; if it is missing or
+unusable, Seed should ask and continue.

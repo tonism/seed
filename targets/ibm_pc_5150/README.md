@@ -31,8 +31,10 @@ BIOS loads boot sector
   -> selects and ARPs the TCP next hop
   -> sends a TCP SYN to port 80 and waits for a matching SYN-ACK
   -> switches to a bright o marker for agent prep
-  -> reads the FAT12 root directory and finds AGENTS.CFG
-  -> reads the first AGENTS.CFG cluster and validates the agent declaration header
+  -> reads AGENTS.CFG and parses up to five agent declarations
+  -> reads SEED.CFG when present and validates the saved agent choice
+  -> asks agent? when the saved choice is missing or invalid
+  -> writes the validated agent choice back best-effort
   -> otherwise types seed build 6 rightward from that column
   -> waits about 500 ms
   -> halts
@@ -43,10 +45,10 @@ reserved sectors:
 
 ```text
 sector 1       stage 1 boot sector with FAT12 BPB
-sectors 2-14   stage 2 boot core in reserved sectors
-sectors 15-16  FAT copies
-sectors 17-20  root directory
-sector 21+     file data
+sectors 2-17   stage 2 boot core in reserved sectors
+sectors 18-19  FAT copies
+sectors 20-23  root directory
+sector 24+     file data
 ```
 
 `AGENTS.CFG` is shipped in the FAT12 root directory from `config/AGENTS.CFG`.
@@ -93,10 +95,11 @@ and waits for a matching SYN-ACK.
 
 Build 6 is the agent-prep milestone. The current checkpoint keeps the build 5
 internet path intact and adds the first filesystem-backed agent setup check:
-stage 2 reads the FAT12 root directory, finds `AGENTS.CFG`, reads its first
-cluster, and validates that it begins with an `agent ` declaration. Missing or
-invalid agent declarations fail in the bright `"o"` phase as `agent setup
-failed`.
+stage 2 reads `AGENTS.CFG`, parses up to five `agent ` declarations, reads
+`SEED.CFG` when present, validates a saved `agent <id>`, asks `agent?` when the
+saved choice is missing or invalid, and writes the validated choice back
+best-effort. Missing or invalid agent declarations fail in the bright `"o"`
+phase as `agent setup failed`.
 
 The boot path does not switch video modes. It keeps the BIOS-provided text
 mode, reads the active column count, and uses that value for clearing and for
@@ -111,6 +114,7 @@ internet prep   dim "o"
 agent prep      bright "o"
 failure         +, low descending PC speaker tone, fast-typed no network card, then retry/restart
 question        phase-colored blinking marker, low PC speaker attention tone, bright fast-typed prompt ending with ?
+agent question  agent? with five AGENTS.CFG entries when SEED.CFG has no valid agent choice
 success         " " -> dim "." -> dim "o" -> bright "o" -> seed build 6
 ```
 
