@@ -30,8 +30,9 @@ sector 9+     zero-filled padding
 Build 5 is the internet-readiness milestone. The current checkpoint keeps build
 4's NIC identity handoff, extends the handoff block for network readiness,
 initializes NE1000/NE2000-family packet hardware after a valid MAC read,
-transmits one controlled Ethernet frame, and polls the receive ring pointers.
-DHCP, DNS, and outbound reachability remain in the same build 5 scope.
+transmits one controlled Ethernet frame, and reads one pending receive-ring
+frame when available. DHCP, DNS, and outbound reachability remain in the same
+build 5 scope.
 
 If no card responds, Seed shows `+ no network card` with a low PC speaker
 failure tone. If the responding I/O base maps cleanly to one supported card, it

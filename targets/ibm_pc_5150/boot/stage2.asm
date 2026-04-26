@@ -42,9 +42,11 @@ net_status_identity_ready equ 1
 net_status_packet_ready equ 2
 net_status_tx_probe_sent equ 3
 net_status_rx_poll_ready equ 4
+net_status_rx_frame_read equ 5
 net_error_none equ 0
 net_error_ne_init equ 1
 net_error_ne_tx equ 2
+net_error_ne_rx equ 3
 seed_attr_cga equ 0x0f
 build_attr_cga equ 0x08
 load_attr_cga equ 0x0f
@@ -103,7 +105,10 @@ ne_isr_ptx equ 0x02
 ne_dcr_bytewide equ 0x48
 ne_prom_len equ 32
 ne_tx_probe_len equ 60
+ne_rx_header_len equ 4
+ne_rx_sample_len equ 64
 ne_rcr_broadcast equ 0x04
+ne_rsr_prx equ 0x01
 ne_tcr_loopback equ 0x02
 ne_tx_start_1k equ 0x20
 ne_rx_start_1k equ 0x26
@@ -635,7 +640,7 @@ prepare_network_path:
     jc .done
     call ne_transmit_probe_frame
     jc .done
-    call ne_poll_receive_ring
+    call ne_try_receive_frame
 .done:
     ret
 
@@ -866,7 +871,64 @@ build_ne_probe_frame:
     rep stosb
     ret
 
-ne_poll_receive_ring:
+ne_try_receive_frame:
+    call ne_read_ring_pointers
+    call ne_select_next_rx_page
+    mov al, [ne_next_page]
+    cmp al, [ne_current_page]
+    jne .packet_waiting
+    mov byte [handoff_addr + handoff_net_status], net_status_rx_poll_ready
+    clc
+    ret
+
+.packet_waiting:
+    xor bl, bl
+    mov bh, [ne_next_page]
+    mov cx, ne_rx_header_len
+    mov di, ne_rx_header
+    call ne_remote_read_bytes
+    jc .failed
+
+    mov al, [ne_rx_header + 1]
+    cmp al, [ne_rx_start]
+    jb .failed
+    cmp al, [ne_rx_stop]
+    jae .failed
+
+    test byte [ne_rx_header], ne_rsr_prx
+    jz .release_frame
+
+    mov al, [ne_rx_header + 2]
+    mov ah, [ne_rx_header + 3]
+    mov [ne_rx_count], ax
+    or ax, ax
+    jz .release_frame
+    cmp ax, ne_rx_sample_len
+    jbe .sample_count_ready
+    mov ax, ne_rx_sample_len
+.sample_count_ready:
+    mov [ne_rx_sample_count], ax
+
+    mov bl, ne_rx_header_len
+    mov bh, [ne_next_page]
+    mov cx, ax
+    mov di, ne_rx_sample
+    call ne_remote_read_bytes
+    jc .failed
+
+    mov byte [handoff_addr + handoff_net_status], net_status_rx_frame_read
+
+.release_frame:
+    call ne_release_rx_frame
+    clc
+    ret
+
+.failed:
+    mov byte [handoff_addr + handoff_net_error], net_error_ne_rx
+    stc
+    ret
+
+ne_read_ring_pointers:
     mov dx, [handoff_addr + handoff_nic_base]
     add dx, ne_cr
     mov al, ne_cmd_start_page1
@@ -886,8 +948,83 @@ ne_poll_receive_ring:
     add dx, ne_bnry
     in al, dx
     mov [ne_boundary_page], al
+    ret
 
-    mov byte [handoff_addr + handoff_net_status], net_status_rx_poll_ready
+ne_select_next_rx_page:
+    mov al, [ne_boundary_page]
+    inc al
+    cmp al, [ne_rx_stop]
+    jb .selected
+    mov al, [ne_rx_start]
+.selected:
+    mov [ne_next_page], al
+    ret
+
+ne_release_rx_frame:
+    mov al, [ne_rx_header + 1]
+    dec al
+    cmp al, [ne_rx_start]
+    jae .write_boundary
+    mov al, [ne_rx_stop]
+    dec al
+.write_boundary:
+    mov [ne_boundary_page], al
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, ne_bnry
+    out dx, al
+    ret
+
+ne_remote_read_bytes:
+    mov [ne_dma_addr], bx
+    mov [ne_dma_count], cx
+
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, ne_isr
+    mov al, ne_isr_rdc
+    out dx, al
+
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, ne_rbcr0
+    mov ax, [ne_dma_count]
+    out dx, al
+    inc dx
+    mov al, ah
+    out dx, al
+
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, ne_rsar0
+    mov ax, [ne_dma_addr]
+    out dx, al
+    inc dx
+    mov al, ah
+    out dx, al
+
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, ne_cr
+    mov al, ne_cmd_remote_read
+    out dx, al
+
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, ne_data
+    mov cx, [ne_dma_count]
+.read_byte:
+    in al, dx
+    stosb
+    loop .read_byte
+
+    mov cx, 0xffff
+.wait_dma:
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, ne_isr
+    in al, dx
+    test al, ne_isr_rdc
+    jnz .done
+    loop .wait_dma
+    stc
+    ret
+.done:
+    mov al, ne_isr_rdc
+    out dx, al
     clc
     ret
 
@@ -1040,8 +1177,15 @@ ne_rx_start db 0
 ne_rx_stop db 0
 ne_current_page db 0
 ne_boundary_page db 0
+ne_next_page db 0
+ne_rx_header times ne_rx_header_len db 0
+ne_rx_count dw 0
+ne_rx_sample_count dw 0
+ne_dma_addr dw 0
+ne_dma_count dw 0
 ne_prom times ne_prom_len db 0
 ne_tx_frame times ne_tx_probe_len db 0
+ne_rx_sample times ne_rx_sample_len db 0
 seed_text db 'seed', 0
 build_text db 'build ', '0' + build_number, 0
 network_error_text db 'no network card', 0

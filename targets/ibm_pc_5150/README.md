@@ -20,7 +20,7 @@ BIOS loads boot sector
   -> reads station-address PROMs into handoff when valid
   -> initializes NE1000/NE2000-family packet hardware
   -> sends one NE1000/NE2000-family Ethernet proof frame
-  -> polls NE1000/NE2000-family receive-ring pointers
+  -> reads one NE1000/NE2000-family pending receive-ring frame when available
   -> otherwise types seed build 5 rightward from that column
   -> waits about 500 ms
   -> halts
@@ -66,9 +66,9 @@ family is known; real IRQ discovery is later scope.
 
 The current build 5 checkpoint initializes NE1000/NE2000-family packet hardware
 after a valid MAC read, sends one controlled Ethernet proof frame, polls the
-receive-ring pointers, and records that readiness in the handoff block. DHCP,
-DNS, and outbound reachability remain in build 5 scope but are not implemented
-yet.
+receive-ring pointers, reads one pending receive frame when available, and
+records that readiness in the handoff block. DHCP, DNS, and outbound
+reachability remain in build 5 scope but are not implemented yet.
 
 The boot path does not switch video modes. It keeps the BIOS-provided text
 mode, reads the active column count, and uses that value for clearing and for
