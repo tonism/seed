@@ -114,10 +114,11 @@ Build 5 extends the block for internet readiness. The current checkpoint marks
 adapter identity readiness for all resolved NICs, then advances
 NE1000/NE2000-family cards through packet hardware readiness, receive-ring poll
 readiness, one receive-frame read when a packet is already pending,
-DHCPDISCOVER transmit, and opportunistic DHCPOFFER parsing. The NE receive
-path records separate DMA, ring-header, and byte-count failures so DHCP wait
-behavior can be diagnosed without changing user-facing text. When status is 7,
-the IP, router, and DNS fields contain byte-order IPv4 values copied from the
-offer. That is not yet an accepted lease; DHCPREQUEST/ACK handling remains in
-build 5 scope. If no offer is observed during the bounded poll, the boot can
-still continue with status 6 and network error 4.
+DHCPDISCOVER transmit, and a bounded packet-filtered DHCPOFFER wait. The NE
+receive path records separate DMA, ring-header, and byte-count failures so DHCP
+wait behavior can be diagnosed without changing user-facing text. Nonmatching
+packets are discarded while the wait remains bounded. When status is 7, the IP,
+router, and DNS fields contain byte-order IPv4 values copied from the offer.
+That is not yet an accepted lease; DHCPREQUEST/ACK handling remains in build 5
+scope. If no offer is observed during the bounded wait, the boot can still
+continue with status 6 and network error 4.

@@ -31,9 +31,10 @@ Build 5 is the internet-readiness milestone. The current checkpoint keeps build
 4's NIC identity handoff, extends the handoff block for network readiness,
 initializes NE1000/NE2000-family packet hardware after a valid MAC read,
 reads one pending receive-ring frame when available, and sends a minimal
-DHCPDISCOVER. It then performs a short bounded DHCPOFFER poll and records the
-offered IPv4 address, router, and DNS server when one is observed. DHCP lease
-acceptance, DNS, and outbound reachability remain in the same build 5 scope.
+DHCPDISCOVER. It then performs a bounded packet-filtered DHCPOFFER wait and
+records the offered IPv4 address, router, and DNS server when one is observed.
+DHCP lease acceptance, DNS, and outbound reachability remain in the same build
+5 scope.
 
 If no card responds, Seed shows `+ no network card` with a low PC speaker
 failure tone, then offers `retry` or `restart`. Retry returns to the dark `.`

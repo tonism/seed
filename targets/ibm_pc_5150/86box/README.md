@@ -144,6 +144,6 @@ phase without rereading floppy sectors; restart performs a warm machine restart.
 `vm-net-ne1k` and
 `vm-net-ne2k8` showed the adapter prompt, accepted their NE family, initialized
 packet hardware, checked the receive-ring read path, sent DHCPDISCOVER, and
-performed a short bounded DHCPOFFER poll without requiring an offer before
-advancing to `seed build 5`. `vm-net-3c503` preserved the non-NE handoff path
-and advanced to `seed build 5`.
+performed a bounded packet-filtered DHCPOFFER wait without requiring an offer
+before advancing to `seed build 5`. `vm-net-3c503` preserved the non-NE handoff
+path and advanced to `seed build 5`.

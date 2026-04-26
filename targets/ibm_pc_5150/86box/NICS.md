@@ -7,9 +7,9 @@ resolving the adapter family when the base is ambiguous, and reads 3c501,
 when they validate. It also records IRQ 3 for the current 5150 86Box profiles
 after adapter family resolution. The current build 5 packet path initializes
 NE1000/NE2000-family hardware, checks the receive-ring read path, and sends a
-minimal DHCPDISCOVER. It then performs a short bounded DHCPOFFER poll and
-parses the offered IPv4 address, router, and DNS server when one is observed.
-DHCP lease acceptance, DNS, and outbound reachability are next.
+minimal DHCPDISCOVER. It then performs a bounded packet-filtered DHCPOFFER wait
+and parses the offered IPv4 address, router, and DNS server when one is
+observed. DHCP lease acceptance, DNS, and outbound reachability are next.
 
 ## IBM PC 5150 Candidates
 
@@ -77,9 +77,9 @@ vm                   no network card; expected: + no network card, retry/restart
 vm-mda               no network card, MDA; expected: + no network card, retry/restart menu
 vm-net-3c501         3Com EtherLink; expected: adapter prompt, MAC read, then seed build 5
 vm-net-3c503         3Com EtherLink II; expected: MAC read, then seed build 5
-vm-net-ne1k          NE1000-compatible; expected: adapter prompt, MAC read, RX read check, DHCPDISCOVER, bounded DHCPOFFER poll, then seed build 5
-vm-net-ne2k8         8-bit NE2000-compatible; expected: adapter prompt, MAC read, RX read check, DHCPDISCOVER, bounded DHCPOFFER poll, then seed build 5
-vm-net-novell-ne1k   Novell NE1000; expected: adapter prompt, MAC read, RX read check, DHCPDISCOVER, bounded DHCPOFFER poll, then seed build 5
+vm-net-ne1k          NE1000-compatible; expected: adapter prompt, MAC read, RX read check, DHCPDISCOVER, bounded DHCPOFFER wait, then seed build 5
+vm-net-ne2k8         8-bit NE2000-compatible; expected: adapter prompt, MAC read, RX read check, DHCPDISCOVER, bounded DHCPOFFER wait, then seed build 5
+vm-net-novell-ne1k   Novell NE1000; expected: adapter prompt, MAC read, RX read check, DHCPDISCOVER, bounded DHCPOFFER wait, then seed build 5
 vm-net-wd8003e       Western Digital WD8003E; expected: adapter prompt, MAC read, then seed build 5
 vm-net-wd8003eb      Western Digital WD8003EB; expected: adapter prompt, MAC read, then seed build 5
 ```

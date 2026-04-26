@@ -40,11 +40,10 @@ TCP or chosen transport reachability proof
 ```
 
 Current build 5 checkpoints completed: NE-family packet hardware init,
-bounded receive polling, receive-path diagnostics, DHCPDISCOVER transmit, and
-opportunistic DHCPOFFER parsing into the handoff block. Lease acceptance, DNS,
-and outbound reachability are still open. The current DHCPOFFER poll remains
-intentionally short; a longer wait loop should filter packet headers before it
-reads larger frames from the receive ring.
+bounded receive polling, receive-path diagnostics, DHCPDISCOVER transmit, and a
+bounded packet-filtered DHCPOFFER wait that records offer details in the
+handoff block when one is observed. Lease acceptance, DNS, and outbound
+reachability are still open.
 
 TLS, model API calls, agent session creation, and environment handover belong
 to build 6 unless build 5 proves that a different split is required.
