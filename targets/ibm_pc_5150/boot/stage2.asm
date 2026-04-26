@@ -166,6 +166,9 @@ start:
     mov al, ' '
     call show_load_marker
 
+hal_start:
+    call clear_question_area
+    call reset_hal_state
     mov bl, [load_attr]
     mov al, '.'
     call show_load_marker
@@ -174,7 +177,7 @@ start:
 
     call resolve_network_config
     call read_network_address
-    call prepare_adapter_path
+    call prepare_hal_path
     jc network_setup_error
 
     mov bl, [load_attr]
@@ -186,6 +189,8 @@ start:
     mov bl, [ready_attr]
     mov al, 'o'
     call show_load_marker
+    call prepare_agent_path
+    jc network_setup_error
     mov byte [handoff_addr + handoff_status], handoff_status_ready
     mov cx, load_ticks
     call wait_ticks
@@ -473,7 +478,7 @@ ask_failure_action:
 .accept:
     cmp byte [menu_index], 0
     jne restart_machine
-    jmp start
+    jmp hal_start
 
 restart_machine:
     mov word [0x0472], 0x1234
@@ -699,7 +704,17 @@ validate_handoff_mac:
     stc
     ret
 
-prepare_adapter_path:
+reset_hal_state:
+    and word [handoff_addr + handoff_flags], handoff_flag_mda
+    mov di, handoff_addr + handoff_nic_base
+    xor ax, ax
+    mov cx, (handoff_size_bytes - handoff_nic_base) / 2
+    rep stosw
+    mov byte [handoff_addr + handoff_status], handoff_status_booting
+    mov byte [blink_state], 0
+    ret
+
+prepare_hal_path:
     mov byte [handoff_addr + handoff_net_status], net_status_identity_ready
     mov al, [handoff_addr + handoff_nic_family]
     cmp al, family_ne1000
@@ -731,6 +746,10 @@ prepare_internet_path:
     jc .done
     call ne_wait_for_dhcp_offer
 .done:
+    ret
+
+prepare_agent_path:
+    clc
     ret
 
 init_ne_packet_io:

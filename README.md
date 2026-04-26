@@ -36,11 +36,11 @@ offered IPv4 address, router, and DNS server when one is observed. DHCP lease
 acceptance, DNS, and outbound reachability remain in the same build 5 scope.
 
 If no card responds, Seed shows `+ no network card` with a low PC speaker
-failure tone, then offers `retry` or `restart`. Retry restarts stage 2 probing
-without rereading the floppy; restart asks BIOS for a warm machine restart. If
-the responding I/O base maps cleanly to one supported card, Seed fast-types
-`seed build 5`. If the base is shared by multiple 86Box adapters, it pauses on
-a dim `.` and asks `adapter?` before continuing.
+failure tone, then offers `retry` or `restart`. Retry returns to the dark `.`
+HAL setup phase without rereading the floppy; restart asks BIOS for a warm
+machine restart. If the responding I/O base maps cleanly to one supported card,
+Seed fast-types `seed build 5`. If the base is shared by multiple 86Box
+adapters, it pauses on a dim `.` and asks `adapter?` before continuing.
 
 ## Build
 

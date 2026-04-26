@@ -10,22 +10,23 @@ BIOS loads boot sector
   -> stage 1 loads the fixed-sector stage 2 boot core
   -> stage 2 reads the current BIOS text-mode column count
   -> stage 2 clears text mode
-  -> shows the reset-prep load marker at the centered project start column
-  -> switches to a dim . marker for local machine and adapter readiness
+  -> shows the project-init load marker at the centered project start column
+  -> switches to a dim . marker for HAL setup
   -> probes common ISA network card I/O bases
   -> records the responding NIC I/O base if one is found
   -> publishes boot, video, and NIC state to the handoff block at 0000:0600
   -> shows + no network card and plays a low failure tone if no card responds
-  -> offers retry/restart after a critical failure
+  -> offers retry/restart after a critical failure; retry returns to HAL setup
   -> asks for adapter family when the responding I/O base is ambiguous
   -> records the current 86Box profile IRQ after adapter family resolution
   -> reads station-address PROMs into handoff when valid
   -> initializes NE1000/NE2000-family packet hardware
   -> reads one NE1000/NE2000-family pending receive-ring frame when available
-  -> switches to a dim o marker for internet readiness
+  -> switches to a dim o marker for internet prep
   -> sends one NE1000/NE2000-family DHCPDISCOVER
   -> performs a short bounded DHCPOFFER poll and parses it when available
-  -> switches to a bright o marker before the ready splash
+  -> switches to a bright o marker for agent prep
+  -> currently performs no build-6 agent prep work
   -> otherwise types seed build 5 rightward from that column
   -> waits about 500 ms
   -> halts
@@ -83,14 +84,17 @@ the centered project-name anchor.
 The first screen text is hardcoded in the boot sector for now:
 
 ```text
-reset prep      " "
-adapter phase   dim "."
-internet phase  dim "o"
-ready gate      bright "o"
+project init    " "
+HAL setup       dim "."
+internet prep   dim "o"
+agent prep      bright "o"
 failure         +, low descending PC speaker tone, fast-typed no network card, then retry/restart
 question        phase-colored blinking marker, low PC speaker attention tone, bright fast-typed prompt ending with ?
 success         " " -> dim "." -> dim "o" -> bright "o" -> seed build 5
 ```
+
+The splash is only the ready handoff animation. No hardware setup, network
+negotiation, agent setup, or environment setup happens during the splash.
 
 Adapter prompts:
 

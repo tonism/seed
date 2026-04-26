@@ -1,14 +1,17 @@
 # Build Scope
 
-Seed's loading marker has three semantic phases with four visible states:
+Seed's loading marker has four semantic phases plus the final splash:
 
 ```text
-" "          Seed reset prep; retry returns here
-"." dark     local machine and adapter readiness
-"o" dark     internet readiness
-"o" bright   agent/environment readiness
-splash       ready handoff
+" "          project init: boot-sector load, stage 2 entry, display setup
+"." dark     HAL setup: hardware detection, adapter init, hardware handoff
+"o" dark     internet prep: network configuration and reachability
+"o" bright   agent prep: gateway, key, session, and environment setup
+splash       ready handoff animation; no loading work happens here
 ```
+
+`retry` returns to the dark `"."` HAL setup phase. It does not rerun the
+project-init phase or reread floppy sectors.
 
 Builds can be larger than individual internal checkpoints. A build should map
 to a user-visible readiness goal; commits inside that build can still be small.
@@ -18,10 +21,10 @@ to a user-visible readiness goal; commits inside that build can still be small.
 ```text
 build 1   boot floppy proof
 build 2   loading animation and fast-type banner
-build 3   " " phase: Seed reset and machine-readiness baseline
-build 4   "." dark phase: NIC identity and adapter config handoff
+build 3   " " phase: project init and machine-readiness baseline
+build 4   "." dark phase: HAL setup and adapter handoff
 build 5   "o" dark phase: internet readiness
-build 6   "o" bright phase: agent connection and environment handover
+build 6   "o" bright phase: agent prep and environment handover
 ```
 
 Build 5 is intentionally broad. It should end when Seed can bring up a network

@@ -52,14 +52,17 @@ targets/ibm_pc_5150/86box/NICS.md
 Expected first screen:
 
 ```text
-reset prep      " " at centered project start for active text columns
-adapter phase   dim "." for local machine and adapter readiness
-internet phase  dim "o" for internet readiness
-ready gate      bright "o" before the splash
+project init    " " at centered project start for active text columns
+HAL setup       dim "." for hardware detection and adapter initialization
+internet prep   dim "o" for network configuration and reachability
+agent prep      bright "o" for gateway, key, session, and environment setup
 no card         +, low descending PC speaker tone, fast-typed no network card, then retry/restart
 question        phase-colored blinking marker, low PC speaker attention tone, bright fast-typed prompt ending with ?
 success         " " -> dim "." -> dim "o" -> bright "o" -> seed build 5
 ```
+
+The splash is only the ready handoff animation. No setup work happens during
+the splash.
 
 Build 5 adapter prompts ask `adapter?` in bright text. Menu selection still uses
 color: the selected adapter is bright and the inactive adapter is dim; Up and
@@ -136,8 +139,8 @@ restart
 
 On MDA, the error is expected to render bright because monochrome adapters do
 not have red. The no-card path also plays the low failure tone through the PC
-speaker using the PIT rather than the BIOS bell. Retry reruns stage 2 probing
-without rereading floppy sectors; restart performs a warm machine restart.
+speaker using the PIT rather than the BIOS bell. Retry returns to the HAL setup
+phase without rereading floppy sectors; restart performs a warm machine restart.
 `vm-net-ne1k` and
 `vm-net-ne2k8` showed the adapter prompt, accepted their NE family, initialized
 packet hardware, checked the receive-ring read path, sent DHCPDISCOVER, and
