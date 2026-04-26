@@ -2,10 +2,10 @@ bits 16
 org 0x8000
 
 %ifndef STAGE2_SECTORS
-%define STAGE2_SECTORS 4
+%define STAGE2_SECTORS 7
 %endif
 
-build_number equ 4
+build_number equ 5
 handoff_addr equ 0x0600
 handoff_magic equ 0
 handoff_version equ 4
@@ -22,8 +22,13 @@ handoff_config_source equ 17
 handoff_nic_irq equ 18
 handoff_mac equ 19
 handoff_status equ 25
-handoff_size_bytes equ 26
-handoff_struct_version equ 1
+handoff_net_status equ 26
+handoff_net_error equ 27
+handoff_ip_addr equ 28
+handoff_router_addr equ 32
+handoff_dns_addr equ 36
+handoff_size_bytes equ 40
+handoff_struct_version equ 2
 handoff_flag_mda equ 0x0001
 handoff_flag_nic_present equ 0x0002
 handoff_flag_config_resolved equ 0x0004
@@ -31,6 +36,12 @@ handoff_flag_mac_valid equ 0x0008
 handoff_status_booting equ 1
 handoff_status_no_nic equ 2
 handoff_status_ready equ 3
+handoff_status_network_failed equ 4
+net_status_none equ 0
+net_status_identity_ready equ 1
+net_status_packet_ready equ 2
+net_error_none equ 0
+net_error_ne_init equ 1
 seed_attr_cga equ 0x0f
 build_attr_cga equ 0x08
 load_attr_cga equ 0x0f
@@ -66,15 +77,28 @@ ne_cr equ 0x00
 ne_isr equ 0x07
 ne_rsar0 equ 0x08
 ne_rbcr0 equ 0x0a
+ne_tpsr equ 0x04
+ne_rcr equ 0x0c
+ne_tcr equ 0x0d
 ne_dcr equ 0x0e
+ne_imr equ 0x0f
 ne_data equ 0x10
 ne_reset equ 0x1f
 ne_cmd_stop_nodma equ 0x21
 ne_cmd_start_nodma equ 0x22
+ne_cmd_start_page1 equ 0x62
 ne_cmd_remote_read equ 0x0a
 ne_isr_reset equ 0x80
 ne_dcr_bytewide equ 0x48
 ne_prom_len equ 32
+ne_rcr_broadcast equ 0x04
+ne_tcr_loopback equ 0x02
+ne_tx_start_1k equ 0x20
+ne_rx_start_1k equ 0x26
+ne_rx_stop_1k equ 0x40
+ne_tx_start_2k equ 0x40
+ne_rx_start_2k equ 0x46
+ne_rx_stop_2k equ 0x80
 wd_saprom equ 0x08
 
 start:
@@ -104,6 +128,8 @@ start:
     call print_char
     call resolve_network_config
     call read_network_address
+    call prepare_network_path
+    jc network_setup_error
 
     call set_seed_cursor
     mov al, 'o'
@@ -141,6 +167,19 @@ network_error:
     inc byte [cursor_col]
     call notify_failure
     mov si, network_error_text
+    call type_z
+    jmp halt
+
+network_setup_error:
+    mov byte [handoff_addr + handoff_status], handoff_status_network_failed
+    call set_seed_cursor
+    mov bl, [error_attr]
+    mov al, '+'
+    call print_char
+
+    inc byte [cursor_col]
+    call notify_failure
+    mov si, network_setup_error_text
     call type_z
     jmp halt
 
@@ -570,6 +609,128 @@ validate_handoff_mac:
     stc
     ret
 
+prepare_network_path:
+    mov byte [handoff_addr + handoff_net_status], net_status_identity_ready
+    mov al, [handoff_addr + handoff_nic_family]
+    cmp al, family_ne1000
+    je .ne
+    cmp al, family_ne2000
+    je .ne
+    clc
+    ret
+.ne:
+    call init_ne_packet_io
+    ret
+
+init_ne_packet_io:
+    test word [handoff_addr + handoff_flags], handoff_flag_mac_valid
+    jnz .have_mac
+    mov byte [handoff_addr + handoff_net_error], net_error_ne_init
+    stc
+    ret
+.have_mac:
+    mov byte [ne_tx_start], ne_tx_start_2k
+    mov byte [ne_rx_start], ne_rx_start_2k
+    mov byte [ne_rx_stop], ne_rx_stop_2k
+    cmp byte [handoff_addr + handoff_nic_family], family_ne2000
+    je .pages_ready
+    mov byte [ne_tx_start], ne_tx_start_1k
+    mov byte [ne_rx_start], ne_rx_start_1k
+    mov byte [ne_rx_stop], ne_rx_stop_1k
+.pages_ready:
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, ne_cr
+    mov al, ne_cmd_stop_nodma
+    out dx, al
+
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, ne_dcr
+    mov al, ne_dcr_bytewide
+    out dx, al
+
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, ne_rbcr0
+    xor al, al
+    out dx, al
+    inc dx
+    out dx, al
+
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, ne_rcr
+    mov al, ne_rcr_broadcast
+    out dx, al
+
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, ne_tcr
+    mov al, ne_tcr_loopback
+    out dx, al
+
+    mov dx, [handoff_addr + handoff_nic_base]
+    inc dx
+    mov al, [ne_rx_start]
+    out dx, al
+    inc dx
+    mov al, [ne_rx_stop]
+    out dx, al
+    inc dx
+    mov al, [ne_rx_start]
+    out dx, al
+    inc dx
+    mov al, [ne_tx_start]
+    out dx, al
+
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, ne_isr
+    mov al, 0xff
+    out dx, al
+
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, ne_imr
+    xor al, al
+    out dx, al
+
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, ne_cr
+    mov al, ne_cmd_start_page1
+    out dx, al
+
+    mov dx, [handoff_addr + handoff_nic_base]
+    inc dx
+    mov si, handoff_addr + handoff_mac
+    mov cx, 6
+.write_mac:
+    lodsb
+    out dx, al
+    inc dx
+    loop .write_mac
+
+    mov al, [ne_rx_start]
+    inc al
+    out dx, al
+
+    inc dx
+    xor al, al
+    mov cx, 8
+.clear_mar:
+    out dx, al
+    inc dx
+    loop .clear_mar
+
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, ne_cr
+    mov al, ne_cmd_start_nodma
+    out dx, al
+
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, ne_tcr
+    xor al, al
+    out dx, al
+
+    mov byte [handoff_addr + handoff_net_status], net_status_packet_ready
+    mov byte [handoff_addr + handoff_net_error], net_error_none
+    clc
+    ret
+
 render_adapter_question:
     mov byte [cursor_row], seed_row
     mov al, [seed_col]
@@ -714,10 +875,14 @@ menu_value_a db 0
 menu_value_b db 0
 menu_index db 0
 blink_state db 0
+ne_tx_start db 0
+ne_rx_start db 0
+ne_rx_stop db 0
 ne_prom times ne_prom_len db 0
 seed_text db 'seed', 0
 build_text db 'build ', '0' + build_number, 0
 network_error_text db 'no network card', 0
+network_setup_error_text db 'network setup failed', 0
 adapter_prompt_text db 'adapter', 0
 adapter_ne2000_text db 'ne2000', 0
 adapter_ne1000_text db 'ne1000', 0

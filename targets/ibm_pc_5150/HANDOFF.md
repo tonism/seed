@@ -20,8 +20,8 @@ All multi-byte values are little-endian.
 ```text
 offset  size  value
 0x00    4     magic: "SEED"
-0x04    1     structure version: 1
-0x05    1     structure size: 26
+0x04    1     structure version: 2
+0x05    1     structure size: 40
 0x06    2     build number
 0x08    2     flags
 0x0a    1     BIOS boot drive
@@ -34,6 +34,11 @@ offset  size  value
 0x12    1     NIC IRQ, or 0 when unknown
 0x13    6     MAC address, zero until valid
 0x19    1     status
+0x1a    1     network readiness status
+0x1b    1     network error code
+0x1c    4     IPv4 address, zero until configured
+0x20    4     IPv4 router, zero until configured
+0x24    4     IPv4 DNS server, zero until configured
 ```
 
 ## Flags
@@ -70,6 +75,22 @@ offset  size  value
 1  booting
 2  no network card
 3  ready
+4  network setup failed
+```
+
+## Network Readiness Status
+
+```text
+0  none
+1  adapter identity ready
+2  packet hardware ready
+```
+
+## Network Error
+
+```text
+0  none
+1  NE-family packet hardware init failed
 ```
 
 Build 4 fills the block through adapter-family resolution plus 3c501, 3c503,
@@ -77,3 +98,8 @@ NE1000/NE2000, and WD8003 station-address PROM reads. It records IRQ 3 for the
 current 86Box IBM PC 5150 profiles after adapter family resolution; IRQ
 discovery, packet I/O, IP config, TLS, and model API connection are later
 milestones.
+
+Build 5 extends the block for internet readiness. Its first checkpoint marks
+adapter identity readiness for all resolved NICs and packet hardware readiness
+for NE1000/NE2000-family cards after initialization. IP, router, and DNS fields
+remain zero until DHCP or an equivalent network configuration path exists.

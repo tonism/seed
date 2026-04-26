@@ -18,7 +18,8 @@ BIOS loads boot sector
   -> asks for adapter family when the responding I/O base is ambiguous
   -> records the current 86Box profile IRQ after adapter family resolution
   -> reads station-address PROMs into handoff when valid
-  -> otherwise types seed build 4 rightward from that column
+  -> initializes NE1000/NE2000-family packet hardware
+  -> otherwise types seed build 5 rightward from that column
   -> waits about 500 ms
   -> halts
 ```
@@ -27,8 +28,8 @@ The floppy image is intentionally not a filesystem. It contains no files:
 
 ```text
 sector 1      stage 1 boot sector
-sectors 2-5   stage 2 boot core
-sector 6+     zero-filled padding
+sectors 2-8   stage 2 boot core
+sector 9+     zero-filled padding
 ```
 
 Optional persisted user config is a later environment feature, not a dependency
@@ -51,18 +52,20 @@ The stage 2 runtime handoff block is documented in:
 targets/ibm_pc_5150/HANDOFF.md
 ```
 
-Build 4 introduces a fixed-sector stage 2 boot core and treats phase one as
-network hardware discovery. Stage 2 probes common ISA Ethernet I/O bases,
-publishes boot/video/NIC state to a low-memory handoff block, and starts
-resolving an adapter family. Known single-card bases continue automatically.
-Shared bases ask the user to choose the adapter family through a minimal
-color-selected menu. For 3c501, 3c503, NE1000/NE2000-family, and WD8003-family
-cards, stage 2 reads the station-address PROM and marks the MAC valid only
-after rejecting multicast, all-zero, and all-`ff` addresses. Stage 2 also
-records IRQ 3 for the current 86Box IBM PC 5150 profiles once the adapter
-family is known; real IRQ discovery is later scope. This is intentionally still
-a hardware/config handoff only; packet I/O, IP, TLS, and model API calls are
-later milestones.
+Build 5 is the internet-readiness milestone. Stage 2 still probes common ISA
+Ethernet I/O bases, publishes boot/video/NIC state to a low-memory handoff
+block, and resolves the adapter family. Known single-card bases continue
+automatically. Shared bases ask the user to choose the adapter family through a
+minimal color-selected menu. For 3c501, 3c503, NE1000/NE2000-family, and
+WD8003-family cards, stage 2 reads the station-address PROM and marks the MAC
+valid only after rejecting multicast, all-zero, and all-`ff` addresses. Stage 2
+also records IRQ 3 for the current 86Box IBM PC 5150 profiles once the adapter
+family is known; real IRQ discovery is later scope.
+
+The first build 5 checkpoint initializes NE1000/NE2000-family packet hardware
+after a valid MAC read and records packet readiness in the handoff block. DHCP,
+DNS, and outbound reachability remain in build 5 scope but are not implemented
+yet.
 
 The boot path does not switch video modes. It keeps the BIOS-provided text
 mode, reads the active column count, and uses that value for clearing and for
@@ -74,10 +77,10 @@ The first screen text is hardcoded in the boot sector for now:
 phase one       " "
 failure         +, low descending PC speaker tone, fast-typed no network card
 question        low PC speaker attention tone, fast-typed prompt
-success         " " -> "." -> "o" -> seed build 4
+success         " " -> "." -> "o" -> seed build 5
 ```
 
-Build 4 adapter prompts:
+Adapter prompts:
 
 ```text
 0x250       auto 3c503
@@ -90,7 +93,7 @@ Default display attributes:
 
 ```text
 seed       CGA white / MDA bright
-build 4    CGA dark gray / MDA normal
+build 5    CGA dark gray / MDA normal
 error      CGA red / MDA bright
 menu       selected white/bright, inactive dark gray/normal
 ```

@@ -16,27 +16,26 @@ CPU       8088, 4.77 MHz
 media     160 KiB 5.25-inch floppy image
 video     BIOS text mode, no mode switch
 emulator  86Box
-build     seed build 4
+build     seed build 5
 ```
 
 The current boot image is raw sectors, not a filesystem:
 
 ```text
 sector 1      stage 1 boot sector
-sectors 2-5   stage 2 boot core
-sector 6+     zero-filled padding
+sectors 2-8   stage 2 boot core
+sector 9+     zero-filled padding
 ```
 
-Build 4 keeps network hardware discovery in the first loading phase, records the
-responding NIC I/O base, and begins the network configuration handoff. It reads
-the station-address PROM for 3c501, 3c503, NE1000/NE2000-family, and
-WD8003-family cards, then publishes the MAC only when it validates. For the
-current 86Box IBM PC 5150 profiles, it also records the profile IRQ after the
-adapter family is resolved; real IRQ probing is later scope. If no card
-responds, it shows `+ no network card` with a low PC speaker failure tone. If
-the responding I/O base maps cleanly to one supported card, it fast-types `seed
-build 4`. If the base is shared by multiple 86Box adapters, it pauses on `.` and
-asks for the adapter family before continuing.
+Build 5 is the internet-readiness milestone. The first checkpoint keeps build
+4's NIC identity handoff, extends the handoff block for network readiness, and
+initializes NE1000/NE2000-family packet hardware after a valid MAC read. DHCP,
+DNS, and outbound reachability remain in the same build 5 scope.
+
+If no card responds, Seed shows `+ no network card` with a low PC speaker
+failure tone. If the responding I/O base maps cleanly to one supported card, it
+fast-types `seed build 5`. If the base is shared by multiple 86Box adapters, it
+pauses on `.` and asks for the adapter family before continuing.
 
 ## Build
 
@@ -77,6 +76,7 @@ tools/run-86box.sh vm-net-ne2k8
 ```text
 Makefile                         build raw 160 KiB floppy image
 docs/config.md                   optional user config policy
+docs/builds.md                   loading phase and build scope map
 docs/ui.md                       text UI and fast-type rules
 targets/ibm_pc_5150/README.md    current target details
 targets/ibm_pc_5150/HANDOFF.md   current low-memory runtime handoff block

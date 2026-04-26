@@ -55,10 +55,10 @@ Expected first screen:
 phase one       " " at centered project start for active text columns
 no card         +, low descending PC speaker tone, fast-typed no network card
 question        low PC speaker attention tone, fast-typed prompt
-success         " " -> "." -> "o" -> seed build 4
+success         " " -> "." -> "o" -> seed build 5
 ```
 
-Build 4 adapter prompts use color for selection. The selected adapter is bright
+Build 5 adapter prompts use color for selection. The selected adapter is bright
 and the inactive adapter is dim; Up and Down toggle the selected row, and Enter
 accepts it.
 
@@ -82,13 +82,13 @@ Default CGA colors:
 
 ```text
 seed       white
-build 4    dark gray
+build 5    dark gray
 error      red
 menu       selected white, inactive dark gray
 ```
 
 The floppy is a raw boot image, not a DOS filesystem. Sector 1 is the stage 1
-boot sector. Sectors 2-5 are the fixed-sector stage 2 boot core. The remaining
+boot sector. Sectors 2-8 are the fixed-sector stage 2 boot core. The remaining
 sectors are zero-filled padding. There are no files or directory entries.
 
 This launcher builds the floppy and starts a VM profile:
@@ -118,10 +118,8 @@ fdd_01_type = 525_1dd
 fdd_01_check_bpb = 0
 ```
 
-Build 4 was boot-tested on 86Box 5.3 build 8200 on 26 April 2026 with the CGA
-no-card, `vm-net-3c501`, `vm-net-3c503`, `vm-net-ne1k`, `vm-net-ne2k8`,
-`vm-net-novell-ne1k`, `vm-net-wd8003e`, and `vm-net-wd8003eb` configs. The
-no-card screen showed:
+Build 5 was boot-tested on 86Box 5.3 build 8200 on 26 April 2026 with the CGA
+no-card, `vm-net-ne2k8`, and `vm-net-3c503` configs. The no-card screen showed:
 
 ```text
 + no network card
@@ -129,6 +127,7 @@ no-card screen showed:
 
 On MDA, the error is expected to render bright because monochrome adapters do
 not have red. The no-card path also plays the low failure tone through the PC
-speaker using the PIT rather than the BIOS bell. Ambiguous adapter profiles show
-the adapter prompt, use color for selection, and advance to `seed build 4` after
-the correct adapter family is accepted.
+speaker using the PIT rather than the BIOS bell. `vm-net-ne2k8` showed the
+adapter prompt, accepted `ne2000`, initialized packet hardware, and advanced to
+`seed build 5`. `vm-net-3c503` preserved the non-NE handoff path and advanced
+to `seed build 5`.

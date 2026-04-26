@@ -1,11 +1,12 @@
 # 86Box NIC Inventory
 
-Build 4 treats network support as hardware discovery plus an in-memory config
-handoff. Stage 2 probes common ISA Ethernet I/O bases, records the responding
-I/O base, starts resolving the adapter family when the base is ambiguous, and
-reads 3c501, 3c503, NE1000/NE2000, and WD8003 station-address PROMs into the
-handoff block when they validate. It also records IRQ 3 for the current 5150
-86Box profiles after adapter family resolution. Packet I/O is later scope.
+Build 5 treats network support as internet readiness. Stage 2 still probes
+common ISA Ethernet I/O bases, records the responding I/O base, starts
+resolving the adapter family when the base is ambiguous, and reads 3c501,
+3c503, NE1000/NE2000, and WD8003 station-address PROMs into the handoff block
+when they validate. It also records IRQ 3 for the current 5150 86Box profiles
+after adapter family resolution. The first build 5 packet path initializes
+NE1000/NE2000-family hardware; DHCP, DNS, and outbound reachability are next.
 
 ## IBM PC 5150 Candidates
 
@@ -71,13 +72,13 @@ rtl8139c+            Realtek RTL8139C+
 ```text
 vm                   no network card; expected: + no network card
 vm-mda               no network card, MDA; expected: + no network card
-vm-net-3c501         3Com EtherLink; expected: adapter prompt, MAC read, then seed build 4
-vm-net-3c503         3Com EtherLink II; expected: MAC read, then seed build 4
-vm-net-ne1k          NE1000-compatible; expected: adapter prompt, MAC read, then seed build 4
-vm-net-ne2k8         8-bit NE2000-compatible; expected: adapter prompt, MAC read, then seed build 4
-vm-net-novell-ne1k   Novell NE1000; expected: adapter prompt, MAC read, then seed build 4
-vm-net-wd8003e       Western Digital WD8003E; expected: adapter prompt, MAC read, then seed build 4
-vm-net-wd8003eb      Western Digital WD8003EB; expected: adapter prompt, MAC read, then seed build 4
+vm-net-3c501         3Com EtherLink; expected: adapter prompt, MAC read, then seed build 5
+vm-net-3c503         3Com EtherLink II; expected: MAC read, then seed build 5
+vm-net-ne1k          NE1000-compatible; expected: adapter prompt, MAC read, packet init, then seed build 5
+vm-net-ne2k8         8-bit NE2000-compatible; expected: adapter prompt, MAC read, packet init, then seed build 5
+vm-net-novell-ne1k   Novell NE1000; expected: adapter prompt, MAC read, packet init, then seed build 5
+vm-net-wd8003e       Western Digital WD8003E; expected: adapter prompt, MAC read, then seed build 5
+vm-net-wd8003eb      Western Digital WD8003EB; expected: adapter prompt, MAC read, then seed build 5
 ```
 
 Run a profile with:
