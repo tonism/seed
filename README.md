@@ -23,8 +23,8 @@ The current boot image is raw sectors, not a filesystem:
 
 ```text
 sector 1      stage 1 boot sector
-sectors 2-11  stage 2 boot core
-sector 12+    zero-filled padding
+sectors 2-12  stage 2 boot core
+sector 13+    zero-filled padding
 ```
 
 Build 5 is the internet-readiness milestone. The current checkpoint keeps build
@@ -32,12 +32,12 @@ Build 5 is the internet-readiness milestone. The current checkpoint keeps build
 initializes NE1000/NE2000-family packet hardware after a valid MAC read,
 reads one pending receive-ring frame when available, and sends a minimal
 DHCPDISCOVER. It then performs a two-pass bounded filtered DHCPOFFER wait and
-records the offered IPv4 address, router, and DNS server when one is observed.
-When an offer is available, it sends DHCPREQUEST and performs a bounded DHCPACK
-wait to mark the lease accepted. After the lease is accepted, it sends an ARP
-request for the DHCP-provided DNS server and records the resolved destination
-MAC. It then sends a minimal DNS query and waits for a matching response.
-Outbound transport reachability remains in the same build 5 scope.
+records the offered IPv4 address, subnet mask, router, and DNS server when one
+is observed. When an offer is available, it sends DHCPREQUEST and performs a
+bounded DHCPACK wait to mark the lease accepted. After the lease is accepted,
+it ARPs for the DHCP-provided DNS server, resolves `example.com`, selects the
+next hop, ARPs that next hop, sends a TCP SYN to port 80, and waits for a
+matching SYN-ACK before leaving the dark `"o"` phase.
 
 If no card responds, Seed shows `+ no network card` with a low PC speaker
 failure tone, then offers `retry` or `restart`. Retry returns to the dark `.`

@@ -27,7 +27,9 @@ BIOS loads boot sector
   -> performs a two-pass filtered DHCPOFFER wait and parses it when available
   -> sends DHCPREQUEST and waits for DHCPACK when an offer is available
   -> sends ARP for the DHCP-provided DNS server after DHCPACK
-  -> sends a minimal DNS query and waits for a matching DNS response
+  -> resolves example.com with a minimal DNS A query
+  -> selects and ARPs the TCP next hop
+  -> sends a TCP SYN to port 80 and waits for a matching SYN-ACK
   -> switches to a bright o marker for agent prep
   -> currently performs no build-6 agent prep work
   -> otherwise types seed build 5 rightward from that column
@@ -39,8 +41,8 @@ The floppy image is intentionally not a filesystem. It contains no files:
 
 ```text
 sector 1      stage 1 boot sector
-sectors 2-11  stage 2 boot core
-sector 12+    zero-filled padding
+sectors 2-12  stage 2 boot core
+sector 13+    zero-filled padding
 ```
 
 Optional persisted user config is a later environment feature, not a dependency
@@ -77,12 +79,12 @@ The current build 5 checkpoint initializes NE1000/NE2000-family packet hardware
 after a valid MAC read, polls the receive-ring pointers, reads one pending
 receive frame when available, sends a minimal DHCPDISCOVER, and performs a
 two-pass bounded filtered DHCPOFFER wait. When a DHCPOFFER is observed, stage 2
-records the offered IPv4 address, router, and DNS server in the handoff block.
-It then sends DHCPREQUEST and performs a bounded DHCPACK wait to mark the lease
-accepted. After DHCPACK, it sends an ARP request for the DHCP-provided DNS
-server and records the resolved MAC internally. It then sends a minimal DNS
-query and waits for a matching response. Endpoint-specific DNS answer parsing
-and outbound transport reachability remain in build 5 scope.
+records the offered IPv4 address, subnet mask, router, and DNS server in the
+handoff block. It then sends DHCPREQUEST and performs a bounded DHCPACK wait to
+mark the lease accepted. After DHCPACK, it sends an ARP request for the
+DHCP-provided DNS server, resolves `example.com`, selects a TCP next hop using
+the DHCP subnet/router data, ARPs that next hop, sends a TCP SYN to port 80,
+and waits for a matching SYN-ACK.
 
 The boot path does not switch video modes. It keeps the BIOS-provided text
 mode, reads the active column count, and uses that value for clearing and for

@@ -3,7 +3,7 @@ cpu 8086
 org 0x8000
 
 %ifndef STAGE2_SECTORS
-%define STAGE2_SECTORS 10
+%define STAGE2_SECTORS 11
 %endif
 
 build_number equ 5
@@ -28,8 +28,9 @@ handoff_net_error equ 27
 handoff_ip_addr equ 28
 handoff_router_addr equ 32
 handoff_dns_addr equ 36
-handoff_size_bytes equ 40
-handoff_struct_version equ 2
+handoff_subnet_addr equ 40
+handoff_size_bytes equ 44
+handoff_struct_version equ 3
 handoff_flag_mda equ 0x0001
 handoff_flag_nic_present equ 0x0002
 handoff_flag_config_resolved equ 0x0004
@@ -52,6 +53,10 @@ net_status_arp_request_sent equ 10
 net_status_arp_resolved equ 11
 net_status_dns_query_sent equ 12
 net_status_dns_response_received equ 13
+net_status_next_hop_arp_request_sent equ 14
+net_status_next_hop_arp_resolved equ 15
+net_status_tcp_syn_sent equ 16
+net_status_tcp_synack_received equ 17
 net_error_none equ 0
 net_error_ne_init equ 1
 net_error_ne_tx equ 2
@@ -63,6 +68,8 @@ net_error_ne_rx_count equ 7
 net_error_dhcp_ack equ 8
 net_error_arp equ 9
 net_error_dns equ 10
+net_error_next_hop_arp equ 11
+net_error_tcp equ 12
 seed_attr_cga equ 0x0f
 build_attr_cga equ 0x08
 load_attr_cga equ 0x08
@@ -163,15 +170,25 @@ arp_sha_offset equ arp_payload_offset + 8
 arp_spa_offset equ arp_payload_offset + 14
 arp_tpa_offset equ arp_payload_offset + 24
 arp_wait_count equ 2
-dns_payload_len equ 17
+dns_qname_len equ 13
+dns_payload_len equ 12 + dns_qname_len + 4
 dns_udp_len equ udp_header_len + dns_payload_len
 dns_ip_len equ ipv4_header_len + dns_udp_len
-dns_tx_frame_len equ 60
+dns_tx_frame_len equ eth_header_len + dns_ip_len
 dns_rx_read_len equ 96
 dns_udp_offset equ eth_header_len + ipv4_header_len
 dns_payload_offset equ dns_udp_offset + udp_header_len
+dns_answer_offset equ dns_payload_offset + dns_payload_len
+dns_answer_rdata_offset equ dns_answer_offset + 12
 dns_query_id_word equ 0x4453
 dns_wait_count equ 3
+tcp_ip_len equ ipv4_header_len + 20
+tcp_tx_frame_len equ 60
+tcp_rx_read_len equ 96
+tcp_offset equ eth_header_len + ipv4_header_len
+tcp_source_port_word equ 0x02c0
+tcp_dest_port_word equ 0x5000
+tcp_wait_count equ 4
 wd_saprom equ 0x08
 
 start:
@@ -793,6 +810,15 @@ prepare_internet_path:
     call ne_wait_for_dns_response
     cmp byte [handoff_addr + handoff_net_status], net_status_dns_response_received
     jne .failed
+    call ne_resolve_tcp_next_hop_arp
+    jc .done
+    cmp byte [handoff_addr + handoff_net_status], net_status_next_hop_arp_resolved
+    jne .failed
+    call ne_transmit_tcp_syn
+    jc .done
+    call ne_wait_for_tcp_synack
+    cmp byte [handoff_addr + handoff_net_status], net_status_tcp_synack_received
+    jne .failed
     clc
 .done:
     ret
@@ -942,7 +968,8 @@ ne_transmit_arp_request:
     mov cx, arp_tx_frame_len
     call ne_transmit_frame
     jc .done
-    mov byte [handoff_addr + handoff_net_status], net_status_arp_request_sent
+    mov al, [arp_status_sent]
+    mov [handoff_addr + handoff_net_status], al
 .done:
     ret
 
@@ -954,6 +981,17 @@ ne_transmit_dns_query:
     call ne_transmit_frame
     jc .done
     mov byte [handoff_addr + handoff_net_status], net_status_dns_query_sent
+.done:
+    ret
+
+ne_transmit_tcp_syn:
+    call build_tcp_syn_frame
+
+    mov si, ne_tx_frame
+    mov cx, tcp_tx_frame_len
+    call ne_transmit_frame
+    jc .done
+    mov byte [handoff_addr + handoff_net_status], net_status_tcp_syn_sent
 .done:
     ret
 
@@ -1327,13 +1365,76 @@ build_dns_query_frame:
     stosw
     stosw
     stosw
-    stosb
-    mov ax, 0x0200
+    mov si, dns_qname
+    mov cx, dns_qname_len
+    rep movsb
+    mov ax, 0x0100
     stosw
     mov ax, 0x0100
     stosw
 
     call write_ipv4_checksum
+    ret
+
+build_tcp_syn_frame:
+    mov di, ne_tx_frame
+    xor al, al
+    mov cx, tcp_tx_frame_len
+    rep stosb
+
+    mov di, ne_tx_frame
+    mov si, arp_target_mac
+    mov cx, 6
+    rep movsb
+
+    mov si, handoff_addr + handoff_mac
+    mov cx, 6
+    rep movsb
+
+    mov ax, 0x0008
+    stosw
+
+    mov ax, 0x0045
+    stosw
+    mov ax, tcp_ip_len << 8
+    stosw
+    xor ax, ax
+    stosw
+    stosw
+    mov ax, 0x0640
+    stosw
+    xor ax, ax
+    stosw
+
+    mov si, handoff_addr + handoff_ip_addr
+    mov cx, 4
+    rep movsb
+
+    mov si, tcp_target_ip
+    mov cx, 4
+    rep movsb
+
+    mov ax, tcp_source_port_word
+    stosw
+    mov ax, tcp_dest_port_word
+    stosw
+    mov ax, 0x4553
+    stosw
+    mov ax, 0x4445
+    stosw
+    xor ax, ax
+    stosw
+    stosw
+    mov ax, 0x0250
+    stosw
+    mov ax, 0x0004
+    stosw
+    xor ax, ax
+    stosw
+    stosw
+
+    call write_ipv4_checksum
+    call write_tcp_checksum
     ret
 
 write_ipv4_checksum:
@@ -1350,6 +1451,42 @@ write_ipv4_checksum:
     adc bx, 0
     not bx
     mov [ne_tx_frame + eth_header_len + 10], bx
+    ret
+
+write_tcp_checksum:
+    xor bx, bx
+    xor dx, dx
+    mov si, handoff_addr + handoff_ip_addr
+    mov cx, 2
+.src_ip:
+    lodsw
+    add bx, ax
+    adc dx, 0
+    loop .src_ip
+    mov si, tcp_target_ip
+    mov cx, 2
+.dst_ip:
+    lodsw
+    add bx, ax
+    adc dx, 0
+    loop .dst_ip
+    mov ax, 0x0600
+    add bx, ax
+    adc dx, 0
+    mov ax, 0x1400
+    add bx, ax
+    adc dx, 0
+    mov si, ne_tx_frame + tcp_offset
+    mov cx, 10
+.tcp_word:
+    lodsw
+    add bx, ax
+    adc dx, 0
+    loop .tcp_word
+    add bx, dx
+    adc bx, 0
+    not bx
+    mov [ne_tx_frame + tcp_offset + 16], bx
     ret
 
 ne_try_receive_frame:
@@ -1512,7 +1649,57 @@ ne_resolve_dns_arp:
     mov di, arp_target_ip
     mov cx, 4
     rep movsb
+    mov byte [arp_status_sent], net_status_arp_request_sent
+    mov byte [arp_status_resolved], net_status_arp_resolved
+    mov byte [arp_error_code], net_error_arp
+    call ne_resolve_arp_target
+    ret
 
+ne_resolve_tcp_next_hop_arp:
+    call select_tcp_next_hop
+    mov byte [arp_status_sent], net_status_next_hop_arp_request_sent
+    mov byte [arp_status_resolved], net_status_next_hop_arp_resolved
+    mov byte [arp_error_code], net_error_next_hop_arp
+    call ne_resolve_arp_target
+    ret
+
+select_tcp_next_hop:
+    mov si, handoff_addr + handoff_subnet_addr
+    mov cx, 4
+    xor al, al
+.check_subnet:
+    or al, [si]
+    inc si
+    loop .check_subnet
+    or al, al
+    jz .router
+
+    mov si, tcp_target_ip
+    mov di, handoff_addr + handoff_ip_addr
+    mov bx, handoff_addr + handoff_subnet_addr
+    mov cx, 4
+.compare_net:
+    lodsb
+    mov ah, [bx]
+    and al, ah
+    mov dl, [di]
+    and dl, ah
+    cmp al, dl
+    jne .router
+    inc bx
+    inc di
+    loop .compare_net
+    mov si, tcp_target_ip
+    jmp .copy
+.router:
+    mov si, handoff_addr + handoff_router_addr
+.copy:
+    mov di, arp_target_ip
+    mov cx, 4
+    rep movsb
+    ret
+
+ne_resolve_arp_target:
     mov si, arp_target_ip
     mov cx, 4
     xor al, al
@@ -1522,7 +1709,8 @@ ne_resolve_dns_arp:
     loop .check_target
     or al, al
     jnz .have_target
-    mov byte [handoff_addr + handoff_net_error], net_error_arp
+    mov al, [arp_error_code]
+    mov [handoff_addr + handoff_net_error], al
     clc
     ret
 .have_target:
@@ -1547,16 +1735,20 @@ ne_wait_for_arp_reply:
     call wait_ticks
     dec word [dhcp_wait_count]
     jnz .poll
-    mov byte [handoff_addr + handoff_net_status], net_status_arp_request_sent
-    mov byte [handoff_addr + handoff_net_error], net_error_arp
+    mov al, [arp_status_sent]
+    mov [handoff_addr + handoff_net_status], al
+    mov al, [arp_error_code]
+    mov [handoff_addr + handoff_net_error], al
     clc
     ret
 .failed:
-    mov byte [handoff_addr + handoff_net_status], net_status_arp_request_sent
+    mov al, [arp_status_sent]
+    mov [handoff_addr + handoff_net_status], al
     clc
     ret
 .done:
-    mov byte [handoff_addr + handoff_net_status], net_status_arp_resolved
+    mov al, [arp_status_resolved]
+    mov [handoff_addr + handoff_net_status], al
     mov byte [handoff_addr + handoff_net_error], net_error_none
     clc
     ret
@@ -1586,6 +1778,35 @@ ne_wait_for_dns_response:
     ret
 .done:
     mov byte [handoff_addr + handoff_net_status], net_status_dns_response_received
+    mov byte [handoff_addr + handoff_net_error], net_error_none
+    clc
+    ret
+
+ne_wait_for_tcp_synack:
+    mov word [ne_rx_read_limit], tcp_rx_read_len
+    mov word [dhcp_wait_count], tcp_wait_count
+.poll:
+    call ne_try_receive_frame
+    jc .failed
+    cmp word [ne_rx_sample_count], 0
+    je .wait
+    call parse_tcp_synack
+    jnc .done
+.wait:
+    mov cx, 2
+    call wait_ticks
+    dec word [dhcp_wait_count]
+    jnz .poll
+    mov byte [handoff_addr + handoff_net_status], net_status_tcp_syn_sent
+    mov byte [handoff_addr + handoff_net_error], net_error_tcp
+    clc
+    ret
+.failed:
+    mov byte [handoff_addr + handoff_net_status], net_status_tcp_syn_sent
+    clc
+    ret
+.done:
+    mov byte [handoff_addr + handoff_net_status], net_status_tcp_synack_received
     mov byte [handoff_addr + handoff_net_error], net_error_none
     clc
     ret
@@ -1638,7 +1859,7 @@ parse_dhcp_offer:
 
     mov di, handoff_addr + handoff_ip_addr
     xor ax, ax
-    mov cx, 6
+    mov cx, 8
     rep stosw
     mov di, dhcp_server_addr
     xor ax, ax
@@ -1669,11 +1890,22 @@ parse_dhcp_offer:
     cmp [dhcp_options_left], ax
     jb .check_type
     cmp byte [dhcp_option_code], 53
-    jne .router
+    jne .subnet
     cmp ax, 1
     jb .skip
     mov al, [si]
     mov [dhcp_message_type], al
+    jmp .skip
+.subnet:
+    cmp byte [dhcp_option_code], 1
+    jne .router
+    cmp ax, 4
+    jb .skip
+    push si
+    mov di, handoff_addr + handoff_subnet_addr
+    mov cx, 4
+    rep movsb
+    pop si
     jmp .skip
 .router:
     cmp byte [dhcp_option_code], 3
@@ -1724,7 +1956,7 @@ parse_dhcp_offer:
 .not_offer:
     mov di, handoff_addr + handoff_ip_addr
     xor ax, ax
-    mov cx, 6
+    mov cx, 8
     rep stosw
     stc
     ret
@@ -1848,7 +2080,7 @@ parse_arp_reply:
     ret
 
 parse_dns_response:
-    cmp word [ne_rx_sample_count], dns_payload_offset + 4
+    cmp word [ne_rx_sample_count], dns_answer_rdata_offset + 4
     jb .not_response
     cmp word [ne_tx_frame + 12], 0x0008
     jne .not_response
@@ -1885,9 +2117,67 @@ parse_dns_response:
     jne .not_response
     test byte [ne_tx_frame + dns_payload_offset + 2], 0x80
     jz .not_response
+    cmp byte [ne_tx_frame + dns_payload_offset + 7], 0
+    je .not_response
+    cmp word [ne_tx_frame + dns_answer_offset], 0x0cc0
+    jne .not_response
+    cmp word [ne_tx_frame + dns_answer_offset + 2], 0x0100
+    jne .not_response
+    cmp word [ne_tx_frame + dns_answer_offset + 4], 0x0100
+    jne .not_response
+    cmp word [ne_tx_frame + dns_answer_offset + 10], 0x0400
+    jne .not_response
+    mov si, ne_tx_frame + dns_answer_rdata_offset
+    mov di, tcp_target_ip
+    mov cx, 4
+    rep movsb
     clc
     ret
 .not_response:
+    stc
+    ret
+
+parse_tcp_synack:
+    cmp word [ne_rx_sample_count], tcp_offset + 20
+    jb .not_synack
+    cmp word [ne_tx_frame + 12], 0x0008
+    jne .not_synack
+    cmp byte [ne_tx_frame + eth_header_len], 0x45
+    jne .not_synack
+    cmp byte [ne_tx_frame + eth_header_len + 9], 6
+    jne .not_synack
+
+    mov si, ne_tx_frame + eth_header_len + 12
+    mov di, tcp_target_ip
+    mov cx, 4
+.check_source_ip:
+    lodsb
+    cmp al, [di]
+    jne .not_synack
+    inc di
+    loop .check_source_ip
+
+    mov si, ne_tx_frame + eth_header_len + 16
+    mov di, handoff_addr + handoff_ip_addr
+    mov cx, 4
+.check_dest_ip:
+    lodsb
+    cmp al, [di]
+    jne .not_synack
+    inc di
+    loop .check_dest_ip
+
+    cmp word [ne_tx_frame + tcp_offset], tcp_dest_port_word
+    jne .not_synack
+    cmp word [ne_tx_frame + tcp_offset + 2], tcp_source_port_word
+    jne .not_synack
+    mov al, [ne_tx_frame + tcp_offset + 13]
+    and al, 0x12
+    cmp al, 0x12
+    jne .not_synack
+    clc
+    ret
+.not_synack:
     stc
     ret
 
@@ -2179,8 +2469,13 @@ dhcp_message_type db 0
 dhcp_server_addr times 4 db 0
 arp_target_ip times 4 db 0
 arp_target_mac times 6 db 0
+arp_status_sent db net_status_arp_request_sent
+arp_status_resolved db net_status_arp_resolved
+arp_error_code db net_error_arp
+tcp_target_ip times 4 db 0
 ne_prom times ne_prom_len db 0
 ne_tx_frame times dhcp_rx_frame_len db 0
+dns_qname db 7, 'example', 3, 'com', 0
 seed_text db 'seed', 0
 build_text db 'build ', '0' + build_number, 0
 network_error_text db 'no network card', 0

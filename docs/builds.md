@@ -40,15 +40,13 @@ DNS resolution
 TCP or chosen transport reachability proof
 ```
 
-Current build 5 checkpoints completed: NE-family packet hardware init,
-bounded receive polling, receive-path diagnostics, DHCPDISCOVER transmit, and a
-two-pass bounded filtered DHCPOFFER wait that records offer details in the
-handoff block when one is observed. When an offer is available, Seed now sends
-DHCPREQUEST and performs a bounded DHCPACK wait to mark the lease accepted.
-After DHCPACK, Seed sends a bounded ARP request for the DHCP-provided DNS server
-and records the resolved MAC, then sends a minimal DNS query and waits for a
-matching response before leaving the dark `"o"` phase. Endpoint-specific DNS
-answer parsing and outbound transport reachability are still open.
+Current build 5 checkpoints completed for the first NE-family path:
+NE-family packet hardware init, bounded receive polling, receive-path
+diagnostics, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DHCP subnet/router/DNS
+capture, DNS-server ARP, DNS A resolution for `example.com`, subnet-aware
+next-hop ARP, TCP SYN transmit to port 80, and SYN-ACK receive. This gives the
+dark `"o"` phase a real outbound reachability proof without starting TLS,
+model API calls, or an agent session.
 
 TLS, model API calls, agent session creation, and environment handover belong
 to build 6 unless build 5 proves that a different split is required.
