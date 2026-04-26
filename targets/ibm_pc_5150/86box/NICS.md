@@ -76,6 +76,11 @@ rtl8139c+            Realtek RTL8139C+
 
 ## Current 5150 Test Profiles
 
+All current 5150 candidate profiles were boot-tested on 26 April 2026. The
+NE-family profiles complete the full Build 5 outbound proof; the 3Com and
+WD8003 profiles currently complete handoff/MAC validation and then reach the
+Build 5 ready screen.
+
 ```text
 vm                   no network card; expected: + no network card, retry/restart menu
 vm-mda               no network card, MDA; expected: + no network card, retry/restart menu

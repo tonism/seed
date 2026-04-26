@@ -128,8 +128,9 @@ fdd_01_check_bpb = 0
 ```
 
 Build 5 was boot-tested on 86Box 5.3 build 8200 on 26 April 2026 with the CGA
-no-card, `vm-net-ne1k`, `vm-net-ne2k8`, `vm-net-novell-ne1k`, and
-`vm-net-3c503` configs. The no-card screen showed:
+no-card, `vm-net-3c501`, `vm-net-3c503`, `vm-net-ne1k`, `vm-net-ne2k8`,
+`vm-net-novell-ne1k`, `vm-net-wd8003e`, and `vm-net-wd8003eb` configs. The
+no-card screen showed:
 
 ```text
 + no network card
@@ -148,5 +149,6 @@ bounded filtered DHCPOFFER wait. When an offer was available, Seed sent
 DHCPREQUEST and performed a bounded DHCPACK wait before sending ARP for the
 DHCP-provided DNS server, resolving `example.com`, selecting and ARPing the TCP
 next hop, and receiving a TCP SYN-ACK from port 80. All three outbound-gated NE
-paths advanced to `seed build 5`. `vm-net-3c503` preserved the non-NE handoff
-path and advanced to `seed build 5`.
+paths advanced to `seed build 5`. `vm-net-3c501`, `vm-net-3c503`,
+`vm-net-wd8003e`, and `vm-net-wd8003eb` preserved the non-NE handoff path,
+read their MACs, and advanced to `seed build 5`.

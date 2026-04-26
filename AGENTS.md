@@ -111,6 +111,8 @@ tools/run-86box.sh vm-net-ne2k8
 
 Useful expected screens:
 
+These current IBM PC 5150 profiles were validated on 26 April 2026.
+
 ```text
 vm                   + no network card, retry/restart menu
 vm-mda               + no network card, retry/restart menu
