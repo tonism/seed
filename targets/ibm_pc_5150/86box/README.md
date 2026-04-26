@@ -53,7 +53,7 @@ Expected first screen:
 
 ```text
 phase one       " " at centered project start for active text columns
-no card         +, low descending PC speaker tone, fast-typed no network card
+no card         +, low descending PC speaker tone, fast-typed no network card, then retry/restart
 question        low PC speaker attention tone, fast-typed prompt
 success         " " -> "." -> "o" -> seed build 5
 ```
@@ -124,11 +124,15 @@ screen showed:
 
 ```text
 + no network card
+retry
+restart
 ```
 
 On MDA, the error is expected to render bright because monochrome adapters do
 not have red. The no-card path also plays the low failure tone through the PC
-speaker using the PIT rather than the BIOS bell. `vm-net-ne1k` and
+speaker using the PIT rather than the BIOS bell. Retry reruns stage 2 probing
+without rereading floppy sectors; restart performs a warm machine restart.
+`vm-net-ne1k` and
 `vm-net-ne2k8` showed the adapter prompt, accepted their NE family, initialized
 packet hardware, checked the receive-ring read path, sent DHCPDISCOVER, and
 advanced to `seed build 5`. `vm-net-3c503` preserved the non-NE handoff path

@@ -73,8 +73,10 @@ Small status markers may appear immediately because they represent state:
 "+"   fatal error marker
 ```
 
-Fatal errors should switch the marker first, play the low failure tone, then
-fast-type the error text. Questions should use the low attention tone and
+Fatal errors should switch the marker first, play the low failure tone,
+fast-type the error text, then offer `retry` and `restart`. Retry should rerun
+stage 2 from its start without rereading floppy sectors; restart should perform
+a warm machine restart. Questions should use the low attention tone and
 fast-type the prompt. Menus indicate selection by color rather than marker
 glyphs.
 
@@ -107,8 +109,8 @@ tools/run-86box.sh vm-net-ne2k8
 Useful expected screens:
 
 ```text
-vm                   + no network card
-vm-mda               + no network card
+vm                   + no network card, retry/restart menu
+vm-mda               + no network card, retry/restart menu
 vm-net-3c501         adapter prompt, MAC read, then seed build 5 after Enter
 vm-net-3c503         MAC read, then seed build 5
 vm-net-ne1k          adapter prompt, MAC read, RX read check, DHCPDISCOVER, then seed build 5 after Down/Enter

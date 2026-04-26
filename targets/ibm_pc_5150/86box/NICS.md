@@ -72,8 +72,8 @@ rtl8139c+            Realtek RTL8139C+
 ## Current 5150 Test Profiles
 
 ```text
-vm                   no network card; expected: + no network card
-vm-mda               no network card, MDA; expected: + no network card
+vm                   no network card; expected: + no network card, retry/restart menu
+vm-mda               no network card, MDA; expected: + no network card, retry/restart menu
 vm-net-3c501         3Com EtherLink; expected: adapter prompt, MAC read, then seed build 5
 vm-net-3c503         3Com EtherLink II; expected: MAC read, then seed build 5
 vm-net-ne1k          NE1000-compatible; expected: adapter prompt, MAC read, RX read check, DHCPDISCOVER, then seed build 5

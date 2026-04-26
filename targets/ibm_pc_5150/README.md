@@ -15,6 +15,7 @@ BIOS loads boot sector
   -> records the responding NIC I/O base if one is found
   -> publishes boot, video, and NIC state to the handoff block at 0000:0600
   -> shows + no network card and plays a low failure tone if no card responds
+  -> offers retry/restart after a critical failure
   -> asks for adapter family when the responding I/O base is ambiguous
   -> records the current 86Box profile IRQ after adapter family resolution
   -> reads station-address PROMs into handoff when valid
@@ -78,7 +79,7 @@ The first screen text is hardcoded in the boot sector for now:
 
 ```text
 phase one       " "
-failure         +, low descending PC speaker tone, fast-typed no network card
+failure         +, low descending PC speaker tone, fast-typed no network card, then retry/restart
 question        low PC speaker attention tone, fast-typed prompt
 success         " " -> "." -> "o" -> seed build 5
 ```

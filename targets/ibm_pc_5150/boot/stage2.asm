@@ -195,6 +195,7 @@ network_error:
     call notify_failure
     mov si, network_error_text
     call type_z
+    call ask_failure_action
     jmp halt
 
 network_setup_error:
@@ -208,6 +209,7 @@ network_setup_error:
     call notify_failure
     mov si, network_setup_error_text
     call type_z
+    call ask_failure_action
     jmp halt
 
 set_seed_cursor:
@@ -415,6 +417,37 @@ ask_adapter:
     or word [handoff_addr + handoff_flags], handoff_flag_config_resolved
     call clear_question_area
     ret
+
+ask_failure_action:
+    mov word [menu_option_a], retry_text
+    mov word [menu_option_b], restart_text
+    mov byte [menu_index], 0
+    call type_menu_options
+.input:
+    hlt
+    mov ah, 0x01
+    int 0x16
+    jz .input
+    xor ah, ah
+    int 0x16
+    cmp al, 0x0d
+    je .accept
+    cmp ah, 0x48
+    je .toggle
+    cmp ah, 0x50
+    jne .input
+.toggle:
+    xor byte [menu_index], 1
+    call draw_menu_options
+    jmp .input
+.accept:
+    cmp byte [menu_index], 0
+    jne restart_machine
+    jmp start
+
+restart_machine:
+    mov word [0x0472], 0x1234
+    jmp 0xffff:0x0000
 
 read_network_address:
     mov al, [handoff_addr + handoff_nic_family]
@@ -1318,6 +1351,8 @@ seed_text db 'seed', 0
 build_text db 'build ', '0' + build_number, 0
 network_error_text db 'no network card', 0
 network_setup_error_text db 'network setup failed', 0
+retry_text db 'retry', 0
+restart_text db 'restart', 0
 adapter_prompt_text db 'adapter', 0
 adapter_ne2000_text db 'ne2000', 0
 adapter_ne1000_text db 'ne1000', 0

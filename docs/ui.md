@@ -27,7 +27,11 @@ message content:
 
 Questions should use the low attention tone, then fast-type the prompt and
 minimal fields. Fatal errors should switch the status marker first, play the low
-failure tone, then fast-type the error text.
+failure tone, fast-type the error text, then fast-type a minimal `retry` /
+`restart` menu.
+
+`retry` reruns stage 2 from its beginning without rereading floppy sectors.
+`restart` performs a warm machine restart through BIOS.
 
 Menus use color to indicate selection. The selected item uses the active prompt
 color; inactive items use the dim prompt color. Do not add marker glyphs solely
