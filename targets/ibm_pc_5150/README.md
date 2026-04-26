@@ -27,6 +27,7 @@ BIOS loads boot sector
   -> performs a two-pass filtered DHCPOFFER wait and parses it when available
   -> sends DHCPREQUEST and waits for DHCPACK when an offer is available
   -> sends ARP for the DHCP-provided DNS server after DHCPACK
+  -> sends a minimal DNS query and waits for a matching DNS response
   -> switches to a bright o marker for agent prep
   -> currently performs no build-6 agent prep work
   -> otherwise types seed build 5 rightward from that column
@@ -38,8 +39,8 @@ The floppy image is intentionally not a filesystem. It contains no files:
 
 ```text
 sector 1      stage 1 boot sector
-sectors 2-10  stage 2 boot core
-sector 11+    zero-filled padding
+sectors 2-11  stage 2 boot core
+sector 12+    zero-filled padding
 ```
 
 Optional persisted user config is a later environment feature, not a dependency
@@ -79,8 +80,9 @@ two-pass bounded filtered DHCPOFFER wait. When a DHCPOFFER is observed, stage 2
 records the offered IPv4 address, router, and DNS server in the handoff block.
 It then sends DHCPREQUEST and performs a bounded DHCPACK wait to mark the lease
 accepted. After DHCPACK, it sends an ARP request for the DHCP-provided DNS
-server and records the resolved MAC internally. DNS queries and outbound
-reachability remain in build 5 scope.
+server and records the resolved MAC internally. It then sends a minimal DNS
+query and waits for a matching response. Endpoint-specific DNS answer parsing
+and outbound transport reachability remain in build 5 scope.
 
 The boot path does not switch video modes. It keeps the BIOS-provided text
 mode, reads the active column count, and uses that value for clearing and for

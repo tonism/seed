@@ -3,7 +3,7 @@ cpu 8086
 org 0x7c00
 
 %ifndef STAGE2_SECTORS
-%define STAGE2_SECTORS 9
+%define STAGE2_SECTORS 10
 %endif
 
 stage2_offset equ 0x8000

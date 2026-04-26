@@ -1,6 +1,6 @@
 TARGET := ibm_pc_5150
 BUILD_DIR := build/$(TARGET)
-STAGE2_SECTORS := 9
+STAGE2_SECTORS := 10
 
 BOOT_SRC := targets/$(TARGET)/boot/boot.asm
 STAGE2_SRC := targets/$(TARGET)/boot/stage2.asm

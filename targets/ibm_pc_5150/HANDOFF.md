@@ -93,6 +93,8 @@ offset  size  value
 9  DHCPACK received; lease accepted
 10 ARP request sent for DHCP-provided DNS server
 11 ARP reply received; destination MAC resolved
+12 DNS query sent
+13 DNS response received
 ```
 
 ## Network Error
@@ -108,6 +110,7 @@ offset  size  value
 7  NE-family receive byte count was invalid
 8  no matching DHCPACK observed before the bounded wait ended
 9  DNS-server ARP target was missing or did not resolve before the bounded wait ended
+10 no matching DNS response observed before the bounded wait ended
 ```
 
 Build 4 fills the block through adapter-family resolution plus 3c501, 3c503,
@@ -123,12 +126,15 @@ readiness, one receive-frame read when a packet is already pending,
 DHCPDISCOVER transmit, and a two-pass bounded filtered DHCPOFFER wait. When an
 offer is available, Seed sends DHCPREQUEST and performs a bounded DHCPACK wait.
 After DHCPACK, it sends a bounded ARP request for the DHCP-provided DNS server
-and records the resolved MAC internally for the next packet step.
+and records the resolved MAC internally for the next packet step. It then sends
+a minimal DNS query and waits for a matching response from the DHCP-provided DNS
+server.
 The NE receive path records separate DMA, ring-header, and byte-count failures
 so DHCP receive behavior can be diagnosed without changing user-facing text.
 When status is 7, the IP, router, and DNS fields contain byte-order IPv4 values
 copied from the offer. When status is 9, the offered lease was acknowledged.
-When status is 11, the DNS server's Ethernet MAC has been resolved. If no offer,
-ACK, or DNS ARP reply is observed during the bounded waits, the dark `"o"`
-internet phase fails into the network setup error path with the corresponding
-status and network error.
+When status is 11, the DNS server's Ethernet MAC has been resolved. When status
+is 13, a DNS response matching Seed's query ID and UDP port was received. If no
+offer, ACK, DNS ARP reply, or DNS response is observed during the bounded waits,
+the dark `"o"` internet phase fails into the network setup error path with the
+corresponding status and network error.

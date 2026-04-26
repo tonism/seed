@@ -46,8 +46,9 @@ two-pass bounded filtered DHCPOFFER wait that records offer details in the
 handoff block when one is observed. When an offer is available, Seed now sends
 DHCPREQUEST and performs a bounded DHCPACK wait to mark the lease accepted.
 After DHCPACK, Seed sends a bounded ARP request for the DHCP-provided DNS server
-and records the resolved MAC before leaving the dark `"o"` phase. DNS queries
-and outbound reachability are still open.
+and records the resolved MAC, then sends a minimal DNS query and waits for a
+matching response before leaving the dark `"o"` phase. Endpoint-specific DNS
+answer parsing and outbound transport reachability are still open.
 
 TLS, model API calls, agent session creation, and environment handover belong
 to build 6 unless build 5 proves that a different split is required.
