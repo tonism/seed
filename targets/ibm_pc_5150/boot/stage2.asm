@@ -56,6 +56,19 @@ family_ne2000 equ 2
 family_ne1000 equ 3
 family_3c501 equ 4
 family_wd8003 equ 5
+ne_cr equ 0x00
+ne_isr equ 0x07
+ne_rsar0 equ 0x08
+ne_rbcr0 equ 0x0a
+ne_dcr equ 0x0e
+ne_data equ 0x10
+ne_reset equ 0x1f
+ne_cmd_stop_nodma equ 0x21
+ne_cmd_start_nodma equ 0x22
+ne_cmd_remote_read equ 0x0a
+ne_isr_reset equ 0x80
+ne_dcr_bytewide equ 0x48
+ne_prom_len equ 32
 
 start:
     cli
@@ -83,6 +96,7 @@ start:
     mov al, '.'
     call print_char
     call resolve_network_config
+    call read_network_address
 
     call set_seed_cursor
     mov al, 'o'
@@ -327,6 +341,159 @@ ask_adapter:
     call clear_question_area
     ret
 
+read_network_address:
+    mov al, [handoff_addr + handoff_nic_family]
+    cmp al, family_ne2000
+    je read_ne_prom_mac
+    cmp al, family_ne1000
+    je read_ne_prom_mac
+    ret
+
+read_ne_prom_mac:
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, ne_reset
+    in al, dx
+    out dx, al
+
+    mov cx, 0xffff
+.wait_reset:
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, ne_isr
+    in al, dx
+    test al, ne_isr_reset
+    jnz .reset_done
+    loop .wait_reset
+.reset_done:
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, ne_cr
+    mov al, ne_cmd_stop_nodma
+    out dx, al
+
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, ne_isr
+    mov al, 0xff
+    out dx, al
+
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, ne_dcr
+    mov al, ne_dcr_bytewide
+    out dx, al
+
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, ne_rbcr0
+    mov al, ne_prom_len
+    out dx, al
+    inc dx
+    xor al, al
+    out dx, al
+
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, ne_rsar0
+    xor al, al
+    out dx, al
+    inc dx
+    out dx, al
+
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, ne_cr
+    mov al, ne_cmd_remote_read
+    out dx, al
+
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, ne_data
+    mov di, ne_prom
+    mov cx, ne_prom_len
+.read:
+    in al, dx
+    stosb
+    loop .read
+
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, ne_cr
+    mov al, ne_cmd_start_nodma
+    out dx, al
+
+    call copy_ne_mac
+    call validate_handoff_mac
+    jnc .valid
+    call clear_handoff_mac
+    jmp .done
+.valid:
+    or word [handoff_addr + handoff_flags], handoff_flag_mac_valid
+.done:
+    ret
+
+copy_ne_mac:
+    mov si, ne_prom
+    mov al, [si]
+    cmp al, [si + 1]
+    jne .linear
+    mov al, [si + 2]
+    cmp al, [si + 3]
+    jne .linear
+    mov al, [si + 4]
+    cmp al, [si + 5]
+    jne .linear
+    mov al, [si + 6]
+    cmp al, [si + 7]
+    jne .linear
+    mov al, [si + 8]
+    cmp al, [si + 9]
+    jne .linear
+    mov al, [si + 10]
+    cmp al, [si + 11]
+    jne .linear
+    mov di, handoff_addr + handoff_mac
+    mov cx, 6
+.paired:
+    lodsb
+    stosb
+    inc si
+    loop .paired
+    ret
+.linear:
+    mov di, handoff_addr + handoff_mac
+    mov cx, 6
+    rep movsb
+    ret
+
+clear_handoff_mac:
+    mov di, handoff_addr + handoff_mac
+    xor al, al
+    mov cx, 6
+    rep stosb
+    ret
+
+validate_handoff_mac:
+    test byte [handoff_addr + handoff_mac], 0x01
+    jnz .invalid
+
+    mov si, handoff_addr + handoff_mac
+    xor al, al
+    mov cx, 6
+.nonzero:
+    or al, [si]
+    inc si
+    loop .nonzero
+    or al, al
+    jz .invalid
+
+    mov si, handoff_addr + handoff_mac
+    mov al, 0xff
+    mov cx, 6
+.not_ff:
+    and al, [si]
+    inc si
+    loop .not_ff
+    cmp al, 0xff
+    je .invalid
+
+    clc
+    ret
+.invalid:
+    stc
+    ret
+
 render_adapter_question:
     mov byte [cursor_row], seed_row
     mov al, [seed_col]
@@ -471,6 +638,7 @@ menu_value_a db 0
 menu_value_b db 0
 menu_index db 0
 blink_state db 0
+ne_prom times ne_prom_len db 0
 seed_text db 'seed', 0
 build_text db 'build ', '0' + build_number, 0
 network_error_text db 'no network card', 0

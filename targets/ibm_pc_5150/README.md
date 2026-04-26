@@ -16,6 +16,7 @@ BIOS loads boot sector
   -> publishes boot, video, and NIC state to the handoff block at 0000:0600
   -> shows + no network card and plays a low failure tone if no card responds
   -> asks for adapter family when the responding I/O base is ambiguous
+  -> reads NE1000/NE2000 station-address PROMs into handoff when valid
   -> otherwise types seed build 4 rightward from that column
   -> waits about 500 ms
   -> halts
@@ -54,8 +55,10 @@ network hardware discovery. Stage 2 probes common ISA Ethernet I/O bases,
 publishes boot/video/NIC state to a low-memory handoff block, and starts
 resolving an adapter family. Known single-card bases continue automatically.
 Shared bases ask the user to choose the adapter family through a minimal
-color-selected menu. This is intentionally still a hardware/config handoff
-only; packet I/O, IP, TLS, and model API calls are later milestones.
+color-selected menu. For NE1000/NE2000-family cards, stage 2 reads the
+station-address PROM and marks the MAC valid only after rejecting multicast,
+all-zero, and all-`ff` addresses. This is intentionally still a hardware/config
+handoff only; packet I/O, IP, TLS, and model API calls are later milestones.
 
 The boot path does not switch video modes. It keeps the BIOS-provided text
 mode, reads the active column count, and uses that value for clearing and for

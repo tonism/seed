@@ -72,6 +72,6 @@ offset  size  value
 3  ready
 ```
 
-Build 4 fills the block through adapter-family resolution only. IRQ discovery,
-MAC reads, packet I/O, IP config, TLS, and model API connection are later
-milestones.
+Build 4 fills the block through adapter-family resolution and NE1000/NE2000
+station-address PROM reads. IRQ discovery, packet I/O, IP config, TLS, and
+model API connection are later milestones.
