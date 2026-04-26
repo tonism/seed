@@ -3,8 +3,8 @@
 Build 4 treats network support as hardware discovery plus an in-memory config
 handoff. Stage 2 probes common ISA Ethernet I/O bases, records the responding
 I/O base, starts resolving the adapter family when the base is ambiguous, and
-reads NE1000/NE2000 station-address PROMs into the handoff block when they
-validate. Packet I/O is later scope.
+reads 3c503 plus NE1000/NE2000 station-address PROMs into the handoff block
+when they validate. Packet I/O is later scope.
 
 ## IBM PC 5150 Candidates
 
@@ -71,7 +71,7 @@ rtl8139c+            Realtek RTL8139C+
 vm                   no network card; expected: + no network card
 vm-mda               no network card, MDA; expected: + no network card
 vm-net-3c501         3Com EtherLink; expected: adapter prompt, then seed build 4
-vm-net-3c503         3Com EtherLink II; expected: seed build 4
+vm-net-3c503         3Com EtherLink II; expected: MAC read, then seed build 4
 vm-net-ne1k          NE1000-compatible; expected: adapter prompt, MAC read, then seed build 4
 vm-net-ne2k8         8-bit NE2000-compatible; expected: adapter prompt, MAC read, then seed build 4
 vm-net-novell-ne1k   Novell NE1000; expected: adapter prompt, MAC read, then seed build 4

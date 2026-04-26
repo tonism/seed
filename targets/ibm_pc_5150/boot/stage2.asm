@@ -56,6 +56,9 @@ family_ne2000 equ 2
 family_ne1000 equ 3
 family_3c501 equ 4
 family_wd8003 equ 5
+el2_ctrl equ 0x406
+el2_ctrl_thin equ 0x02
+el2_ctrl_saprom equ 0x04
 ne_cr equ 0x00
 ne_isr equ 0x07
 ne_rsar0 equ 0x08
@@ -343,10 +346,37 @@ ask_adapter:
 
 read_network_address:
     mov al, [handoff_addr + handoff_nic_family]
-    cmp al, family_ne2000
-    je read_ne_prom_mac
+    cmp al, family_3c503
+    je read_3c503_mac
     cmp al, family_ne1000
     je read_ne_prom_mac
+    cmp al, family_ne2000
+    je read_ne_prom_mac
+    ret
+
+read_3c503_mac:
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, el2_ctrl
+    in al, dx
+    push ax
+    mov al, el2_ctrl_saprom | el2_ctrl_thin
+    out dx, al
+
+    mov dx, [handoff_addr + handoff_nic_base]
+    mov di, handoff_addr + handoff_mac
+    mov cx, 6
+.read:
+    in al, dx
+    stosb
+    inc dx
+    loop .read
+
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, el2_ctrl
+    pop ax
+    out dx, al
+
+    call finish_handoff_mac
     ret
 
 read_ne_prom_mac:
@@ -414,13 +444,7 @@ read_ne_prom_mac:
     out dx, al
 
     call copy_ne_mac
-    call validate_handoff_mac
-    jnc .valid
-    call clear_handoff_mac
-    jmp .done
-.valid:
-    or word [handoff_addr + handoff_flags], handoff_flag_mac_valid
-.done:
+    call finish_handoff_mac
     ret
 
 copy_ne_mac:
@@ -462,6 +486,15 @@ clear_handoff_mac:
     xor al, al
     mov cx, 6
     rep stosb
+    ret
+
+finish_handoff_mac:
+    call validate_handoff_mac
+    jnc .valid
+    call clear_handoff_mac
+    ret
+.valid:
+    or word [handoff_addr + handoff_flags], handoff_flag_mac_valid
     ret
 
 validate_handoff_mac:

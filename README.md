@@ -29,12 +29,12 @@ sector 6+     zero-filled padding
 
 Build 4 keeps network hardware discovery in the first loading phase, records the
 responding NIC I/O base, and begins the network configuration handoff. It also
-reads the station-address PROM for NE1000/NE2000-family cards and publishes the
-MAC only when it validates. If no card responds, it shows `+ no network card`
-with a low PC speaker failure tone. If the responding I/O base maps cleanly to
-one supported card, it fast-types `seed build 4`. If the base is shared by
-multiple 86Box adapters, it pauses on `.` and asks for the adapter family before
-continuing.
+reads the station-address PROM for 3c503 and NE1000/NE2000-family cards, then
+publishes the MAC only when it validates. If no card responds, it shows `+ no
+network card` with a low PC speaker failure tone. If the responding I/O base
+maps cleanly to one supported card, it fast-types `seed build 4`. If the base is
+shared by multiple 86Box adapters, it pauses on `.` and asks for the adapter
+family before continuing.
 
 ## Build
 

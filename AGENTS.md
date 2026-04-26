@@ -31,8 +31,8 @@ contains no files.
 - Target 8088-compatible 16-bit real-mode code for `ibm_pc_5150`.
 - Do not introduce protected mode, graphics mode, a filesystem, config parsing,
   packet I/O, IP, TLS, or model API logic unless explicitly scoped.
-- NE1000/NE2000 station-address PROM reads are allowed in build 4, but must stay
-  non-fatal and must not grow into packet I/O.
+- 3c503 and NE1000/NE2000 station-address PROM reads are allowed in build 4,
+  but must stay non-fatal and must not grow into packet I/O.
 - Do not switch video modes on the current target. Keep the BIOS-provided text
   mode and use the detected column count for layout.
 - Keep the IBM PC 5150 runtime handoff block at `0000:0600` compatible with
@@ -105,7 +105,7 @@ Useful expected screens:
 ```text
 vm                   + no network card
 vm-mda               + no network card
-vm-net-3c503         seed build 4
+vm-net-3c503         MAC read, then seed build 4
 vm-net-ne2k8         adapter prompt, MAC read, then seed build 4 after Enter
 ```
 
