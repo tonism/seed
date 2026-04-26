@@ -119,7 +119,8 @@ fdd_01_check_bpb = 0
 ```
 
 Build 5 was boot-tested on 86Box 5.3 build 8200 on 26 April 2026 with the CGA
-no-card, `vm-net-ne2k8`, and `vm-net-3c503` configs. The no-card screen showed:
+no-card, `vm-net-ne1k`, `vm-net-ne2k8`, and `vm-net-3c503` configs. The no-card
+screen showed:
 
 ```text
 + no network card
@@ -127,7 +128,8 @@ no-card, `vm-net-ne2k8`, and `vm-net-3c503` configs. The no-card screen showed:
 
 On MDA, the error is expected to render bright because monochrome adapters do
 not have red. The no-card path also plays the low failure tone through the PC
-speaker using the PIT rather than the BIOS bell. `vm-net-ne2k8` showed the
-adapter prompt, accepted `ne2000`, initialized packet hardware, and advanced to
-`seed build 5`. `vm-net-3c503` preserved the non-NE handoff path and advanced
-to `seed build 5`.
+speaker using the PIT rather than the BIOS bell. `vm-net-ne1k` and
+`vm-net-ne2k8` showed the adapter prompt, accepted their NE family, initialized
+packet hardware, sent the Ethernet proof frame, polled receive-ring pointers,
+and advanced to `seed build 5`. `vm-net-3c503` preserved the non-NE handoff path
+and advanced to `seed build 5`.

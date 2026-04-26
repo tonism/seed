@@ -84,6 +84,8 @@ offset  size  value
 0  none
 1  adapter identity ready
 2  packet hardware ready
+3  NE-family transmit proof sent
+4  NE-family receive ring poll ready
 ```
 
 ## Network Error
@@ -91,6 +93,7 @@ offset  size  value
 ```text
 0  none
 1  NE-family packet hardware init failed
+2  NE-family transmit proof failed
 ```
 
 Build 4 fills the block through adapter-family resolution plus 3c501, 3c503,
@@ -99,7 +102,8 @@ current 86Box IBM PC 5150 profiles after adapter family resolution; IRQ
 discovery, packet I/O, IP config, TLS, and model API connection are later
 milestones.
 
-Build 5 extends the block for internet readiness. Its first checkpoint marks
-adapter identity readiness for all resolved NICs and packet hardware readiness
-for NE1000/NE2000-family cards after initialization. IP, router, and DNS fields
-remain zero until DHCP or an equivalent network configuration path exists.
+Build 5 extends the block for internet readiness. The current checkpoint marks
+adapter identity readiness for all resolved NICs, then advances
+NE1000/NE2000-family cards through packet hardware readiness, transmit proof,
+and receive-ring poll readiness. IP, router, and DNS fields remain zero until
+DHCP or an equivalent network configuration path exists.

@@ -19,6 +19,8 @@ BIOS loads boot sector
   -> records the current 86Box profile IRQ after adapter family resolution
   -> reads station-address PROMs into handoff when valid
   -> initializes NE1000/NE2000-family packet hardware
+  -> sends one NE1000/NE2000-family Ethernet proof frame
+  -> polls NE1000/NE2000-family receive-ring pointers
   -> otherwise types seed build 5 rightward from that column
   -> waits about 500 ms
   -> halts
@@ -62,8 +64,9 @@ valid only after rejecting multicast, all-zero, and all-`ff` addresses. Stage 2
 also records IRQ 3 for the current 86Box IBM PC 5150 profiles once the adapter
 family is known; real IRQ discovery is later scope.
 
-The first build 5 checkpoint initializes NE1000/NE2000-family packet hardware
-after a valid MAC read and records packet readiness in the handoff block. DHCP,
+The current build 5 checkpoint initializes NE1000/NE2000-family packet hardware
+after a valid MAC read, sends one controlled Ethernet proof frame, polls the
+receive-ring pointers, and records that readiness in the handoff block. DHCP,
 DNS, and outbound reachability remain in build 5 scope but are not implemented
 yet.
 

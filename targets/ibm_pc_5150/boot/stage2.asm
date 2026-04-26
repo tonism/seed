@@ -40,8 +40,11 @@ handoff_status_network_failed equ 4
 net_status_none equ 0
 net_status_identity_ready equ 1
 net_status_packet_ready equ 2
+net_status_tx_probe_sent equ 3
+net_status_rx_poll_ready equ 4
 net_error_none equ 0
 net_error_ne_init equ 1
+net_error_ne_tx equ 2
 seed_attr_cga equ 0x0f
 build_attr_cga equ 0x08
 load_attr_cga equ 0x0f
@@ -74,6 +77,9 @@ el2_ctrl equ 0x406
 el2_ctrl_thin equ 0x02
 el2_ctrl_saprom equ 0x04
 ne_cr equ 0x00
+ne_bnry equ 0x03
+ne_tsr equ 0x04
+ne_tbcr0 equ 0x05
 ne_isr equ 0x07
 ne_rsar0 equ 0x08
 ne_rbcr0 equ 0x0a
@@ -88,9 +94,15 @@ ne_cmd_stop_nodma equ 0x21
 ne_cmd_start_nodma equ 0x22
 ne_cmd_start_page1 equ 0x62
 ne_cmd_remote_read equ 0x0a
+ne_cmd_remote_write equ 0x12
+ne_cmd_transmit equ 0x26
 ne_isr_reset equ 0x80
+ne_isr_rdc equ 0x40
+ne_isr_txe equ 0x08
+ne_isr_ptx equ 0x02
 ne_dcr_bytewide equ 0x48
 ne_prom_len equ 32
+ne_tx_probe_len equ 60
 ne_rcr_broadcast equ 0x04
 ne_tcr_loopback equ 0x02
 ne_tx_start_1k equ 0x20
@@ -620,6 +632,11 @@ prepare_network_path:
     ret
 .ne:
     call init_ne_packet_io
+    jc .done
+    call ne_transmit_probe_frame
+    jc .done
+    call ne_poll_receive_ring
+.done:
     ret
 
 init_ne_packet_io:
@@ -728,6 +745,149 @@ init_ne_packet_io:
 
     mov byte [handoff_addr + handoff_net_status], net_status_packet_ready
     mov byte [handoff_addr + handoff_net_error], net_error_none
+    clc
+    ret
+
+ne_transmit_probe_frame:
+    call build_ne_probe_frame
+
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, ne_isr
+    mov al, ne_isr_rdc | ne_isr_txe | ne_isr_ptx
+    out dx, al
+
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, ne_rbcr0
+    mov al, ne_tx_probe_len
+    out dx, al
+    inc dx
+    xor al, al
+    out dx, al
+
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, ne_rsar0
+    xor al, al
+    out dx, al
+    inc dx
+    mov al, [ne_tx_start]
+    out dx, al
+
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, ne_cr
+    mov al, ne_cmd_remote_write
+    out dx, al
+
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, ne_data
+    mov si, ne_tx_frame
+    mov cx, ne_tx_probe_len
+.write_frame:
+    lodsb
+    out dx, al
+    loop .write_frame
+
+    mov cx, 0xffff
+.wait_dma:
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, ne_isr
+    in al, dx
+    test al, ne_isr_rdc
+    jnz .dma_done
+    loop .wait_dma
+    jmp .failed
+.dma_done:
+    mov al, ne_isr_rdc
+    out dx, al
+
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, ne_tpsr
+    mov al, [ne_tx_start]
+    out dx, al
+
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, ne_tbcr0
+    mov al, ne_tx_probe_len
+    out dx, al
+    inc dx
+    xor al, al
+    out dx, al
+
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, ne_cr
+    mov al, ne_cmd_transmit
+    out dx, al
+
+    mov cx, 0xffff
+.wait_tx:
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, ne_isr
+    in al, dx
+    test al, ne_isr_ptx | ne_isr_txe
+    jnz .tx_done
+    loop .wait_tx
+    jmp .failed
+.tx_done:
+    mov al, ne_isr_ptx | ne_isr_txe
+    out dx, al
+    mov byte [handoff_addr + handoff_net_status], net_status_tx_probe_sent
+    clc
+    ret
+.failed:
+    mov byte [handoff_addr + handoff_net_error], net_error_ne_tx
+    stc
+    ret
+
+build_ne_probe_frame:
+    mov di, ne_tx_frame
+    mov al, 0xff
+    mov cx, 6
+    rep stosb
+
+    mov si, handoff_addr + handoff_mac
+    mov cx, 6
+    rep movsb
+
+    mov al, 0x88
+    stosb
+    mov al, 0xb5
+    stosb
+
+    mov si, ne_probe_payload
+.payload:
+    lodsb
+    or al, al
+    jz .pad
+    stosb
+    jmp .payload
+.pad:
+    mov cx, ne_tx_frame + ne_tx_probe_len
+    sub cx, di
+    xor al, al
+    rep stosb
+    ret
+
+ne_poll_receive_ring:
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, ne_cr
+    mov al, ne_cmd_start_page1
+    out dx, al
+
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, ne_isr
+    in al, dx
+    mov [ne_current_page], al
+
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, ne_cr
+    mov al, ne_cmd_start_nodma
+    out dx, al
+
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, ne_bnry
+    in al, dx
+    mov [ne_boundary_page], al
+
+    mov byte [handoff_addr + handoff_net_status], net_status_rx_poll_ready
     clc
     ret
 
@@ -878,11 +1038,15 @@ blink_state db 0
 ne_tx_start db 0
 ne_rx_start db 0
 ne_rx_stop db 0
+ne_current_page db 0
+ne_boundary_page db 0
 ne_prom times ne_prom_len db 0
+ne_tx_frame times ne_tx_probe_len db 0
 seed_text db 'seed', 0
 build_text db 'build ', '0' + build_number, 0
 network_error_text db 'no network card', 0
 network_setup_error_text db 'network setup failed', 0
+ne_probe_payload db 'seed build 5', 0
 adapter_prompt_text db 'adapter', 0
 adapter_ne2000_text db 'ne2000', 0
 adapter_ne1000_text db 'ne1000', 0
