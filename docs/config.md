@@ -1,19 +1,42 @@
 # Agent And User Config
 
-Seed now has two configuration files on the boot floppy:
+Seed now has three configuration files on the boot floppy:
 
 ```text
-AGENTS.CFG  shipped, tracked agent interface declarations
+AGENTS.CFG  optional shipped override for agent interface declarations
+NET.CFG     optional shipped override for generic internet probe settings
 SEED.CFG    ignored, optional local user choices and secrets
 ```
 
 `AGENTS.CFG` is not general OS configuration. It only describes five
 agent-facing interfaces: two gateways first, then three direct vendors. The
-file is meant to stay plain enough for both humans and later agents to edit.
+file is meant to stay plain enough for both humans and later agents to edit. If
+`AGENTS.CFG` is missing, unreadable, unparseable, or contains no `agent`
+declarations, Seed falls back to three built-in direct vendors:
+
+```text
+openai
+anthropic
+google
+```
+
+When `AGENTS.CFG` parses successfully, it overrides the built-in list.
+
+`NET.CFG` holds generic network-readiness probe settings. It currently supports
+one line:
+
+```text
+probe <host-or-url>
+```
+
+The default tracked value is `probe example.com`. If `NET.CFG` is missing,
+unreadable, or invalid, Seed falls back to `example.com` for the dark `"o"`
+internet-readiness proof.
 
 `SEED.CFG` is user-local state. It should only contain values that were entered
 by the user and validated by Seed, such as adapter choices, selected agent
-interface, endpoint overrides, model names, and API credentials.
+interface, endpoint overrides, model choices, reasoning effort, and API
+credentials.
 
 Seed can remember validated user answers to make later boots faster, but local
 stored user configuration is always optional.
@@ -57,9 +80,31 @@ no dependency on writes succeeding
 ```
 
 The current build 6 checkpoint parses up to five `agent ` declarations from
-`AGENTS.CFG`. It reads `SEED.CFG` when present, accepts a saved `agent <id>`
-only if it matches one of those declarations, asks `agent?` otherwise, and
-writes the validated choice back as `agent <id>` on a best-effort basis.
+`AGENTS.CFG` when that file is available and valid; otherwise it uses the
+built-in direct-vendor fallback. It reads `SEED.CFG` when present, accepts a
+saved `agent <id>` only if it matches the active agent list, asks `agent?`
+otherwise, then asks for any missing `server?` and `key?` values needed by the
+selected agent. When the selected agent needs both values, they are shown on
+one form panel with Up and Down moving between fields. Saved `model` and
+`reasoning` values are preserved when present, but Seed should not ask the user
+to type those by hand. Model and reasoning choices belong after the selected
+agent endpoint can be reached and its capabilities can be fetched. Seed proves
+selected-agent TCP reachability by resolving the selected provider host and
+receiving a SYN-ACK on port 443. Seed writes validated values back on a
+best-effort basis:
 
-Credential prompts, endpoint/model overrides, TLS, and API calls are still
-build 6 follow-up work.
+```text
+agent <id>
+model <model>
+reasoning <effort>
+key <credential>
+endpoint <host-or-url>   optional; currently required for LiteLLM
+```
+
+The `server?` prompt maps to the stored `endpoint` line. The on-disk name stays
+`endpoint` for compatibility with existing local config.
+
+`reasoning` is stored as a plain text effort value such as `xhigh`; provider
+specific request mapping is later Build 6 work. The `key` value is plaintext on
+the boot medium. TLS, authenticated API calls, capability fetches, model
+selection, and reasoning selection are still build 6 follow-up work.

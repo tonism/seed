@@ -55,10 +55,11 @@ Expected first screen:
 project init    " " at centered project start for active text columns
 HAL setup       dim "." for hardware detection and adapter initialization
 internet prep   dim "o" for network configuration and reachability
-agent prep      bright "o" for gateway, key, session, and environment setup
-no card         +, low descending PC speaker tone, fast-typed no network card, then retry/restart
+agent prep      bright "o" for gateway, model, reasoning, key, session, and environment setup
+no card         current marker turns red, low descending PC speaker tone, fast-typed no network card, then retry/restart
 question        phase-colored blinking marker, low PC speaker attention tone, bright fast-typed prompt ending with ?
-agent question  agent? with five AGENTS.CFG entries when SEED.CFG has no valid agent choice
+agent question  agent? with AGENTS.CFG entries or built-in big-three fallback when SEED.CFG has no valid agent choice
+field question  server? and/or key? with cursor shown only while typing; Up/Down moves field focus
 success         " " -> dim "." -> dim "o" -> bright "o" -> seed build 6
 ```
 
@@ -98,9 +99,9 @@ menu       selected white, inactive dark gray
 ```
 
 The floppy is a minimal FAT12 filesystem. Sector 1 is the stage 1 boot sector
-with a FAT12 BPB. Sectors 2-17 are the fixed-sector stage 2 boot core in
-reserved sectors, sectors 18-19 are FAT copies, sectors 20-23 are the root
-directory, and sector 24 onward contains file data.
+with a FAT12 BPB. Sectors 2-25 are the fixed-sector stage 2 boot core in
+reserved sectors, sectors 26-27 are FAT copies, sectors 28-31 are the root
+directory, and sector 32 onward contains file data.
 
 This launcher builds the floppy and starts a VM profile:
 
@@ -136,28 +137,48 @@ no-card, `vm-net-3c501`, `vm-net-3c503`, `vm-net-ne1k`, `vm-net-ne2k8`,
 no-card screen showed:
 
 ```text
-+ no network card
+. no network card
 retry
 restart
 ```
 
-On MDA, the error is expected to render bright because monochrome adapters do
+The `.` marker is rendered in the error color. On MDA, the error is expected to render bright because monochrome adapters do
 not have red. The no-card path also plays the low failure tone through the PC
 speaker using the PIT rather than the BIOS bell. Retry returns to the HAL setup
 phase without rereading floppy sectors; restart performs a warm machine restart.
 `vm-net-ne1k`, `vm-net-ne2k8`, and `vm-net-novell-ne1k` showed the adapter
 prompt when needed, accepted their NE family, initialized packet hardware,
-checked the receive-ring read path, sent DHCPDISCOVER, and performed a two-pass
-bounded filtered DHCPOFFER wait. When an offer was available, Seed sent
-DHCPREQUEST and performed a bounded DHCPACK wait before sending ARP for the
-DHCP-provided DNS server, resolving `example.com`, selecting and ARPing the TCP
-next hop, and receiving a TCP SYN-ACK from port 80. All three outbound-gated NE
-paths advanced to `seed build 5`. `vm-net-3c501`, `vm-net-3c503`,
-`vm-net-wd8003e`, and `vm-net-wd8003eb` preserved the non-NE handoff path,
-read their MACs, and advanced to `seed build 5`.
+checked the receive-ring read path, sent DHCPDISCOVER, and performed a bounded
+filtered DHCPOFFER wait. When an offer was available, Seed sent DHCPREQUEST and
+performed a bounded DHCPACK wait before sending ARP for the DHCP-provided DNS
+server, resolving the `NET.CFG` probe host, selecting and ARPing the TCP next
+hop, and receiving a TCP SYN-ACK from port 80. All three outbound-gated NE paths
+advanced to `seed build 5`. `vm-net-3c501`, `vm-net-3c503`, `vm-net-wd8003e`,
+and `vm-net-wd8003eb` preserved the non-NE handoff path, read their MACs, and
+advanced to `seed build 5`.
 
 Build 6 started on 26 April 2026. `vm-net-3c503` reached `agent?`, accepted
 `openai`, wrote `SEED.CFG`, and then reached `seed build 6`. Relaunching 86Box
 directly against the already-written image skipped `agent?` and reached
 `seed build 6`. `vm-net-ne2k8` preserved the full outbound path before reaching
 `seed build 6` in the earlier Build 6 filesystem checkpoint.
+
+On 27 April 2026, the current Build 6 internet-proof checkpoint was retested
+with `SEED.CFG` excluded from the test floppy. `vm-net-3c501`,
+`vm-net-3c503`, `vm-net-ne1k`, `vm-net-ne2k8`, `vm-net-novell-ne1k`,
+`vm-net-wd8003e`, and `vm-net-wd8003eb` all reached `agent?` after
+DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, and TCP
+SYN-ACK.
+
+The WD8003 profiles use `ram_addr = D0000` and `ram_size = 8192`; 86Box expects
+the shared-memory address as a five-digit physical address and the EB RAM size
+in bytes.
+
+The current Build 6 checkpoint also asks missing selected-agent fields as
+`server?` and `key?`. When both are required, they share one panel and Up/Down
+moves focus between them. Text fields render plain typed characters and keep
+long values on one row by showing the visible tail inside the field area. With
+valid saved `SEED.CFG`, `vm-net-ne2k8` was also tested on 27 April 2026 through
+selected-agent DNS resolution and TCP 443 SYN-ACK reachability before reaching
+`seed build 6`. If `AGENTS.CFG` is missing or invalid, the agent menu falls
+back to built-in `openai`, `anthropic`, and `google`.

@@ -23,33 +23,39 @@ The current boot image is a minimal FAT12 floppy:
 
 ```text
 sector 1       stage 1 boot sector with FAT12 BPB
-sectors 2-17   stage 2 boot core in reserved sectors
-sectors 18-19  FAT copies
-sectors 20-23  root directory
-sector 24+     file data
+sectors 2-25   stage 2 boot core in reserved sectors
+sectors 26-27  FAT copies
+sectors 28-31  root directory
+sector 32+     file data
 ```
 
 Build 6 is the agent-prep milestone. The current checkpoint keeps build 5's
 internet-readiness path, adds a FAT12 boot image, ships tracked agent interface
-declarations in `AGENTS.CFG`, reads optional ignored local user state from
-`SEED.CFG`, asks `agent?` when the saved agent choice is missing or invalid,
-and writes `agent <id>` back best-effort after validation. Credentials, TLS,
-model API calls, session creation, and environment handover remain later
-build 6 work.
+declarations in `AGENTS.CFG`, ships the generic internet probe host in
+`NET.CFG`, falls back to built-in `openai`, `anthropic`, and `google` agent
+interfaces when `AGENTS.CFG` is missing or bad, reads optional ignored local
+user state from `SEED.CFG`, asks `agent?` when the saved agent choice is
+missing or invalid, asks for missing `server?` and `key?` values needed by that
+agent on one form panel when both are required, preserves saved model and
+reasoning values when present, proves selected-agent DNS and TCP 443
+reachability, and writes validated values back best-effort. TLS, model API
+calls, capability fetches, session creation, and environment handover remain
+later build 6 work.
 
 Build 5 completed the internet-readiness milestone. It initializes
 NE1000/NE2000-family packet hardware after a valid MAC read, reads one pending
 receive-ring frame when available, sends DHCPDISCOVER, performs bounded
 DHCPOFFER and DHCPACK waits, ARPs for the DHCP-provided DNS server, resolves
-`example.com`, selects and ARPs the TCP next hop, sends a TCP SYN to port 80,
-and waits for a matching SYN-ACK before leaving the dark `"o"` phase.
+the `NET.CFG` probe host, selects and ARPs the TCP next hop, sends a TCP SYN to
+port 80, and waits for a matching SYN-ACK before leaving the dark `"o"` phase.
 
-If no card responds, Seed shows `+ no network card` with a low PC speaker
-failure tone, then offers `retry` or `restart`. Retry returns to the dark `.`
-HAL setup phase without rereading the floppy; restart asks BIOS for a warm
-machine restart. If the responding I/O base maps cleanly to one supported card,
-Seed continues automatically. If the base is shared by multiple 86Box adapters,
-it pauses on a dim `.` and asks `adapter?` before continuing.
+If no card responds, Seed turns the current `.` marker red and fast-types
+`no network card` with a low PC speaker failure tone, then offers `retry` or
+`restart`. Retry returns to the dark `.` HAL setup phase without rereading the
+floppy; restart asks BIOS for a warm machine restart. If the responding I/O base
+maps cleanly to one supported card, Seed continues automatically. If the base is
+shared by multiple 86Box adapters, it pauses on a dim `.` and asks `adapter?`
+before continuing.
 
 ## Build
 
@@ -89,7 +95,8 @@ tools/run-86box.sh vm-net-ne2k8
 
 ```text
 Makefile                         build FAT12 160 KiB floppy image
-config/AGENTS.CFG                shipped agent interface declarations
+config/AGENTS.CFG                optional shipped agent interface override
+config/NET.CFG                   optional shipped generic internet probe override
 docs/config.md                   agent config and optional user state policy
 docs/builds.md                   loading phase and build scope map
 docs/ui.md                       text UI and fast-type rules
@@ -113,7 +120,9 @@ Stored user config is optional. Missing, unreadable, unparseable, or invalid
 config means ask the user. Failed writes are ignored so read-only boot media
 remain usable.
 
-`AGENTS.CFG` is shipped with Seed and describes five available agent
-interfaces: two gateways followed by three direct vendors. `SEED.CFG` is
+`AGENTS.CFG` is shipped with Seed as an override describing five available
+agent interfaces: two gateways followed by three direct vendors. If it is
+missing or bad, Seed falls back to the built-in big three direct vendors.
+`NET.CFG` is shipped with the generic internet probe host. `SEED.CFG` is
 ignored local state for validated user choices and secrets; if it is missing or
 unusable, Seed should ask and continue.

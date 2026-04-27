@@ -3,7 +3,7 @@ cpu 8086
 org 0x8000
 
 %ifndef STAGE2_SECTORS
-%define STAGE2_SECTORS 16
+%define STAGE2_SECTORS 24
 %endif
 
 build_number equ 6
@@ -40,6 +40,11 @@ handoff_status_no_nic equ 2
 handoff_status_ready equ 3
 handoff_status_network_failed equ 4
 handoff_status_agent_failed equ 5
+seed_flag_agent equ 0x01
+seed_flag_model equ 0x02
+seed_flag_key equ 0x04
+seed_flag_endpoint equ 0x08
+seed_flag_reasoning equ 0x10
 net_status_none equ 0
 net_status_identity_ready equ 1
 net_status_packet_ready equ 2
@@ -95,6 +100,11 @@ type_ticks equ 1
 done_ticks equ 9
 agent_slot_count equ 5
 agent_id_len equ 16
+seed_model_len equ 64
+seed_key_len equ 240
+seed_endpoint_len equ 96
+seed_reasoning_len equ 16
+seed_value_total_len equ agent_id_len + seed_model_len + seed_key_len + seed_endpoint_len + seed_reasoning_len
 config_auto equ 1
 config_user equ 2
 profile_irq equ 3
@@ -104,10 +114,27 @@ family_ne1000 equ 3
 family_3c501 equ 4
 family_wd8003 equ 5
 el1_dataptr equ 0x08
+el1_rx_cmd equ 0x06
+el1_tx_cmd equ 0x07
+el1_rcvptr equ 0x0a
 el1_saprom equ 0x0c
+el1_aux equ 0x0e
+el1_data equ 0x0f
+el1_rx_status_good equ 0x20
+el1_tx_status_ready equ 0x08
+el1_rx_cmd_bcast_good equ 0xa0
+el1_tx_cmd_success equ 0x08
+el1_aux_system equ 0x00
+el1_aux_xmit_recv equ 0x04
+el1_aux_receive equ 0x08
+el1_aux_reset equ 0x80
 el2_ctrl equ 0x406
+el2_da_high equ 0x409
+el2_da_low equ 0x40a
+el2_data equ 0x40e
 el2_ctrl_thin equ 0x02
 el2_ctrl_saprom equ 0x04
+el2_ctrl_dma equ 0x80
 ne_cr equ 0x00
 ne_bnry equ 0x03
 ne_tsr equ 0x04
@@ -148,6 +175,12 @@ ne_rx_stop_1k equ 0x40
 ne_tx_start_2k equ 0x40
 ne_rx_start_2k equ 0x46
 ne_rx_stop_2k equ 0x80
+wd_dp8390_offset equ 0x10
+wd_msr_enable_ram equ 0x40
+wd_ram_segment equ 0xd000
+wd_tx_start equ 0x00
+wd_rx_start equ 0x06
+wd_rx_stop equ 0x20
 eth_header_len equ 14
 ipv4_header_len equ 20
 udp_header_len equ 8
@@ -173,24 +206,23 @@ arp_sha_offset equ arp_payload_offset + 8
 arp_spa_offset equ arp_payload_offset + 14
 arp_tpa_offset equ arp_payload_offset + 24
 arp_wait_count equ 2
-dns_qname_len equ 13
-dns_payload_len equ 12 + dns_qname_len + 4
-dns_udp_len equ udp_header_len + dns_payload_len
-dns_ip_len equ ipv4_header_len + dns_udp_len
-dns_tx_frame_len equ eth_header_len + dns_ip_len
-dns_rx_read_len equ 96
+dns_qname_default_len equ 13
+dns_qname_max_len equ 96
+dns_payload_base_len equ 12 + 4
+dns_tx_frame_default_len equ eth_header_len + ipv4_header_len + udp_header_len + dns_payload_base_len + dns_qname_default_len
+dns_tx_frame_max_len equ eth_header_len + ipv4_header_len + udp_header_len + dns_payload_base_len + dns_qname_max_len
+dns_rx_read_len equ 192
 dns_udp_offset equ eth_header_len + ipv4_header_len
 dns_payload_offset equ dns_udp_offset + udp_header_len
-dns_answer_offset equ dns_payload_offset + dns_payload_len
-dns_answer_rdata_offset equ dns_answer_offset + 12
 dns_query_id_word equ 0x4453
-dns_wait_count equ 3
+dns_wait_count equ 8
 tcp_ip_len equ ipv4_header_len + 20
 tcp_tx_frame_len equ 60
 tcp_rx_read_len equ 96
 tcp_offset equ eth_header_len + ipv4_header_len
 tcp_source_port_word equ 0x02c0
-tcp_dest_port_word equ 0x5000
+tcp_port_http_word equ 0x5000
+tcp_port_https_word equ 0xbb01
 tcp_wait_count equ 4
 wd_saprom equ 0x08
 fat_root_start_lba equ STAGE2_SECTORS + 3
@@ -272,10 +304,9 @@ halt:
 
 network_error:
     mov byte [handoff_addr + handoff_status], handoff_status_no_nic
-    call set_seed_cursor
     mov bl, [error_attr]
-    mov al, '+'
-    call print_char
+    mov al, [load_marker_char]
+    call show_load_marker
 
     inc byte [cursor_col]
     call notify_failure
@@ -286,10 +317,9 @@ network_error:
 
 network_setup_error:
     mov byte [handoff_addr + handoff_status], handoff_status_network_failed
-    call set_seed_cursor
     mov bl, [error_attr]
-    mov al, '+'
-    call print_char
+    mov al, [load_marker_char]
+    call show_load_marker
 
     inc byte [cursor_col]
     call notify_failure
@@ -300,10 +330,9 @@ network_setup_error:
 
 agent_setup_error:
     mov byte [handoff_addr + handoff_status], handoff_status_agent_failed
-    call set_seed_cursor
     mov bl, [error_attr]
-    mov al, '+'
-    call print_char
+    mov al, [load_marker_char]
+    call show_load_marker
 
     inc byte [cursor_col]
     call notify_failure
@@ -346,7 +375,18 @@ detect_display:
     shr ah, 1
     mov [seed_col], ah
     mov [handoff_addr + handoff_seed_col], ah
-    cmp al, 0x07
+    mov byte [form_left_col], 2
+    mov byte [form_field_col], 20
+    cmp byte [screen_cols], 80
+    jb .display_kind
+    mov al, [seed_col]
+    sub al, 14
+    mov [form_left_col], al
+    mov al, [seed_col]
+    add al, 10
+    mov [form_field_col], al
+.display_kind:
+    cmp byte [handoff_addr + handoff_video_mode], 0x07
     jne .color
     or word [handoff_addr + handoff_flags], handoff_flag_mda
     mov byte [seed_attr], seed_attr_mda
@@ -375,6 +415,14 @@ hide_cursor:
     mov ah, 0x01
     mov ch, 0x20
     mov cl, 0x00
+    int 0x10
+    ret
+
+show_cursor:
+    call set_bios_cursor
+    mov ah, 0x01
+    mov ch, 0x06
+    mov cl, 0x07
     int 0x10
     ret
 
@@ -414,6 +462,14 @@ print_char:
     pop bx
 
     inc byte [cursor_col]
+    ret
+
+set_bios_cursor:
+    mov ah, 0x02
+    mov bh, 0x00
+    mov dh, [cursor_row]
+    mov dl, [cursor_col]
+    int 0x10
     ret
 
 wait_ticks:
@@ -786,16 +842,15 @@ reset_hal_state:
 
 prepare_hal_path:
     mov byte [handoff_addr + handoff_net_status], net_status_identity_ready
-    mov al, [handoff_addr + handoff_nic_family]
-    cmp al, family_ne1000
-    je .ne
-    cmp al, family_ne2000
-    je .ne
+    call selected_nic_has_packet_path
+    jnc .packet
     clc
     ret
-.ne:
+.packet:
     push ds
     pop es
+    call wd_enable_shared_ram
+    call wd_select_dp8390_base
     call init_ne_packet_io
     jc .done
     mov word [ne_rx_read_limit], ne_rx_sample_len
@@ -803,19 +858,21 @@ prepare_hal_path:
     jc .done
     clc
 .done:
+    pushf
+    call wd_restore_dp8390_base
+    popf
     ret
 
 prepare_internet_path:
-    mov al, [handoff_addr + handoff_nic_family]
-    cmp al, family_ne1000
-    je .ne
-    cmp al, family_ne2000
-    je .ne
+    call selected_nic_has_packet_path
+    jnc .packet
     clc
     ret
-.ne:
+.packet:
     push ds
     pop es
+    call wd_enable_shared_ram
+    call wd_select_dp8390_base
     call ne_transmit_dhcp_discover
     jc .done
     call ne_wait_for_dhcp_offer
@@ -826,37 +883,34 @@ prepare_internet_path:
     call ne_wait_for_dhcp_ack
     cmp byte [handoff_addr + handoff_net_status], net_status_dhcp_ack_received
     jne .failed
-    call ne_resolve_dns_arp
-    jc .done
-    cmp byte [handoff_addr + handoff_net_status], net_status_arp_resolved
-    jne .failed
-    call ne_transmit_dns_query
-    jc .done
-    call ne_wait_for_dns_response
-    cmp byte [handoff_addr + handoff_net_status], net_status_dns_response_received
-    jne .failed
-    call ne_resolve_tcp_next_hop_arp
-    jc .done
-    cmp byte [handoff_addr + handoff_net_status], net_status_next_hop_arp_resolved
-    jne .failed
-    call ne_transmit_tcp_syn
-    jc .done
-    call ne_wait_for_tcp_synack
-    cmp byte [handoff_addr + handoff_net_status], net_status_tcp_synack_received
-    jne .failed
+    call set_default_internet_target
+    call ne_tcp_reachability_path
+    jc .failed
     clc
 .done:
+    pushf
+    call wd_restore_dp8390_base
+    popf
     ret
 .failed:
     stc
-    ret
+    jmp .done
 
 prepare_agent_path:
     call load_agents_cfg
-    jc .failed
     call load_seed_cfg
-    jnc .ready
-    call ask_agent
+    jnc .have_agent
+    call ask_agent_setup
+    jmp .values_ready
+.have_agent:
+    call ensure_seed_values
+    jnc .values_ready
+    call ask_agent_setup
+.values_ready:
+    call prepare_agent_endpoint_path
+    jc .failed
+    cmp byte [seed_cfg_dirty], 0
+    je .ready
     call save_seed_cfg
 .ready:
     clc
@@ -865,18 +919,284 @@ prepare_agent_path:
     stc
     ret
 
-load_agents_cfg:
-    mov byte [agent_count], 0
-    call find_agents_cfg
+prepare_agent_endpoint_path:
+    call set_agent_endpoint_target
     jc .failed
-    call parse_agents_cfg
+    call selected_nic_has_packet_path
+    jnc .packet
+.failed:
+    stc
+    ret
+.packet:
+    push ds
+    pop es
+    call wd_enable_shared_ram
+    call wd_select_dp8390_base
+    call ne_tcp_reachability_path
+    pushf
+    call wd_restore_dp8390_base
+    popf
+    ret
+
+selected_nic_has_packet_path:
+    mov al, [handoff_addr + handoff_nic_family]
+    cmp al, family_3c501
+    je .yes
+    cmp al, family_3c503
+    je .yes
+    cmp al, family_ne1000
+    je .yes
+    cmp al, family_ne2000
+    je .yes
+    cmp al, family_wd8003
+    je .yes
+    stc
+    ret
+.yes:
+    clc
+    ret
+
+set_default_internet_target:
+    call set_example_dns_target
+    call load_net_probe_cfg
+    jnc .done
+    call set_example_dns_target
+.done:
+    mov word [tcp_dest_port_word], tcp_port_http_word
+    clc
+    ret
+
+set_example_dns_target:
+    mov si, dns_default_qname
+    mov di, dns_qname
+    mov cx, dns_qname_default_len
+    rep movsb
+    mov byte [dns_qname_len], dns_qname_default_len
+    call update_dns_tx_len
+    ret
+
+load_net_probe_cfg:
+    mov di, net_cfg_name
+    call find_root_file
     jc .failed
-    cmp byte [agent_count], 0
+    cmp word [fs_file_size_high], 0
+    jne .failed
+    cmp word [fs_file_size_low], 7
+    jb .failed
+    mov ax, [fs_file_cluster]
+    call read_cluster_to_buffer
+    jc .failed
+    mov si, fs_sector_buffer
+    mov cx, [fs_file_size_low]
+    cmp cx, 512
+    jbe .size_ready
+    mov cx, 512
+.size_ready:
+    mov byte [fs_line_start], 1
+.next_byte:
+    cmp cx, 0
     je .failed
+    cmp byte [fs_line_start], 1
+    jne .consume
+    cmp cx, 6
+    jb .consume
+    cmp byte [si], 'p'
+    jne .consume
+    cmp byte [si + 1], 'r'
+    jne .consume
+    cmp byte [si + 2], 'o'
+    jne .consume
+    cmp byte [si + 3], 'b'
+    jne .consume
+    cmp byte [si + 4], 'e'
+    jne .consume
+    cmp byte [si + 5], ' '
+    jne .consume
+    add si, 6
+    sub cx, 6
+    mov di, seed_endpoint
+    mov dl, seed_endpoint_len
+    call copy_line_value
+    cmp byte [seed_endpoint], 0
+    je .failed
+    mov si, seed_endpoint
+    call set_dns_target_from_text
+    ret
+.consume:
+    lodsb
+    dec cx
+    cmp al, 13
+    je .line_start
+    cmp al, 10
+    je .line_start
+    mov byte [fs_line_start], 0
+    jmp .next_byte
+.line_start:
+    mov byte [fs_line_start], 1
+    jmp .next_byte
+.failed:
+    stc
+    ret
+
+set_agent_endpoint_target:
+    mov word [tcp_dest_port_word], tcp_port_https_word
+    call selected_agent_needs_endpoint
+    jc .known_provider
+    mov si, seed_endpoint
+    jmp set_dns_target_from_text
+.known_provider:
+    cmp byte [seed_agent_id], 'o'
+    je .open_provider
+    cmp byte [seed_agent_id], 'a'
+    je .anthropic
+    cmp byte [seed_agent_id], 'g'
+    je .google
+    stc
+    ret
+.open_provider:
+    cmp byte [seed_agent_id + 4], 'r'
+    je .openrouter
+    mov si, host_openai_text
+    jmp set_dns_target_from_text
+.openrouter:
+    mov si, host_openrouter_text
+    jmp set_dns_target_from_text
+.anthropic:
+    mov si, host_anthropic_text
+    jmp set_dns_target_from_text
+.google:
+    mov si, host_google_text
+    jmp set_dns_target_from_text
+
+set_dns_target_from_text:
+    call skip_endpoint_prefix
+    cmp byte [si], 0
+    je .failed
+    mov di, dns_qname
+    mov byte [dns_qname_len], 0
+.next_label:
+    mov [dns_label_ptr], di
+    mov byte [di], 0
+    inc di
+    inc byte [dns_qname_len]
+    mov byte [dns_label_len], 0
+.next_char:
+    lodsb
+    or al, al
+    jz .finish
+    cmp al, 13
+    je .finish
+    cmp al, 10
+    je .finish
+    cmp al, ' '
+    je .finish
+    cmp al, '/'
+    je .finish
+    cmp al, ':'
+    je .finish
+    cmp al, '.'
+    je .dot
+    cmp al, 'A'
+    jb .store
+    cmp al, 'Z'
+    ja .store
+    add al, 32
+.store:
+    cmp byte [dns_label_len], 63
+    jae .failed
+    cmp byte [dns_qname_len], dns_qname_max_len - 1
+    jae .failed
+    mov [di], al
+    inc di
+    inc byte [dns_label_len]
+    inc byte [dns_qname_len]
+    jmp .next_char
+.dot:
+    cmp byte [dns_label_len], 0
+    je .failed
+    call finish_dns_label
+    jmp .next_label
+.finish:
+    cmp byte [dns_label_len], 0
+    je .failed
+    call finish_dns_label
+    cmp byte [dns_qname_len], dns_qname_max_len
+    jae .failed
+    mov byte [di], 0
+    inc byte [dns_qname_len]
+    call update_dns_tx_len
     clc
     ret
 .failed:
     stc
+    ret
+
+skip_endpoint_prefix:
+    mov bx, si
+    cmp byte [si], 'h'
+    jne .done
+    cmp byte [si + 1], 't'
+    jne .done
+    cmp byte [si + 2], 't'
+    jne .done
+    cmp byte [si + 3], 'p'
+    jne .done
+    add si, 4
+    cmp byte [si], 's'
+    jne .colon
+    inc si
+.colon:
+    cmp byte [si], ':'
+    jne .restore
+    inc si
+    cmp byte [si], '/'
+    jne .restore
+    inc si
+    cmp byte [si], '/'
+    jne .restore
+    inc si
+    ret
+.restore:
+    mov si, bx
+.done:
+    ret
+
+finish_dns_label:
+    mov bx, [dns_label_ptr]
+    mov al, [dns_label_len]
+    mov [bx], al
+    ret
+
+update_dns_tx_len:
+    mov al, [dns_qname_len]
+    xor ah, ah
+    add ax, eth_header_len + ipv4_header_len + udp_header_len + dns_payload_base_len
+    mov [dns_tx_len], ax
+    ret
+
+load_agents_cfg:
+    mov byte [agent_count], 0
+    call find_agents_cfg
+    jc .fallback
+    call parse_agents_cfg
+    jc .fallback
+    cmp byte [agent_count], 0
+    je .fallback
+    clc
+    ret
+.fallback:
+    call load_builtin_agents
+    clc
+    ret
+
+load_builtin_agents:
+    push ds
+    pop es
+    mov si, builtin_agent_ids
+    mov di, agent_ids
+    mov cx, (3 * agent_id_len) / 2
+    rep movsw
+    mov byte [agent_count], 3
     ret
 
 find_agents_cfg:
@@ -1116,6 +1436,7 @@ copy_agent_id_from_line:
     ret
 
 load_seed_cfg:
+    call clear_seed_values
     call find_seed_cfg
     jc .failed
     cmp word [seed_size_high], 0
@@ -1135,17 +1456,33 @@ load_seed_cfg:
 
 parse_seed_cfg:
     mov si, fs_sector_buffer
-    mov di, agent_prefix_text
-    mov cx, 6
-.compare_prefix:
-    mov al, [si]
-    cmp al, [di]
-    jne .failed
-    inc si
-    inc di
-    loop .compare_prefix
-    mov si, fs_sector_buffer + 6
-    call copy_seed_agent_from_buffer
+    mov cx, [seed_size_low]
+    cmp cx, 512
+    jbe .size_ready
+    mov cx, 512
+.size_ready:
+    mov byte [fs_line_start], 1
+.next_byte:
+    cmp cx, 0
+    je .validate
+    cmp byte [fs_line_start], 1
+    jne .consume
+    call parse_seed_line
+.consume:
+    lodsb
+    dec cx
+    cmp al, 13
+    je .line_start
+    cmp al, 10
+    je .line_start
+    mov byte [fs_line_start], 0
+    jmp .next_byte
+.line_start:
+    mov byte [fs_line_start], 1
+    jmp .next_byte
+.validate:
+    test byte [seed_config_flags], seed_flag_agent
+    jz .failed
     call match_seed_agent
     jc .failed
     clc
@@ -1154,25 +1491,190 @@ parse_seed_cfg:
     stc
     ret
 
-copy_seed_agent_from_buffer:
+parse_seed_line:
+    cmp cx, 6
+    jb .check_key
+    cmp byte [si], 'a'
+    jne .check_model
+    cmp byte [si + 1], 'g'
+    jne .check_model
+    cmp byte [si + 2], 'e'
+    jne .check_model
+    cmp byte [si + 3], 'n'
+    jne .check_model
+    cmp byte [si + 4], 't'
+    jne .check_model
+    cmp byte [si + 5], ' '
+    jne .check_model
+    push si
+    push cx
+    add si, 6
+    sub cx, 6
     mov di, seed_agent_id
-    mov cx, agent_id_len - 1
+    mov dl, agent_id_len
+    call copy_line_value
+    pop cx
+    pop si
+    cmp byte [seed_agent_id], 0
+    je .done
+    or byte [seed_config_flags], seed_flag_agent
+    ret
+.check_model:
+    cmp cx, 6
+    jb .check_key
+    cmp byte [si], 'm'
+    jne .check_reasoning
+    cmp byte [si + 1], 'o'
+    jne .check_reasoning
+    cmp byte [si + 2], 'd'
+    jne .check_reasoning
+    cmp byte [si + 3], 'e'
+    jne .check_reasoning
+    cmp byte [si + 4], 'l'
+    jne .check_reasoning
+    cmp byte [si + 5], ' '
+    jne .check_reasoning
+    push si
+    push cx
+    add si, 6
+    sub cx, 6
+    mov di, seed_model
+    mov dl, seed_model_len
+    call copy_line_value
+    pop cx
+    pop si
+    cmp byte [seed_model], 0
+    je .done
+    or byte [seed_config_flags], seed_flag_model
+    ret
+.check_reasoning:
+    cmp cx, 10
+    jb .check_key
+    cmp byte [si], 'r'
+    jne .check_key
+    cmp byte [si + 1], 'e'
+    jne .check_key
+    cmp byte [si + 2], 'a'
+    jne .check_key
+    cmp byte [si + 3], 's'
+    jne .check_key
+    cmp byte [si + 4], 'o'
+    jne .check_key
+    cmp byte [si + 5], 'n'
+    jne .check_key
+    cmp byte [si + 6], 'i'
+    jne .check_key
+    cmp byte [si + 7], 'n'
+    jne .check_key
+    cmp byte [si + 8], 'g'
+    jne .check_key
+    cmp byte [si + 9], ' '
+    jne .check_key
+    push si
+    push cx
+    add si, 10
+    sub cx, 10
+    mov di, seed_reasoning
+    mov dl, seed_reasoning_len
+    call copy_line_value
+    pop cx
+    pop si
+    cmp byte [seed_reasoning], 0
+    je .done
+    or byte [seed_config_flags], seed_flag_reasoning
+    ret
+.check_key:
+    cmp cx, 4
+    jb .check_endpoint
+    cmp byte [si], 'k'
+    jne .check_endpoint
+    cmp byte [si + 1], 'e'
+    jne .check_endpoint
+    cmp byte [si + 2], 'y'
+    jne .check_endpoint
+    cmp byte [si + 3], ' '
+    jne .check_endpoint
+    push si
+    push cx
+    add si, 4
+    sub cx, 4
+    mov di, seed_key
+    mov dl, seed_key_len
+    call copy_line_value
+    pop cx
+    pop si
+    cmp byte [seed_key], 0
+    je .done
+    or byte [seed_config_flags], seed_flag_key
+    ret
+.check_endpoint:
+    cmp cx, 9
+    jb .done
+    cmp byte [si], 'e'
+    jne .done
+    cmp byte [si + 1], 'n'
+    jne .done
+    cmp byte [si + 2], 'd'
+    jne .done
+    cmp byte [si + 3], 'p'
+    jne .done
+    cmp byte [si + 4], 'o'
+    jne .done
+    cmp byte [si + 5], 'i'
+    jne .done
+    cmp byte [si + 6], 'n'
+    jne .done
+    cmp byte [si + 7], 't'
+    jne .done
+    cmp byte [si + 8], ' '
+    jne .done
+    push si
+    push cx
+    add si, 9
+    sub cx, 9
+    mov di, seed_endpoint
+    mov dl, seed_endpoint_len
+    call copy_line_value
+    pop cx
+    pop si
+    cmp byte [seed_endpoint], 0
+    je .done
+    or byte [seed_config_flags], seed_flag_endpoint
+.done:
+    ret
+
+copy_line_value:
+    push ax
+    push cx
+    push dx
+    push si
+    push di
+    dec dl
 .copy:
-    lodsb
+    cmp cx, 0
+    je .terminate
+    cmp dl, 0
+    je .terminate
+    mov al, [si]
     cmp al, 13
     je .terminate
     cmp al, 10
     je .terminate
-    cmp al, ' '
-    je .terminate
-    cmp al, 9
-    je .terminate
     or al, al
     jz .terminate
-    stosb
-    loop .copy
+    mov [di], al
+    inc si
+    inc di
+    dec cx
+    dec dl
+    jmp .copy
 .terminate:
     mov byte [di], 0
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop ax
     ret
 
 match_seed_agent:
@@ -1212,11 +1714,252 @@ strings_equal:
     stc
     ret
 
+clear_seed_values:
+    push es
+    push ds
+    pop es
+    xor ax, ax
+    mov di, seed_agent_id
+    mov cx, seed_value_total_len / 2
+    rep stosw
+    mov byte [seed_config_flags], 0
+    mov byte [seed_cfg_dirty], 0
+    pop es
+    ret
+
+ensure_seed_values:
+    call selected_agent_needs_endpoint
+    jc .key_only
+    test byte [seed_config_flags], seed_flag_endpoint
+    jz .ask
+.key_only:
+    test byte [seed_config_flags], seed_flag_key
+    jnz .done
+    jmp .ask
+.ask:
+    call ask_agent_values
+.done:
+    ret
+
+selected_agent_needs_endpoint:
+    cmp byte [seed_agent_id], 'l'
+    jne .no
+    clc
+    ret
+.no:
+    stc
+    ret
+
+ask_agent_values:
+    mov byte [menu_value_a], 0
+    mov byte [blink_state], 0
+.render:
+    call clear_agent_field_area
+    call render_agent_values_form
+    call set_active_form_input
+    call show_cursor
+.input:
+    call input_wait_key
+    cmp al, 0x0d
+    je .accept
+    cmp al, 0x08
+    je .backspace
+    cmp al, 0x1b
+    je .cancel
+    cmp ah, 0x48
+    je .previous
+    cmp ah, 0x50
+    je .next
+    cmp al, 0x20
+    jb .input
+    cmp al, 0x7e
+    ja .input
+    mov dl, [input_max]
+    dec dl
+    cmp [input_len], dl
+    jae .input
+    call input_store_char
+    jmp .input
+.backspace:
+    call input_backspace
+    jmp .input
+.previous:
+.next:
+    call selected_agent_needs_endpoint
+    jc .input
+    xor byte [menu_value_a], 1
+    call draw_agent_form_fields
+    call set_active_form_input
+    call show_cursor
+    jmp .input
+.accept:
+    call validate_agent_values
+    jc .render
+    call hide_cursor
+    call clear_question_area
+    mov bl, [load_marker_attr]
+    mov al, [load_marker_char]
+    call show_load_marker
+    clc
+    ret
+.cancel:
+    call hide_cursor
+    call slide_selected_agent_right
+    stc
+    ret
+
+validate_agent_values:
+    call selected_agent_needs_endpoint
+    jc .check_key
+    cmp byte [seed_endpoint], 0
+    jne .check_key
+    mov byte [menu_value_a], 0
+    stc
+    ret
+.check_key:
+    cmp byte [seed_key], 0
+    jne .valid
+    call selected_agent_needs_endpoint
+    jc .key_focus
+    mov byte [menu_value_a], 1
+    jmp .invalid
+.key_focus:
+    mov byte [menu_value_a], 0
+.invalid:
+    stc
+    ret
+.valid:
+    or byte [seed_config_flags], seed_flag_key
+    call selected_agent_needs_endpoint
+    jc .done
+    or byte [seed_config_flags], seed_flag_endpoint
+.done:
+    mov byte [seed_cfg_dirty], 1
+    clc
+    ret
+
+set_active_form_input:
+    call selected_agent_needs_endpoint
+    jc .key
+    cmp byte [menu_value_a], 0
+    jne .key
+    mov di, seed_endpoint
+    mov al, seed_endpoint_len
+    mov dl, question_row
+    add dl, [menu_index]
+    jmp .set
+.key:
+    mov di, seed_key
+    mov al, seed_key_len
+    mov dl, question_row
+    add dl, [menu_index]
+    call selected_agent_needs_endpoint
+    jc .set
+    inc dl
+.set:
+    mov [input_target], di
+    mov [input_max], al
+    call measure_input_len
+    mov [cursor_row], dl
+    mov al, [form_field_col]
+    add al, 8
+    mov [input_start_col], al
+    call set_input_window
+    ret
+
+measure_input_len:
+    mov byte [input_len], 0
+    mov di, [input_target]
+.next:
+    cmp byte [di], 0
+    je .done
+    inc di
+    inc byte [input_len]
+    jmp .next
+.done:
+    ret
+
+input_store_char:
+    mov bl, [input_len]
+    xor bh, bh
+    mov di, [input_target]
+    add di, bx
+    mov [di], al
+    inc byte [input_len]
+    inc di
+    mov byte [di], 0
+    call render_text_input
+    ret
+
+input_backspace:
+    cmp byte [input_len], 0
+    je .done
+    dec byte [input_len]
+    mov bl, [input_len]
+    xor bh, bh
+    mov di, [input_target]
+    add di, bx
+    mov byte [di], 0
+    call render_text_input
+.done:
+    ret
+
+input_wait_key:
+    xor ah, ah
+    int 0x16
+    ret
+
+render_text_input:
+    call clear_input_line
+    call set_input_window
+    mov bl, [question_attr]
+.next:
+    jcxz .done
+    lodsb
+    call print_char
+    loop .next
+.done:
+    call set_bios_cursor
+    ret
+
+set_input_window:
+    mov al, [input_start_col]
+    mov [cursor_col], al
+    mov dl, [screen_cols]
+    sub dl, al
+    dec dl
+    mov cl, [input_len]
+    xor ch, ch
+    mov si, [input_target]
+    cmp cl, dl
+    jbe .done
+    mov al, cl
+    sub al, dl
+    xor ah, ah
+    add si, ax
+    mov cl, dl
+.done:
+    ret
+
+ask_agent_setup:
+.select:
+    call clear_seed_values
+    call ask_agent
+.values:
+    call ensure_seed_values
+    jc .reselect
+    ret
+.reselect:
+    call clear_seed_values
+    call ask_agent_resume
+    jmp .values
+
 ask_agent:
     mov byte [menu_index], 0
     mov byte [blink_state], 0
     call notify_question
     call render_agent_question
+ask_agent_resume:
 .input:
     call blink_load_marker
     mov ah, 0x01
@@ -1252,10 +1995,7 @@ ask_agent:
     jmp .input
 .accept:
     call copy_selected_agent
-    call clear_question_area
-    mov bl, [load_marker_attr]
-    mov al, [load_marker_char]
-    call show_load_marker
+    call slide_selected_agent_left
     ret
 
 copy_selected_agent:
@@ -1271,6 +2011,63 @@ copy_selected_agent:
     loop .copy
     mov byte [di - 1], 0
 .done:
+    or byte [seed_config_flags], seed_flag_agent
+    mov byte [seed_cfg_dirty], 1
+    ret
+
+slide_selected_agent_left:
+    mov al, [seed_col]
+    add al, 2
+.loop:
+    call draw_selected_agent_slide
+    mov ah, [form_left_col]
+    cmp al, ah
+    jbe .done
+    sub al, 4
+    cmp al, ah
+    jae .wait
+    mov al, ah
+.wait:
+    mov cx, 1
+    call wait_ticks
+    jmp .loop
+.done:
+    ret
+
+slide_selected_agent_right:
+    mov al, [form_left_col]
+.loop:
+    call draw_selected_agent_slide
+    mov ah, [seed_col]
+    add ah, 2
+    cmp al, ah
+    jae .done
+    add al, 4
+    cmp al, ah
+    jbe .wait
+    mov al, ah
+.wait:
+    mov cx, 1
+    call wait_ticks
+    jmp .loop
+.done:
+    ret
+
+draw_selected_agent_slide:
+    mov [input_start_col], al
+    call clear_panel_area
+    mov bl, [load_marker_attr]
+    mov al, [load_marker_char]
+    call show_load_marker
+    mov byte [cursor_row], seed_row
+    mov al, [seed_col]
+    add al, 2
+    mov [cursor_col], al
+    mov bl, [question_attr]
+    mov si, agent_prompt_text
+    call print_z
+    call draw_agent_options_at_col
+    mov al, [input_start_col]
     ret
 
 save_seed_cfg:
@@ -1451,23 +2248,61 @@ build_seed_cfg_buffer:
     pop es
     mov di, fs_sector_buffer
     mov si, agent_prefix_text
-    mov cx, 6
-    rep movsb
+    call append_z_to_buffer
     mov si, seed_agent_id
-.copy:
+    call append_z_to_buffer
+    call append_crlf_to_buffer
+    test byte [seed_config_flags], seed_flag_model
+    jz .reasoning
+    mov si, model_prefix_text
+    call append_z_to_buffer
+    mov si, seed_model
+    call append_z_to_buffer
+    call append_crlf_to_buffer
+.reasoning:
+    test byte [seed_config_flags], seed_flag_reasoning
+    jz .key
+    mov si, reasoning_prefix_text
+    call append_z_to_buffer
+    mov si, seed_reasoning
+    call append_z_to_buffer
+    call append_crlf_to_buffer
+.key:
+    test byte [seed_config_flags], seed_flag_key
+    jz .endpoint
+    mov si, key_prefix_text
+    call append_z_to_buffer
+    mov si, seed_key
+    call append_z_to_buffer
+    call append_crlf_to_buffer
+.endpoint:
+    test byte [seed_config_flags], seed_flag_endpoint
+    jz .finish
+    mov si, endpoint_prefix_text
+    call append_z_to_buffer
+    mov si, seed_endpoint
+    call append_z_to_buffer
+    call append_crlf_to_buffer
+.finish:
+    mov ax, di
+    sub ax, fs_sector_buffer
+    mov [seed_cfg_size_current], ax
+    ret
+
+append_z_to_buffer:
     lodsb
     or al, al
-    jz .suffix
+    jz .done
     stosb
-    jmp .copy
-.suffix:
+    jmp append_z_to_buffer
+.done:
+    ret
+
+append_crlf_to_buffer:
     mov al, 13
     stosb
     mov al, 10
     stosb
-    mov ax, di
-    sub ax, fs_sector_buffer
-    mov [seed_cfg_size_current], ax
     ret
 
 clear_fs_sector_buffer:
@@ -1549,6 +2384,30 @@ write_abs_sector:
     pop ax
     ret
 
+wd_enable_shared_ram:
+    cmp byte [handoff_addr + handoff_nic_family], family_wd8003
+    jne .done
+    mov dx, [handoff_addr + handoff_nic_base]
+    in al, dx
+    or al, wd_msr_enable_ram
+    out dx, al
+.done:
+    ret
+
+wd_select_dp8390_base:
+    cmp byte [handoff_addr + handoff_nic_family], family_wd8003
+    jne .done
+    add word [handoff_addr + handoff_nic_base], wd_dp8390_offset
+.done:
+    ret
+
+wd_restore_dp8390_base:
+    cmp byte [handoff_addr + handoff_nic_family], family_wd8003
+    jne .done
+    sub word [handoff_addr + handoff_nic_base], wd_dp8390_offset
+.done:
+    ret
+
 init_ne_packet_io:
     test word [handoff_addr + handoff_flags], handoff_flag_mac_valid
     jnz .have_mac
@@ -1556,11 +2415,26 @@ init_ne_packet_io:
     stc
     ret
 .have_mac:
+    cmp byte [handoff_addr + handoff_nic_family], family_3c501
+    jne .check_3c503
+    jmp el1_init_packet_io
+.check_3c503:
+    cmp byte [handoff_addr + handoff_nic_family], family_3c503
+    jne .pages
+    call c503_select_dp8390
+.pages:
     mov byte [ne_tx_start], ne_tx_start_2k
     mov byte [ne_rx_start], ne_rx_start_2k
     mov byte [ne_rx_stop], ne_rx_stop_2k
     cmp byte [handoff_addr + handoff_nic_family], family_ne2000
     je .pages_ready
+    cmp byte [handoff_addr + handoff_nic_family], family_wd8003
+    jne .pages_1k
+    mov byte [ne_tx_start], wd_tx_start
+    mov byte [ne_rx_start], wd_rx_start
+    mov byte [ne_rx_stop], wd_rx_stop
+    jmp .pages_ready
+.pages_1k:
     mov byte [ne_tx_start], ne_tx_start_1k
     mov byte [ne_rx_start], ne_rx_start_1k
     mov byte [ne_rx_stop], ne_rx_stop_1k
@@ -1658,6 +2532,49 @@ init_ne_packet_io:
     clc
     ret
 
+c503_select_dp8390:
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, el2_ctrl
+    mov al, el2_ctrl_thin
+    out dx, al
+    ret
+
+el1_init_packet_io:
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, el1_aux
+    mov al, el1_aux_reset
+    out dx, al
+    mov al, el1_aux_system
+    out dx, al
+
+    mov dx, [handoff_addr + handoff_nic_base]
+    mov si, handoff_addr + handoff_mac
+    mov cx, 6
+.mac:
+    lodsb
+    out dx, al
+    inc dx
+    loop .mac
+
+    mov al, el1_rx_cmd_bcast_good
+    out dx, al
+    inc dx
+    mov al, el1_tx_cmd_success
+    out dx, al
+
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, el1_rcvptr
+    out dx, al
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, el1_aux
+    mov al, el1_aux_receive
+    out dx, al
+
+    mov byte [handoff_addr + handoff_net_status], net_status_packet_ready
+    mov byte [handoff_addr + handoff_net_error], net_error_none
+    clc
+    ret
+
 ne_transmit_dhcp_discover:
     call build_dhcp_discover_frame
 
@@ -1696,7 +2613,7 @@ ne_transmit_dns_query:
     call build_dns_query_frame
 
     mov si, ne_tx_frame
-    mov cx, dns_tx_frame_len
+    mov cx, [dns_tx_len]
     call ne_transmit_frame
     jc .done
     mov byte [handoff_addr + handoff_net_status], net_status_dns_query_sent
@@ -1716,12 +2633,35 @@ ne_transmit_tcp_syn:
 
 ne_transmit_frame:
     mov [ne_tx_len], cx
+    cmp byte [handoff_addr + handoff_nic_family], family_3c501
+    jne .dp8390
+    call el1_transmit_frame
+    ret
 
+.dp8390:
     mov dx, [handoff_addr + handoff_nic_base]
     add dx, ne_isr
     mov al, ne_isr_rdc | ne_isr_txe | ne_isr_ptx
     out dx, al
 
+    cmp byte [handoff_addr + handoff_nic_family], family_wd8003
+    jne .check_3c503
+    xor bl, bl
+    mov bh, [ne_tx_start]
+    mov cx, [ne_tx_len]
+    call wd_write_sharedmem_bytes
+    jmp .frame_loaded
+
+.check_3c503:
+    cmp byte [handoff_addr + handoff_nic_family], family_3c503
+    jne .remote_dma
+    xor bl, bl
+    mov bh, [ne_tx_start]
+    mov cx, [ne_tx_len]
+    call c503_write_chipmem_bytes
+    jmp .frame_loaded
+
+.remote_dma:
     mov dx, [handoff_addr + handoff_nic_base]
     add dx, ne_rbcr0
     mov ax, [ne_tx_len]
@@ -1764,6 +2704,7 @@ ne_transmit_frame:
     mov al, ne_isr_rdc
     out dx, al
 
+.frame_loaded:
     mov dx, [handoff_addr + handoff_nic_base]
     add dx, ne_tpsr
     mov al, [ne_tx_start]
@@ -1800,6 +2741,46 @@ ne_transmit_frame:
 .failed:
     mov byte [handoff_addr + handoff_net_error], net_error_ne_tx
     stc
+    ret
+
+el1_transmit_frame:
+    mov ax, 0x0800
+    sub ax, [ne_tx_len]
+    mov [el1_tx_ptr], ax
+    call el1_set_gp
+
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, el1_aux
+    mov al, el1_aux_system
+    out dx, al
+    inc dx
+    mov cx, [ne_tx_len]
+.write:
+    lodsb
+    out dx, al
+    loop .write
+
+    mov ax, [el1_tx_ptr]
+    call el1_set_gp
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, el1_aux
+    mov al, el1_aux_xmit_recv
+    out dx, al
+
+    mov cx, 0xffff
+.wait:
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, el1_tx_cmd
+    in al, dx
+    test al, el1_tx_status_ready
+    jnz .done
+    loop .wait
+    mov byte [handoff_addr + handoff_net_error], net_error_ne_tx
+    stc
+    ret
+.done:
+    mov byte [handoff_addr + handoff_net_status], net_status_tx_ready
+    clc
     ret
 
 build_dhcp_discover_frame:
@@ -2030,7 +3011,7 @@ build_arp_request_frame:
 build_dns_query_frame:
     mov di, ne_tx_frame
     xor al, al
-    mov cx, dns_tx_frame_len
+    mov cx, dns_tx_frame_max_len
     rep stosb
 
     mov di, ne_tx_frame
@@ -2047,7 +3028,10 @@ build_dns_query_frame:
 
     mov ax, 0x0045
     stosw
-    mov ax, dns_ip_len << 8
+    mov al, [dns_qname_len]
+    xor ah, ah
+    add ax, ipv4_header_len + udp_header_len + dns_payload_base_len
+    xchg al, ah
     stosw
     xor ax, ax
     stosw
@@ -2069,7 +3053,10 @@ build_dns_query_frame:
     stosw
     mov ax, 0x3500
     stosw
-    mov ax, dns_udp_len << 8
+    mov al, [dns_qname_len]
+    xor ah, ah
+    add ax, udp_header_len + dns_payload_base_len
+    xchg al, ah
     stosw
     xor ax, ax
     stosw
@@ -2085,7 +3072,8 @@ build_dns_query_frame:
     stosw
     stosw
     mov si, dns_qname
-    mov cx, dns_qname_len
+    mov cl, [dns_qname_len]
+    xor ch, ch
     rep movsb
     mov ax, 0x0100
     stosw
@@ -2135,7 +3123,7 @@ build_tcp_syn_frame:
 
     mov ax, tcp_source_port_word
     stosw
-    mov ax, tcp_dest_port_word
+    mov ax, [tcp_dest_port_word]
     stosw
     mov ax, 0x4553
     stosw
@@ -2209,6 +3197,10 @@ write_tcp_checksum:
     ret
 
 ne_try_receive_frame:
+    cmp byte [handoff_addr + handoff_nic_family], family_3c501
+    jne .dp8390
+    jmp el1_try_receive_frame
+.dp8390:
     mov word [ne_rx_sample_count], 0
     call ne_read_ring_pointers
     call ne_select_next_rx_page
@@ -2305,6 +3297,68 @@ ne_try_receive_frame:
     stc
     ret
 
+el1_try_receive_frame:
+    mov word [ne_rx_sample_count], 0
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, el1_rcvptr
+    in ax, dx
+    mov [ne_rx_count], ax
+    or ax, ax
+    jnz .check_status
+    mov byte [handoff_addr + handoff_net_status], net_status_rx_poll_ready
+    clc
+    ret
+
+.check_status:
+    mov dx, [handoff_addr + handoff_nic_base]
+    in al, dx
+    test al, el1_rx_status_good
+    jz .release_empty
+    mov ax, [ne_rx_count]
+    cmp ax, ne_rx_max_count
+    ja .count_failed
+    cmp ax, [ne_rx_read_limit]
+    jbe .sample_count_ready
+    mov ax, [ne_rx_read_limit]
+.sample_count_ready:
+    mov [ne_rx_sample_count], ax
+    mov cx, ax
+    xor ax, ax
+    call el1_set_gp
+    mov di, ne_tx_frame
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, el1_data
+.read:
+    in al, dx
+    stosb
+    loop .read
+    mov byte [handoff_addr + handoff_net_status], net_status_rx_frame_read
+
+.release_frame:
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, el1_rcvptr
+    out dx, al
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, el1_aux
+    mov al, el1_aux_system
+    out dx, al
+    mov al, el1_aux_receive
+    out dx, al
+    clc
+    ret
+.release_empty:
+    mov word [ne_rx_sample_count], 0
+    jmp .release_frame
+.count_failed:
+    mov byte [handoff_addr + handoff_net_error], net_error_ne_rx_count
+    jmp .release_frame
+
+el1_set_gp:
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, el1_dataptr
+    out dx, ax
+    ret
+
 ne_wait_for_dhcp_offer:
     mov word [ne_rx_read_limit], dhcp_rx_frame_len
     mov word [dhcp_wait_count], dhcp_offer_wait_count
@@ -2361,6 +3415,32 @@ ne_wait_for_dhcp_ack:
     mov byte [handoff_addr + handoff_net_status], net_status_dhcp_ack_received
     mov byte [handoff_addr + handoff_net_error], net_error_none
     clc
+    ret
+
+ne_tcp_reachability_path:
+    call ne_resolve_dns_arp
+    jc .done
+    cmp byte [handoff_addr + handoff_net_status], net_status_arp_resolved
+    jne .failed
+    call ne_transmit_dns_query
+    jc .done
+    call ne_wait_for_dns_response
+    cmp byte [handoff_addr + handoff_net_status], net_status_dns_response_received
+    jne .failed
+    call ne_resolve_tcp_next_hop_arp
+    jc .done
+    cmp byte [handoff_addr + handoff_net_status], net_status_next_hop_arp_resolved
+    jne .failed
+    call ne_transmit_tcp_syn
+    jc .done
+    call ne_wait_for_tcp_synack
+    cmp byte [handoff_addr + handoff_net_status], net_status_tcp_synack_received
+    jne .failed
+    clc
+    ret
+.failed:
+    stc
+.done:
     ret
 
 ne_resolve_dns_arp:
@@ -2799,7 +3879,10 @@ parse_arp_reply:
     ret
 
 parse_dns_response:
-    cmp word [ne_rx_sample_count], dns_answer_rdata_offset + 4
+    mov al, [dns_qname_len]
+    xor ah, ah
+    add ax, dns_payload_offset + 12 + 4 + 16
+    cmp word [ne_rx_sample_count], ax
     jb .not_response
     cmp word [ne_tx_frame + 12], 0x0008
     jne .not_response
@@ -2838,15 +3921,21 @@ parse_dns_response:
     jz .not_response
     cmp byte [ne_tx_frame + dns_payload_offset + 7], 0
     je .not_response
-    cmp word [ne_tx_frame + dns_answer_offset], 0x0cc0
+
+    mov si, ne_tx_frame + dns_payload_offset + 12
+    mov bl, [dns_qname_len]
+    xor bh, bh
+    add si, bx
+    add si, 4
+    call dns_skip_name
+    jc .not_response
+    cmp word [si], 0x0100
     jne .not_response
-    cmp word [ne_tx_frame + dns_answer_offset + 2], 0x0100
+    cmp word [si + 2], 0x0100
     jne .not_response
-    cmp word [ne_tx_frame + dns_answer_offset + 4], 0x0100
+    cmp word [si + 8], 0x0400
     jne .not_response
-    cmp word [ne_tx_frame + dns_answer_offset + 10], 0x0400
-    jne .not_response
-    mov si, ne_tx_frame + dns_answer_rdata_offset
+    add si, 10
     mov di, tcp_target_ip
     mov cx, 4
     rep movsb
@@ -2854,6 +3943,30 @@ parse_dns_response:
     ret
 .not_response:
     stc
+    ret
+
+dns_skip_name:
+    mov cx, 64
+.part:
+    lodsb
+    mov ah, al
+    and ah, 0xc0
+    cmp ah, 0xc0
+    je .pointer
+    or ah, ah
+    jnz .bad
+    or al, al
+    jz .done
+    xor ah, ah
+    add si, ax
+    loop .part
+.bad:
+    stc
+    ret
+.pointer:
+    lodsb
+.done:
+    clc
     ret
 
 parse_tcp_synack:
@@ -2886,7 +3999,8 @@ parse_tcp_synack:
     inc di
     loop .check_dest_ip
 
-    cmp word [ne_tx_frame + tcp_offset], tcp_dest_port_word
+    mov ax, [tcp_dest_port_word]
+    cmp word [ne_tx_frame + tcp_offset], ax
     jne .not_synack
     cmp word [ne_tx_frame + tcp_offset + 2], tcp_source_port_word
     jne .not_synack
@@ -2950,6 +4064,20 @@ ne_remote_read_bytes:
     mov [ne_dma_addr], bx
     mov [ne_dma_count], cx
 
+    cmp byte [handoff_addr + handoff_nic_family], family_wd8003
+    jne .check_3c503
+    call wd_read_sharedmem_bytes
+    clc
+    ret
+
+.check_3c503:
+    cmp byte [handoff_addr + handoff_nic_family], family_3c503
+    jne .remote_dma
+    call c503_read_chipmem_bytes
+    clc
+    ret
+
+.remote_dma:
     mov dx, [handoff_addr + handoff_nic_base]
     add dx, ne_isr
     mov al, ne_isr_rdc
@@ -3013,6 +4141,97 @@ ne_finish_remote_dma:
     pop ax
     ret
 
+wd_write_sharedmem_bytes:
+    push es
+    mov ax, wd_ram_segment
+    mov es, ax
+    mov di, bx
+    rep movsb
+    pop es
+    ret
+
+wd_read_sharedmem_bytes:
+    mov bx, [ne_dma_addr]
+    mov cx, [ne_dma_count]
+    mov dh, [ne_rx_start]
+    mov dl, [ne_rx_stop]
+    push ds
+    mov ax, wd_ram_segment
+    mov ds, ax
+    mov si, bx
+.read:
+    lodsb
+    stosb
+    mov ax, si
+    cmp ah, dl
+    jne .next
+    or al, al
+    jnz .next
+    mov al, dh
+    xor ah, ah
+    xchg al, ah
+    mov si, ax
+.next:
+    loop .read
+    pop ds
+    ret
+
+c503_write_chipmem_bytes:
+    mov [ne_dma_addr], bx
+    mov [ne_dma_count], cx
+    call c503_begin_dma
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, el2_data
+    mov cx, [ne_dma_count]
+.write:
+    lodsb
+    out dx, al
+    loop .write
+    call c503_select_dp8390
+    ret
+
+c503_read_chipmem_bytes:
+    call c503_begin_dma
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, el2_data
+    mov cx, [ne_dma_count]
+.read:
+    in al, dx
+    stosb
+    inc word [ne_dma_addr]
+    mov ax, [ne_dma_addr]
+    cmp ah, [ne_rx_stop]
+    jne .next
+    or al, al
+    jnz .next
+    mov al, [ne_rx_start]
+    xor ah, ah
+    xchg al, ah
+    mov [ne_dma_addr], ax
+    call c503_begin_dma
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, el2_data
+.next:
+    loop .read
+    call c503_select_dp8390
+    ret
+
+c503_begin_dma:
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, el2_ctrl
+    mov al, el2_ctrl_dma | el2_ctrl_thin
+    out dx, al
+
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, el2_da_high
+    mov ax, [ne_dma_addr]
+    mov al, ah
+    out dx, al
+    inc dx
+    mov ax, [ne_dma_addr]
+    out dx, al
+    ret
+
 render_adapter_question:
     mov byte [cursor_row], seed_row
     mov al, [seed_col]
@@ -3035,6 +4254,70 @@ render_agent_question:
     call type_z
 
     call type_agent_options
+    ret
+
+render_agent_values_form:
+    mov bl, [load_marker_attr]
+    mov al, [load_marker_char]
+    call show_load_marker
+
+    mov byte [cursor_row], seed_row
+    mov al, [seed_col]
+    add al, 2
+    mov [cursor_col], al
+    mov bl, [question_attr]
+    mov si, agent_prompt_text
+    call type_z
+
+    mov al, [form_left_col]
+    mov [input_start_col], al
+    call draw_agent_options_at_col
+
+draw_agent_form_fields:
+    call selected_agent_needs_endpoint
+    jc .key_only
+    mov al, question_row
+    add al, [menu_index]
+    mov [cursor_row], al
+    mov si, endpoint_prompt_text
+    mov di, seed_endpoint
+    mov al, 0
+    call draw_form_field
+    mov al, question_row + 1
+    add al, [menu_index]
+    mov [cursor_row], al
+    mov si, key_prompt_text
+    mov di, seed_key
+    mov al, 1
+    call draw_form_field
+    ret
+.key_only:
+    mov al, question_row
+    add al, [menu_index]
+    mov [cursor_row], al
+    mov si, key_prompt_text
+    mov di, seed_key
+    mov al, 0
+    call draw_form_field
+    ret
+
+draw_form_field:
+    push ax
+    mov [input_target], di
+    mov al, [form_field_col]
+    mov [cursor_col], al
+    mov bl, [menu_idle_attr]
+    pop ax
+    cmp al, [menu_value_a]
+    jne .label_ready
+    mov bl, [question_attr]
+.label_ready:
+    call print_z
+    mov al, [form_field_col]
+    add al, 8
+    mov [input_start_col], al
+    call measure_input_len
+    call render_text_input
     ret
 
 type_agent_options:
@@ -3064,6 +4347,10 @@ type_agent_options:
     ret
 
 draw_agent_options:
+    mov al, [seed_col]
+    add al, 2
+    mov [input_start_col], al
+draw_agent_options_at_col:
     mov byte [agent_draw_index], 0
 .next:
     mov al, [agent_draw_index]
@@ -3072,8 +4359,7 @@ draw_agent_options:
     mov al, question_row
     add al, [agent_draw_index]
     mov [cursor_row], al
-    mov al, [seed_col]
-    add al, 2
+    mov al, [input_start_col]
     mov [cursor_col], al
     mov bl, [menu_idle_attr]
     mov al, [agent_draw_index]
@@ -3189,6 +4475,39 @@ clear_question_area:
     int 0x10
     ret
 
+clear_panel_area:
+    mov ax, 0x0600
+    mov bh, 0x07
+    mov ch, question_row
+    xor cl, cl
+    mov dh, question_row + agent_slot_count
+    mov dl, [screen_cols]
+    dec dl
+    int 0x10
+    ret
+
+clear_agent_field_area:
+    mov ax, 0x0600
+    mov bh, 0x07
+    mov ch, question_row
+    mov cl, [form_field_col]
+    mov dh, question_row + agent_slot_count
+    mov dl, [screen_cols]
+    dec dl
+    int 0x10
+    ret
+
+clear_input_line:
+    mov ax, 0x0600
+    mov bh, 0x07
+    mov ch, [cursor_row]
+    mov cl, [input_start_col]
+    mov dh, ch
+    mov dl, [screen_cols]
+    dec dl
+    int 0x10
+    ret
+
 notify_question:
     mov ax, 6087
     call speaker_tone
@@ -3247,6 +4566,14 @@ menu_option_b dw 0
 menu_value_a db 0
 menu_value_b db 0
 menu_index db 0
+input_target dw 0
+input_max db 0
+input_len db 0
+input_start_col db 0
+form_left_col db 2
+form_field_col db 20
+seed_config_flags db 0
+seed_cfg_dirty db 0
 agent_count db 0
 agent_draw_index db 0
 agent_scan_index db 0
@@ -3262,6 +4589,7 @@ ne_rx_count dw 0
 ne_rx_sample_count dw 0
 ne_rx_read_limit dw ne_rx_sample_len
 ne_tx_len dw 0
+el1_tx_ptr dw 0
 ne_dma_addr dw 0
 ne_dma_count dw 0
 dhcp_wait_count dw 0
@@ -3276,6 +4604,11 @@ arp_status_sent db net_status_arp_request_sent
 arp_status_resolved db net_status_arp_resolved
 arp_error_code db net_error_arp
 tcp_target_ip times 4 db 0
+tcp_dest_port_word dw tcp_port_http_word
+dns_qname_len db dns_qname_default_len
+dns_label_len db 0
+dns_label_ptr dw 0
+dns_tx_len dw dns_tx_frame_default_len
 fs_lba dw 0
 fs_root_left dw 0
 fs_file_cluster dw 0
@@ -3306,7 +4639,19 @@ ne_tx_frame times dhcp_rx_frame_len db 0
 fs_sector_buffer times 512 db 0
 agent_ids times agent_slot_count * agent_id_len db 0
 seed_agent_id times agent_id_len db 0
+seed_model times seed_model_len db 0
+seed_key times seed_key_len db 0
+seed_endpoint times seed_endpoint_len db 0
+seed_reasoning times seed_reasoning_len db 0
+builtin_agent_ids db 'openai', 0
+                  times agent_id_len - 7 db 0
+                  db 'anthropic', 0
+                  times agent_id_len - 10 db 0
+                  db 'google', 0
+                  times agent_id_len - 7 db 0
+dns_default_qname db 7, 'example', 3, 'com', 0
 dns_qname db 7, 'example', 3, 'com', 0
+           times dns_qname_max_len - dns_qname_default_len db 0
 seed_text db 'seed', 0
 build_text db 'build ', '0' + build_number, 0
 network_error_text db 'no network card', 0
@@ -3320,13 +4665,24 @@ adapter_ne1000_text db 'ne1000', 0
 adapter_3c501_text db '3c501', 0
 adapter_wd8003_text db 'wd8003', 0
 agents_cfg_name db 'AGENTS  CFG'
+net_cfg_name db 'NET     CFG'
 seed_cfg_name db 'SEED    CFG'
-agent_prefix_text db 'agent '
+agent_prefix_text db 'agent ', 0
+model_prefix_text db 'model ', 0
+reasoning_prefix_text db 'reasoning ', 0
+key_prefix_text db 'key ', 0
+endpoint_prefix_text db 'endpoint ', 0
 agent_prompt_text db 'agent?', 0
+key_prompt_text db 'key?', 0
+endpoint_prompt_text db 'server?', 0
+host_openrouter_text db 'openrouter.ai', 0
+host_openai_text db 'api.openai.com', 0
+host_anthropic_text db 'api.anthropic.com', 0
+host_google_text db 'generativelanguage.googleapis.com', 0
 disk_sectors_per_track db 8
 nic_ports dw 0x250, 0x280, 0x2a0, 0x2c0, 0x2e0
           dw 0x300, 0x310, 0x320, 0x330, 0x340
-          dw 0x350, 0x360, 0x380, 0x3a0, 0x3c0
+          dw 0x350, 0x360, 0x380, 0x3a0
           dw 0
 
 times (STAGE2_SECTORS * 512) - ($ - $$) db 0

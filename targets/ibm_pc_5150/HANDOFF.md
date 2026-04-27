@@ -134,11 +134,12 @@ readiness, one receive-frame read when a packet is already pending,
 DHCPDISCOVER transmit, and a two-pass bounded filtered DHCPOFFER wait. When an
 offer is available, Seed sends DHCPREQUEST and performs a bounded DHCPACK wait.
 After DHCPACK, it sends a bounded ARP request for the DHCP-provided DNS server
-and records the resolved MAC internally for the DNS packet step. It then sends
-a minimal DNS A query for `example.com` and records the returned IPv4 address
-internally. Seed selects the TCP next hop using the DHCP subnet mask and router,
-ARPs that next hop, sends a TCP SYN to port 80, and waits for a matching
-SYN-ACK.
+and records the resolved MAC internally for the DNS packet step. It then reads
+the optional `NET.CFG` probe host, falls back to `example.com` if that file is
+missing or invalid, sends a minimal DNS A query, and records the returned IPv4
+address internally. Seed selects the TCP next hop using the DHCP subnet mask and
+router, ARPs that next hop, sends a TCP SYN to port 80, and waits for a
+matching SYN-ACK.
 The NE receive path records separate DMA, ring-header, and byte-count failures
 so DHCP receive behavior can be diagnosed without changing user-facing text.
 When status is 7, the IP, subnet mask, router, and DNS fields contain
@@ -153,7 +154,12 @@ status and network error.
 
 Build 6 starts the bright `"o"` agent-prep phase. The current checkpoint does
 not extend this handoff layout. It parses up to five `AGENTS.CFG` `agent `
-declarations, validates a saved `SEED.CFG` selected-agent choice when present,
-asks `agent?` when that choice is missing or invalid, and writes the validated
-choice back best-effort. If agent declaration setup fails, status is set to 5
-and Seed enters the agent setup error path before the ready splash.
+declarations and falls back to built-in `openai`, `anthropic`, and `google`
+when that file is missing or bad. It validates a saved `SEED.CFG`
+selected-agent choice when present, asks `agent?` when that choice is missing
+or invalid, asks `server?` and `key?` on one form when both selected-agent
+connection values are required, preserves saved model and reasoning values when
+present, resolves the selected agent host, proves TCP 443 reachability, and
+writes the validated values back best-effort. If agent endpoint reachability
+fails, status is set to 5 and Seed enters the agent setup error path before the
+ready splash.

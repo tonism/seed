@@ -5,19 +5,21 @@ common ISA Ethernet I/O bases, records the responding I/O base, starts
 resolving the adapter family when the base is ambiguous, and reads 3c501,
 3c503, NE1000/NE2000, and WD8003 station-address PROMs into the handoff block
 when they validate. It also records IRQ 3 for the current 5150 86Box profiles
-after adapter family resolution. The build 5 packet path initializes
-NE1000/NE2000-family hardware, checks the receive-ring read path, and sends a
-minimal DHCPDISCOVER. It then performs a two-pass bounded filtered DHCPOFFER
-wait and parses the offered IPv4 address, subnet mask, router, and DNS server
-when one is observed. When an offer is available, it sends DHCPREQUEST and
-performs a bounded DHCPACK wait to mark the lease accepted. After DHCPACK, it
-sends ARP for the DHCP-provided DNS server, resolves `example.com`, selects and
-ARPs the TCP next hop, sends a TCP SYN to port 80, and waits for a matching
-SYN-ACK.
+after adapter family resolution. The packet path now covers all current 5150
+candidate families: 3c501, 3c503, NE1000/NE2000, and WD8003. It initializes
+packet hardware, sends DHCPDISCOVER, waits for DHCPOFFER, parses IPv4 address,
+subnet mask, router, and DNS server, sends DHCPREQUEST, waits for DHCPACK,
+sends ARP for the DHCP-provided DNS server, resolves the `NET.CFG` probe host,
+selects and ARPs the TCP next hop, sends a TCP SYN to port 80, and waits for a
+matching SYN-ACK.
 
 Build 6 adds the bright `"o"` agent-prep checkpoint. The current ready screen
-also proves that the FAT12 root `AGENTS.CFG` file was parsed and that the
-selected agent came from either valid `SEED.CFG` state or the `agent?` menu.
+also proves that agent interfaces came from either a valid FAT12 root
+`AGENTS.CFG` file or the built-in `openai`, `anthropic`, and `google`
+fallback, and that selected agent and connection values came from either valid
+`SEED.CFG` state or the bright question flow. With valid saved `SEED.CFG`, the
+Build 6 path also resolves the selected agent host and proves TCP 443
+reachability before the ready splash.
 
 ## IBM PC 5150 Candidates
 
@@ -80,22 +82,31 @@ rtl8139c+            Realtek RTL8139C+
 
 ## Current 5150 Test Profiles
 
-All current 5150 candidate profiles were boot-tested for Build 5 on
-26 April 2026. The NE-family profiles complete the full Build 5 outbound proof;
-the 3Com and WD8003 profiles complete handoff/MAC validation. Current Build 6
-expectations add FAT12 `AGENTS.CFG` parsing and selected-agent validation
-before the ready screen.
+All current 5150 candidate profiles were boot-tested for the Build 6
+internet-proof checkpoint on 27 April 2026 with `SEED.CFG` excluded from the
+test floppy. Each NIC-present profile reached the bright `"o"` agent-prep
+`agent?` prompt after packet-level internet readiness and FAT12 `AGENTS.CFG`
+parsing. With a valid `SEED.CFG`, the same checkpoint can skip the prompt and
+advance to the `seed build 6` splash.
 
 ```text
-vm                   no network card; expected: + no network card, retry/restart menu
-vm-mda               no network card, MDA; expected: + no network card, retry/restart menu
-vm-net-3c501         3Com EtherLink; expected: adapter prompt, MAC read, then seed build 6
-vm-net-3c503         3Com EtherLink II; expected: MAC read, then seed build 6
-vm-net-ne1k          NE1000-compatible; expected: adapter prompt, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP SYN-ACK, then seed build 6
-vm-net-ne2k8         8-bit NE2000-compatible; expected: adapter prompt, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP SYN-ACK, then seed build 6
-vm-net-novell-ne1k   Novell NE1000; expected: adapter prompt, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP SYN-ACK, then seed build 6
-vm-net-wd8003e       Western Digital WD8003E; expected: adapter prompt, MAC read, then seed build 6
-vm-net-wd8003eb      Western Digital WD8003EB; expected: adapter prompt, MAC read, then seed build 6
+vm                   no network card; expected: red "." no network card, retry/restart menu
+vm-mda               no network card, MDA; expected: bright "." no network card, retry/restart menu
+vm-net-3c501         3Com EtherLink; expected: adapter prompt, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP SYN-ACK, then agent?
+vm-net-3c503         3Com EtherLink II; expected: MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP SYN-ACK, then agent?
+vm-net-ne1k          NE1000-compatible; expected: adapter prompt, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP SYN-ACK, then agent?
+vm-net-ne2k8         8-bit NE2000-compatible; expected: adapter prompt, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP SYN-ACK, then agent?
+vm-net-novell-ne1k   Novell NE1000; expected: adapter prompt, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP SYN-ACK, then agent?
+vm-net-wd8003e       Western Digital WD8003E; expected: adapter prompt, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP SYN-ACK, then agent?
+vm-net-wd8003eb      Western Digital WD8003EB; expected: adapter prompt, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP SYN-ACK, then agent?
+```
+
+The WD8003 86Box profiles must use a five-digit shared-memory address and byte
+size:
+
+```ini
+ram_addr = D0000
+ram_size = 8192
 ```
 
 Run a profile with:

@@ -6,7 +6,7 @@ Seed's loading marker has four semantic phases plus the final splash:
 " "          project init: boot-sector load, stage 2 entry, display setup
 "." dark     HAL setup: hardware detection, adapter init, hardware handoff
 "o" dark     internet prep: network configuration and reachability
-"o" bright   agent prep: gateway, key, session, and environment setup
+"o" bright   agent prep: gateway, model, reasoning, key, session, and environment setup
 splash       ready handoff animation; no loading work happens here
 ```
 
@@ -40,13 +40,14 @@ DNS resolution
 TCP or chosen transport reachability proof
 ```
 
-Current build 5 checkpoints completed for the current NE-family 5150 profiles:
-NE-family packet hardware init, bounded receive polling, receive-path
-diagnostics, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DHCP subnet/router/DNS
-capture, DNS-server ARP, DNS A resolution for `example.com`, subnet-aware
-next-hop ARP, TCP SYN transmit to port 80, and SYN-ACK receive. This gives the
-dark `"o"` phase a real outbound reachability proof without starting TLS,
-model API calls, or an agent session.
+Current build 5 checkpoints completed for the current 5150 NIC families:
+3c501, 3c503, NE1000/NE2000, and WD8003. The shared internet path performs
+packet hardware init, bounded receive polling, DHCPDISCOVER/OFFER,
+DHCPREQUEST/ACK, DHCP subnet/router/DNS capture, DNS-server ARP, DNS A
+resolution for the `NET.CFG` probe host, subnet-aware next-hop ARP, TCP SYN
+transmit to port 80, and SYN-ACK receive. NE-family cards also perform the
+receive-ring read diagnostic. This gives the dark `"o"` phase a real outbound
+reachability proof without starting TLS, model API calls, or an agent session.
 
 ## Build 6
 
@@ -58,19 +59,23 @@ Current build 6 checkpoint:
 
 ```text
 FAT12 160 KiB boot floppy with fixed reserved stage 2 sectors
-tracked AGENTS.CFG root file with five agent interfaces
+optional tracked AGENTS.CFG root file with five agent interfaces
+optional tracked NET.CFG root file with the generic internet probe host
+fallback built-in agent interfaces for openai, anthropic, and google
 ignored SEED.CFG for validated local user choices and secrets
-bright "o" parsing of up to five AGENTS.CFG agent declarations
-agent? menu when SEED.CFG is missing, unreadable, unparseable, or invalid
-best-effort SEED.CFG write of the validated agent choice
+bright "o" parsing of up to five AGENTS.CFG agent declarations when present
+agent? drill-down menu when SEED.CFG is missing, unreadable, unparseable, or invalid
+same-panel server?/key? form for selected agents that need both values
+preserve saved model/reasoning values, but do not ask the user to type them
+selected-agent DNS resolution and TCP 443 SYN-ACK reachability proof
+best-effort SEED.CFG write of validated agent, model, reasoning, key, and endpoint values
 ```
 
 Still in build 6 scope:
 
 ```text
-ask for missing endpoint, model, and credential values
-extend SEED.CFG beyond the selected agent interface
 attempt TLS directly from the 8088 runtime
-send the first model API request
+validate the selected provider key with a model API request
+fetch model and reasoning capabilities from the provider when available
 create the agent session and hand over to the environment path
 ```
