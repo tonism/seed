@@ -29,7 +29,7 @@ BIOS loads boot sector
   -> sends ARP for the DHCP-provided DNS server after DHCPACK
   -> reads NET.CFG and resolves its probe host with a minimal DNS A query
   -> selects and ARPs the TCP next hop
-  -> sends a TCP SYN to port 80 and waits for a matching SYN-ACK
+  -> opens the probe TCP target on port 80 and waits for a matching SYN-ACK
   -> switches to a bright o marker for agent prep
   -> reads AGENTS.CFG and parses up to five agent declarations
   -> falls back to built-in openai/anthropic/google if AGENTS.CFG is missing or bad
@@ -106,8 +106,9 @@ records the offered IPv4 address, subnet mask, router, and DNS server in the
 handoff block. It then sends DHCPREQUEST and performs a bounded DHCPACK wait to
 mark the lease accepted. After DHCPACK, it sends an ARP request for the
 DHCP-provided DNS server, resolves the `NET.CFG` probe host, selects a TCP next
-hop using the DHCP subnet/router data, ARPs that next hop, sends a TCP SYN to
-port 80, and waits for a matching SYN-ACK.
+hop using the DHCP subnet/router data, ARPs that next hop, opens the probe TCP
+target on port 80 through the shared TCP connect path, and waits for a matching
+SYN-ACK.
 
 Build 6 is the agent-prep milestone. The current checkpoint keeps the build 5
 internet path intact and adds the first filesystem-backed agent setup check:
@@ -116,10 +117,10 @@ the boot core reads `AGENTS.CFG`, parses up to five `agent ` declarations, reads
 saved choice is missing or invalid, asks `server?` and `key?` on one form when
 the selected agent needs both values, preserves saved model and reasoning
 values when present, resolves the selected agent host, proves TCP 443
-reachability, and writes the validated values back best-effort. Missing or
-invalid `AGENTS.CFG` content falls back to built-in `openai`, `anthropic`, and
-`google`; other agent setup failures still fail in the bright `"o"` phase as
-`agent setup failed`.
+reachability through the same TCP connect path, and writes the validated values
+back best-effort. Missing or invalid `AGENTS.CFG` content falls back to built-in
+`openai`, `anthropic`, and `google`; other agent setup failures still fail in
+the bright `"o"` phase as `agent setup failed`.
 
 The boot path does not switch video modes. It keeps the BIOS-provided text
 mode, reads the active column count, and uses that value for clearing and for

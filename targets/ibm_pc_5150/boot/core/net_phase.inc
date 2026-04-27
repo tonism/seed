@@ -19,7 +19,7 @@ prepare_internet_path:
     cmp byte [handoff_addr + handoff_net_status], net_status_dhcp_ack_received
     jne .failed
     call set_default_internet_target
-    call ne_tcp_reachability_path
+    call tcp_connect_target
     jc .failed
     clc
 .done:
@@ -67,7 +67,7 @@ prepare_agent_endpoint_path:
     pop es
     call wd_enable_shared_ram
     call wd_select_dp8390_base
-    call ne_tcp_reachability_path
+    call tcp_connect_target
     pushf
     call wd_restore_dp8390_base
     popf

@@ -45,9 +45,10 @@ Current build 5 checkpoints completed for the current 5150 NIC families:
 packet hardware init, bounded receive polling, DHCPDISCOVER/OFFER,
 DHCPREQUEST/ACK, DHCP subnet/router/DNS capture, DNS-server ARP, DNS A
 resolution for the `NET.CFG` probe host, subnet-aware next-hop ARP, TCP SYN
-transmit to port 80, and SYN-ACK receive. NE-family cards also perform the
-receive-ring read diagnostic. This gives the dark `"o"` phase a real outbound
-reachability proof without starting TLS, model API calls, or an agent session.
+transmit to port 80 through the boot-core TCP connect path, and SYN-ACK
+receive. NE-family cards also perform the receive-ring read diagnostic. This
+gives the dark `"o"` phase a real outbound reachability proof without starting
+TLS, model API calls, or an agent session.
 
 ## Build 6
 
@@ -68,12 +69,14 @@ agent? drill-down menu when SEED.CFG is missing, unreadable, unparseable, or inv
 same-panel server?/key? form for selected agents that need both values
 preserve saved model/reasoning values, but do not ask the user to type them
 selected-agent DNS resolution and TCP 443 SYN-ACK reachability proof
+shared TCP connect boundary for internet and selected-agent reachability
 best-effort SEED.CFG write of validated agent, model, reasoning, key, and endpoint values
 ```
 
 Still in build 6 scope:
 
 ```text
+extend the TCP connect boundary into payload send/receive
 attempt TLS directly from the 8088 runtime
 validate the selected provider key with a model API request
 fetch model and reasoning capabilities from the provider when available
