@@ -8,8 +8,8 @@ Current milestone:
 ```text
 BIOS loads boot sector
   -> stage 1 loads the fixed-sector stage 2 boot core
-  -> stage 2 reads the current BIOS text-mode column count
-  -> stage 2 clears text mode
+  -> boot core reads the current BIOS text-mode column count
+  -> boot core clears text mode
   -> shows the project-init load marker at the centered project start column
   -> switches to a dim . marker for HAL setup
   -> probes common ISA network card I/O bases
@@ -66,13 +66,13 @@ documented in:
 docs/config.md
 ```
 
-Stage 2 is organized as source includes under:
+The Seed boot core is organized as source includes under:
 
 ```text
-targets/ibm_pc_5150/boot/stage2/
+targets/ibm_pc_5150/boot/core/
 ```
 
-This is not a runtime module system. `stage2.asm` includes those files in fixed
+This is not a runtime module system. `core.asm` includes those files in fixed
 order and NASM still emits one flat reserved-sector `stage2.bin`.
 
 Text UI behavior, including fast-typed errors, questions, menus, and modals, is
@@ -82,26 +82,26 @@ documented in:
 docs/ui.md
 ```
 
-The stage 2 runtime handoff block is documented in:
+The boot core runtime handoff block is documented in:
 
 ```text
 targets/ibm_pc_5150/HANDOFF.md
 ```
 
-Build 5 was the internet-readiness milestone. Stage 2 still probes common ISA
+Build 5 was the internet-readiness milestone. The boot core still probes common ISA
 Ethernet I/O bases, publishes boot/video/NIC state to a low-memory handoff
 block, and resolves the adapter family. Known single-card bases continue
 automatically. Shared bases ask the user to choose the adapter family through a
 minimal color-selected menu. For 3c501, 3c503, NE1000/NE2000-family, and
-WD8003-family cards, stage 2 reads the station-address PROM and marks the MAC
-valid only after rejecting multicast, all-zero, and all-`ff` addresses. Stage 2
+WD8003-family cards, the boot core reads the station-address PROM and marks the MAC
+valid only after rejecting multicast, all-zero, and all-`ff` addresses. The boot core
 also records IRQ 3 for the current 86Box IBM PC 5150 profiles once the adapter
 family is known; real IRQ discovery is later scope.
 
 The current build 5 checkpoint initializes NE1000/NE2000-family packet hardware
 after a valid MAC read, polls the receive-ring pointers, reads one pending
 receive frame when available, sends a minimal DHCPDISCOVER, and performs a
-two-pass bounded filtered DHCPOFFER wait. When a DHCPOFFER is observed, stage 2
+two-pass bounded filtered DHCPOFFER wait. When a DHCPOFFER is observed, the boot core
 records the offered IPv4 address, subnet mask, router, and DNS server in the
 handoff block. It then sends DHCPREQUEST and performs a bounded DHCPACK wait to
 mark the lease accepted. After DHCPACK, it sends an ARP request for the
@@ -111,7 +111,7 @@ port 80, and waits for a matching SYN-ACK.
 
 Build 6 is the agent-prep milestone. The current checkpoint keeps the build 5
 internet path intact and adds the first filesystem-backed agent setup check:
-stage 2 reads `AGENTS.CFG`, parses up to five `agent ` declarations, reads
+the boot core reads `AGENTS.CFG`, parses up to five `agent ` declarations, reads
 `SEED.CFG` when present, validates a saved `agent <id>`, asks `agent?` when the
 saved choice is missing or invalid, asks `server?` and `key?` on one form when
 the selected agent needs both values, preserves saved model and reasoning

@@ -19,10 +19,10 @@ The current boot artifact is:
 build/ibm_pc_5150/floppy-160k.img
 ```
 
-Stage 2 is split into NASM include files under:
+The Seed boot core source is split into NASM include files under:
 
 ```text
-targets/ibm_pc_5150/boot/stage2/
+targets/ibm_pc_5150/boot/core/
 ```
 
 This is source organization only. The build still emits one flat reserved-sector

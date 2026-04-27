@@ -1,0 +1,19 @@
+bits 16
+cpu 8086
+org 0x8000
+
+%include "core/layout.inc"
+%include "core/main.inc"
+%include "core/hal_display.inc"
+%include "core/ui_core.inc"
+%include "core/hal_detect.inc"
+%include "core/ui_menu.inc"
+%include "core/hal_nic.inc"
+%include "core/net_phase.inc"
+%include "core/config.inc"
+%include "core/fs.inc"
+%include "core/nic.inc"
+%include "core/net_tx.inc"
+%include "core/net_rx.inc"
+%include "core/ui.inc"
+%include "core/data.inc"

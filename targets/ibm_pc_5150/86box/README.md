@@ -80,7 +80,7 @@ The broader text UI rule is documented in:
 docs/ui.md
 ```
 
-The stage 2 runtime handoff block is documented in:
+The boot core runtime handoff block is documented in:
 
 ```text
 targets/ibm_pc_5150/HANDOFF.md
