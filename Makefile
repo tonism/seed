@@ -4,6 +4,7 @@ STAGE2_SECTORS := 24
 
 BOOT_SRC := targets/$(TARGET)/boot/boot.asm
 STAGE2_SRC := targets/$(TARGET)/boot/stage2.asm
+STAGE2_INCLUDES := $(wildcard targets/$(TARGET)/boot/stage2/*.inc)
 BOOT_BIN := $(BUILD_DIR)/boot.bin
 STAGE2_BIN := $(BUILD_DIR)/stage2.bin
 FLOPPY_IMG := $(BUILD_DIR)/floppy-160k.img
@@ -12,7 +13,7 @@ AGENT_CFG := $(wildcard config/AGENTS.CFG)
 NET_CFG := $(wildcard config/NET.CFG)
 USER_CFG := $(wildcard config/SEED.CFG)
 INCLUDE_USER_CFG ?= 1
-NASM_FLAGS := -DSTAGE2_SECTORS=$(STAGE2_SECTORS)
+NASM_FLAGS := -DSTAGE2_SECTORS=$(STAGE2_SECTORS) -Itargets/$(TARGET)/boot/
 FAT_FILES :=
 
 ifneq ($(AGENT_CFG),)
@@ -39,7 +40,7 @@ $(BUILD_DIR):
 $(BOOT_BIN): $(BOOT_SRC) | $(BUILD_DIR)
 	nasm $(NASM_FLAGS) -f bin -o $@ $<
 
-$(STAGE2_BIN): $(STAGE2_SRC) | $(BUILD_DIR)
+$(STAGE2_BIN): $(STAGE2_SRC) $(STAGE2_INCLUDES) | $(BUILD_DIR)
 	nasm $(NASM_FLAGS) -f bin -o $@ $<
 
 $(FLOPPY_IMG): $(BOOT_BIN) $(STAGE2_BIN) $(AGENT_CFG) $(NET_CFG) $(USER_CFG) $(IMAGE_BUILDER) | $(BUILD_DIR)

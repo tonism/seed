@@ -66,6 +66,15 @@ documented in:
 docs/config.md
 ```
 
+Stage 2 is organized as source includes under:
+
+```text
+targets/ibm_pc_5150/boot/stage2/
+```
+
+This is not a runtime module system. `stage2.asm` includes those files in fixed
+order and NASM still emits one flat reserved-sector `stage2.bin`.
+
 Text UI behavior, including fast-typed errors, questions, menus, and modals, is
 documented in:
 

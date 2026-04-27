@@ -102,7 +102,8 @@ docs/builds.md                   loading phase and build scope map
 docs/ui.md                       text UI and fast-type rules
 targets/ibm_pc_5150/README.md    current target details
 targets/ibm_pc_5150/HANDOFF.md   current low-memory runtime handoff block
-targets/ibm_pc_5150/boot/        8088 stage 1 and stage 2 sources
+targets/ibm_pc_5150/boot/        8088 stage 1 loader and stage 2 wrapper
+targets/ibm_pc_5150/boot/stage2/ stage 2 include files; still one flat binary
 targets/ibm_pc_5150/86box/       86Box profiles and NIC inventory
 tools/build-fat12-image.py       deterministic 160 KiB FAT12 image builder
 tools/run-86box.sh               build and launch a 86Box profile

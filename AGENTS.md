@@ -19,6 +19,15 @@ The current boot artifact is:
 build/ibm_pc_5150/floppy-160k.img
 ```
 
+Stage 2 is split into NASM include files under:
+
+```text
+targets/ibm_pc_5150/boot/stage2/
+```
+
+This is source organization only. The build still emits one flat reserved-sector
+`stage2.bin`; do not introduce runtime module loading unless explicitly scoped.
+
 That image is a 160 KiB FAT12 floppy image with a stage 1 boot sector, fixed
 reserved stage 2 sectors, FAT copies, a root directory, and file data. The
 tracked `AGENTS.CFG` and `NET.CFG` files are shipped in the root directory when
