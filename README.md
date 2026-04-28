@@ -75,6 +75,12 @@ Build the floppy image:
 make
 ```
 
+Future shippable artifacts may include host loaders that enter `CORE.SYS` from
+an already-running system instead of booting the floppy path directly. DOS,
+Windows, macOS/OSX, Linux, and other common host paths are candidates, but they
+should be treated as one-way chainloaders that abandon the host runtime rather
+than normal applications.
+
 Inspect the generated image:
 
 ```sh

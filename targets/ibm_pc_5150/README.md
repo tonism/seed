@@ -61,6 +61,11 @@ sector 12+     file data, starting with CORE.SYS
 runtime. Normal runtime updates can replace that file without rewriting the
 boot sector or reserved loader.
 
+Future artifacts may also ship host-specific loaders that jump into `CORE.SYS`
+from an already-running OS. DOS `.COM`, Windows, macOS/OSX, Linux, and other
+common hosts are possible candidates, but this is a one-way takeover path, not
+a normal program that returns cleanly to the host OS.
+
 `AGENTS.CFG` is shipped in the FAT12 root directory from `config/AGENTS.CFG`.
 When present and valid, it overrides the built-in `openai`, `anthropic`, and
 `google` direct-vendor fallback. `NET.CFG` is shipped from `config/NET.CFG` and
