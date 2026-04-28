@@ -25,25 +25,27 @@ The Seed boot core source is split into NASM include files under:
 targets/ibm_pc_5150/boot/core/
 ```
 
-This is source organization only. The build still emits one flat reserved-sector
-`stage2.bin`; do not introduce runtime module loading unless explicitly scoped.
+This is source organization only. The build emits one flat file-backed
+`CORE.SYS` runtime; do not introduce additional runtime module loading unless
+explicitly scoped.
 
-That image is a 160 KiB FAT12 floppy image with a stage 1 boot sector, fixed
-reserved stage 2 sectors, FAT copies, a root directory, and file data. The
-tracked `AGENTS.CFG` and `NET.CFG` files are shipped in the root directory when
-present. `AGENTS.CFG` overrides built-in `openai`, `anthropic`, and `google`
-agent interfaces; `NET.CFG` overrides the built-in `example.com` probe.
-Optional `SEED.CFG` user-local state is ignored and included only when
-`config/SEED.CFG` exists.
+That image is a 160 KiB FAT12 floppy image with a stage 1 boot sector, a small
+reserved-sector FAT12 loader, FAT copies, a root directory, and file data. The
+loader reads the visible root `CORE.SYS` file through its FAT12 cluster chain
+and jumps to it at `0000:1000`. The tracked `AGENTS.CFG` and `NET.CFG` files
+are shipped in the root directory when present. `AGENTS.CFG` overrides built-in
+`openai`, `anthropic`, and `google` agent interfaces; `NET.CFG` overrides the
+built-in `example.com` probe. Optional `SEED.CFG` user-local state is ignored
+and included only when `config/SEED.CFG` exists.
 
 ## Constraints
 
 - Keep the stage 1 boot sector within 512 bytes, including the `55 aa`
   signature.
-- Keep stage 2 within the fixed sector count declared in `Makefile`. The
-  current twenty-four-sector stage 2 spans sectors 2-8 on the first 160 KiB
-  floppy track, all of tracks 1 and 2, and track 3 sector 1. Stage 1 loads one
-  sector at a time with CHS rollover.
+- Keep the reserved loader within `LOADER_SECTORS` in `Makefile`. The current
+  four-sector loader occupies sectors 2-5 and loads `CORE.SYS` as a normal
+  FAT12 root file. Stage 1 loads the reserved loader one sector at a time with
+  CHS rollover.
 - Target 8088-compatible 16-bit real-mode code for `ibm_pc_5150`. Keep NASM
   sources locked to `cpu 8086` so unsupported opcodes are caught at build time.
 - Do not introduce protected mode or graphics mode unless explicitly scoped.

@@ -1,6 +1,6 @@
 bits 16
 cpu 8086
-org 0x8000
+org 0x1000
 
 %include "core/layout.inc"
 %include "core/main.inc"

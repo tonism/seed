@@ -100,10 +100,10 @@ error      red
 menu       selected white, inactive dark gray
 ```
 
-The floppy is a minimal FAT12 filesystem. Sector 1 is the stage 1 boot sector
-with a FAT12 BPB. Sectors 2-25 are the fixed-sector stage 2 boot core in
-reserved sectors, sectors 26-27 are FAT copies, sectors 28-31 are the root
-directory, and sector 32 onward contains file data.
+The floppy is a minimal FAT12 filesystem. Sector 1 is the boot sector with a
+FAT12 BPB. Sectors 2-5 are the fixed reserved-sector loader, sectors 6-7 are
+FAT copies, sectors 8-11 are the root directory, and sector 12 onward contains
+file data starting with `CORE.SYS`.
 
 This launcher builds the floppy and starts a VM profile:
 
@@ -184,3 +184,7 @@ valid saved `SEED.CFG`, `vm-net-ne2k8` was also tested on 27 April 2026 through
 selected-agent DNS resolution and TCP 443 SYN-ACK reachability before reaching
 `seed build 6`. If `AGENTS.CFG` is missing or invalid, the agent menu falls
 back to built-in `openai`, `anthropic`, and `google`.
+
+On 28 April 2026, the boot layout was split into a reserved FAT12 loader plus
+root `CORE.SYS`. The no-card `vm` profile reached the red `"."` failure state,
+and `vm-net-3c501` reached `seed build 6` from the file-backed runtime.

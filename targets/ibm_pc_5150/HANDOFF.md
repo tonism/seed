@@ -10,8 +10,10 @@ This block is runtime state, not persisted config. It exists so later boot-core,
 network, and environment code can consume one stable contract instead of
 depending on boot core internal variables.
 
-The address is below the boot sector stack and boot core load address, and above
-the interrupt vector table and BIOS data area.
+The address is above the interrupt vector table and BIOS data area. During
+project init the reserved loader temporarily occupies this address range; after
+the loader jumps to `CORE.SYS` at `0000:1000`, the runtime clears and publishes
+the handoff block at `0000:0600`.
 
 ## Layout
 

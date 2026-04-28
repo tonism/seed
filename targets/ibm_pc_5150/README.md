@@ -7,9 +7,10 @@ Current milestone:
 
 ```text
 BIOS loads boot sector
-  -> stage 1 loads the fixed-sector stage 2 boot core
-  -> boot core reads the current BIOS text-mode column count
-  -> boot core clears text mode
+  -> boot sector loads the fixed reserved-sector FAT12 loader
+  -> loader reads CORE.SYS from the FAT12 root directory
+  -> CORE.SYS reads the current BIOS text-mode column count
+  -> CORE.SYS clears text mode
   -> shows the project-init load marker at the centered project start column
   -> switches to a dim . marker for HAL setup
   -> probes common ISA network card I/O bases
@@ -45,16 +46,20 @@ BIOS loads boot sector
   -> halts
 ```
 
-The floppy image is a minimal FAT12 filesystem with the boot core kept in
-reserved sectors:
+The floppy image is a minimal FAT12 filesystem with a stable reserved loader
+and a visible file-backed runtime:
 
 ```text
-sector 1       stage 1 boot sector with FAT12 BPB
-sectors 2-25   stage 2 boot core in reserved sectors
-sectors 26-27  FAT copies
-sectors 28-31  root directory
-sector 32+     file data
+sector 1       boot sector with FAT12 BPB
+sectors 2-5    reserved FAT12 loader
+sectors 6-7    FAT copies
+sectors 8-11   root directory
+sector 12+     file data, starting with CORE.SYS
 ```
+
+`CORE.SYS` is shipped in the FAT12 root directory and contains the current Seed
+runtime. Normal runtime updates can replace that file without rewriting the
+boot sector or reserved loader.
 
 `AGENTS.CFG` is shipped in the FAT12 root directory from `config/AGENTS.CFG`.
 When present and valid, it overrides the built-in `openai`, `anthropic`, and
@@ -75,7 +80,7 @@ targets/ibm_pc_5150/boot/core/
 ```
 
 This is not a runtime module system. `core.asm` includes those files in fixed
-order and NASM still emits one flat reserved-sector `stage2.bin`.
+order and NASM emits one flat `CORE.SYS` runtime file.
 
 Text UI behavior, including fast-typed errors, questions, menus, and modals, is
 documented in:
@@ -131,7 +136,7 @@ The boot path does not switch video modes. It keeps the BIOS-provided text
 mode, reads the active column count, and uses that value for clearing and for
 the centered project-name anchor.
 
-The first screen text is hardcoded in the boot sector for now:
+The first screen text is hardcoded in `CORE.SYS` for now:
 
 ```text
 project init    " "

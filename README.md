@@ -22,11 +22,11 @@ build     seed build 6
 The current boot image is a minimal FAT12 floppy:
 
 ```text
-sector 1       stage 1 boot sector with FAT12 BPB
-sectors 2-25   stage 2 boot core in reserved sectors
-sectors 26-27  FAT copies
-sectors 28-31  root directory
-sector 32+     file data
+sector 1       boot sector with FAT12 BPB
+sectors 2-5    reserved FAT12 loader
+sectors 6-7    FAT copies
+sectors 8-11   root directory
+sector 12+     file data, starting with CORE.SYS
 ```
 
 Build 6 is the agent-prep milestone. The current checkpoint keeps build 5's
@@ -104,8 +104,8 @@ docs/builds.md                   loading phase and build scope map
 docs/ui.md                       text UI and fast-type rules
 targets/ibm_pc_5150/README.md    current target details
 targets/ibm_pc_5150/HANDOFF.md   current low-memory runtime handoff block
-targets/ibm_pc_5150/boot/        8088 boot sector and boot core wrapper
-targets/ibm_pc_5150/boot/core/   boot core include files; still one flat binary
+targets/ibm_pc_5150/boot/        8088 boot sector, loader, and core wrapper
+targets/ibm_pc_5150/boot/core/   boot core include files; emitted as CORE.SYS
 targets/ibm_pc_5150/86box/       86Box profiles and NIC inventory
 tools/build-fat12-image.py       deterministic 160 KiB FAT12 image builder
 tools/run-86box.sh               build and launch a 86Box profile

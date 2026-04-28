@@ -1,20 +1,22 @@
 TARGET := ibm_pc_5150
 BUILD_DIR := build/$(TARGET)
-STAGE2_SECTORS := 24
+LOADER_SECTORS := 4
 
 BOOT_SRC := targets/$(TARGET)/boot/boot.asm
+LOADER_SRC := targets/$(TARGET)/boot/loader.asm
 CORE_SRC := targets/$(TARGET)/boot/core.asm
 CORE_INCLUDES := $(wildcard targets/$(TARGET)/boot/core/*.inc)
 BOOT_BIN := $(BUILD_DIR)/boot.bin
-STAGE2_BIN := $(BUILD_DIR)/stage2.bin
+LOADER_BIN := $(BUILD_DIR)/loader.bin
+CORE_SYS := $(BUILD_DIR)/CORE.SYS
 FLOPPY_IMG := $(BUILD_DIR)/floppy-160k.img
 IMAGE_BUILDER := tools/build-fat12-image.py
 AGENT_CFG := $(wildcard config/AGENTS.CFG)
 NET_CFG := $(wildcard config/NET.CFG)
 USER_CFG := $(wildcard config/SEED.CFG)
 INCLUDE_USER_CFG ?= 1
-NASM_FLAGS := -DSTAGE2_SECTORS=$(STAGE2_SECTORS) -Itargets/$(TARGET)/boot/
-FAT_FILES :=
+NASM_FLAGS := -DLOADER_SECTORS=$(LOADER_SECTORS) -Itargets/$(TARGET)/boot/
+FAT_FILES := --file $(CORE_SYS):CORE.SYS
 
 ifneq ($(AGENT_CFG),)
 FAT_FILES += --file $(AGENT_CFG):AGENTS.CFG
@@ -40,19 +42,22 @@ $(BUILD_DIR):
 $(BOOT_BIN): $(BOOT_SRC) | $(BUILD_DIR)
 	nasm $(NASM_FLAGS) -f bin -o $@ $<
 
-$(STAGE2_BIN): $(CORE_SRC) $(CORE_INCLUDES) | $(BUILD_DIR)
+$(LOADER_BIN): $(LOADER_SRC) | $(BUILD_DIR)
 	nasm $(NASM_FLAGS) -f bin -o $@ $<
 
-$(FLOPPY_IMG): $(BOOT_BIN) $(STAGE2_BIN) $(AGENT_CFG) $(NET_CFG) $(USER_CFG) $(IMAGE_BUILDER) | $(BUILD_DIR)
+$(CORE_SYS): $(CORE_SRC) $(CORE_INCLUDES) | $(BUILD_DIR)
+	nasm $(NASM_FLAGS) -f bin -o $@ $<
+
+$(FLOPPY_IMG): $(BOOT_BIN) $(LOADER_BIN) $(CORE_SYS) $(AGENT_CFG) $(NET_CFG) $(USER_CFG) $(IMAGE_BUILDER) | $(BUILD_DIR)
 	python3 $(IMAGE_BUILDER) build \
 		--boot $(BOOT_BIN) \
-		--stage2 $(STAGE2_BIN) \
-		--stage2-sectors $(STAGE2_SECTORS) \
+		--loader $(LOADER_BIN) \
+		--loader-sectors $(LOADER_SECTORS) \
 		--output $@ \
 		$(FAT_FILES)
 
 inspect: $(FLOPPY_IMG)
-	ls -l $(FLOPPY_IMG) $(BOOT_BIN) $(STAGE2_BIN)
+	ls -l $(FLOPPY_IMG) $(BOOT_BIN) $(LOADER_BIN) $(CORE_SYS)
 	xxd -g 1 -l 192 $(FLOPPY_IMG)
 	xxd -g 1 -s 512 -l 192 $(FLOPPY_IMG)
 	python3 $(IMAGE_BUILDER) list $(FLOPPY_IMG)

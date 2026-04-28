@@ -1,5 +1,5 @@
-%ifndef STAGE2_SECTORS
-%define STAGE2_SECTORS 24
+%ifndef LOADER_SECTORS
+%define LOADER_SECTORS 4
 %endif
 
 build_number equ 6
@@ -238,9 +238,9 @@ tls_random_len equ 32
 tls_after_random_len equ 15
 tls_extensions_tail_len equ 37
 wd_saprom equ 0x08
-fat_root_start_lba equ STAGE2_SECTORS + 3
-fat_fat_start_lba equ STAGE2_SECTORS + 1
-fat_data_start_lba equ STAGE2_SECTORS + 7
+fat_root_start_lba equ LOADER_SECTORS + 3
+fat_fat_start_lba equ LOADER_SECTORS + 1
+fat_data_start_lba equ LOADER_SECTORS + 7
 fat_root_sectors equ 4
 fat_dir_entries_per_sector equ 16
 fat_dir_entry_size equ 32

@@ -3,7 +3,7 @@
 Seed's loading marker has four semantic phases plus the final splash:
 
 ```text
-" "          project init: boot-sector load, stage 2 entry, display setup
+" "          project init: boot sector, loader, CORE.SYS entry, display setup
 "." dark     HAL setup: hardware detection, adapter init, hardware handoff
 "o" dark     internet prep: network configuration and reachability
 "o" bright   agent prep: gateway, model, reasoning, key, session, and environment setup
@@ -59,7 +59,7 @@ agent/user environment.
 Current build 6 checkpoint:
 
 ```text
-FAT12 160 KiB boot floppy with fixed reserved stage 2 sectors
+FAT12 160 KiB boot floppy with small reserved loader and root CORE.SYS runtime
 optional tracked AGENTS.CFG root file with five agent interfaces
 optional tracked NET.CFG root file with the generic internet probe host
 fallback built-in agent interfaces for openai, anthropic, and google

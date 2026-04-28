@@ -52,24 +52,24 @@ def write_root_entry(root, index, name, first_cluster, size):
 
 
 def build_image(args):
-    reserved_sectors = 1 + args.stage2_sectors
+    reserved_sectors = 1 + args.loader_sectors
     fat_start = reserved_sectors
     root_start = fat_start + FAT_COUNT * SECTORS_PER_FAT
     data_start = root_start + ROOT_DIR_SECTORS
 
     boot = args.boot.read_bytes()
-    stage2 = args.stage2.read_bytes()
+    loader = args.loader.read_bytes()
     if len(boot) != BYTES_PER_SECTOR:
         raise SystemExit(f"boot sector must be 512 bytes, got {len(boot)}")
-    if len(stage2) > args.stage2_sectors * BYTES_PER_SECTOR:
-        raise SystemExit("stage2 is larger than the reserved stage2 area")
+    if len(loader) > args.loader_sectors * BYTES_PER_SECTOR:
+        raise SystemExit("loader is larger than the reserved loader area")
     if boot[-2:] != b"\x55\xaa":
         raise SystemExit("boot sector is missing the 55 aa signature")
 
     image = bytearray(IMAGE_SIZE)
     image[0:BYTES_PER_SECTOR] = boot
-    stage2_start = BYTES_PER_SECTOR
-    image[stage2_start:stage2_start + len(stage2)] = stage2
+    loader_start = BYTES_PER_SECTOR
+    image[loader_start:loader_start + len(loader)] = loader
 
     fat = bytearray(SECTORS_PER_FAT * BYTES_PER_SECTOR)
     fat[0:3] = bytes([MEDIA_DESCRIPTOR, 0xFF, 0xFF])
@@ -148,8 +148,8 @@ def main():
 
     build = subparsers.add_parser("build")
     build.add_argument("--boot", required=True, type=Path)
-    build.add_argument("--stage2", required=True, type=Path)
-    build.add_argument("--stage2-sectors", required=True, type=int)
+    build.add_argument("--loader", required=True, type=Path)
+    build.add_argument("--loader-sectors", required=True, type=int)
     build.add_argument("--output", required=True, type=Path)
     build.add_argument("--file", action="append", type=parse_file_arg, default=[])
     build.set_defaults(func=build_image)
