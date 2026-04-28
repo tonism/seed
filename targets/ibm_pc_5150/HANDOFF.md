@@ -104,6 +104,8 @@ offset  size  value
 18 TCP connected; final ACK sent
 19 TCP payload sent
 20 TCP payload received
+21 TLS ClientHello sent
+22 TLS record header received
 ```
 
 ## Network Error
@@ -122,6 +124,7 @@ offset  size  value
 10 no matching DNS response observed before the bounded wait ended
 11 selected TCP next hop was missing or did not resolve before the bounded wait ended
 12 no matching TCP SYN-ACK observed before the bounded wait ended
+13 no TLS record header observed after ClientHello
 ```
 
 Build 4 fills the block through adapter-family resolution plus 3c501, 3c503,
@@ -156,14 +159,14 @@ internet phase fails into the network setup error path with the corresponding
 status and network error.
 
 Build 6 starts the bright `"o"` agent-prep phase. The current checkpoint does
-extend the network readiness states for TCP payload send/receive. It parses up
-to five `AGENTS.CFG` `agent ` declarations and falls back to built-in `openai`,
-`anthropic`, and `google` when that file is missing or bad. It validates a
-saved `SEED.CFG` selected-agent choice when present, asks `agent?` when that
-choice is missing or invalid, asks `server?` and `key?` on one form when both
-selected-agent connection values are required, preserves saved model and
-reasoning values when present, resolves the selected agent host, proves TCP 443
-connection, adds the first TCP payload send/receive primitives for later TLS,
-and writes the validated values back best-effort. If agent endpoint
-reachability fails, status is set to 5 and Seed enters the agent setup error
-path before the ready splash.
+extend the network readiness states for TCP payload send/receive and the first
+TLS proof. It parses up to five `AGENTS.CFG` `agent ` declarations and falls
+back to built-in `openai`, `anthropic`, and `google` when that file is missing
+or bad. It validates a saved `SEED.CFG` selected-agent choice when present, asks
+`agent?` when that choice is missing or invalid, asks `server?` and `key?` on
+one form when both selected-agent connection values are required, preserves
+saved model and reasoning values when present, resolves the selected agent
+host, proves TCP 443 connection, sends a minimal TLS 1.2 ClientHello with SNI,
+receives a TLS record header, and writes the validated values back best-effort.
+If agent endpoint reachability fails, status is set to 5 and Seed enters the
+agent setup error path before the ready splash.

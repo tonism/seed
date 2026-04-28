@@ -15,6 +15,7 @@ org 0x8000
 %include "core/nic.inc"
 %include "core/net_tx.inc"
 %include "core/transport.inc"
+%include "core/tls.inc"
 %include "core/net_rx.inc"
 %include "core/ui.inc"
 %include "core/data.inc"

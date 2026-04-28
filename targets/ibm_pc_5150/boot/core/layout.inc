@@ -62,6 +62,8 @@ net_status_tcp_synack_received equ 17
 net_status_tcp_connected equ 18
 net_status_tcp_payload_sent equ 19
 net_status_tcp_payload_received equ 20
+net_status_tls_clienthello_sent equ 21
+net_status_tls_record_received equ 22
 net_error_none equ 0
 net_error_ne_init equ 1
 net_error_ne_tx equ 2
@@ -75,6 +77,7 @@ net_error_arp equ 9
 net_error_dns equ 10
 net_error_next_hop_arp equ 11
 net_error_tcp equ 12
+net_error_tls equ 13
 seed_attr_cga equ 0x0f
 build_attr_cga equ 0x08
 load_attr_cga equ 0x08
@@ -221,10 +224,19 @@ tcp_rx_read_len equ 96
 tcp_offset equ eth_header_len + ipv4_header_len
 tcp_payload_offset equ tcp_offset + 20
 tcp_payload_max_len equ dhcp_rx_frame_len - tcp_payload_offset
+tcp_payload_read_len equ 256
 tcp_source_port_word equ 0x02c0
 tcp_port_http_word equ 0x5000
 tcp_port_https_word equ 0xbb01
 tcp_wait_count equ 4
+tcp_payload_wait_count equ 32
+tls_client_base_len equ 106
+tls_body_base_len equ 97
+tls_record_base_len equ 101
+tls_extensions_base_len equ 46
+tls_random_len equ 32
+tls_after_random_len equ 15
+tls_extensions_tail_len equ 37
 wd_saprom equ 0x08
 fat_root_start_lba equ STAGE2_SECTORS + 3
 fat_fat_start_lba equ STAGE2_SECTORS + 1

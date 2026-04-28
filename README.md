@@ -38,10 +38,10 @@ user state from `SEED.CFG`, asks `agent?` when the saved agent choice is
 missing or invalid, asks for missing `server?` and `key?` values needed by that
 agent on one form panel when both are required, preserves saved model and
 reasoning values when present, proves selected-agent DNS and TCP 443 connection
-through the shared boot-core TCP connect path, adds minimal TCP payload
-send/receive primitives for the next TLS step, and writes validated values back
-best-effort. TLS, model API calls, capability fetches, session creation, and
-environment handover remain later build 6 work.
+through the shared boot-core TCP connect path, sends a minimal TLS 1.2
+ClientHello with SNI, receives a TLS record header back, and writes validated
+values back best-effort. Completing TLS, model API calls, capability fetches,
+session creation, and environment handover remain later build 6 work.
 
 Build 5 completed the internet-readiness milestone. It initializes
 NE1000/NE2000-family packet hardware after a valid MAC read, reads one pending

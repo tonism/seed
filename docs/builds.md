@@ -70,14 +70,15 @@ same-panel server?/key? form for selected agents that need both values
 preserve saved model/reasoning values, but do not ask the user to type them
 selected-agent DNS resolution and TCP 443 connect proof
 shared TCP connect boundary for internet and selected-agent reachability
-minimal TCP payload send/receive primitives for the next TLS step
+minimal TCP payload send/receive primitives used by the TLS proof
+minimal TLS 1.2 ClientHello with SNI and TLS record-header receive proof
 best-effort SEED.CFG write of validated agent, model, reasoning, key, and endpoint values
 ```
 
 Still in build 6 scope:
 
 ```text
-attempt TLS directly from the 8088 runtime
+complete TLS directly from the 8088 runtime
 validate the selected provider key with a model API request
 fetch model and reasoning capabilities from the provider when available
 create the agent session and hand over to the environment path

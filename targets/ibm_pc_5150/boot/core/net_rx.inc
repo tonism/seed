@@ -855,19 +855,26 @@ parse_tcp_payload:
     mov al, [ne_tx_frame + eth_header_len + 3]
     cmp ax, ipv4_header_len + 20
     jb .not_payload
-    mov bx, ax
-    add bx, eth_header_len
-    cmp bx, [ne_rx_sample_count]
-    ja .not_payload
     sub ax, ipv4_header_len
     mov bl, [tcp_rx_header_len]
     xor bh, bh
     cmp ax, bx
     jbe .not_payload
     sub ax, bx
-    mov [tcp_rx_payload_len], ax
+    mov [tcp_rx_wire_payload_len], ax
 
     add bx, tcp_offset
+    mov dx, [ne_rx_sample_count]
+    cmp dx, bx
+    jbe .not_payload
+    sub dx, bx
+    cmp dx, 5
+    jb .not_payload
+    cmp ax, dx
+    jbe .payload_len_ready
+    mov ax, dx
+.payload_len_ready:
+    mov [tcp_rx_payload_len], ax
     mov ax, ne_tx_frame
     add ax, bx
     mov [tcp_rx_payload_ptr], ax
@@ -877,7 +884,7 @@ parse_tcp_payload:
     movsw
     movsw
     mov di, tcp_remote_ack
-    mov cx, [tcp_rx_payload_len]
+    mov cx, [tcp_rx_wire_payload_len]
     call tcp_add_cx_to_seq
     clc
     ret

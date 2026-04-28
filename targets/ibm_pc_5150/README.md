@@ -37,6 +37,7 @@ BIOS loads boot sector
   -> asks agent? when the saved choice is missing or invalid
   -> asks server? and key? on one form when the selected agent needs both
   -> resolves the selected agent host and proves TCP 443 connection
+  -> sends a minimal TLS 1.2 ClientHello with SNI and receives a TLS record header
   -> writes validated agent config back best-effort
   -> otherwise types seed build 6 rightward from that column
   -> waits about 500 ms
@@ -117,11 +118,11 @@ the boot core reads `AGENTS.CFG`, parses up to five `agent ` declarations, reads
 saved choice is missing or invalid, asks `server?` and `key?` on one form when
 the selected agent needs both values, preserves saved model and reasoning
 values when present, resolves the selected agent host, proves TCP 443
-connection through the same TCP connect path, adds minimal TCP payload
-send/receive primitives for later TLS, and writes the validated values back
-best-effort. Missing or invalid `AGENTS.CFG` content falls back to built-in
-`openai`, `anthropic`, and `google`; other agent setup failures still fail in
-the bright `"o"` phase as `agent setup failed`.
+connection through the same TCP connect path, sends a minimal TLS 1.2
+ClientHello with SNI, receives a TLS record header, and writes the validated
+values back best-effort. Missing or invalid `AGENTS.CFG` content falls back to
+built-in `openai`, `anthropic`, and `google`; other agent setup failures still
+fail in the bright `"o"` phase as `agent setup failed`.
 
 The boot path does not switch video modes. It keeps the BIOS-provided text
 mode, reads the active column count, and uses that value for clearing and for

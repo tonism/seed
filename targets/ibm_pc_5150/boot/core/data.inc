@@ -64,7 +64,10 @@ tcp_tx_payload_ptr dw 0
 tcp_tx_payload_len dw 0
 tcp_rx_payload_ptr dw 0
 tcp_rx_payload_len dw 0
+tcp_rx_wire_payload_len dw 0
 tcp_rx_header_len db 0
+tls_tx_len dw 0
+tls_host_len dw 0
 dns_qname_len db dns_qname_default_len
 dns_label_len db 0
 dns_label_ptr dw 0
@@ -139,6 +142,20 @@ host_openrouter_text db 'openrouter.ai', 0
 host_openai_text db 'api.openai.com', 0
 host_anthropic_text db 'api.anthropic.com', 0
 host_google_text db 'generativelanguage.googleapis.com', 0
+tls_random db 'SEEDBUILD6TLSCLIENTHELLO00000000'
+tls_after_random db 0
+                 db 0, 10
+                 db 0xc0, 0x2f
+                 db 0xc0, 0x30
+                 db 0xcc, 0xa8
+                 db 0x00, 0x9c
+                 db 0x00, 0x9d
+                 db 1, 0
+tls_extensions_tail db 0, 10, 0, 4, 0, 2, 0, 23
+                    db 0, 11, 0, 2, 1, 0
+                    db 0, 13, 0, 10, 0, 8, 4, 3, 5, 3, 4, 1, 5, 1
+                    db 0, 23, 0, 0
+                    db 0xff, 1, 0, 1, 0
 disk_sectors_per_track db 8
 nic_ports dw 0x250, 0x280, 0x2a0, 0x2c0, 0x2e0
           dw 0x300, 0x310, 0x320, 0x330, 0x340

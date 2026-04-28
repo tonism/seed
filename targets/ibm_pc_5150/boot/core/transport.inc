@@ -44,8 +44,9 @@ tcp_open_resolved_target:
     ret
 
 tcp_receive_payload:
-    mov word [ne_rx_read_limit], dhcp_rx_frame_len
-    mov word [dhcp_wait_count], tcp_wait_count
+    ; Keep this distinct from dhcp_rx_frame_len, which enables the DHCP prefix filter.
+    mov word [ne_rx_read_limit], tcp_payload_read_len
+    mov word [dhcp_wait_count], tcp_payload_wait_count
 .poll:
     call ne_try_receive_frame
     jc .failed
