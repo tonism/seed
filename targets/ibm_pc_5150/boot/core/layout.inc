@@ -69,6 +69,7 @@ net_status_tls_certificate_received equ 24
 net_status_tls_certificate_drained equ 25
 net_status_tls_serverkeyexchange_received equ 26
 net_status_tls_serverhellodone_received equ 27
+net_status_tls_transcript_ready equ 28
 net_error_none equ 0
 net_error_ne_init equ 1
 net_error_ne_tx equ 2
@@ -249,6 +250,11 @@ tls_ext_renegotiation_info equ 0x04
 tls_ext_session_ticket equ 0x08
 tls_ext_alpn equ 0x10
 tls_ext_supported_versions equ 0x20
+tls_transcript_clienthello equ 0x01
+tls_transcript_serverhello equ 0x02
+tls_transcript_certificate equ 0x04
+tls_transcript_serverkeyexchange equ 0x08
+tls_transcript_serverhellodone equ 0x10
 tls_kx_ecdhe_rsa equ 1
 tls_kx_rsa equ 2
 tls_bulk_aes_128_gcm equ 1

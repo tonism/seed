@@ -76,12 +76,14 @@ ServerHello state parse for version, random, cipher-suite, session-id, extension
 Certificate handshake header parse with declared certificate-list length
 Certificate handshake drain to the next handshake boundary
 ECDHE ServerKeyExchange header parse and ServerHelloDone proof
+TLS handshake transcript byte tracking through ServerHelloDone
 best-effort USER.CFG write of validated agent, model, reasoning, key, and endpoint values
 ```
 
 Still in build 6 scope:
 
 ```text
+implement the TLS transcript hash behind the existing transcript feed path
 complete TLS directly from the 8088 runtime
 validate the selected provider key with a model API request
 fetch model and reasoning capabilities from the provider when available

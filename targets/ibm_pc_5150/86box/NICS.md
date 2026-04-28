@@ -23,7 +23,8 @@ connection, then sends a minimal TLS 1.2 ClientHello with SNI and parses
 ServerHello version, random, cipher-suite, session-id, known extension flags,
 selected cipher path, and the following Certificate handshake header, then
 drains the Certificate handshake to the next handshake boundary, parses
-ServerKeyExchange and ServerHelloDone, and then reaches the ready splash.
+ServerKeyExchange and ServerHelloDone, tracks the TLS handshake transcript byte
+stream through ServerHelloDone, and then reaches the ready splash.
 
 ## IBM PC 5150 Candidates
 
@@ -102,18 +103,19 @@ extension parsing and Certificate handshake header parsing were smoke-tested on
 `vm-net-3c501` and `vm-net-ne2k8`. Certificate handshake draining was
 smoke-tested across all listed NIC-present profiles. ServerKeyExchange and
 ServerHelloDone parsing were smoke-tested on `vm-net-3c501` and
-`vm-net-ne2k8`.
+`vm-net-ne2k8`. TLS handshake transcript byte tracking through ServerHelloDone
+was smoke-tested on `vm-net-3c501` and `vm-net-ne2k8`.
 
 ```text
 vm                   no network card; expected: red "." no network card, retry/restart menu
 vm-mda               no network card, MDA; expected: bright "." no network card, retry/restart menu
-vm-net-3c501         3Com EtherLink; expected: auto family, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, then agent?
-vm-net-3c503         3Com EtherLink II; expected: MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, then agent?
-vm-net-ne1k          NE1000-compatible; expected: auto family, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, then agent?
-vm-net-ne2k8         8-bit NE2000-compatible; expected: auto family, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, then agent?
-vm-net-novell-ne1k   Novell NE1000; expected: auto family, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, then agent?
-vm-net-wd8003e       Western Digital WD8003E; expected: auto family, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, then agent?
-vm-net-wd8003eb      Western Digital WD8003EB; expected: auto family, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, then agent?
+vm-net-3c501         3Com EtherLink; expected: auto family, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, transcript tracked, then agent?
+vm-net-3c503         3Com EtherLink II; expected: MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, transcript tracked, then agent?
+vm-net-ne1k          NE1000-compatible; expected: auto family, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, transcript tracked, then agent?
+vm-net-ne2k8         8-bit NE2000-compatible; expected: auto family, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, transcript tracked, then agent?
+vm-net-novell-ne1k   Novell NE1000; expected: auto family, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, transcript tracked, then agent?
+vm-net-wd8003e       Western Digital WD8003E; expected: auto family, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, transcript tracked, then agent?
+vm-net-wd8003eb      Western Digital WD8003EB; expected: auto family, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, transcript tracked, then agent?
 ```
 
 The WD8003 86Box profiles must use a five-digit shared-memory address and byte
