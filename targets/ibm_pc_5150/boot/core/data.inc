@@ -168,6 +168,8 @@ seed_key times seed_key_len db 0
 seed_endpoint times seed_endpoint_len db 0
 seed_reasoning times seed_reasoning_len db 0
 tls_server_random times tls_random_len db 0
+tls_server_ec_x times tls_ec_coordinate_len db 0
+tls_server_ec_y times tls_ec_coordinate_len db 0
 builtin_agent_ids db 'openai', 0
                   times agent_id_len - 7 db 0
                   db 'anthropic', 0

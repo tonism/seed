@@ -672,11 +672,25 @@ tls_parse_server_key_exchange:
     or al, al
     jz .failed
     mov [tls_server_key_public_len], al
+    cmp al, tls_ec_public_uncompressed_len
+    jne .failed
     xor ah, ah
     mov dx, [tls_server_next_handshake_len_low]
     add ax, 8
     cmp ax, dx
     ja .failed
+    cmp byte [bx + 4], 0x04
+    jne .failed
+    push ds
+    pop es
+    mov si, bx
+    add si, 5
+    mov di, tls_server_ec_x
+    mov cx, tls_ec_coordinate_len
+    rep movsb
+    mov di, tls_server_ec_y
+    mov cx, tls_ec_coordinate_len
+    rep movsb
     mov al, [tls_server_key_public_len]
     xor ah, ah
     mov bx, [tls_next_handshake_body_ptr]

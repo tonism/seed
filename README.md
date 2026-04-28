@@ -44,10 +44,11 @@ current crypto path, parses and stores ServerHello version, random,
 cipher-suite, session-id, known extension flags, and the selected cipher path,
 then parses the following Certificate handshake header, declared list length,
 drains that Certificate handshake to the next handshake boundary, parses the
-ECDHE ServerKeyExchange header and ServerHelloDone, maintains a live SHA-256
-TLS handshake transcript context through ServerHelloDone, then writes validated
-values back best-effort. Completing TLS, model API calls, capability fetches,
-session creation, and environment handover remain later build 6 work.
+ECDHE ServerKeyExchange header, captures the uncompressed P-256 public point,
+and parses ServerHelloDone, maintains a live SHA-256 TLS handshake transcript
+context through ServerHelloDone, then writes validated values back best-effort.
+Completing TLS, model API calls, capability fetches, session creation, and
+environment handover remain later build 6 work.
 
 Build 5 completed the internet-readiness milestone. It initializes
 NE1000/NE2000-family packet hardware after a valid MAC read, reads one pending
@@ -120,6 +121,7 @@ targets/ibm_pc_5150/boot/        8088 boot sector, loader, and core wrapper
 targets/ibm_pc_5150/boot/core/   boot core include files; emitted as CORE.SYS
 targets/ibm_pc_5150/86box/       86Box profiles and NIC inventory
 tools/build-fat12-image.py       deterministic 160 KiB FAT12 image builder
+tools/check-p256.py              dependency-free P-256 vector checker
 tools/run-86box.sh               build and launch a 86Box profile
 ```
 

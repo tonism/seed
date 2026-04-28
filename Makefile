@@ -32,7 +32,7 @@ FAT_FILES += --file $(USER_CFG):USER.CFG
 endif
 endif
 
-.PHONY: all clean inspect
+.PHONY: all clean inspect test
 
 all: $(FLOPPY_IMG)
 
@@ -61,6 +61,9 @@ inspect: $(FLOPPY_IMG)
 	xxd -g 1 -l 192 $(FLOPPY_IMG)
 	xxd -g 1 -s 512 -l 192 $(FLOPPY_IMG)
 	python3 $(IMAGE_BUILDER) list $(FLOPPY_IMG)
+
+test:
+	python3 tools/check-p256.py
 
 clean:
 	rm -rf build

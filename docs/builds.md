@@ -76,7 +76,9 @@ minimal TLS 1.2 ClientHello with SNI and P-256 ECDHE-RSA-CHACHA20-POLY1305
 ServerHello state parse for version, random, cipher-suite, session-id, extension flags, and selected cipher path
 Certificate handshake header parse with declared certificate-list length
 Certificate handshake drain to the next handshake boundary
-ECDHE ServerKeyExchange header parse and ServerHelloDone proof
+ECDHE ServerKeyExchange header parse with uncompressed P-256 public-point capture
+dependency-free P-256 vector checker with optional OpenSSL cross-check
+ServerHelloDone proof
 live SHA-256 TLS handshake transcript context through ServerHelloDone
 best-effort USER.CFG write of validated agent, model, reasoning, key, and endpoint values
 ```

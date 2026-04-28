@@ -142,11 +142,11 @@ stored endpoint value on the same form panel as `key?`, selected-agent DNS/TCP
 ECDHE-RSA-CHACHA20-POLY1305 for the current crypto path, ServerHello proof with
 parsed version, random, cipher-suite, session-id, extension flags, and selected
 cipher path, Certificate handshake
-header parsing and draining, ServerKeyExchange header parsing, ServerHelloDone
-proof, live SHA-256 TLS handshake transcript context through ServerHelloDone,
-and bright questions when saved values are missing or invalid; retest
-individual profiles when changing boot, filesystem, agent-prep code, or shared
-packet code.
+header parsing and draining, ServerKeyExchange header parsing with
+uncompressed P-256 public-point capture, ServerHelloDone proof, live SHA-256
+TLS handshake transcript context through ServerHelloDone, and bright questions
+when saved values are missing or invalid; retest individual profiles when
+changing boot, filesystem, agent-prep code, or shared packet code.
 
 ```text
 vm                   red "." no network card, retry/restart menu

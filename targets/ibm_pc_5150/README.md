@@ -42,7 +42,8 @@ BIOS loads boot sector
   -> sends a minimal TLS 1.2 ClientHello with SNI and P-256 ECDHE-RSA-CHACHA20-POLY1305
   -> parses ServerHello plus Certificate header
   -> drains the Certificate handshake to the next handshake boundary
-  -> parses ServerKeyExchange and ServerHelloDone
+  -> parses ServerKeyExchange and captures the P-256 public point
+  -> parses ServerHelloDone
   -> maintains a live SHA-256 TLS handshake transcript context through ServerHelloDone
   -> writes validated agent config back best-effort
   -> otherwise types seed build 6 rightward from that column
@@ -139,11 +140,11 @@ connection through the same TCP connect path, sends a minimal TLS 1.2
 ClientHello with SNI offering only P-256 ECDHE-RSA-CHACHA20-POLY1305 for the
 current crypto path, parses and stores ServerHello version, random,
 cipher-suite, session-id, known extension flags, and selected cipher path,
-parses the following Certificate handshake header,
-drains that Certificate handshake to the next handshake boundary, parses the
-ECDHE ServerKeyExchange header and ServerHelloDone, maintains a live SHA-256
-TLS handshake transcript context through ServerHelloDone, and writes the
-validated values back best-effort.
+parses the following Certificate handshake header, drains that Certificate
+handshake to the next handshake boundary, parses the ECDHE ServerKeyExchange
+header, captures the uncompressed P-256 public point, and parses
+ServerHelloDone, maintains a live SHA-256 TLS handshake transcript context
+through ServerHelloDone, and writes the validated values back best-effort.
 Missing or invalid `AGENTS.CFG` content falls back to
 built-in `openai`, `anthropic`, and `google`; other agent setup failures still
 fail in the bright `"o"` phase as `agent setup failed`.

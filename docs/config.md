@@ -97,9 +97,10 @@ ECDHE-RSA-CHACHA20-POLY1305 for the current crypto path, parsing ServerHello
 version, random, cipher-suite, session-id, known extension flags, selected
 cipher path, and the following Certificate handshake header before draining
 that Certificate handshake to the next handshake boundary. It then parses the
-ECDHE ServerKeyExchange header and ServerHelloDone, and maintains a live
-SHA-256 handshake transcript context through ServerHelloDone. Seed writes
-validated values back on a best-effort basis:
+ECDHE ServerKeyExchange header, captures the uncompressed P-256 public point,
+parses ServerHelloDone, and maintains a live SHA-256 handshake transcript
+context through ServerHelloDone. Seed writes validated values back on a
+best-effort basis:
 
 ```text
 agent <id>
