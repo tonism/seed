@@ -110,6 +110,7 @@ offset  size  value
 22 TLS record header received
 23 TLS ServerHello received
 24 TLS Certificate handshake header received
+25 TLS Certificate handshake drained to the next handshake boundary
 ```
 
 ## Network Error
@@ -174,7 +175,8 @@ host, proves TCP 443 connection, sends a minimal TLS 1.2 ClientHello with SNI,
 requires a handshake record, parses the first handshake message as ServerHello,
 stores the ServerHello version, random, cipher-suite, session-id, known
 extension flags, and selected cipher path internally, then parses the following
-Certificate handshake header and declared certificate-list length before
+Certificate handshake header and declared certificate-list length, drains that
+Certificate handshake to the next handshake boundary, and only then finishes
 writing the validated values back best-effort.
 If agent endpoint reachability fails, status is set to 5 and Seed enters the
 agent setup error path before the ready splash.

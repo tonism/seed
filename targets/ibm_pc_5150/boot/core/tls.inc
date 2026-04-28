@@ -22,9 +22,6 @@ tls_probe_server:
 .parse_certificate:
     call tls_wait_for_server_certificate
     jc .failed
-    call ne_transmit_tcp_ack
-    jc .failed
-    mov byte [handoff_addr + handoff_net_status], net_status_tls_certificate_received
     clc
     ret
 .failed:
@@ -318,23 +315,103 @@ tls_note_server_extension:
     ret
 
 tls_wait_for_server_certificate:
-    mov cx, [tls_buffered_payload_len]
-    or cx, cx
-    jz .receive
-    mov si, [tls_buffered_payload_ptr]
-    jmp tls_parse_server_certificate
-.receive:
-    call tcp_receive_payload
+    call tls_load_server_payload
     jc .failed
-    mov si, [tcp_rx_payload_ptr]
-    mov cx, [tcp_rx_payload_len]
     call tls_parse_server_certificate
+    jc .failed
+    call tls_drain_server_certificate
     jc .failed
     clc
     ret
 .failed:
     mov byte [handoff_addr + handoff_net_error], net_error_tls
     stc
+    ret
+
+tls_load_server_payload:
+    mov cx, [tls_buffered_payload_len]
+    or cx, cx
+    jz .receive
+    mov si, [tls_buffered_payload_ptr]
+    jmp .loaded
+.receive:
+    call tcp_receive_payload
+    jc .done
+    mov si, [tcp_rx_payload_ptr]
+    mov cx, [tcp_rx_payload_len]
+.loaded:
+    mov [tls_current_payload_ptr], si
+    mov [tls_current_payload_len], cx
+    clc
+    ret
+.done:
+    ret
+
+tls_drain_server_certificate:
+    mov ax, [tls_server_certificate_total_len]
+    mov cx, [tls_current_payload_len]
+    cmp cx, ax
+    jb .need_more
+    call tls_save_payload_after_current_offset
+    cmp word [tls_buffered_payload_len], 0
+    jne .done
+    call ne_transmit_tcp_ack
+    jc .failed
+.done:
+    mov byte [handoff_addr + handoff_net_status], net_status_tls_certificate_drained
+    mov byte [handoff_addr + handoff_net_error], net_error_none
+    clc
+    ret
+
+.need_more:
+    sub ax, cx
+    mov [tls_stream_skip_remaining], ax
+    call tls_clear_buffered_payload
+    call ne_transmit_tcp_ack
+    jc .failed
+.receive_more:
+    call tcp_receive_payload
+    jc .failed
+    mov ax, [tls_stream_skip_remaining]
+    mov cx, [tcp_rx_payload_len]
+    cmp cx, ax
+    jb .consume_all
+    mov bx, [tcp_rx_payload_ptr]
+    mov [tls_current_payload_ptr], bx
+    mov [tls_current_payload_len], cx
+    call tls_save_payload_after_current_offset
+    cmp word [tls_buffered_payload_len], 0
+    jne .done
+    call ne_transmit_tcp_ack
+    jc .failed
+    jmp .done
+.consume_all:
+    sub ax, cx
+    mov [tls_stream_skip_remaining], ax
+    call ne_transmit_tcp_ack
+    jc .failed
+    jmp .receive_more
+.failed:
+    stc
+    ret
+
+tls_save_payload_after_current_offset:
+    mov bx, [tls_current_payload_len]
+    sub bx, ax
+    mov [tls_buffered_payload_len], bx
+    or bx, bx
+    jz .none
+    mov bx, [tls_current_payload_ptr]
+    add bx, ax
+    mov [tls_buffered_payload_ptr], bx
+    ret
+.none:
+    call tls_clear_buffered_payload
+    ret
+
+tls_clear_buffered_payload:
+    mov word [tls_buffered_payload_ptr], 0
+    mov word [tls_buffered_payload_len], 0
     ret
 
 tls_parse_server_certificate:
@@ -377,6 +454,14 @@ tls_parse_server_certificate:
     jne .failed
     cmp bl, [si + 8]
     jne .failed
+    cmp byte [tls_server_certificate_len_high], 0
+    jne .failed
+    mov ax, [tls_server_certificate_len_low]
+    add ax, 4
+    cmp ax, [tls_server_certificate_record_len]
+    ja .failed
+    add ax, 5
+    mov [tls_server_certificate_total_len], ax
     mov byte [handoff_addr + handoff_net_status], net_status_tls_certificate_received
     mov byte [handoff_addr + handoff_net_error], net_error_none
     clc

@@ -40,6 +40,7 @@ BIOS loads boot sector
   -> asks server? and key? on one form when the selected agent needs both
   -> resolves the selected agent host and proves TCP 443 connection
   -> sends a minimal TLS 1.2 ClientHello with SNI and parses ServerHello plus Certificate header
+  -> drains the Certificate handshake to the next handshake boundary
   -> writes validated agent config back best-effort
   -> otherwise types seed build 6 rightward from that column
   -> waits about 500 ms
@@ -134,8 +135,9 @@ values when present, resolves the selected agent host, proves TCP 443
 connection through the same TCP connect path, sends a minimal TLS 1.2
 ClientHello with SNI, parses and stores ServerHello version, random,
 cipher-suite, session-id, known extension flags, and selected cipher path,
-parses the following Certificate handshake header, and writes the validated
-values back best-effort. Missing or invalid `AGENTS.CFG` content falls back to
+parses the following Certificate handshake header, drains that Certificate
+handshake to the next handshake boundary, and writes the validated values back
+best-effort. Missing or invalid `AGENTS.CFG` content falls back to
 built-in `openai`, `anthropic`, and `google`; other agent setup failures still
 fail in the bright `"o"` phase as `agent setup failed`.
 

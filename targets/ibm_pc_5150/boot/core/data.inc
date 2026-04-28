@@ -75,6 +75,10 @@ tls_server_handshake_len dw 0
 tls_server_extensions_len dw 0
 tls_server_cipher dw 0
 tls_server_certificate_record_len dw 0
+tls_server_certificate_total_len dw 0
+tls_current_payload_ptr dw 0
+tls_current_payload_len dw 0
+tls_stream_skip_remaining dw 0
 tls_server_certificate_len_low dw 0
 tls_server_certificate_list_len_low dw 0
 tls_record_major db 0
@@ -119,7 +123,7 @@ seed_root_lba dw 0
 seed_root_offset dw 0
 user_cfg_size_current dw 0
 ne_prom times ne_prom_len db 0
-ne_tx_frame times dhcp_rx_frame_len db 0
+ne_tx_frame times net_frame_buffer_len db 0
 fs_sector_buffer times 512 db 0
 agent_ids times agent_slot_count * agent_id_len db 0
 seed_agent_id times agent_id_len db 0

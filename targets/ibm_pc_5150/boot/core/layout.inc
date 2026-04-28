@@ -66,6 +66,7 @@ net_status_tls_clienthello_sent equ 21
 net_status_tls_record_received equ 22
 net_status_tls_serverhello_received equ 23
 net_status_tls_certificate_received equ 24
+net_status_tls_certificate_drained equ 25
 net_error_none equ 0
 net_error_ne_init equ 1
 net_error_ne_tx equ 2
@@ -169,6 +170,7 @@ ne_prom_len equ 32
 ne_rx_header_len equ 4
 ne_rx_sample_len equ 64
 ne_rx_max_count equ 1600
+net_frame_buffer_len equ ne_rx_max_count
 dhcp_rx_frame_len equ 384
 ne_rcr_broadcast equ 0x04
 ne_rsr_prx equ 0x01
@@ -226,7 +228,7 @@ tcp_rx_read_len equ 96
 tcp_offset equ eth_header_len + ipv4_header_len
 tcp_payload_offset equ tcp_offset + 20
 tcp_payload_max_len equ dhcp_rx_frame_len - tcp_payload_offset
-tcp_payload_read_len equ 256
+tcp_payload_read_len equ net_frame_buffer_len
 tcp_source_port_word equ 0x02c0
 tcp_port_http_word equ 0x5000
 tcp_port_https_word equ 0xbb01
