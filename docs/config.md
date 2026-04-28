@@ -112,6 +112,15 @@ endpoint <host-or-url>   optional; currently required for LiteLLM
 The `server?` prompt maps to the stored `endpoint` line. The on-disk name stays
 `endpoint` for compatibility with existing local config.
 
+OpenAI, Anthropic, and Google define the supported TLS compatibility surface.
+Extra shipped agent entries are allowed only when they fit that same path;
+Seed should not grow alternate crypto paths just to keep a gateway in the
+default config. On 29 April 2026, `openrouter.ai` was verified against the same
+TLS 1.2 P-256 ECDHE-RSA-CHACHA20-POLY1305 path, so it remains in
+`AGENTS.CFG`. `litellm` is a user-supplied endpoint, so it cannot be certified
+at ship time; it is supported only when the configured server negotiates the
+same path.
+
 `reasoning` is stored as a plain text effort value such as `xhigh`; provider
 specific request mapping is later Build 6 work. The `key` value is plaintext on
 the boot medium. P-256 ECDHE, TLS transcript digest finalization, the remaining

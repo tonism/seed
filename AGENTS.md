@@ -52,6 +52,9 @@ and included only when `config/USER.CFG` exists.
 - Keep Build 6 focused on agent prep. Do not add TLS, model API requests,
   agent sessions, or environment handover beyond the current Build 6 step
   unless explicitly scoped.
+- OpenAI, Anthropic, and Google define the supported agent TLS compatibility
+  surface. Extra default `AGENTS.CFG` entries may stay only if they fit the
+  same path; do not add alternate crypto paths just to keep a gateway.
 - 3c501, 3c503, NE1000/NE2000, and WD8003 station-address PROM reads must stay
   non-fatal.
 - Build 5 owns internet readiness. The current first packet path covers the
