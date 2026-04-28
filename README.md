@@ -42,8 +42,9 @@ through the shared boot-core TCP connect path, sends a minimal TLS 1.2
 ClientHello with SNI, parses and stores ServerHello version, random,
 cipher-suite, session-id, known extension flags, and the selected cipher path,
 then parses the following Certificate handshake header, declared list length,
-and drains that Certificate handshake to the next handshake boundary before
-writing validated values back best-effort. Completing TLS, model API calls, capability fetches,
+drains that Certificate handshake to the next handshake boundary, parses the
+ECDHE ServerKeyExchange header and ServerHelloDone, then writes validated
+values back best-effort. Completing TLS, model API calls, capability fetches,
 session creation, and environment handover remain later build 6 work.
 
 Build 5 completed the internet-readiness milestone. It initializes

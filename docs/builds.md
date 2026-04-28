@@ -75,6 +75,7 @@ minimal TLS 1.2 ClientHello with SNI and ServerHello handshake proof
 ServerHello state parse for version, random, cipher-suite, session-id, extension flags, and selected cipher path
 Certificate handshake header parse with declared certificate-list length
 Certificate handshake drain to the next handshake boundary
+ECDHE ServerKeyExchange header parse and ServerHelloDone proof
 best-effort USER.CFG write of validated agent, model, reasoning, key, and endpoint values
 ```
 

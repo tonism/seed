@@ -67,6 +67,8 @@ net_status_tls_record_received equ 22
 net_status_tls_serverhello_received equ 23
 net_status_tls_certificate_received equ 24
 net_status_tls_certificate_drained equ 25
+net_status_tls_serverkeyexchange_received equ 26
+net_status_tls_serverhellodone_received equ 27
 net_error_none equ 0
 net_error_ne_init equ 1
 net_error_ne_tx equ 2
@@ -254,6 +256,7 @@ tls_bulk_aes_256_gcm equ 2
 tls_bulk_chacha20_poly1305 equ 3
 tls_prf_sha256 equ 1
 tls_prf_sha384 equ 2
+tls_curve_secp256r1 equ 0x0017
 wd_saprom equ 0x08
 fat_root_start_lba equ LOADER_SECTORS + 3
 fat_fat_start_lba equ LOADER_SECTORS + 1

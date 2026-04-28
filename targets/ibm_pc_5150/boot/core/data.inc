@@ -76,6 +76,11 @@ tls_server_extensions_len dw 0
 tls_server_cipher dw 0
 tls_server_certificate_record_len dw 0
 tls_server_certificate_total_len dw 0
+tls_server_next_record_len dw 0
+tls_server_next_handshake_len_low dw 0
+tls_server_next_total_len dw 0
+tls_server_key_curve dw 0
+tls_server_signature_len dw 0
 tls_current_payload_ptr dw 0
 tls_current_payload_len dw 0
 tls_stream_skip_remaining dw 0
@@ -91,8 +96,14 @@ tls_server_extension_flags db 0
 tls_server_key_exchange db 0
 tls_server_bulk_cipher db 0
 tls_server_prf_hash db 0
+tls_server_next_handshake_type db 0
+tls_server_next_handshake_len_high db 0
+tls_server_key_public_len db 0
+tls_server_signature_hash db 0
+tls_server_signature_alg db 0
 tls_server_certificate_len_high db 0
 tls_server_certificate_list_len_high db 0
+tls_next_handshake_body_ptr dw 0
 dns_qname_len db dns_qname_default_len
 dns_label_len db 0
 dns_label_ptr dw 0

@@ -22,6 +22,8 @@ tls_probe_server:
 .parse_certificate:
     call tls_wait_for_server_certificate
     jc .failed
+    call tls_wait_for_server_key_exchange_or_done
+    jc .failed
     clc
     ret
 .failed:
@@ -468,6 +470,196 @@ tls_parse_server_certificate:
     ret
 .failed:
     mov byte [handoff_addr + handoff_net_error], net_error_tls
+    stc
+    ret
+
+tls_wait_for_server_key_exchange_or_done:
+    cmp byte [tls_server_key_exchange], tls_kx_ecdhe_rsa
+    jne .wait_done
+    call tls_load_server_payload
+    jc .failed
+    call tls_parse_server_key_exchange
+    jc .failed
+    call tls_finish_server_key_exchange
+    jc .failed
+.wait_done:
+    call tls_wait_for_server_hello_done
+    jc .failed
+    clc
+    ret
+.failed:
+    mov byte [handoff_addr + handoff_net_error], net_error_tls
+    stc
+    ret
+
+tls_wait_for_server_hello_done:
+    call tls_load_server_payload
+    jc .failed
+    call tls_parse_server_hello_done
+    jc .failed
+    call tls_clear_buffered_payload
+    call ne_transmit_tcp_ack
+    jc .failed
+    mov byte [handoff_addr + handoff_net_status], net_status_tls_serverhellodone_received
+    mov byte [handoff_addr + handoff_net_error], net_error_none
+    clc
+    ret
+.failed:
+    stc
+    ret
+
+tls_parse_next_handshake_header:
+    cmp cx, 4
+    jb .failed
+    cmp byte [si], 0x16
+    je .record
+    mov al, [si]
+    mov [tls_server_next_handshake_type], al
+    mov al, [si + 1]
+    mov [tls_server_next_handshake_len_high], al
+    mov ah, [si + 2]
+    mov al, [si + 3]
+    mov [tls_server_next_handshake_len_low], ax
+    mov word [tls_server_next_record_len], 0
+    mov bx, si
+    add bx, 4
+    mov [tls_next_handshake_body_ptr], bx
+    call tls_finish_next_handshake_header
+    ret
+.record:
+    cmp cx, 9
+    jb .failed
+    cmp byte [si + 1], 0x03
+    jne .failed
+    cmp byte [si + 2], 0x01
+    jb .failed
+    cmp byte [si + 2], 0x04
+    ja .failed
+    mov ah, [si + 3]
+    mov al, [si + 4]
+    cmp ax, 4
+    jb .failed
+    mov [tls_server_next_record_len], ax
+    mov dx, cx
+    sub dx, 5
+    cmp ax, dx
+    ja .failed
+    mov al, [si + 5]
+    mov [tls_server_next_handshake_type], al
+    mov al, [si + 6]
+    mov [tls_server_next_handshake_len_high], al
+    mov ah, [si + 7]
+    mov al, [si + 8]
+    mov [tls_server_next_handshake_len_low], ax
+    mov bx, si
+    add bx, 9
+    mov [tls_next_handshake_body_ptr], bx
+    call tls_finish_next_handshake_header
+    jc .failed
+    mov ax, [tls_server_next_handshake_len_low]
+    add ax, 4
+    cmp ax, [tls_server_next_record_len]
+    ja .failed
+    ret
+.failed:
+    stc
+    ret
+
+tls_finish_next_handshake_header:
+    cmp byte [tls_server_next_handshake_len_high], 0
+    jne .failed
+    mov ax, [tls_server_next_handshake_len_low]
+    add ax, 4
+    cmp word [tls_server_next_record_len], 0
+    je .total_ready
+    add ax, 5
+.total_ready:
+    mov [tls_server_next_total_len], ax
+    cmp ax, [tls_current_payload_len]
+    ja .failed
+    clc
+    ret
+.failed:
+    stc
+    ret
+
+tls_parse_server_key_exchange:
+    call tls_parse_next_handshake_header
+    jc .failed
+    cmp byte [tls_server_next_handshake_type], 0x0c
+    jne .failed
+    cmp word [tls_server_next_handshake_len_low], 8
+    jb .failed
+    mov bx, [tls_next_handshake_body_ptr]
+    cmp byte [bx], 3
+    jne .failed
+    mov ah, [bx + 1]
+    mov al, [bx + 2]
+    cmp ax, tls_curve_secp256r1
+    jne .failed
+    mov [tls_server_key_curve], ax
+    mov al, [bx + 3]
+    or al, al
+    jz .failed
+    mov [tls_server_key_public_len], al
+    xor ah, ah
+    mov dx, [tls_server_next_handshake_len_low]
+    add ax, 8
+    cmp ax, dx
+    ja .failed
+    mov al, [tls_server_key_public_len]
+    xor ah, ah
+    mov bx, [tls_next_handshake_body_ptr]
+    add bx, ax
+    add bx, 4
+    mov al, [bx]
+    mov [tls_server_signature_hash], al
+    mov al, [bx + 1]
+    mov [tls_server_signature_alg], al
+    mov ah, [bx + 2]
+    mov al, [bx + 3]
+    mov [tls_server_signature_len], ax
+    mov dx, ax
+    mov al, [tls_server_key_public_len]
+    xor ah, ah
+    add ax, 8
+    add ax, dx
+    cmp ax, [tls_server_next_handshake_len_low]
+    jne .failed
+    mov byte [handoff_addr + handoff_net_status], net_status_tls_serverkeyexchange_received
+    mov byte [handoff_addr + handoff_net_error], net_error_none
+    clc
+    ret
+.failed:
+    stc
+    ret
+
+tls_finish_server_key_exchange:
+    mov ax, [tls_server_next_total_len]
+    call tls_save_payload_after_current_offset
+    cmp word [tls_buffered_payload_len], 0
+    jne .done
+    call ne_transmit_tcp_ack
+    jc .failed
+.done:
+    mov byte [handoff_addr + handoff_net_status], net_status_tls_serverkeyexchange_received
+    mov byte [handoff_addr + handoff_net_error], net_error_none
+    clc
+    ret
+.failed:
+    stc
+    ret
+
+tls_parse_server_hello_done:
+    call tls_parse_next_handshake_header
+    jc .failed
+    cmp byte [tls_server_next_handshake_type], 0x0e
+    jne .failed
+    cmp word [tls_server_next_handshake_len_low], 0
+    jne .failed
+    clc
+    ret
+.failed:
     stc
     ret
 

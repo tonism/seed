@@ -95,7 +95,8 @@ receiving a SYN-ACK on port 443, sending the final ACK, then sending a minimal
 TLS 1.2 ClientHello with SNI and parsing ServerHello version, random,
 cipher-suite, session-id, known extension flags, selected cipher path, and the
 following Certificate handshake header before draining that Certificate
-handshake to the next handshake boundary. Seed writes
+handshake to the next handshake boundary. It then parses the ECDHE
+ServerKeyExchange header and ServerHelloDone. Seed writes
 validated values back on a best-effort basis:
 
 ```text
