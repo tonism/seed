@@ -39,15 +39,15 @@ missing or invalid, asks for missing `server?` and `key?` values needed by that
 agent on one form panel when both are required, preserves saved model and
 reasoning values when present, proves selected-agent DNS and TCP 443 connection
 through the shared boot-core TCP connect path, sends a minimal TLS 1.2
-ClientHello with SNI, parses and stores ServerHello version, random,
-cipher-suite, session-id, known extension flags, and the selected cipher path,
+ClientHello with SNI and SHA-256 PRF cipher suites, parses and stores
+ServerHello version, random, cipher-suite, session-id, known extension flags,
+and the selected cipher path,
 then parses the following Certificate handshake header, declared list length,
 drains that Certificate handshake to the next handshake boundary, parses the
-ECDHE ServerKeyExchange header and ServerHelloDone, tracks the TLS handshake
-transcript byte stream through ServerHelloDone for the future transcript hash,
-then writes validated values back best-effort. Completing TLS, model API
-calls, capability fetches, session creation, and environment handover remain
-later build 6 work.
+ECDHE ServerKeyExchange header and ServerHelloDone, maintains a live SHA-256
+TLS handshake transcript context through ServerHelloDone, then writes validated
+values back best-effort. Completing TLS, model API calls, capability fetches,
+session creation, and environment handover remain later build 6 work.
 
 Build 5 completed the internet-readiness milestone. It initializes
 NE1000/NE2000-family packet hardware after a valid MAC read, reads one pending

@@ -87,6 +87,8 @@ tls_stream_skip_remaining dw 0
 tls_transcript_len_low dw 0
 tls_transcript_len_high dw 0
 tls_transcript_certificate_remaining dw 0
+sha256_w_ptr dw 0
+sha256_k_ptr dw 0
 tls_server_certificate_len_low dw 0
 tls_server_certificate_list_len_low dw 0
 tls_record_major db 0
@@ -107,6 +109,9 @@ tls_server_signature_alg db 0
 tls_server_certificate_len_high db 0
 tls_server_certificate_list_len_high db 0
 tls_transcript_flags db 0
+sha256_block_len db 0
+sha256_schedule_count db 0
+sha256_round_count db 0
 tls_next_handshake_body_ptr dw 0
 dns_qname_len db dns_qname_default_len
 dns_label_len db 0
@@ -139,7 +144,23 @@ seed_root_offset dw 0
 user_cfg_size_current dw 0
 ne_prom times ne_prom_len db 0
 ne_tx_frame times net_frame_buffer_len db 0
+tls_rx_copy times tcp_payload_read_len db 0
 fs_sector_buffer times 512 db 0
+sha256_state times 16 dw 0
+sha256_a dw 0, 0
+sha256_b dw 0, 0
+sha256_c dw 0, 0
+sha256_d dw 0, 0
+sha256_e dw 0, 0
+sha256_f dw 0, 0
+sha256_g dw 0, 0
+sha256_h dw 0, 0
+sha256_t1 dw 0, 0
+sha256_t2 dw 0, 0
+sha256_new_e dw 0, 0
+sha256_tmp dw 0, 0
+sha256_block times 64 db 0
+sha256_w times 128 dw 0
 agent_ids times agent_slot_count * agent_id_len db 0
 seed_agent_id times agent_id_len db 0
 seed_model times seed_model_len db 0
@@ -185,18 +206,52 @@ host_anthropic_text db 'api.anthropic.com', 0
 host_google_text db 'generativelanguage.googleapis.com', 0
 tls_random db 'SEEDBUILD6TLSCLIENTHELLO00000000'
 tls_after_random db 0
-                 db 0, 10
+                 db 0, 6
                  db 0xc0, 0x2f
-                 db 0xc0, 0x30
                  db 0xcc, 0xa8
                  db 0x00, 0x9c
-                 db 0x00, 0x9d
                  db 1, 0
 tls_extensions_tail db 0, 10, 0, 4, 0, 2, 0, 23
                     db 0, 11, 0, 2, 1, 0
                     db 0, 13, 0, 10, 0, 8, 4, 3, 5, 3, 4, 1, 5, 1
                     db 0, 23, 0, 0
                     db 0xff, 1, 0, 1, 0
+sha256_initial_state dw 0xe667, 0x6a09, 0xae85, 0xbb67
+                     dw 0xf372, 0x3c6e, 0xf53a, 0xa54f
+                     dw 0x527f, 0x510e, 0x688c, 0x9b05
+                     dw 0xd9ab, 0x1f83, 0xcd19, 0x5be0
+sha256_k dw 0x2f98, 0x428a, 0x4491, 0x7137
+         dw 0xfbcf, 0xb5c0, 0xdba5, 0xe9b5
+         dw 0xc25b, 0x3956, 0x11f1, 0x59f1
+         dw 0x82a4, 0x923f, 0x5ed5, 0xab1c
+         dw 0xaa98, 0xd807, 0x5b01, 0x1283
+         dw 0x85be, 0x2431, 0x7dc3, 0x550c
+         dw 0x5d74, 0x72be, 0xb1fe, 0x80de
+         dw 0x06a7, 0x9bdc, 0xf174, 0xc19b
+         dw 0x69c1, 0xe49b, 0x4786, 0xefbe
+         dw 0x9dc6, 0x0fc1, 0xa1cc, 0x240c
+         dw 0x2c6f, 0x2de9, 0x84aa, 0x4a74
+         dw 0xa9dc, 0x5cb0, 0x88da, 0x76f9
+         dw 0x5152, 0x983e, 0xc66d, 0xa831
+         dw 0x27c8, 0xb003, 0x7fc7, 0xbf59
+         dw 0x0bf3, 0xc6e0, 0x9147, 0xd5a7
+         dw 0x6351, 0x06ca, 0x2967, 0x1429
+         dw 0x0a85, 0x27b7, 0x2138, 0x2e1b
+         dw 0x6dfc, 0x4d2c, 0x0d13, 0x5338
+         dw 0x7354, 0x650a, 0x0abb, 0x766a
+         dw 0xc92e, 0x81c2, 0x2c85, 0x9272
+         dw 0xe8a1, 0xa2bf, 0x664b, 0xa81a
+         dw 0x8b70, 0xc24b, 0x51a3, 0xc76c
+         dw 0xe819, 0xd192, 0x0624, 0xd699
+         dw 0x3585, 0xf40e, 0xa070, 0x106a
+         dw 0xc116, 0x19a4, 0x6c08, 0x1e37
+         dw 0x774c, 0x2748, 0xbcb5, 0x34b0
+         dw 0x0cb3, 0x391c, 0xaa4a, 0x4ed8
+         dw 0xca4f, 0x5b9c, 0x6ff3, 0x682e
+         dw 0x82ee, 0x748f, 0x636f, 0x78a5
+         dw 0x7814, 0x84c8, 0x0208, 0x8cc7
+         dw 0xfffa, 0x90be, 0x6ceb, 0xa450
+         dw 0xa3f7, 0xbef9, 0x78f2, 0xc671
 disk_sectors_per_track db 8
 nic_ports dw 0x250, 0x280, 0x2a0, 0x2c0, 0x2e0
           dw 0x300, 0x310, 0x320, 0x330, 0x340

@@ -842,6 +842,15 @@ parse_tcp_payload:
     jne .not_payload
     test byte [ne_tx_frame + tcp_offset + 13], 0x04
     jnz .not_payload
+    mov si, ne_tx_frame + tcp_offset + 4
+    mov di, tcp_remote_ack
+    mov cx, 4
+.check_sequence:
+    lodsb
+    cmp al, [di]
+    jne .not_payload
+    inc di
+    loop .check_sequence
 
     mov al, [ne_tx_frame + tcp_offset + 12]
     and al, 0xf0

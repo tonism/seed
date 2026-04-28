@@ -199,26 +199,16 @@ tls_save_buffered_server_payload:
 tls_classify_cipher_suite:
     cmp ax, 0xc02f
     je .ecdhe_aes128_sha256
-    cmp ax, 0xc030
-    je .ecdhe_aes256_sha384
     cmp ax, 0xcca8
     je .ecdhe_chacha_sha256
     cmp ax, 0x009c
     je .rsa_aes128_sha256
-    cmp ax, 0x009d
-    je .rsa_aes256_sha384
     stc
     ret
 .ecdhe_aes128_sha256:
     mov byte [tls_server_key_exchange], tls_kx_ecdhe_rsa
     mov byte [tls_server_bulk_cipher], tls_bulk_aes_128_gcm
     mov byte [tls_server_prf_hash], tls_prf_sha256
-    clc
-    ret
-.ecdhe_aes256_sha384:
-    mov byte [tls_server_key_exchange], tls_kx_ecdhe_rsa
-    mov byte [tls_server_bulk_cipher], tls_bulk_aes_256_gcm
-    mov byte [tls_server_prf_hash], tls_prf_sha384
     clc
     ret
 .ecdhe_chacha_sha256:
@@ -233,13 +223,6 @@ tls_classify_cipher_suite:
     mov byte [tls_server_prf_hash], tls_prf_sha256
     clc
     ret
-.rsa_aes256_sha384:
-    mov byte [tls_server_key_exchange], tls_kx_rsa
-    mov byte [tls_server_bulk_cipher], tls_bulk_aes_256_gcm
-    mov byte [tls_server_prf_hash], tls_prf_sha384
-    clc
-    ret
-
 tls_parse_server_extensions:
     mov byte [tls_server_extension_flags], 0
 .next:
@@ -365,6 +348,10 @@ tls_load_server_payload:
     ret
 
 tls_drain_server_certificate:
+    call tls_copy_current_payload
+    jc .failed
+    call ne_transmit_tcp_ack
+    jc .failed
     call tls_transcript_update_certificate_current
     jc .failed
     mov ax, [tls_server_certificate_total_len]
@@ -372,10 +359,6 @@ tls_drain_server_certificate:
     cmp cx, ax
     jb .need_more
     call tls_save_payload_after_current_offset
-    cmp word [tls_buffered_payload_len], 0
-    jne .done
-    call ne_transmit_tcp_ack
-    jc .failed
 .done:
     cmp word [tls_transcript_certificate_remaining], 0
     jne .failed
@@ -389,34 +372,50 @@ tls_drain_server_certificate:
     sub ax, cx
     mov [tls_stream_skip_remaining], ax
     call tls_clear_buffered_payload
-    call ne_transmit_tcp_ack
-    jc .failed
 .receive_more:
     call tcp_receive_payload
     jc .failed
     mov si, [tcp_rx_payload_ptr]
     mov cx, [tcp_rx_payload_len]
+    mov [tls_current_payload_ptr], si
+    mov [tls_current_payload_len], cx
+    call tls_copy_current_payload
+    jc .failed
+    call ne_transmit_tcp_ack
+    jc .failed
+    mov si, [tls_current_payload_ptr]
+    mov cx, [tls_current_payload_len]
     call tls_transcript_update_certificate_chunk
     jc .failed
     mov ax, [tls_stream_skip_remaining]
-    mov cx, [tcp_rx_payload_len]
+    mov cx, [tls_current_payload_len]
     cmp cx, ax
     jb .consume_all
-    mov bx, [tcp_rx_payload_ptr]
+    mov bx, [tls_current_payload_ptr]
     mov [tls_current_payload_ptr], bx
     mov [tls_current_payload_len], cx
     call tls_save_payload_after_current_offset
-    cmp word [tls_buffered_payload_len], 0
-    jne .done
-    call ne_transmit_tcp_ack
-    jc .failed
     jmp .done
 .consume_all:
     sub ax, cx
     mov [tls_stream_skip_remaining], ax
-    call ne_transmit_tcp_ack
-    jc .failed
     jmp .receive_more
+.failed:
+    stc
+    ret
+
+tls_copy_current_payload:
+    mov cx, [tls_current_payload_len]
+    cmp cx, tcp_payload_read_len
+    ja .failed
+    push ds
+    pop es
+    mov si, [tls_current_payload_ptr]
+    mov di, tls_rx_copy
+    rep movsb
+    mov word [tls_current_payload_ptr], tls_rx_copy
+    clc
+    ret
 .failed:
     stc
     ret
@@ -445,6 +444,7 @@ tls_transcript_start:
     mov word [tls_transcript_len_high], 0
     mov word [tls_transcript_certificate_remaining], 0
     mov byte [tls_transcript_flags], 0
+    call sha256_init
     ret
 
 tls_transcript_update:
@@ -452,7 +452,7 @@ tls_transcript_update:
     mov ax, [tls_transcript_len_high]
     adc ax, 0
     mov [tls_transcript_len_high], ax
-    clc
+    call sha256_update
     ret
 
 tls_transcript_update_certificate_current:

@@ -237,12 +237,12 @@ tcp_port_http_word equ 0x5000
 tcp_port_https_word equ 0xbb01
 tcp_wait_count equ 4
 tcp_payload_wait_count equ 32
-tls_client_base_len equ 106
-tls_body_base_len equ 97
-tls_record_base_len equ 101
+tls_client_base_len equ 102
+tls_body_base_len equ 93
+tls_record_base_len equ 97
 tls_extensions_base_len equ 46
 tls_random_len equ 32
-tls_after_random_len equ 15
+tls_after_random_len equ 11
 tls_extensions_tail_len equ 37
 tls_ext_ec_point_formats equ 0x01
 tls_ext_extended_master_secret equ 0x02

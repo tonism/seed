@@ -71,19 +71,21 @@ preserve saved model/reasoning values, but do not ask the user to type them
 selected-agent DNS resolution and TCP 443 connect proof
 shared TCP connect boundary for internet and selected-agent reachability
 minimal TCP payload send/receive primitives used by the TLS proof
-minimal TLS 1.2 ClientHello with SNI and ServerHello handshake proof
+TCP receive sequence validation so retransmits do not corrupt the TLS stream
+minimal TLS 1.2 ClientHello with SNI and SHA-256 PRF cipher suites
 ServerHello state parse for version, random, cipher-suite, session-id, extension flags, and selected cipher path
 Certificate handshake header parse with declared certificate-list length
 Certificate handshake drain to the next handshake boundary
 ECDHE ServerKeyExchange header parse and ServerHelloDone proof
-TLS handshake transcript byte tracking through ServerHelloDone
+live SHA-256 TLS handshake transcript context through ServerHelloDone
 best-effort USER.CFG write of validated agent, model, reasoning, key, and endpoint values
 ```
 
 Still in build 6 scope:
 
 ```text
-implement the TLS transcript hash behind the existing transcript feed path
+add transcript digest finalization/copy support for Finished verification
+add SHA-384 transcript support if SHA-384 cipher suites need to return
 complete TLS directly from the 8088 runtime
 validate the selected provider key with a model API request
 fetch model and reasoning capabilities from the provider when available
