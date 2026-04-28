@@ -65,6 +65,7 @@ net_status_tcp_payload_received equ 20
 net_status_tls_clienthello_sent equ 21
 net_status_tls_record_received equ 22
 net_status_tls_serverhello_received equ 23
+net_status_tls_certificate_received equ 24
 net_error_none equ 0
 net_error_ne_init equ 1
 net_error_ne_tx equ 2

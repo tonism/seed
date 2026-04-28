@@ -14,6 +14,17 @@ tls_probe_server:
 .wait_for_record:
     call tls_wait_for_server_hello
     jc .failed
+    cmp word [tls_buffered_payload_len], 0
+    jne .parse_certificate
+    call ne_transmit_tcp_ack
+    jc .failed
+    mov byte [handoff_addr + handoff_net_status], net_status_tls_serverhello_received
+.parse_certificate:
+    call tls_wait_for_server_certificate
+    jc .failed
+    call ne_transmit_tcp_ack
+    jc .failed
+    mov byte [handoff_addr + handoff_net_status], net_status_tls_certificate_received
     clc
     ret
 .failed:
@@ -63,6 +74,7 @@ tls_wait_for_server_hello:
     cmp ax, 42
     jb .failed
     mov bx, ax
+    mov [tls_server_record_len], ax
     mov dx, cx
     sub dx, 5
     cmp bx, dx
@@ -143,6 +155,7 @@ tls_wait_for_server_hello:
     mov word [tls_server_extensions_len], 0
     mov byte [tls_server_extension_flags], 0
 .parsed:
+    call tls_save_buffered_server_payload
     mov byte [handoff_addr + handoff_net_status], net_status_tls_serverhello_received
     mov byte [handoff_addr + handoff_net_error], net_error_none
     clc
@@ -150,6 +163,23 @@ tls_wait_for_server_hello:
 .failed:
     mov byte [handoff_addr + handoff_net_error], net_error_tls
     stc
+    ret
+
+tls_save_buffered_server_payload:
+    mov ax, [tls_server_record_len]
+    add ax, 5
+    mov dx, [tcp_rx_payload_len]
+    cmp dx, ax
+    jbe .none
+    sub dx, ax
+    mov [tls_buffered_payload_len], dx
+    mov bx, [tcp_rx_payload_ptr]
+    add bx, ax
+    mov [tls_buffered_payload_ptr], bx
+    ret
+.none:
+    mov word [tls_buffered_payload_ptr], 0
+    mov word [tls_buffered_payload_len], 0
     ret
 
 tls_classify_cipher_suite:
@@ -284,6 +314,75 @@ tls_note_server_extension:
     clc
     ret
 .failed:
+    stc
+    ret
+
+tls_wait_for_server_certificate:
+    mov cx, [tls_buffered_payload_len]
+    or cx, cx
+    jz .receive
+    mov si, [tls_buffered_payload_ptr]
+    jmp tls_parse_server_certificate
+.receive:
+    call tcp_receive_payload
+    jc .failed
+    mov si, [tcp_rx_payload_ptr]
+    mov cx, [tcp_rx_payload_len]
+    call tls_parse_server_certificate
+    jc .failed
+    clc
+    ret
+.failed:
+    mov byte [handoff_addr + handoff_net_error], net_error_tls
+    stc
+    ret
+
+tls_parse_server_certificate:
+    cmp cx, 12
+    jb .failed
+    cmp byte [si], 0x16
+    jne .failed
+    cmp byte [si + 1], 0x03
+    jne .failed
+    cmp byte [si + 2], 0x01
+    jb .failed
+    cmp byte [si + 2], 0x04
+    ja .failed
+    mov ah, [si + 3]
+    mov al, [si + 4]
+    cmp ax, 7
+    jb .failed
+    mov [tls_server_certificate_record_len], ax
+    cmp byte [si + 5], 0x0b
+    jne .failed
+    mov ah, [si + 7]
+    mov al, [si + 8]
+    mov [tls_server_certificate_len_low], ax
+    mov al, [si + 6]
+    mov [tls_server_certificate_len_high], al
+    mov ah, [si + 10]
+    mov al, [si + 11]
+    mov [tls_server_certificate_list_len_low], ax
+    mov al, [si + 9]
+    mov [tls_server_certificate_list_len_high], al
+
+    mov dl, [si + 9]
+    mov bh, [si + 10]
+    mov bl, [si + 11]
+    add bx, 3
+    adc dl, 0
+    cmp dl, [si + 6]
+    jne .failed
+    cmp bh, [si + 7]
+    jne .failed
+    cmp bl, [si + 8]
+    jne .failed
+    mov byte [handoff_addr + handoff_net_status], net_status_tls_certificate_received
+    mov byte [handoff_addr + handoff_net_error], net_error_none
+    clc
+    ret
+.failed:
+    mov byte [handoff_addr + handoff_net_error], net_error_tls
     stc
     ret
 
