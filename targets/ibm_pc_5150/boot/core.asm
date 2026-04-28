@@ -16,6 +16,7 @@ org 0x1000
 %include "core/net_tx.inc"
 %include "core/transport.inc"
 %include "core/sha256.inc"
+%include "core/p256.inc"
 %include "core/tls.inc"
 %include "core/net_rx.inc"
 %include "core/ui.inc"

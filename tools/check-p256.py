@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
+import re
 
 
 P = 0xFFFFFFFF00000001000000000000000000000000FFFFFFFFFFFFFFFFFFFFFFFF
@@ -29,6 +30,10 @@ PEER_PUBLIC = (
     0x6C3500F01CE391E0DB0CE8B13A652A08538F504274EA255533C372A88E3597BF,
 )
 SHARED_X = 0x9238E9B85EF84AC3139AFB2631242B767DDE271E31972DE6A9B8BBE51A4A7CCB
+
+WORD_COUNT = 16
+ROOT = Path(__file__).resolve().parents[1]
+DATA_INC = ROOT / "targets" / "ibm_pc_5150" / "boot" / "core" / "data.inc"
 
 
 def inv_mod(value: int) -> int:
@@ -71,6 +76,78 @@ def scalar_mult(scalar: int, point: tuple[int, int]) -> tuple[int, int]:
 def is_on_curve(point: tuple[int, int]) -> bool:
     x, y = point
     return (y * y - (x * x * x + A * x + B)) % P == 0
+
+
+def to_words_le(value: int) -> list[int]:
+    return [(value >> (16 * index)) & 0xFFFF for index in range(WORD_COUNT)]
+
+
+def from_words_le(words: list[int]) -> int:
+    value = 0
+    for index, word in enumerate(words):
+        value |= word << (16 * index)
+    return value
+
+
+def parse_dw_words(label: str) -> list[int]:
+    words: list[int] = []
+    active = False
+    for line in DATA_INC.read_text().splitlines():
+        if line.startswith(f"{label} "):
+            active = True
+        elif active and not line.lstrip().startswith("dw "):
+            break
+        if not active:
+            continue
+        match = re.search(r"\bdw\b(.+)$", line)
+        if match is None:
+            continue
+        for item in match.group(1).split(","):
+            words.append(int(item.strip(), 0))
+    if not words:
+        raise AssertionError(f"{label} not found")
+    return words
+
+
+def add_words_mod(left: int, right: int) -> int:
+    raw = from_words_le(to_words_le(left)) + from_words_le(to_words_le(right))
+    if raw >= P:
+        raw -= P
+    return raw
+
+
+def sub_words_mod(left: int, right: int) -> int:
+    raw = from_words_le(to_words_le(left)) - from_words_le(to_words_le(right))
+    if raw < 0:
+        raw += P
+    return raw
+
+
+def check_field_words() -> None:
+    assert parse_dw_words("p256_prime") == to_words_le(P)
+    for value in (
+        0,
+        1,
+        P - 1,
+        CLIENT_PUBLIC[0],
+        CLIENT_PUBLIC[1],
+        PEER_PUBLIC[0],
+        PEER_PUBLIC[1],
+        SHARED_X,
+    ):
+        assert from_words_le(to_words_le(value)) == value
+        assert value < P
+    cases = (
+        (0, 0),
+        (1, 2),
+        (P - 1, 1),
+        (P - 2, P - 3),
+        (CLIENT_PUBLIC[0], PEER_PUBLIC[0]),
+        (CLIENT_PUBLIC[1], PEER_PUBLIC[1]),
+    )
+    for left, right in cases:
+        assert add_words_mod(left, right) == (left + right) % P
+        assert sub_words_mod(left, right) == (left - right) % P
 
 
 def der_len(length: int) -> bytes:
@@ -133,6 +210,7 @@ def openssl_shared_x(private_value: int, peer_private_value: int) -> int | None:
 
 
 def main() -> None:
+    check_field_words()
     assert is_on_curve(G)
     assert is_on_curve(CLIENT_PUBLIC)
     assert is_on_curve(PEER_PUBLIC)
@@ -144,9 +222,9 @@ def main() -> None:
     openssl_x = openssl_shared_x(CLIENT_PRIVATE, PEER_PRIVATE)
     if openssl_x is not None:
         assert openssl_x == SHARED_X
-        print("p256 vectors ok; openssl cross-check ok")
+        print("p256 vectors and field words ok; openssl cross-check ok")
     else:
-        print("p256 vectors ok; openssl unavailable")
+        print("p256 vectors and field words ok; openssl unavailable")
 
 
 if __name__ == "__main__":

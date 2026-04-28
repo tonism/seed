@@ -77,7 +77,9 @@ ServerHello state parse for version, random, cipher-suite, session-id, extension
 Certificate handshake header parse with declared certificate-list length
 Certificate handshake drain to the next handshake boundary
 ECDHE ServerKeyExchange header parse with uncompressed P-256 public-point capture
-dependency-free P-256 vector checker with optional OpenSSL cross-check
+P-256 coordinate conversion to 16-bit little-endian field words and coordinate range checks
+8086 P-256 field add/sub modulo-p primitives
+dependency-free P-256 vector and field-word checker with optional OpenSSL cross-check
 ServerHelloDone proof
 live SHA-256 TLS handshake transcript context through ServerHelloDone
 best-effort USER.CFG write of validated agent, model, reasoning, key, and endpoint values
@@ -87,7 +89,7 @@ Still in build 6 scope:
 
 ```text
 add transcript digest finalization/copy support for Finished verification
-implement P-256 ECDHE shared-secret generation
+implement P-256 field multiplication/reduction, point math, and ECDHE shared-secret generation
 implement TLS 1.2 SHA-256 PRF and ChaCha20-Poly1305 records
 complete TLS directly from the 8088 runtime
 validate the selected provider key with a model API request

@@ -265,6 +265,8 @@ tls_prf_sha384 equ 2
 tls_curve_secp256r1 equ 0x0017
 tls_ec_coordinate_len equ 32
 tls_ec_public_uncompressed_len equ 65
+p256_word_count equ 16
+p256_word_len equ p256_word_count * 2
 wd_saprom equ 0x08
 fat_root_start_lba equ LOADER_SECTORS + 3
 fat_fat_start_lba equ LOADER_SECTORS + 1

@@ -691,6 +691,20 @@ tls_parse_server_key_exchange:
     mov di, tls_server_ec_y
     mov cx, tls_ec_coordinate_len
     rep movsb
+    mov si, tls_server_ec_x
+    mov di, tls_server_ec_x_words
+    call p256_from_be32
+    mov si, tls_server_ec_y
+    mov di, tls_server_ec_y_words
+    call p256_from_be32
+    mov si, tls_server_ec_x_words
+    mov di, p256_prime
+    call p256_cmp_words
+    jnc .failed
+    mov si, tls_server_ec_y_words
+    mov di, p256_prime
+    call p256_cmp_words
+    jnc .failed
     mov al, [tls_server_key_public_len]
     xor ah, ah
     mov bx, [tls_next_handshake_body_ptr]

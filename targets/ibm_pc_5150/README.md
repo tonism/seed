@@ -42,7 +42,7 @@ BIOS loads boot sector
   -> sends a minimal TLS 1.2 ClientHello with SNI and P-256 ECDHE-RSA-CHACHA20-POLY1305
   -> parses ServerHello plus Certificate header
   -> drains the Certificate handshake to the next handshake boundary
-  -> parses ServerKeyExchange and captures the P-256 public point
+  -> parses ServerKeyExchange and range-checks the P-256 public point
   -> parses ServerHelloDone
   -> maintains a live SHA-256 TLS handshake transcript context through ServerHelloDone
   -> writes validated agent config back best-effort
@@ -142,7 +142,8 @@ current crypto path, parses and stores ServerHello version, random,
 cipher-suite, session-id, known extension flags, and selected cipher path,
 parses the following Certificate handshake header, drains that Certificate
 handshake to the next handshake boundary, parses the ECDHE ServerKeyExchange
-header, captures the uncompressed P-256 public point, and parses
+header, captures the uncompressed P-256 public point, converts X/Y into 16-bit
+little-endian field words, range-checks them below the P-256 prime, and parses
 ServerHelloDone, maintains a live SHA-256 TLS handshake transcript context
 through ServerHelloDone, and writes the validated values back best-effort.
 Missing or invalid `AGENTS.CFG` content falls back to

@@ -24,9 +24,10 @@ P-256 ECDHE-RSA-CHACHA20-POLY1305 for the current crypto path, parses
 ServerHello version, random, cipher-suite, session-id, known extension flags,
 selected cipher path, and the following Certificate handshake header, drains
 the Certificate handshake to the next handshake boundary, parses
-ServerKeyExchange, captures the uncompressed P-256 public point, parses
-ServerHelloDone, maintains a live SHA-256 TLS handshake transcript context
-through ServerHelloDone, and then reaches the ready splash.
+ServerKeyExchange, captures the uncompressed P-256 public point, converts X/Y
+into 16-bit little-endian field words, range-checks them below the P-256 prime,
+parses ServerHelloDone, maintains a live SHA-256 TLS handshake transcript
+context through ServerHelloDone, and then reaches the ready splash.
 
 ## IBM PC 5150 Candidates
 
@@ -105,9 +106,9 @@ extension parsing and Certificate handshake header parsing were smoke-tested on
 `vm-net-3c501` and `vm-net-ne2k8`. Certificate handshake draining was
 smoke-tested across all listed NIC-present profiles. TCP receive sequence
 validation, ChaCha20-Poly1305-only cipher negotiation, ServerKeyExchange and
-P-256 public-point capture, ServerHelloDone parsing, and the live SHA-256
-transcript context through ServerHelloDone were smoke-tested on `vm-net-3c501`
-and `vm-net-ne2k8`.
+P-256 public-point capture/range-check, ServerHelloDone parsing, and the live
+SHA-256 transcript context through ServerHelloDone were smoke-tested on
+`vm-net-3c501` and `vm-net-ne2k8`.
 
 Also on 29 April 2026, the fixed shipped agent hosts were checked with OpenSSL
 against Seed's single current TLS path: TLS 1.2, P-256,

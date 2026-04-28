@@ -170,6 +170,10 @@ seed_reasoning times seed_reasoning_len db 0
 tls_server_random times tls_random_len db 0
 tls_server_ec_x times tls_ec_coordinate_len db 0
 tls_server_ec_y times tls_ec_coordinate_len db 0
+tls_server_ec_x_words times p256_word_len db 0
+tls_server_ec_y_words times p256_word_len db 0
+p256_tmp times p256_word_len db 0
+p256_carry db 0
 builtin_agent_ids db 'openai', 0
                   times agent_id_len - 7 db 0
                   db 'anthropic', 0
@@ -216,6 +220,10 @@ tls_extensions_tail db 0, 10, 0, 4, 0, 2, 0, 23
                     db 0, 13, 0, 10, 0, 8, 4, 3, 5, 3, 4, 1, 5, 1
                     db 0, 23, 0, 0
                     db 0xff, 1, 0, 1, 0
+p256_prime dw 0xffff, 0xffff, 0xffff, 0xffff
+           dw 0xffff, 0xffff, 0x0000, 0x0000
+           dw 0x0000, 0x0000, 0x0000, 0x0000
+           dw 0x0001, 0x0000, 0xffff, 0xffff
 sha256_initial_state dw 0xe667, 0x6a09, 0xae85, 0xbb67
                      dw 0xf372, 0x3c6e, 0xf53a, 0xa54f
                      dw 0x527f, 0x510e, 0x688c, 0x9b05

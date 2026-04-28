@@ -98,9 +98,10 @@ version, random, cipher-suite, session-id, known extension flags, selected
 cipher path, and the following Certificate handshake header before draining
 that Certificate handshake to the next handshake boundary. It then parses the
 ECDHE ServerKeyExchange header, captures the uncompressed P-256 public point,
-parses ServerHelloDone, and maintains a live SHA-256 handshake transcript
-context through ServerHelloDone. Seed writes validated values back on a
-best-effort basis:
+converts X/Y into 16-bit little-endian field words, range-checks them below
+the P-256 prime, parses ServerHelloDone, and maintains a live SHA-256
+handshake transcript context through ServerHelloDone. Seed writes validated
+values back on a best-effort basis:
 
 ```text
 agent <id>
@@ -124,6 +125,7 @@ same path.
 
 `reasoning` is stored as a plain text effort value such as `xhigh`; provider
 specific request mapping is later Build 6 work. The `key` value is plaintext on
-the boot medium. P-256 ECDHE, TLS transcript digest finalization, the remaining
-TLS handshake, authenticated API calls, capability fetches, model selection,
-and reasoning selection are still build 6 follow-up work.
+the boot medium. P-256 field multiplication/reduction, point math, ECDHE, TLS
+transcript digest finalization, the remaining TLS handshake, authenticated API
+calls, capability fetches, model selection, and reasoning selection are still
+build 6 follow-up work.

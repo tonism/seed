@@ -111,7 +111,7 @@ offset  size  value
 23 TLS ServerHello received
 24 TLS Certificate handshake header received
 25 TLS Certificate handshake drained to the next handshake boundary
-26 TLS ServerKeyExchange received and P-256 public point captured
+26 TLS ServerKeyExchange received and P-256 public point range-checked
 27 TLS ServerHelloDone received
 28 live SHA-256 TLS handshake transcript context updated through ServerHelloDone
 ```
@@ -181,9 +181,10 @@ stores the ServerHello version, random, cipher-suite, session-id, known
 extension flags, and selected cipher path internally, then parses the following
 Certificate handshake header and declared certificate-list length, drains that
 Certificate handshake to the next handshake boundary, parses the ECDHE
-ServerKeyExchange header, captures the uncompressed P-256 public point, parses
-ServerHelloDone, maintains a live SHA-256 TLS handshake transcript context
-through ServerHelloDone, and only then finishes writing the validated values
-back best-effort.
+ServerKeyExchange header, captures the uncompressed P-256 public point,
+converts X/Y into 16-bit little-endian field words, range-checks them below
+the P-256 prime, parses ServerHelloDone, maintains a live SHA-256 TLS
+handshake transcript context through ServerHelloDone, and only then finishes
+writing the validated values back best-effort.
 If agent endpoint reachability fails, status is set to 5 and Seed enters the
 agent setup error path before the ready splash.
