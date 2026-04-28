@@ -92,7 +92,8 @@ to type those by hand. Model and reasoning choices belong after the selected
 agent endpoint can be reached and its capabilities can be fetched. Seed proves
 selected-agent TCP reachability by resolving the selected provider host,
 receiving a SYN-ACK on port 443, sending the final ACK, then sending a minimal
-TLS 1.2 ClientHello with SNI and SHA-256 PRF cipher suites, parsing ServerHello
+TLS 1.2 ClientHello with SNI offering only P-256
+ECDHE-RSA-CHACHA20-POLY1305 for the current crypto path, parsing ServerHello
 version, random, cipher-suite, session-id, known extension flags, selected
 cipher path, and the following Certificate handshake header before draining
 that Certificate handshake to the next handshake boundary. It then parses the
@@ -113,6 +114,6 @@ The `server?` prompt maps to the stored `endpoint` line. The on-disk name stays
 
 `reasoning` is stored as a plain text effort value such as `xhigh`; provider
 specific request mapping is later Build 6 work. The `key` value is plaintext on
-the boot medium. TLS transcript digest finalization, the remaining TLS
-handshake, authenticated API calls, capability fetches, model selection, and
-reasoning selection are still build 6 follow-up work.
+the boot medium. P-256 ECDHE, TLS transcript digest finalization, the remaining
+TLS handshake, authenticated API calls, capability fetches, model selection,
+and reasoning selection are still build 6 follow-up work.

@@ -72,7 +72,7 @@ selected-agent DNS resolution and TCP 443 connect proof
 shared TCP connect boundary for internet and selected-agent reachability
 minimal TCP payload send/receive primitives used by the TLS proof
 TCP receive sequence validation so retransmits do not corrupt the TLS stream
-minimal TLS 1.2 ClientHello with SNI and SHA-256 PRF cipher suites
+minimal TLS 1.2 ClientHello with SNI and P-256 ECDHE-RSA-CHACHA20-POLY1305
 ServerHello state parse for version, random, cipher-suite, session-id, extension flags, and selected cipher path
 Certificate handshake header parse with declared certificate-list length
 Certificate handshake drain to the next handshake boundary
@@ -85,7 +85,8 @@ Still in build 6 scope:
 
 ```text
 add transcript digest finalization/copy support for Finished verification
-add SHA-384 transcript support if SHA-384 cipher suites need to return
+implement P-256 ECDHE shared-secret generation
+implement TLS 1.2 SHA-256 PRF and ChaCha20-Poly1305 records
 complete TLS directly from the 8088 runtime
 validate the selected provider key with a model API request
 fetch model and reasoning capabilities from the provider when available

@@ -39,7 +39,7 @@ BIOS loads boot sector
   -> asks agent? when the saved choice is missing or invalid
   -> asks server? and key? on one form when the selected agent needs both
   -> resolves the selected agent host and proves TCP 443 connection
-  -> sends a minimal TLS 1.2 ClientHello with SNI and SHA-256 PRF cipher suites
+  -> sends a minimal TLS 1.2 ClientHello with SNI and P-256 ECDHE-RSA-CHACHA20-POLY1305
   -> parses ServerHello plus Certificate header
   -> drains the Certificate handshake to the next handshake boundary
   -> parses ServerKeyExchange and ServerHelloDone
@@ -136,9 +136,10 @@ saved choice is missing or invalid, asks `server?` and `key?` on one form when
 the selected agent needs both values, preserves saved model and reasoning
 values when present, resolves the selected agent host, proves TCP 443
 connection through the same TCP connect path, sends a minimal TLS 1.2
-ClientHello with SNI and SHA-256 PRF cipher suites, parses and stores
-ServerHello version, random, cipher-suite, session-id, known extension flags,
-and selected cipher path, parses the following Certificate handshake header,
+ClientHello with SNI offering only P-256 ECDHE-RSA-CHACHA20-POLY1305 for the
+current crypto path, parses and stores ServerHello version, random,
+cipher-suite, session-id, known extension flags, and selected cipher path,
+parses the following Certificate handshake header,
 drains that Certificate handshake to the next handshake boundary, parses the
 ECDHE ServerKeyExchange header and ServerHelloDone, maintains a live SHA-256
 TLS handshake transcript context through ServerHelloDone, and writes the

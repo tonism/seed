@@ -175,11 +175,12 @@ or bad. It validates a saved `USER.CFG` selected-agent choice when present, asks
 one form when both selected-agent connection values are required, preserves
 saved model and reasoning values when present, resolves the selected agent
 host, proves TCP 443 connection, sends a minimal TLS 1.2 ClientHello with SNI
-and SHA-256 PRF cipher suites, requires a handshake record, parses the first
-handshake message as ServerHello, stores the ServerHello version, random,
-cipher-suite, session-id, known extension flags, and selected cipher path
-internally, then parses the following Certificate handshake header and declared
-certificate-list length, drains that Certificate handshake to the next
+offering only P-256 ECDHE-RSA-CHACHA20-POLY1305 for the current crypto path,
+requires a handshake record, parses the first handshake message as ServerHello,
+stores the ServerHello version, random, cipher-suite, session-id, known
+extension flags, and selected cipher path internally, then parses the following
+Certificate handshake header and declared certificate-list length, drains that
+Certificate handshake to the next
 handshake boundary, parses the ECDHE ServerKeyExchange header and
 ServerHelloDone, maintains a live SHA-256 TLS handshake transcript context
 through ServerHelloDone, and only then finishes writing the validated values

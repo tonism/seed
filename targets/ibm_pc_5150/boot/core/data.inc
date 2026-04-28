@@ -206,10 +206,8 @@ host_anthropic_text db 'api.anthropic.com', 0
 host_google_text db 'generativelanguage.googleapis.com', 0
 tls_random db 'SEEDBUILD6TLSCLIENTHELLO00000000'
 tls_after_random db 0
-                 db 0, 6
-                 db 0xc0, 0x2f
+                 db 0, 2
                  db 0xcc, 0xa8
-                 db 0x00, 0x9c
                  db 1, 0
 tls_extensions_tail db 0, 10, 0, 4, 0, 2, 0, 23
                     db 0, 11, 0, 2, 1, 0

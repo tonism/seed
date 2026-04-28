@@ -197,29 +197,13 @@ tls_save_buffered_server_payload:
     ret
 
 tls_classify_cipher_suite:
-    cmp ax, 0xc02f
-    je .ecdhe_aes128_sha256
     cmp ax, 0xcca8
     je .ecdhe_chacha_sha256
-    cmp ax, 0x009c
-    je .rsa_aes128_sha256
     stc
-    ret
-.ecdhe_aes128_sha256:
-    mov byte [tls_server_key_exchange], tls_kx_ecdhe_rsa
-    mov byte [tls_server_bulk_cipher], tls_bulk_aes_128_gcm
-    mov byte [tls_server_prf_hash], tls_prf_sha256
-    clc
     ret
 .ecdhe_chacha_sha256:
     mov byte [tls_server_key_exchange], tls_kx_ecdhe_rsa
     mov byte [tls_server_bulk_cipher], tls_bulk_chacha20_poly1305
-    mov byte [tls_server_prf_hash], tls_prf_sha256
-    clc
-    ret
-.rsa_aes128_sha256:
-    mov byte [tls_server_key_exchange], tls_kx_rsa
-    mov byte [tls_server_bulk_cipher], tls_bulk_aes_128_gcm
     mov byte [tls_server_prf_hash], tls_prf_sha256
     clc
     ret

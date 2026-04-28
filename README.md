@@ -39,9 +39,9 @@ missing or invalid, asks for missing `server?` and `key?` values needed by that
 agent on one form panel when both are required, preserves saved model and
 reasoning values when present, proves selected-agent DNS and TCP 443 connection
 through the shared boot-core TCP connect path, sends a minimal TLS 1.2
-ClientHello with SNI and SHA-256 PRF cipher suites, parses and stores
-ServerHello version, random, cipher-suite, session-id, known extension flags,
-and the selected cipher path,
+ClientHello with SNI offering only P-256 ECDHE-RSA-CHACHA20-POLY1305 for the
+current crypto path, parses and stores ServerHello version, random,
+cipher-suite, session-id, known extension flags, and the selected cipher path,
 then parses the following Certificate handshake header, declared list length,
 drains that Certificate handshake to the next handshake boundary, parses the
 ECDHE ServerKeyExchange header and ServerHelloDone, maintains a live SHA-256

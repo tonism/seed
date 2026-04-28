@@ -135,9 +135,10 @@ Build 6 currently adds FAT12 `AGENTS.CFG` and `NET.CFG` parsing, built-in
 fallback agent interfaces, optional `USER.CFG` persistence for selected
 agent/model/reasoning/key/endpoint values, with `server?` shown for LiteLLM's
 stored endpoint value on the same form panel as `key?`, selected-agent DNS/TCP
-443 connection, minimal TLS 1.2 ClientHello with SNI and SHA-256 PRF cipher
-suites, ServerHello proof with parsed version, random, cipher-suite,
-session-id, extension flags, and selected cipher path, Certificate handshake
+443 connection, minimal TLS 1.2 ClientHello with SNI offering only P-256
+ECDHE-RSA-CHACHA20-POLY1305 for the current crypto path, ServerHello proof with
+parsed version, random, cipher-suite, session-id, extension flags, and selected
+cipher path, Certificate handshake
 header parsing and draining, ServerKeyExchange header parsing, ServerHelloDone
 proof, live SHA-256 TLS handshake transcript context through ServerHelloDone,
 and bright questions when saved values are missing or invalid; retest
