@@ -19,8 +19,9 @@ also proves that agent interfaces came from either a valid FAT12 root
 fallback, and that selected agent and connection values came from either valid
 `USER.CFG` state or the bright question flow. With valid saved `USER.CFG`, the
 Build 6 path also resolves the selected agent host and proves TCP 443
-connection, then sends a minimal TLS 1.2 ClientHello with SNI and parses a
-ServerHello handshake before the ready splash.
+connection, then sends a minimal TLS 1.2 ClientHello with SNI and parses
+ServerHello version, random, cipher-suite, session-id, and extension bounds
+before the ready splash.
 
 ## IBM PC 5150 Candidates
 
@@ -93,7 +94,8 @@ advance to the `seed build 6` splash.
 On 28 April 2026, ambiguous-family autodetect and the saved-config agent-prep
 path were smoke-tested with saved `USER.CFG`. NE1000/NE2000, WD8003, and 3c501
 profiles reached `seed build 6` without `adapter?`. The stricter ServerHello
-handshake proof was smoke-tested on `vm-net-3c501` and `vm-net-ne2k8`.
+handshake proof was smoke-tested on `vm-net-3c501` and `vm-net-ne2k8`. The
+ServerHello state parser was smoke-tested on `vm-net-3c501` and `vm-net-ne2k8`.
 
 ```text
 vm                   no network card; expected: red "." no network card, retry/restart menu

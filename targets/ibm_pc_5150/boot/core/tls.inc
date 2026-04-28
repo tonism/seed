@@ -42,7 +42,7 @@ tls_wait_for_server_hello:
     jc .failed
     mov si, [tcp_rx_payload_ptr]
     mov cx, [tcp_rx_payload_len]
-    cmp cx, 11
+    cmp cx, 47
     jb .failed
     cmp byte [si], 0x16
     jne .failed
@@ -52,25 +52,92 @@ tls_wait_for_server_hello:
     jb .failed
     cmp byte [si + 2], 0x04
     ja .failed
+    mov al, [si + 1]
+    mov [tls_record_major], al
+    mov al, [si + 2]
+    mov [tls_record_minor], al
     mov ah, [si + 3]
     mov al, [si + 4]
     or ax, ax
     jz .failed
     cmp ax, 42
     jb .failed
+    mov bx, ax
     mov dx, cx
     sub dx, 5
-    cmp ax, dx
+    cmp bx, dx
     ja .failed
     mov byte [handoff_addr + handoff_net_status], net_status_tls_record_received
     cmp byte [si + 5], 0x02
     jne .failed
+    cmp byte [si + 6], 0
+    jne .failed
+    mov ah, [si + 7]
+    mov al, [si + 8]
+    cmp ax, 38
+    jb .failed
+    mov dx, bx
+    sub dx, 4
+    cmp ax, dx
+    ja .failed
+    mov [tls_server_handshake_len], ax
     cmp byte [si + 9], 0x03
     jne .failed
     cmp byte [si + 10], 0x01
     jb .failed
     cmp byte [si + 10], 0x04
     ja .failed
+    mov al, [si + 9]
+    mov [tls_server_major], al
+    mov al, [si + 10]
+    mov [tls_server_minor], al
+    push si
+    push ds
+    pop es
+    add si, 11
+    mov di, tls_server_random
+    mov cx, tls_random_len
+    rep movsb
+    pop si
+    mov al, [si + 43]
+    mov [tls_server_session_id_len], al
+    xor ah, ah
+    mov bx, ax
+    add ax, 38
+    cmp ax, [tls_server_handshake_len]
+    ja .failed
+    mov di, si
+    add di, 44
+    add di, bx
+    mov ah, [di]
+    mov al, [di + 1]
+    call tls_validate_cipher_suite
+    jc .failed
+    mov [tls_server_cipher], ax
+    cmp byte [di + 2], 0
+    jne .failed
+    mov al, [di + 2]
+    mov [tls_server_compression], al
+    mov ax, bx
+    add ax, 38
+    cmp ax, [tls_server_handshake_len]
+    je .no_extensions
+    add ax, 2
+    cmp ax, [tls_server_handshake_len]
+    ja .failed
+    mov ah, [di + 3]
+    mov al, [di + 4]
+    mov [tls_server_extensions_len], ax
+    mov cx, [tls_server_handshake_len]
+    mov dx, bx
+    add dx, 40
+    sub cx, dx
+    cmp ax, cx
+    jne .failed
+    jmp .parsed
+.no_extensions:
+    mov word [tls_server_extensions_len], 0
+.parsed:
     mov byte [handoff_addr + handoff_net_status], net_status_tls_serverhello_received
     mov byte [handoff_addr + handoff_net_error], net_error_none
     clc
@@ -78,6 +145,23 @@ tls_wait_for_server_hello:
 .failed:
     mov byte [handoff_addr + handoff_net_error], net_error_tls
     stc
+    ret
+
+tls_validate_cipher_suite:
+    cmp ax, 0xc02f
+    je .ok
+    cmp ax, 0xc030
+    je .ok
+    cmp ax, 0xcca8
+    je .ok
+    cmp ax, 0x009c
+    je .ok
+    cmp ax, 0x009d
+    je .ok
+    stc
+    ret
+.ok:
+    clc
     ret
 
 build_tls_client_hello:

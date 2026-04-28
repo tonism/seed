@@ -68,6 +68,15 @@ tcp_rx_wire_payload_len dw 0
 tcp_rx_header_len db 0
 tls_tx_len dw 0
 tls_host_len dw 0
+tls_server_handshake_len dw 0
+tls_server_extensions_len dw 0
+tls_server_cipher dw 0
+tls_record_major db 0
+tls_record_minor db 0
+tls_server_major db 0
+tls_server_minor db 0
+tls_server_session_id_len db 0
+tls_server_compression db 0
 dns_qname_len db dns_qname_default_len
 dns_label_len db 0
 dns_label_ptr dw 0
@@ -106,6 +115,7 @@ seed_model times seed_model_len db 0
 seed_key times seed_key_len db 0
 seed_endpoint times seed_endpoint_len db 0
 seed_reasoning times seed_reasoning_len db 0
+tls_server_random times tls_random_len db 0
 builtin_agent_ids db 'openai', 0
                   times agent_id_len - 7 db 0
                   db 'anthropic', 0

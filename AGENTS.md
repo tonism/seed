@@ -135,7 +135,8 @@ validated on 27 April 2026 with `USER.CFG` excluded from the test floppy. Build
 agent interfaces, optional `USER.CFG` persistence for selected
 agent/model/reasoning/key/endpoint values, with `server?` shown for LiteLLM's
 stored endpoint value on the same form panel as `key?`, selected-agent DNS/TCP
-443 connection, minimal TLS 1.2 ClientHello/ServerHello proof, and bright
+443 connection, minimal TLS 1.2 ClientHello/ServerHello proof with parsed
+version, random, cipher-suite, session-id, and extension bounds, and bright
 questions when saved values are missing or invalid; retest individual profiles
 when changing boot, filesystem, agent-prep code, or shared packet code.
 

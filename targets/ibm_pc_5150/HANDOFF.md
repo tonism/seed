@@ -171,6 +171,7 @@ one form when both selected-agent connection values are required, preserves
 saved model and reasoning values when present, resolves the selected agent
 host, proves TCP 443 connection, sends a minimal TLS 1.2 ClientHello with SNI,
 requires a handshake record, parses the first handshake message as ServerHello,
-and writes the validated values back best-effort.
+stores the ServerHello version, random, cipher-suite, session-id, and extension
+bounds internally, and writes the validated values back best-effort.
 If agent endpoint reachability fails, status is set to 5 and Seed enters the
 agent setup error path before the ready splash.
