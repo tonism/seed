@@ -35,7 +35,7 @@ BIOS loads boot sector
   -> switches to a bright o marker for agent prep
   -> reads AGENTS.CFG and parses up to five agent declarations
   -> falls back to built-in openai/anthropic/google if AGENTS.CFG is missing or bad
-  -> reads SEED.CFG when present and validates the saved agent choice
+  -> reads USER.CFG when present and validates the saved agent choice
   -> asks agent? when the saved choice is missing or invalid
   -> asks server? and key? on one form when the selected agent needs both
   -> resolves the selected agent host and proves TCP 443 connection
@@ -70,8 +70,8 @@ a normal program that returns cleanly to the host OS.
 When present and valid, it overrides the built-in `openai`, `anthropic`, and
 `google` direct-vendor fallback. `NET.CFG` is shipped from `config/NET.CFG` and
 supplies the generic internet probe host. If `NET.CFG` is missing or bad, Seed
-falls back to `example.com`. `SEED.CFG` is optional ignored user-local state and
-is included only when `config/SEED.CFG` exists. The project-level policy is
+falls back to `example.com`. `USER.CFG` is optional ignored user-local state and
+is included only when `config/USER.CFG` exists. The project-level policy is
 documented in:
 
 ```text
@@ -127,7 +127,7 @@ after a matching SYN-ACK.
 Build 6 is the agent-prep milestone. The current checkpoint keeps the build 5
 internet path intact and adds the first filesystem-backed agent setup check:
 the boot core reads `AGENTS.CFG`, parses up to five `agent ` declarations, reads
-`SEED.CFG` when present, validates a saved `agent <id>`, asks `agent?` when the
+`USER.CFG` when present, validates a saved `agent <id>`, asks `agent?` when the
 saved choice is missing or invalid, asks `server?` and `key?` on one form when
 the selected agent needs both values, preserves saved model and reasoning
 values when present, resolves the selected agent host, proves TCP 443
@@ -150,7 +150,7 @@ internet prep   dim "o"
 agent prep      bright "o"
 failure         current marker turns red, low descending PC speaker tone, fast-typed error, then retry/restart
 question        phase-colored blinking marker, low PC speaker attention tone, bright fast-typed prompt ending with ?
-agent question  agent? with AGENTS.CFG entries or built-in big-three fallback when SEED.CFG has no valid agent choice
+agent question  agent? with AGENTS.CFG entries or built-in big-three fallback when USER.CFG has no valid agent choice
 field question  server? and/or key? with cursor shown only while typing; Up/Down moves field focus
 success         " " -> dim "." -> dim "o" -> bright "o" -> seed build 6
 ```

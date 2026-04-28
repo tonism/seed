@@ -1,5 +1,5 @@
-save_seed_cfg:
-    call find_seed_cfg
+save_user_cfg:
+    call find_user_cfg
     jnc .have_root
     cmp byte [fs_free_root_found], 0
     je .done
@@ -14,11 +14,11 @@ save_seed_cfg:
 .have_root:
     cmp word [seed_cluster], fat_first_data_cluster
     jb .done
-    call write_seed_data
+    call write_user_data
     jc .done
-    call write_seed_fat
+    call write_user_fat
     jc .done
-    call write_seed_root
+    call write_user_root
 .done:
     clc
     ret
@@ -70,13 +70,13 @@ get_fat_entry:
     pop bx
     ret
 
-write_seed_data:
-    call build_seed_cfg_buffer
+write_user_data:
+    call build_user_cfg_buffer
     mov ax, [seed_cluster]
     call write_cluster_from_buffer
     ret
 
-write_seed_fat:
+write_user_fat:
     push ds
     pop es
     mov bx, fs_sector_buffer
@@ -129,14 +129,14 @@ set_fat_entry_eoc:
     pop ax
     ret
 
-write_seed_root:
+write_user_root:
     push ds
     pop es
     mov bx, fs_sector_buffer
     mov ax, [seed_root_lba]
     call read_abs_sector
     jc .failed
-    call write_seed_root_entry
+    call write_user_root_entry
     push ds
     pop es
     mov bx, fs_sector_buffer
@@ -147,7 +147,7 @@ write_seed_root:
     stc
     ret
 
-write_seed_root_entry:
+write_user_root_entry:
     push ds
     pop es
     mov bx, [seed_root_offset]
@@ -158,19 +158,19 @@ write_seed_root_entry:
     rep stosw
     mov di, fs_sector_buffer
     add di, bx
-    mov si, seed_cfg_name
+    mov si, user_cfg_name
     mov cx, 11
     rep movsb
     mov bx, [seed_root_offset]
     mov byte [fs_sector_buffer + bx + 11], 0x20
     mov ax, [seed_cluster]
     mov [fs_sector_buffer + bx + 26], ax
-    mov ax, [seed_cfg_size_current]
+    mov ax, [user_cfg_size_current]
     mov [fs_sector_buffer + bx + 28], ax
     mov word [fs_sector_buffer + bx + 30], 0
     ret
 
-build_seed_cfg_buffer:
+build_user_cfg_buffer:
     call clear_fs_sector_buffer
     push ds
     pop es
@@ -214,7 +214,7 @@ build_seed_cfg_buffer:
 .finish:
     mov ax, di
     sub ax, fs_sector_buffer
-    mov [seed_cfg_size_current], ax
+    mov [user_cfg_size_current], ax
     ret
 
 append_z_to_buffer:

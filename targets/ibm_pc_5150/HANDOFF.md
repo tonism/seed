@@ -165,7 +165,7 @@ Build 6 starts the bright `"o"` agent-prep phase. The current checkpoint
 extends the network readiness states for TCP payload send/receive and the first
 TLS handshake proof. It parses up to five `AGENTS.CFG` `agent ` declarations and falls
 back to built-in `openai`, `anthropic`, and `google` when that file is missing
-or bad. It validates a saved `SEED.CFG` selected-agent choice when present, asks
+or bad. It validates a saved `USER.CFG` selected-agent choice when present, asks
 `agent?` when that choice is missing or invalid, asks `server?` and `key?` on
 one form when both selected-agent connection values are required, preserves
 saved model and reasoning values when present, resolves the selected agent

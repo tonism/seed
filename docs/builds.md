@@ -63,16 +63,16 @@ FAT12 160 KiB boot floppy with small reserved loader and root CORE.SYS runtime
 optional tracked AGENTS.CFG root file with five agent interfaces
 optional tracked NET.CFG root file with the generic internet probe host
 fallback built-in agent interfaces for openai, anthropic, and google
-ignored SEED.CFG for validated local user choices and secrets
+ignored USER.CFG for validated local user choices and secrets
 bright "o" parsing of up to five AGENTS.CFG agent declarations when present
-agent? drill-down menu when SEED.CFG is missing, unreadable, unparseable, or invalid
+agent? drill-down menu when USER.CFG is missing, unreadable, unparseable, or invalid
 same-panel server?/key? form for selected agents that need both values
 preserve saved model/reasoning values, but do not ask the user to type them
 selected-agent DNS resolution and TCP 443 connect proof
 shared TCP connect boundary for internet and selected-agent reachability
 minimal TCP payload send/receive primitives used by the TLS proof
 minimal TLS 1.2 ClientHello with SNI and ServerHello handshake proof
-best-effort SEED.CFG write of validated agent, model, reasoning, key, and endpoint values
+best-effort USER.CFG write of validated agent, model, reasoning, key, and endpoint values
 ```
 
 Still in build 6 scope:

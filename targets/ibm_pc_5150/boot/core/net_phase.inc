@@ -33,7 +33,7 @@ prepare_internet_path:
 
 prepare_agent_path:
     call load_agents_cfg
-    call load_seed_cfg
+    call load_user_cfg
     jnc .have_agent
     call ask_agent_setup
     jmp .values_ready
@@ -44,9 +44,9 @@ prepare_agent_path:
 .values_ready:
     call prepare_agent_endpoint_path
     jc .failed
-    cmp byte [seed_cfg_dirty], 0
+    cmp byte [user_cfg_dirty], 0
     je .ready
-    call save_seed_cfg
+    call save_user_cfg
 .ready:
     clc
     ret

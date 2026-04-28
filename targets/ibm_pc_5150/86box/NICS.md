@@ -17,7 +17,7 @@ Build 6 adds the bright `"o"` agent-prep checkpoint. The current ready screen
 also proves that agent interfaces came from either a valid FAT12 root
 `AGENTS.CFG` file or the built-in `openai`, `anthropic`, and `google`
 fallback, and that selected agent and connection values came from either valid
-`SEED.CFG` state or the bright question flow. With valid saved `SEED.CFG`, the
+`USER.CFG` state or the bright question flow. With valid saved `USER.CFG`, the
 Build 6 path also resolves the selected agent host and proves TCP 443
 connection, then sends a minimal TLS 1.2 ClientHello with SNI and parses a
 ServerHello handshake before the ready splash.
@@ -84,14 +84,14 @@ rtl8139c+            Realtek RTL8139C+
 ## Current 5150 Test Profiles
 
 All current 5150 candidate profiles were boot-tested for the Build 6
-internet-proof checkpoint on 27 April 2026 with `SEED.CFG` excluded from the
+internet-proof checkpoint on 27 April 2026 with `USER.CFG` excluded from the
 test floppy. Each NIC-present profile reached the bright `"o"` agent-prep
 `agent?` prompt after packet-level internet readiness and FAT12 `AGENTS.CFG`
-parsing. With a valid `SEED.CFG`, the same checkpoint can skip the prompt and
+parsing. With a valid `USER.CFG`, the same checkpoint can skip the prompt and
 advance to the `seed build 6` splash.
 
 On 28 April 2026, ambiguous-family autodetect and the saved-config agent-prep
-path were smoke-tested with saved `SEED.CFG`. NE1000/NE2000, WD8003, and 3c501
+path were smoke-tested with saved `USER.CFG`. NE1000/NE2000, WD8003, and 3c501
 profiles reached `seed build 6` without `adapter?`. The stricter ServerHello
 handshake proof was smoke-tested on `vm-net-3c501` and `vm-net-ne2k8`.
 

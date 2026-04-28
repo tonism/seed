@@ -5,7 +5,7 @@ Seed now has three configuration files on the boot floppy:
 ```text
 AGENTS.CFG  optional shipped override for agent interface declarations
 NET.CFG     optional shipped override for generic internet probe settings
-SEED.CFG    ignored, optional local user choices and secrets
+USER.CFG    ignored, optional local user choices and secrets
 ```
 
 `AGENTS.CFG` is not general OS configuration. It only describes five
@@ -33,7 +33,7 @@ The default tracked value is `probe example.com`. If `NET.CFG` is missing,
 unreadable, or invalid, Seed falls back to `example.com` for the dark `"o"`
 internet-readiness proof.
 
-`SEED.CFG` is user-local state. It should only contain values that were entered
+`USER.CFG` is user-local state. It should only contain values that were entered
 by the user and validated by Seed, such as selected agent interface, endpoint
 overrides, model choices, reasoning effort, and API credentials. NIC adapter
 family hints are intentionally not stored; the current probes are cheap enough
@@ -82,7 +82,7 @@ no dependency on writes succeeding
 
 The current build 6 checkpoint parses up to five `agent ` declarations from
 `AGENTS.CFG` when that file is available and valid; otherwise it uses the
-built-in direct-vendor fallback. It reads `SEED.CFG` when present, accepts a
+built-in direct-vendor fallback. It reads `USER.CFG` when present, accepts a
 saved `agent <id>` only if it matches the active agent list, asks `agent?`
 otherwise, then asks for any missing `server?` and `key?` values needed by the
 selected agent. When the selected agent needs both values, they are shown on

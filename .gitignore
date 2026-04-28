@@ -2,6 +2,6 @@
 __pycache__/
 *.pyc
 build/
-/SEED.CFG
-/config/SEED.CFG
-/config/SEED.CFG.bak-*
+/USER.CFG
+/config/USER.CFG
+/config/USER.CFG.bak-*

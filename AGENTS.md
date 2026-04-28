@@ -35,8 +35,8 @@ loader reads the visible root `CORE.SYS` file through its FAT12 cluster chain
 and jumps to it at `0000:1000`. The tracked `AGENTS.CFG` and `NET.CFG` files
 are shipped in the root directory when present. `AGENTS.CFG` overrides built-in
 `openai`, `anthropic`, and `google` agent interfaces; `NET.CFG` overrides the
-built-in `example.com` probe. Optional `SEED.CFG` user-local state is ignored
-and included only when `config/SEED.CFG` exists.
+built-in `example.com` probe. Optional `USER.CFG` user-local state is ignored
+and included only when `config/USER.CFG` exists.
 
 ## Constraints
 
@@ -130,9 +130,9 @@ tools/run-86box.sh vm-net-ne2k8
 Useful expected screens:
 
 The Build 6 internet-proof checkpoint for these IBM PC 5150 profiles was
-validated on 27 April 2026 with `SEED.CFG` excluded from the test floppy. Build
+validated on 27 April 2026 with `USER.CFG` excluded from the test floppy. Build
 6 currently adds FAT12 `AGENTS.CFG` and `NET.CFG` parsing, built-in fallback
-agent interfaces, optional `SEED.CFG` persistence for selected
+agent interfaces, optional `USER.CFG` persistence for selected
 agent/model/reasoning/key/endpoint values, with `server?` shown for LiteLLM's
 stored endpoint value on the same form panel as `key?`, selected-agent DNS/TCP
 443 connection, minimal TLS 1.2 ClientHello/ServerHello proof, and bright

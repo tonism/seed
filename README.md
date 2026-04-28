@@ -34,7 +34,7 @@ internet-readiness path, adds a FAT12 boot image, ships tracked agent interface
 declarations in `AGENTS.CFG`, ships the generic internet probe host in
 `NET.CFG`, falls back to built-in `openai`, `anthropic`, and `google` agent
 interfaces when `AGENTS.CFG` is missing or bad, reads optional ignored local
-user state from `SEED.CFG`, asks `agent?` when the saved agent choice is
+user state from `USER.CFG`, asks `agent?` when the saved agent choice is
 missing or invalid, asks for missing `server?` and `key?` values needed by that
 agent on one form panel when both are required, preserves saved model and
 reasoning values when present, proves selected-agent DNS and TCP 443 connection
@@ -132,6 +132,6 @@ remain usable.
 `AGENTS.CFG` is shipped with Seed as an override describing five available
 agent interfaces: two gateways followed by three direct vendors. If it is
 missing or bad, Seed falls back to the built-in big three direct vendors.
-`NET.CFG` is shipped with the generic internet probe host. `SEED.CFG` is
+`NET.CFG` is shipped with the generic internet probe host. `USER.CFG` is
 ignored local state for validated user choices and secrets; if it is missing or
 unusable, Seed should ask and continue.

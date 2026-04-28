@@ -13,7 +13,7 @@ FLOPPY_IMG := $(BUILD_DIR)/floppy-160k.img
 IMAGE_BUILDER := tools/build-fat12-image.py
 AGENT_CFG := $(wildcard config/AGENTS.CFG)
 NET_CFG := $(wildcard config/NET.CFG)
-USER_CFG := $(wildcard config/SEED.CFG)
+USER_CFG := $(wildcard config/USER.CFG)
 INCLUDE_USER_CFG ?= 1
 NASM_FLAGS := -DLOADER_SECTORS=$(LOADER_SECTORS) -Itargets/$(TARGET)/boot/
 FAT_FILES := --file $(CORE_SYS):CORE.SYS
@@ -28,7 +28,7 @@ endif
 
 ifeq ($(INCLUDE_USER_CFG),1)
 ifneq ($(USER_CFG),)
-FAT_FILES += --file $(USER_CFG):SEED.CFG
+FAT_FILES += --file $(USER_CFG):USER.CFG
 endif
 endif
 

@@ -58,7 +58,7 @@ internet prep   dim "o" for network configuration and reachability
 agent prep      bright "o" for gateway, model, reasoning, key, session, and environment setup
 no card         current marker turns red, low descending PC speaker tone, fast-typed no network card, then retry/restart
 question        phase-colored blinking marker, low PC speaker attention tone, bright fast-typed prompt ending with ?
-agent question  agent? with AGENTS.CFG entries or built-in big-three fallback when SEED.CFG has no valid agent choice
+agent question  agent? with AGENTS.CFG entries or built-in big-three fallback when USER.CFG has no valid agent choice
 field question  server? and/or key? with cursor shown only while typing; Up/Down moves field focus
 success         " " -> dim "." -> dim "o" -> bright "o" -> seed build 6
 ```
@@ -160,13 +160,13 @@ and `vm-net-wd8003eb` preserved the non-NE handoff path, read their MACs, and
 advanced to `seed build 5`.
 
 Build 6 started on 26 April 2026. `vm-net-3c503` reached `agent?`, accepted
-`openai`, wrote `SEED.CFG`, and then reached `seed build 6`. Relaunching 86Box
+`openai`, wrote `USER.CFG`, and then reached `seed build 6`. Relaunching 86Box
 directly against the already-written image skipped `agent?` and reached
 `seed build 6`. `vm-net-ne2k8` preserved the full outbound path before reaching
 `seed build 6` in the earlier Build 6 filesystem checkpoint.
 
 On 27 April 2026, the current Build 6 internet-proof checkpoint was retested
-with `SEED.CFG` excluded from the test floppy. `vm-net-3c501`,
+with `USER.CFG` excluded from the test floppy. `vm-net-3c501`,
 `vm-net-3c503`, `vm-net-ne1k`, `vm-net-ne2k8`, `vm-net-novell-ne1k`,
 `vm-net-wd8003e`, and `vm-net-wd8003eb` all reached `agent?` after
 DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, and TCP
@@ -180,7 +180,7 @@ The current Build 6 checkpoint also asks missing selected-agent fields as
 `server?` and `key?`. When both are required, they share one panel and Up/Down
 moves focus between them. Text fields render plain typed characters and keep
 long values on one row by showing the visible tail inside the field area. With
-valid saved `SEED.CFG`, `vm-net-ne2k8` was also tested on 27 April 2026 through
+valid saved `USER.CFG`, `vm-net-ne2k8` was also tested on 27 April 2026 through
 selected-agent DNS resolution and TCP 443 SYN-ACK reachability before reaching
 `seed build 6`. If `AGENTS.CFG` is missing or invalid, the agent menu falls
 back to built-in `openai`, `anthropic`, and `google`.

@@ -238,8 +238,8 @@ find_agents_cfg:
     stc
     ret
 
-find_seed_cfg:
-    mov di, seed_cfg_name
+find_user_cfg:
+    mov di, user_cfg_name
     call find_root_file
     jc .not_found
     mov ax, [fs_file_cluster]
@@ -458,9 +458,9 @@ copy_agent_id_from_line:
     pop si
     ret
 
-load_seed_cfg:
+load_user_cfg:
     call clear_seed_values
-    call find_seed_cfg
+    call find_user_cfg
     jc .failed
     cmp word [seed_size_high], 0
     jne .failed
@@ -469,7 +469,7 @@ load_seed_cfg:
     mov ax, [seed_cluster]
     call read_cluster_to_buffer
     jc .failed
-    call parse_seed_cfg
+    call parse_user_cfg
     jc .failed
     clc
     ret
@@ -477,7 +477,7 @@ load_seed_cfg:
     stc
     ret
 
-parse_seed_cfg:
+parse_user_cfg:
     mov si, fs_sector_buffer
     mov cx, [seed_size_low]
     cmp cx, 512
@@ -746,7 +746,7 @@ clear_seed_values:
     mov cx, seed_value_total_len / 2
     rep stosw
     mov byte [seed_config_flags], 0
-    mov byte [seed_cfg_dirty], 0
+    mov byte [user_cfg_dirty], 0
     pop es
     ret
 
@@ -857,7 +857,7 @@ validate_agent_values:
     jc .done
     or byte [seed_config_flags], seed_flag_endpoint
 .done:
-    mov byte [seed_cfg_dirty], 1
+    mov byte [user_cfg_dirty], 1
     clc
     ret
 
@@ -1035,7 +1035,7 @@ copy_selected_agent:
     mov byte [di - 1], 0
 .done:
     or byte [seed_config_flags], seed_flag_agent
-    mov byte [seed_cfg_dirty], 1
+    mov byte [user_cfg_dirty], 1
     ret
 
 slide_selected_agent_left:

@@ -24,7 +24,7 @@ input_start_col db 0
 form_left_col db 2
 form_field_col db 20
 seed_config_flags db 0
-seed_cfg_dirty db 0
+user_cfg_dirty db 0
 agent_count db 0
 agent_draw_index db 0
 agent_scan_index db 0
@@ -96,7 +96,7 @@ seed_size_low dw 0
 seed_size_high dw 0
 seed_root_lba dw 0
 seed_root_offset dw 0
-seed_cfg_size_current dw 0
+user_cfg_size_current dw 0
 ne_prom times ne_prom_len db 0
 ne_tx_frame times dhcp_rx_frame_len db 0
 fs_sector_buffer times 512 db 0
@@ -129,7 +129,7 @@ adapter_3c501_text db '3c501', 0
 adapter_wd8003_text db 'wd8003', 0
 agents_cfg_name db 'AGENTS  CFG'
 net_cfg_name db 'NET     CFG'
-seed_cfg_name db 'SEED    CFG'
+user_cfg_name db 'USER    CFG'
 agent_prefix_text db 'agent ', 0
 model_prefix_text db 'model ', 0
 reasoning_prefix_text db 'reasoning ', 0
