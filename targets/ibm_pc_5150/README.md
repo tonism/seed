@@ -17,7 +17,8 @@ BIOS loads boot sector
   -> publishes boot, video, and NIC state to the handoff block at 0000:0600
   -> turns the . marker red and plays a low failure tone if no card responds
   -> offers retry/restart after a critical failure; retry returns to HAL setup
-  -> asks for adapter family when the responding I/O base is ambiguous
+  -> probes station-address PROMs when the responding I/O base is ambiguous
+  -> asks for adapter family only if the probes remain ambiguous
   -> records the current 86Box profile IRQ after adapter family resolution
   -> reads station-address PROMs into handoff when valid
   -> initializes NE1000/NE2000-family packet hardware
@@ -89,15 +90,17 @@ The boot core runtime handoff block is documented in:
 targets/ibm_pc_5150/HANDOFF.md
 ```
 
-Build 5 was the internet-readiness milestone. The boot core still probes common ISA
-Ethernet I/O bases, publishes boot/video/NIC state to a low-memory handoff
+Build 5 was the internet-readiness milestone. The boot core still probes common
+ISA Ethernet I/O bases, publishes boot/video/NIC state to a low-memory handoff
 block, and resolves the adapter family. Known single-card bases continue
-automatically. Shared bases ask the user to choose the adapter family through a
-minimal color-selected menu. For 3c501, 3c503, NE1000/NE2000-family, and
-WD8003-family cards, the boot core reads the station-address PROM and marks the MAC
-valid only after rejecting multicast, all-zero, and all-`ff` addresses. The boot core
-also records IRQ 3 for the current 86Box IBM PC 5150 profiles once the adapter
-family is known; real IRQ discovery is later scope.
+automatically. Shared bases are resolved by station-address PROM probes when
+one family can be identified safely; `adapter?` remains a fallback question
+when the probes are invalid or ambiguous. For 3c501, 3c503,
+NE1000/NE2000-family, and WD8003-family cards, the boot core reads the
+station-address PROM and marks the MAC valid only after rejecting multicast,
+all-zero, and all-`ff` addresses. The boot core also records IRQ 3 for the
+current 86Box IBM PC 5150 profiles once the adapter family is known; real IRQ
+discovery is later scope.
 
 The current build 5 checkpoint initializes NE1000/NE2000-family packet hardware
 after a valid MAC read, polls the receive-ring pointers, reads one pending
@@ -149,8 +152,8 @@ Adapter prompts:
 
 ```text
 0x250       auto 3c503
-0x280       ask 3c501 or wd8003
-0x300       ask ne2000 or ne1000
+0x280       auto wd8003 by checksum, else 3c501 by 3Com OUI; ask if unresolved
+0x300       auto ne2000 or ne1000 by NE PROM layout; ask if unresolved
 other base  keep base only
 ```
 

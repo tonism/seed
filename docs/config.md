@@ -34,9 +34,10 @@ unreadable, or invalid, Seed falls back to `example.com` for the dark `"o"`
 internet-readiness proof.
 
 `SEED.CFG` is user-local state. It should only contain values that were entered
-by the user and validated by Seed, such as adapter choices, selected agent
-interface, endpoint overrides, model choices, reasoning effort, and API
-credentials.
+by the user and validated by Seed, such as selected agent interface, endpoint
+overrides, model choices, reasoning effort, and API credentials. NIC adapter
+family hints are intentionally not stored; the current probes are cheap enough
+to rerun each boot.
 
 Seed can remember validated user answers to make later boots faster, but local
 stored user configuration is always optional.

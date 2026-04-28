@@ -13,6 +13,27 @@ read_network_address:
     ret
 
 read_3c501_mac:
+    call read_3c501_mac_raw
+    call finish_handoff_mac
+    ret
+
+probe_3c501_mac:
+    call read_3c501_mac_raw
+    call validate_handoff_mac
+    jc .failed
+    cmp byte [handoff_addr + handoff_mac], 0x02
+    jne .failed
+    cmp byte [handoff_addr + handoff_mac + 1], 0x60
+    jne .failed
+    cmp byte [handoff_addr + handoff_mac + 2], 0x8c
+    jne .failed
+    clc
+    ret
+.failed:
+    stc
+    ret
+
+read_3c501_mac_raw:
     xor ax, ax
     mov cx, 6
     mov di, handoff_addr + handoff_mac
@@ -27,8 +48,6 @@ read_3c501_mac:
     mov ax, di
     sub ax, handoff_addr + handoff_mac
     loop .read
-
-    call finish_handoff_mac
     ret
 
 read_3c503_mac:
@@ -57,6 +76,32 @@ read_3c503_mac:
     ret
 
 read_wd8003_mac:
+    call read_wd8003_mac_raw
+    call finish_handoff_mac
+    ret
+
+probe_wd8003_mac:
+    call read_wd8003_mac_raw
+    call validate_handoff_mac
+    jc .failed
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, wd_saprom
+    xor ah, ah
+    mov cx, 8
+.sum:
+    in al, dx
+    add ah, al
+    inc dx
+    loop .sum
+    cmp ah, 0xff
+    jne .failed
+    clc
+    ret
+.failed:
+    stc
+    ret
+
+read_wd8003_mac_raw:
     mov dx, [handoff_addr + handoff_nic_base]
     add dx, wd_saprom
     mov di, handoff_addr + handoff_mac
@@ -66,11 +111,33 @@ read_wd8003_mac:
     stosb
     inc dx
     loop .read
-
-    call finish_handoff_mac
     ret
 
 read_ne_prom_mac:
+    call read_ne_prom_raw
+    call copy_ne_mac
+    call finish_handoff_mac
+    ret
+
+probe_ne_family:
+    call read_ne_prom_raw
+    call copy_ne_mac
+    call validate_handoff_mac
+    jc .failed
+    mov al, family_ne1000
+    cmp byte [ne_prom + 16], 0x57
+    jne .done
+    call ne_prom_is_paired
+    jc .done
+    mov al, family_ne2000
+.done:
+    clc
+    ret
+.failed:
+    stc
+    ret
+
+read_ne_prom_raw:
     mov dx, [handoff_addr + handoff_nic_base]
     add dx, ne_reset
     in al, dx
@@ -133,9 +200,21 @@ read_ne_prom_mac:
     add dx, ne_cr
     mov al, ne_cmd_start_nodma
     out dx, al
+    ret
 
-    call copy_ne_mac
-    call finish_handoff_mac
+ne_prom_is_paired:
+    mov si, ne_prom
+    mov cx, 6
+.pair:
+    lodsb
+    cmp al, [si]
+    jne .no
+    inc si
+    loop .pair
+    clc
+    ret
+.no:
+    stc
     ret
 
 copy_ne_mac:

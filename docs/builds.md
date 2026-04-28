@@ -22,7 +22,7 @@ to a user-visible readiness goal; commits inside that build can still be small.
 build 1   boot floppy proof
 build 2   minimal boot presentation: centered marker and fast-type banner
 build 3   " " phase: project init, display baseline, handoff block, retry boundary
-build 4   "." dark phase: HAL setup, adapter questions, hardware handoff
+build 4   "." dark phase: HAL setup, adapter autodetect/fallback questions, hardware handoff
 build 5   "o" dark phase: internet prep, IP config, reachability proof
 build 6   "o" bright phase: agent prep, credentials, TLS, API, session, handover
 ```

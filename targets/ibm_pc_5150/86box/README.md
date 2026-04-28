@@ -66,9 +66,11 @@ success         " " -> dim "." -> dim "o" -> bright "o" -> seed build 6
 The splash is only the ready handoff animation. No setup work happens during
 the splash.
 
-Build 5 adapter prompts ask `adapter?` in bright text. Menu selection still uses
-color: the selected adapter is bright and the inactive adapter is dim; Up and
-Down toggle the selected row, and Enter accepts it.
+Seed auto-detects the current 86Box shared-base adapters with
+station-address PROM probes before asking. If those probes are invalid or
+ambiguous, the fallback `adapter?` prompt appears in bright text. Menu
+selection still uses color: the selected adapter is bright and the inactive
+adapter is dim; Up and Down toggle the selected row, and Enter accepts it.
 
 Seed does not switch video modes in this target. It reads the active BIOS text
 column count and uses that for screen clearing and centering, so 40-column and

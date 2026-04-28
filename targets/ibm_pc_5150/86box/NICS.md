@@ -90,16 +90,22 @@ test floppy. Each NIC-present profile reached the bright `"o"` agent-prep
 parsing. With a valid `SEED.CFG`, the same checkpoint can skip the prompt and
 advance to the `seed build 6` splash.
 
+On 28 April 2026, ambiguous-family autodetect was smoke-tested with saved
+`SEED.CFG`. NE1000/NE2000 and WD8003 profiles reached `seed build 6` without
+`adapter?`; 3c501 auto-selected and reached the bright `"o"` agent-prep phase,
+but hit a separate selected-agent endpoint failure that remains follow-up
+scope.
+
 ```text
 vm                   no network card; expected: red "." no network card, retry/restart menu
 vm-mda               no network card, MDA; expected: bright "." no network card, retry/restart menu
-vm-net-3c501         3Com EtherLink; expected: adapter prompt, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS record, then agent?
+vm-net-3c501         3Com EtherLink; expected: auto family, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS record, then agent?
 vm-net-3c503         3Com EtherLink II; expected: MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS record, then agent?
-vm-net-ne1k          NE1000-compatible; expected: adapter prompt, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS record, then agent?
-vm-net-ne2k8         8-bit NE2000-compatible; expected: adapter prompt, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS record, then agent?
-vm-net-novell-ne1k   Novell NE1000; expected: adapter prompt, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS record, then agent?
-vm-net-wd8003e       Western Digital WD8003E; expected: adapter prompt, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS record, then agent?
-vm-net-wd8003eb      Western Digital WD8003EB; expected: adapter prompt, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS record, then agent?
+vm-net-ne1k          NE1000-compatible; expected: auto family, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS record, then agent?
+vm-net-ne2k8         8-bit NE2000-compatible; expected: auto family, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS record, then agent?
+vm-net-novell-ne1k   Novell NE1000; expected: auto family, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS record, then agent?
+vm-net-wd8003e       Western Digital WD8003E; expected: auto family, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS record, then agent?
+vm-net-wd8003eb      Western Digital WD8003EB; expected: auto family, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS record, then agent?
 ```
 
 The WD8003 86Box profiles must use a five-digit shared-memory address and byte
