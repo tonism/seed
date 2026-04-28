@@ -40,7 +40,8 @@ agent on one form panel when both are required, preserves saved model and
 reasoning values when present, proves selected-agent DNS and TCP 443 connection
 through the shared boot-core TCP connect path, sends a minimal TLS 1.2
 ClientHello with SNI, parses and stores ServerHello version, random,
-cipher-suite, session-id, and extension bounds, and writes
+cipher-suite, session-id, known extension flags, and the selected cipher path,
+and writes
 validated values back best-effort. Completing TLS, model API calls, capability fetches,
 session creation, and environment handover remain later build 6 work.
 

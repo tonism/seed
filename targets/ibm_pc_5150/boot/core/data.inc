@@ -77,6 +77,10 @@ tls_server_major db 0
 tls_server_minor db 0
 tls_server_session_id_len db 0
 tls_server_compression db 0
+tls_server_extension_flags db 0
+tls_server_key_exchange db 0
+tls_server_bulk_cipher db 0
+tls_server_prf_hash db 0
 dns_qname_len db dns_qname_default_len
 dns_label_len db 0
 dns_label_ptr dw 0

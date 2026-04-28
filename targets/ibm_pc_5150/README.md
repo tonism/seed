@@ -133,8 +133,8 @@ the selected agent needs both values, preserves saved model and reasoning
 values when present, resolves the selected agent host, proves TCP 443
 connection through the same TCP connect path, sends a minimal TLS 1.2
 ClientHello with SNI, parses and stores ServerHello version, random,
-cipher-suite, session-id, and extension bounds, and writes the validated values
-back best-effort. Missing or invalid `AGENTS.CFG` content falls back to
+cipher-suite, session-id, known extension flags, and selected cipher path, and
+writes the validated values back best-effort. Missing or invalid `AGENTS.CFG` content falls back to
 built-in `openai`, `anthropic`, and `google`; other agent setup failures still
 fail in the bright `"o"` phase as `agent setup failed`.
 

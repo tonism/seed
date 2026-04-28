@@ -93,7 +93,7 @@ agent endpoint can be reached and its capabilities can be fetched. Seed proves
 selected-agent TCP reachability by resolving the selected provider host,
 receiving a SYN-ACK on port 443, sending the final ACK, then sending a minimal
 TLS 1.2 ClientHello with SNI and parsing ServerHello version, random,
-cipher-suite, session-id, and extension bounds. Seed writes
+cipher-suite, session-id, known extension flags, and selected cipher path. Seed writes
 validated values back on a best-effort basis:
 
 ```text

@@ -238,6 +238,19 @@ tls_extensions_base_len equ 46
 tls_random_len equ 32
 tls_after_random_len equ 15
 tls_extensions_tail_len equ 37
+tls_ext_ec_point_formats equ 0x01
+tls_ext_extended_master_secret equ 0x02
+tls_ext_renegotiation_info equ 0x04
+tls_ext_session_ticket equ 0x08
+tls_ext_alpn equ 0x10
+tls_ext_supported_versions equ 0x20
+tls_kx_ecdhe_rsa equ 1
+tls_kx_rsa equ 2
+tls_bulk_aes_128_gcm equ 1
+tls_bulk_aes_256_gcm equ 2
+tls_bulk_chacha20_poly1305 equ 3
+tls_prf_sha256 equ 1
+tls_prf_sha384 equ 2
 wd_saprom equ 0x08
 fat_root_start_lba equ LOADER_SECTORS + 3
 fat_fat_start_lba equ LOADER_SECTORS + 1

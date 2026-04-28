@@ -111,9 +111,9 @@ tls_wait_for_server_hello:
     add di, bx
     mov ah, [di]
     mov al, [di + 1]
-    call tls_validate_cipher_suite
-    jc .failed
     mov [tls_server_cipher], ax
+    call tls_classify_cipher_suite
+    jc .failed
     cmp byte [di + 2], 0
     jne .failed
     mov al, [di + 2]
@@ -134,9 +134,14 @@ tls_wait_for_server_hello:
     sub cx, dx
     cmp ax, cx
     jne .failed
+    mov si, di
+    add si, 5
+    call tls_parse_server_extensions
+    jc .failed
     jmp .parsed
 .no_extensions:
     mov word [tls_server_extensions_len], 0
+    mov byte [tls_server_extension_flags], 0
 .parsed:
     mov byte [handoff_addr + handoff_net_status], net_status_tls_serverhello_received
     mov byte [handoff_addr + handoff_net_error], net_error_none
@@ -147,21 +152,139 @@ tls_wait_for_server_hello:
     stc
     ret
 
-tls_validate_cipher_suite:
+tls_classify_cipher_suite:
     cmp ax, 0xc02f
-    je .ok
+    je .ecdhe_aes128_sha256
     cmp ax, 0xc030
-    je .ok
+    je .ecdhe_aes256_sha384
     cmp ax, 0xcca8
-    je .ok
+    je .ecdhe_chacha_sha256
     cmp ax, 0x009c
-    je .ok
+    je .rsa_aes128_sha256
     cmp ax, 0x009d
-    je .ok
+    je .rsa_aes256_sha384
     stc
     ret
-.ok:
+.ecdhe_aes128_sha256:
+    mov byte [tls_server_key_exchange], tls_kx_ecdhe_rsa
+    mov byte [tls_server_bulk_cipher], tls_bulk_aes_128_gcm
+    mov byte [tls_server_prf_hash], tls_prf_sha256
     clc
+    ret
+.ecdhe_aes256_sha384:
+    mov byte [tls_server_key_exchange], tls_kx_ecdhe_rsa
+    mov byte [tls_server_bulk_cipher], tls_bulk_aes_256_gcm
+    mov byte [tls_server_prf_hash], tls_prf_sha384
+    clc
+    ret
+.ecdhe_chacha_sha256:
+    mov byte [tls_server_key_exchange], tls_kx_ecdhe_rsa
+    mov byte [tls_server_bulk_cipher], tls_bulk_chacha20_poly1305
+    mov byte [tls_server_prf_hash], tls_prf_sha256
+    clc
+    ret
+.rsa_aes128_sha256:
+    mov byte [tls_server_key_exchange], tls_kx_rsa
+    mov byte [tls_server_bulk_cipher], tls_bulk_aes_128_gcm
+    mov byte [tls_server_prf_hash], tls_prf_sha256
+    clc
+    ret
+.rsa_aes256_sha384:
+    mov byte [tls_server_key_exchange], tls_kx_rsa
+    mov byte [tls_server_bulk_cipher], tls_bulk_aes_256_gcm
+    mov byte [tls_server_prf_hash], tls_prf_sha384
+    clc
+    ret
+
+tls_parse_server_extensions:
+    mov byte [tls_server_extension_flags], 0
+.next:
+    or cx, cx
+    jz .done
+    cmp cx, 4
+    jb .failed
+    mov ah, [si]
+    mov al, [si + 1]
+    mov bh, [si + 2]
+    mov bl, [si + 3]
+    sub cx, 4
+    cmp bx, cx
+    ja .failed
+    add si, 4
+    call tls_note_server_extension
+    jc .failed
+    add si, bx
+    sub cx, bx
+    jmp .next
+.done:
+    clc
+    ret
+.failed:
+    stc
+    ret
+
+tls_note_server_extension:
+    cmp ax, 0x000b
+    je .ec_point_formats
+    cmp ax, 0x0017
+    je .extended_master_secret
+    cmp ax, 0xff01
+    je .renegotiation_info
+    cmp ax, 0x0023
+    je .session_ticket
+    cmp ax, 0x0010
+    je .alpn
+    cmp ax, 0x002b
+    je .supported_versions
+    clc
+    ret
+.ec_point_formats:
+    cmp bx, 2
+    jb .failed
+    push dx
+    mov dl, [si]
+    xor dh, dh
+    inc dx
+    cmp dx, bx
+    pop dx
+    jne .failed
+    or byte [tls_server_extension_flags], tls_ext_ec_point_formats
+    clc
+    ret
+.extended_master_secret:
+    or bx, bx
+    jnz .failed
+    or byte [tls_server_extension_flags], tls_ext_extended_master_secret
+    clc
+    ret
+.renegotiation_info:
+    cmp bx, 1
+    jne .failed
+    cmp byte [si], 0
+    jne .failed
+    or byte [tls_server_extension_flags], tls_ext_renegotiation_info
+    clc
+    ret
+.session_ticket:
+    or byte [tls_server_extension_flags], tls_ext_session_ticket
+    clc
+    ret
+.alpn:
+    or byte [tls_server_extension_flags], tls_ext_alpn
+    clc
+    ret
+.supported_versions:
+    cmp bx, 2
+    jne .failed
+    cmp byte [si], 0x03
+    jne .failed
+    cmp byte [si + 1], 0x03
+    jne .failed
+    or byte [tls_server_extension_flags], tls_ext_supported_versions
+    clc
+    ret
+.failed:
+    stc
     ret
 
 build_tls_client_hello:
