@@ -784,9 +784,104 @@ parse_tcp_synack:
     and al, 0x12
     cmp al, 0x12
     jne .not_synack
+    cmp word [ne_tx_frame + tcp_offset + 8], 0x4553
+    jne .not_synack
+    cmp word [ne_tx_frame + tcp_offset + 10], 0x4545
+    jne .not_synack
+    mov si, ne_tx_frame + tcp_offset + 8
+    mov di, tcp_local_seq
+    movsw
+    movsw
+    mov si, ne_tx_frame + tcp_offset + 4
+    mov di, tcp_remote_ack
+    movsw
+    movsw
+    mov di, tcp_remote_ack
+    mov cx, 1
+    call tcp_add_cx_to_seq
     clc
     ret
 .not_synack:
+    stc
+    ret
+
+parse_tcp_payload:
+    cmp word [ne_rx_sample_count], tcp_offset + 20
+    jb .not_payload
+    cmp word [ne_tx_frame + 12], 0x0008
+    jne .not_payload
+    cmp byte [ne_tx_frame + eth_header_len], 0x45
+    jne .not_payload
+    cmp byte [ne_tx_frame + eth_header_len + 9], 6
+    jne .not_payload
+
+    mov si, ne_tx_frame + eth_header_len + 12
+    mov di, tcp_target_ip
+    mov cx, 4
+.check_source_ip:
+    lodsb
+    cmp al, [di]
+    jne .not_payload
+    inc di
+    loop .check_source_ip
+
+    mov si, ne_tx_frame + eth_header_len + 16
+    mov di, handoff_addr + handoff_ip_addr
+    mov cx, 4
+.check_dest_ip:
+    lodsb
+    cmp al, [di]
+    jne .not_payload
+    inc di
+    loop .check_dest_ip
+
+    mov ax, [tcp_dest_port_word]
+    cmp word [ne_tx_frame + tcp_offset], ax
+    jne .not_payload
+    cmp word [ne_tx_frame + tcp_offset + 2], tcp_source_port_word
+    jne .not_payload
+    test byte [ne_tx_frame + tcp_offset + 13], 0x04
+    jnz .not_payload
+
+    mov al, [ne_tx_frame + tcp_offset + 12]
+    and al, 0xf0
+    shr al, 1
+    shr al, 1
+    cmp al, 20
+    jb .not_payload
+    mov [tcp_rx_header_len], al
+
+    mov ah, [ne_tx_frame + eth_header_len + 2]
+    mov al, [ne_tx_frame + eth_header_len + 3]
+    cmp ax, ipv4_header_len + 20
+    jb .not_payload
+    mov bx, ax
+    add bx, eth_header_len
+    cmp bx, [ne_rx_sample_count]
+    ja .not_payload
+    sub ax, ipv4_header_len
+    mov bl, [tcp_rx_header_len]
+    xor bh, bh
+    cmp ax, bx
+    jbe .not_payload
+    sub ax, bx
+    mov [tcp_rx_payload_len], ax
+
+    add bx, tcp_offset
+    mov ax, ne_tx_frame
+    add ax, bx
+    mov [tcp_rx_payload_ptr], ax
+
+    mov si, ne_tx_frame + tcp_offset + 4
+    mov di, tcp_remote_ack
+    movsw
+    movsw
+    mov di, tcp_remote_ack
+    mov cx, [tcp_rx_payload_len]
+    call tcp_add_cx_to_seq
+    clc
+    ret
+.not_payload:
     stc
     ret
 

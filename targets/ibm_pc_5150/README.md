@@ -29,14 +29,14 @@ BIOS loads boot sector
   -> sends ARP for the DHCP-provided DNS server after DHCPACK
   -> reads NET.CFG and resolves its probe host with a minimal DNS A query
   -> selects and ARPs the TCP next hop
-  -> opens the probe TCP target on port 80 and waits for a matching SYN-ACK
+  -> opens the probe TCP target on port 80 and sends the final ACK
   -> switches to a bright o marker for agent prep
   -> reads AGENTS.CFG and parses up to five agent declarations
   -> falls back to built-in openai/anthropic/google if AGENTS.CFG is missing or bad
   -> reads SEED.CFG when present and validates the saved agent choice
   -> asks agent? when the saved choice is missing or invalid
   -> asks server? and key? on one form when the selected agent needs both
-  -> resolves the selected agent host and proves TCP 443 reachability
+  -> resolves the selected agent host and proves TCP 443 connection
   -> writes validated agent config back best-effort
   -> otherwise types seed build 6 rightward from that column
   -> waits about 500 ms
@@ -107,8 +107,8 @@ handoff block. It then sends DHCPREQUEST and performs a bounded DHCPACK wait to
 mark the lease accepted. After DHCPACK, it sends an ARP request for the
 DHCP-provided DNS server, resolves the `NET.CFG` probe host, selects a TCP next
 hop using the DHCP subnet/router data, ARPs that next hop, opens the probe TCP
-target on port 80 through the shared TCP connect path, and waits for a matching
-SYN-ACK.
+target on port 80 through the shared TCP connect path, and sends the final ACK
+after a matching SYN-ACK.
 
 Build 6 is the agent-prep milestone. The current checkpoint keeps the build 5
 internet path intact and adds the first filesystem-backed agent setup check:
@@ -117,8 +117,9 @@ the boot core reads `AGENTS.CFG`, parses up to five `agent ` declarations, reads
 saved choice is missing or invalid, asks `server?` and `key?` on one form when
 the selected agent needs both values, preserves saved model and reasoning
 values when present, resolves the selected agent host, proves TCP 443
-reachability through the same TCP connect path, and writes the validated values
-back best-effort. Missing or invalid `AGENTS.CFG` content falls back to built-in
+connection through the same TCP connect path, adds minimal TCP payload
+send/receive primitives for later TLS, and writes the validated values back
+best-effort. Missing or invalid `AGENTS.CFG` content falls back to built-in
 `openai`, `anthropic`, and `google`; other agent setup failures still fail in
 the bright `"o"` phase as `agent setup failed`.
 

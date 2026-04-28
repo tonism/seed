@@ -59,6 +59,9 @@ net_status_next_hop_arp_request_sent equ 14
 net_status_next_hop_arp_resolved equ 15
 net_status_tcp_syn_sent equ 16
 net_status_tcp_synack_received equ 17
+net_status_tcp_connected equ 18
+net_status_tcp_payload_sent equ 19
+net_status_tcp_payload_received equ 20
 net_error_none equ 0
 net_error_ne_init equ 1
 net_error_ne_tx equ 2
@@ -216,6 +219,8 @@ tcp_ip_len equ ipv4_header_len + 20
 tcp_tx_frame_len equ 60
 tcp_rx_read_len equ 96
 tcp_offset equ eth_header_len + ipv4_header_len
+tcp_payload_offset equ tcp_offset + 20
+tcp_payload_max_len equ dhcp_rx_frame_len - tcp_payload_offset
 tcp_source_port_word equ 0x02c0
 tcp_port_http_word equ 0x5000
 tcp_port_https_word equ 0xbb01

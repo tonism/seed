@@ -89,9 +89,9 @@ one form panel with Up and Down moving between fields. Saved `model` and
 `reasoning` values are preserved when present, but Seed should not ask the user
 to type those by hand. Model and reasoning choices belong after the selected
 agent endpoint can be reached and its capabilities can be fetched. Seed proves
-selected-agent TCP reachability by resolving the selected provider host and
-receiving a SYN-ACK on port 443. Seed writes validated values back on a
-best-effort basis:
+selected-agent TCP reachability by resolving the selected provider host,
+receiving a SYN-ACK on port 443, and sending the final ACK. Seed writes
+validated values back on a best-effort basis:
 
 ```text
 agent <id>

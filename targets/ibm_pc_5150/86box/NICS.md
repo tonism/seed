@@ -10,8 +10,8 @@ candidate families: 3c501, 3c503, NE1000/NE2000, and WD8003. It initializes
 packet hardware, sends DHCPDISCOVER, waits for DHCPOFFER, parses IPv4 address,
 subnet mask, router, and DNS server, sends DHCPREQUEST, waits for DHCPACK,
 sends ARP for the DHCP-provided DNS server, resolves the `NET.CFG` probe host,
-selects and ARPs the TCP next hop, sends a TCP SYN to port 80, and waits for a
-matching SYN-ACK.
+selects and ARPs the TCP next hop, opens a TCP connection to port 80, and sends
+the final ACK.
 
 Build 6 adds the bright `"o"` agent-prep checkpoint. The current ready screen
 also proves that agent interfaces came from either a valid FAT12 root
@@ -19,7 +19,7 @@ also proves that agent interfaces came from either a valid FAT12 root
 fallback, and that selected agent and connection values came from either valid
 `SEED.CFG` state or the bright question flow. With valid saved `SEED.CFG`, the
 Build 6 path also resolves the selected agent host and proves TCP 443
-reachability before the ready splash.
+connection before the ready splash.
 
 ## IBM PC 5150 Candidates
 
@@ -92,13 +92,13 @@ advance to the `seed build 6` splash.
 ```text
 vm                   no network card; expected: red "." no network card, retry/restart menu
 vm-mda               no network card, MDA; expected: bright "." no network card, retry/restart menu
-vm-net-3c501         3Com EtherLink; expected: adapter prompt, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP SYN-ACK, then agent?
-vm-net-3c503         3Com EtherLink II; expected: MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP SYN-ACK, then agent?
-vm-net-ne1k          NE1000-compatible; expected: adapter prompt, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP SYN-ACK, then agent?
-vm-net-ne2k8         8-bit NE2000-compatible; expected: adapter prompt, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP SYN-ACK, then agent?
-vm-net-novell-ne1k   Novell NE1000; expected: adapter prompt, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP SYN-ACK, then agent?
-vm-net-wd8003e       Western Digital WD8003E; expected: adapter prompt, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP SYN-ACK, then agent?
-vm-net-wd8003eb      Western Digital WD8003EB; expected: adapter prompt, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP SYN-ACK, then agent?
+vm-net-3c501         3Com EtherLink; expected: adapter prompt, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, then agent?
+vm-net-3c503         3Com EtherLink II; expected: MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, then agent?
+vm-net-ne1k          NE1000-compatible; expected: adapter prompt, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, then agent?
+vm-net-ne2k8         8-bit NE2000-compatible; expected: adapter prompt, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, then agent?
+vm-net-novell-ne1k   Novell NE1000; expected: adapter prompt, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, then agent?
+vm-net-wd8003e       Western Digital WD8003E; expected: adapter prompt, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, then agent?
+vm-net-wd8003eb      Western Digital WD8003EB; expected: adapter prompt, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, then agent?
 ```
 
 The WD8003 86Box profiles must use a five-digit shared-memory address and byte

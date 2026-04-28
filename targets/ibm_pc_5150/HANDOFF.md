@@ -101,6 +101,9 @@ offset  size  value
 15 ARP reply received; TCP next-hop MAC resolved
 16 TCP SYN sent
 17 TCP SYN-ACK received
+18 TCP connected; final ACK sent
+19 TCP payload sent
+20 TCP payload received
 ```
 
 ## Network Error
@@ -138,28 +141,29 @@ and records the resolved MAC internally for the DNS packet step. It then reads
 the optional `NET.CFG` probe host, falls back to `example.com` if that file is
 missing or invalid, sends a minimal DNS A query, and records the returned IPv4
 address internally. Seed selects the TCP next hop using the DHCP subnet mask and
-router, ARPs that next hop, sends a TCP SYN to port 80, and waits for a
-matching SYN-ACK.
+router, ARPs that next hop, opens a TCP connection to port 80, and sends the
+final ACK after receiving a matching SYN-ACK.
 The NE receive path records separate DMA, ring-header, and byte-count failures
 so DHCP receive behavior can be diagnosed without changing user-facing text.
 When status is 7, the IP, subnet mask, router, and DNS fields contain
 byte-order IPv4 values copied from the offer. When status is 9, the offered
 lease was acknowledged. When status is 11, the DNS server's Ethernet MAC has
 been resolved. When status is 13, a DNS response matching Seed's query ID and
-UDP port was received and an A record was parsed. When status is 17, the TCP
-reachability proof has received a SYN-ACK. If no offer, ACK, ARP reply, DNS
-response, or SYN-ACK is observed during the bounded waits, the dark `"o"`
+UDP port was received and an A record was parsed. When status is 18, the TCP
+reachability proof has completed the handshake. If no offer, ACK, ARP reply,
+DNS response, or SYN-ACK is observed during the bounded waits, the dark `"o"`
 internet phase fails into the network setup error path with the corresponding
 status and network error.
 
 Build 6 starts the bright `"o"` agent-prep phase. The current checkpoint does
-not extend this handoff layout. It parses up to five `AGENTS.CFG` `agent `
-declarations and falls back to built-in `openai`, `anthropic`, and `google`
-when that file is missing or bad. It validates a saved `SEED.CFG`
-selected-agent choice when present, asks `agent?` when that choice is missing
-or invalid, asks `server?` and `key?` on one form when both selected-agent
-connection values are required, preserves saved model and reasoning values when
-present, resolves the selected agent host, proves TCP 443 reachability, and
-writes the validated values back best-effort. If agent endpoint reachability
-fails, status is set to 5 and Seed enters the agent setup error path before the
-ready splash.
+extend the network readiness states for TCP payload send/receive. It parses up
+to five `AGENTS.CFG` `agent ` declarations and falls back to built-in `openai`,
+`anthropic`, and `google` when that file is missing or bad. It validates a
+saved `SEED.CFG` selected-agent choice when present, asks `agent?` when that
+choice is missing or invalid, asks `server?` and `key?` on one form when both
+selected-agent connection values are required, preserves saved model and
+reasoning values when present, resolves the selected agent host, proves TCP 443
+connection, adds the first TCP payload send/receive primitives for later TLS,
+and writes the validated values back best-effort. If agent endpoint
+reachability fails, status is set to 5 and Seed enters the agent setup error
+path before the ready splash.

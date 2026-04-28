@@ -56,6 +56,15 @@ arp_status_resolved db net_status_arp_resolved
 arp_error_code db net_error_arp
 tcp_target_ip times 4 db 0
 tcp_dest_port_word dw tcp_port_http_word
+tcp_local_seq times 4 db 0
+tcp_remote_ack times 4 db 0
+tcp_tx_flags db 0
+tcp_tx_len dw 0
+tcp_tx_payload_ptr dw 0
+tcp_tx_payload_len dw 0
+tcp_rx_payload_ptr dw 0
+tcp_rx_payload_len dw 0
+tcp_rx_header_len db 0
 dns_qname_len db dns_qname_default_len
 dns_label_len db 0
 dns_label_ptr dw 0

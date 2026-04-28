@@ -37,18 +37,19 @@ interfaces when `AGENTS.CFG` is missing or bad, reads optional ignored local
 user state from `SEED.CFG`, asks `agent?` when the saved agent choice is
 missing or invalid, asks for missing `server?` and `key?` values needed by that
 agent on one form panel when both are required, preserves saved model and
-reasoning values when present, proves selected-agent DNS and TCP 443
-reachability through the shared boot-core TCP connect path, and writes
-validated values back best-effort. TLS, model API calls, capability fetches,
-session creation, and environment handover remain later build 6 work.
+reasoning values when present, proves selected-agent DNS and TCP 443 connection
+through the shared boot-core TCP connect path, adds minimal TCP payload
+send/receive primitives for the next TLS step, and writes validated values back
+best-effort. TLS, model API calls, capability fetches, session creation, and
+environment handover remain later build 6 work.
 
 Build 5 completed the internet-readiness milestone. It initializes
 NE1000/NE2000-family packet hardware after a valid MAC read, reads one pending
 receive-ring frame when available, sends DHCPDISCOVER, performs bounded
 DHCPOFFER and DHCPACK waits, ARPs for the DHCP-provided DNS server, resolves
-the `NET.CFG` probe host, selects and ARPs the TCP next hop, sends a TCP SYN to
-port 80 through the same TCP connect path used by agent prep, and waits for a
-matching SYN-ACK before leaving the dark `"o"` phase.
+the `NET.CFG` probe host, selects and ARPs the TCP next hop, opens a port 80
+TCP connection through the same connect path used by agent prep, and sends the
+final ACK before leaving the dark `"o"` phase.
 
 If no card responds, Seed turns the current `.` marker red and fast-types
 `no network card` with a low PC speaker failure tone, then offers `retry` or
