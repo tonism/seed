@@ -1,11 +1,17 @@
 tls_probe_server:
     call build_tls_client_hello
     jc .failed
+    call tls_prepare_3c501_receive
     mov si, fs_sector_buffer
     mov cx, [tls_tx_len]
     call tcp_send_payload
     jc .failed
     mov byte [handoff_addr + handoff_net_status], net_status_tls_clienthello_sent
+    cmp byte [handoff_addr + handoff_nic_family], family_3c501
+    jne .wait_for_record
+    mov cx, 4
+    call wait_ticks
+.wait_for_record:
     call tls_wait_for_record
     jc .failed
     clc
@@ -13,6 +19,22 @@ tls_probe_server:
 .failed:
     mov byte [handoff_addr + handoff_net_error], net_error_tls
     stc
+    ret
+
+tls_prepare_3c501_receive:
+    cmp byte [handoff_addr + handoff_nic_family], family_3c501
+    jne .done
+    ; 3c501 can drop the TLS record when a pure ACK latches receive first.
+    ; Let consecutive good frames accumulate for the first TLS response.
+    xor al, al
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, el1_rcvptr
+    out dx, al
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, el1_rx_cmd
+    mov al, el1_rx_cmd_bcast_good - 0x20
+    out dx, al
+.done:
     ret
 
 tls_wait_for_record:

@@ -90,11 +90,9 @@ test floppy. Each NIC-present profile reached the bright `"o"` agent-prep
 parsing. With a valid `SEED.CFG`, the same checkpoint can skip the prompt and
 advance to the `seed build 6` splash.
 
-On 28 April 2026, ambiguous-family autodetect was smoke-tested with saved
-`SEED.CFG`. NE1000/NE2000 and WD8003 profiles reached `seed build 6` without
-`adapter?`; 3c501 auto-selected and reached the bright `"o"` agent-prep phase,
-but hit a separate selected-agent endpoint failure that remains follow-up
-scope.
+On 28 April 2026, ambiguous-family autodetect and the saved-config agent-prep
+path were smoke-tested with saved `SEED.CFG`. NE1000/NE2000, WD8003, and 3c501
+profiles reached `seed build 6` without `adapter?`.
 
 ```text
 vm                   no network card; expected: red "." no network card, retry/restart menu

@@ -54,6 +54,8 @@ tcp_receive_payload:
     je .wait
     call parse_tcp_payload
     jnc .done
+    call tcp_parse_3c501_second_frame
+    jnc .done
 .wait:
     mov cx, 2
     call wait_ticks
@@ -70,4 +72,22 @@ tcp_receive_payload:
     mov byte [handoff_addr + handoff_net_status], net_status_tcp_payload_received
     mov byte [handoff_addr + handoff_net_error], net_error_none
     clc
+    ret
+
+tcp_parse_3c501_second_frame:
+    cmp byte [handoff_addr + handoff_nic_family], family_3c501
+    jne .failed
+    ; In coalesced 3c501 reads, the TLS data can follow a padded 60-byte ACK.
+    cmp word [ne_rx_sample_count], 60 + tcp_offset + 20 + 5
+    jb .failed
+    mov cx, [ne_rx_sample_count]
+    sub cx, 60
+    mov [ne_rx_sample_count], cx
+    mov si, ne_tx_frame + 60
+    mov di, ne_tx_frame
+    rep movsb
+    call parse_tcp_payload
+    ret
+.failed:
+    stc
     ret
