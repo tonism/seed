@@ -135,20 +135,20 @@ validated on 27 April 2026 with `SEED.CFG` excluded from the test floppy. Build
 agent interfaces, optional `SEED.CFG` persistence for selected
 agent/model/reasoning/key/endpoint values, with `server?` shown for LiteLLM's
 stored endpoint value on the same form panel as `key?`, selected-agent DNS/TCP
-443 connection, minimal TLS 1.2 ClientHello/TLS-record proof, and bright
+443 connection, minimal TLS 1.2 ClientHello/ServerHello proof, and bright
 questions when saved values are missing or invalid; retest individual profiles
 when changing boot, filesystem, agent-prep code, or shared packet code.
 
 ```text
 vm                   red "." no network card, retry/restart menu
 vm-mda               red "." no network card, retry/restart menu
-vm-net-3c501         auto family, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS record, then agent?
-vm-net-3c503         MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS record, then agent?
-vm-net-ne1k          auto family, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS record, then agent?
-vm-net-ne2k8         auto family, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS record, then agent?
-vm-net-novell-ne1k   auto family, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS record, then agent?
-vm-net-wd8003e       auto family, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS record, then agent?
-vm-net-wd8003eb      auto family, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS record, then agent?
+vm-net-3c501         auto family, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, then agent?
+vm-net-3c503         MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, then agent?
+vm-net-ne1k          auto family, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, then agent?
+vm-net-ne2k8         auto family, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, then agent?
+vm-net-novell-ne1k   auto family, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, then agent?
+vm-net-wd8003e       auto family, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, then agent?
+vm-net-wd8003eb      auto family, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, then agent?
 ```
 
 ## Documentation

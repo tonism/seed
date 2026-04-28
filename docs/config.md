@@ -92,7 +92,7 @@ to type those by hand. Model and reasoning choices belong after the selected
 agent endpoint can be reached and its capabilities can be fetched. Seed proves
 selected-agent TCP reachability by resolving the selected provider host,
 receiving a SYN-ACK on port 443, sending the final ACK, then sending a minimal
-TLS 1.2 ClientHello with SNI and receiving a TLS record header. Seed writes
+TLS 1.2 ClientHello with SNI and receiving a ServerHello handshake. Seed writes
 validated values back on a best-effort basis:
 
 ```text

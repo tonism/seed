@@ -71,7 +71,7 @@ preserve saved model/reasoning values, but do not ask the user to type them
 selected-agent DNS resolution and TCP 443 connect proof
 shared TCP connect boundary for internet and selected-agent reachability
 minimal TCP payload send/receive primitives used by the TLS proof
-minimal TLS 1.2 ClientHello with SNI and TLS record-header receive proof
+minimal TLS 1.2 ClientHello with SNI and ServerHello handshake proof
 best-effort SEED.CFG write of validated agent, model, reasoning, key, and endpoint values
 ```
 

@@ -39,8 +39,8 @@ missing or invalid, asks for missing `server?` and `key?` values needed by that
 agent on one form panel when both are required, preserves saved model and
 reasoning values when present, proves selected-agent DNS and TCP 443 connection
 through the shared boot-core TCP connect path, sends a minimal TLS 1.2
-ClientHello with SNI, receives a TLS record header back, and writes validated
-values back best-effort. Completing TLS, model API calls, capability fetches,
+ClientHello with SNI, receives and parses a ServerHello handshake, and writes
+validated values back best-effort. Completing TLS, model API calls, capability fetches,
 session creation, and environment handover remain later build 6 work.
 
 Build 5 completed the internet-readiness milestone. It initializes

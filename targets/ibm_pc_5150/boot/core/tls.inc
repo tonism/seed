@@ -12,7 +12,7 @@ tls_probe_server:
     mov cx, 4
     call wait_ticks
 .wait_for_record:
-    call tls_wait_for_record
+    call tls_wait_for_server_hello
     jc .failed
     clc
     ret
@@ -37,30 +37,41 @@ tls_prepare_3c501_receive:
 .done:
     ret
 
-tls_wait_for_record:
+tls_wait_for_server_hello:
     call tcp_receive_payload
     jc .failed
     mov si, [tcp_rx_payload_ptr]
     mov cx, [tcp_rx_payload_len]
-    cmp cx, 5
+    cmp cx, 11
     jb .failed
-    lodsb
-    cmp al, 0x15
-    je .type_ok
-    cmp al, 0x16
+    cmp byte [si], 0x16
     jne .failed
-.type_ok:
-    cmp byte [si], 0x03
+    cmp byte [si + 1], 0x03
     jne .failed
-    cmp byte [si + 1], 0x01
+    cmp byte [si + 2], 0x01
     jb .failed
-    cmp byte [si + 1], 0x04
+    cmp byte [si + 2], 0x04
     ja .failed
-    mov ah, [si + 2]
-    mov al, [si + 3]
+    mov ah, [si + 3]
+    mov al, [si + 4]
     or ax, ax
     jz .failed
+    cmp ax, 42
+    jb .failed
+    mov dx, cx
+    sub dx, 5
+    cmp ax, dx
+    ja .failed
     mov byte [handoff_addr + handoff_net_status], net_status_tls_record_received
+    cmp byte [si + 5], 0x02
+    jne .failed
+    cmp byte [si + 9], 0x03
+    jne .failed
+    cmp byte [si + 10], 0x01
+    jb .failed
+    cmp byte [si + 10], 0x04
+    ja .failed
+    mov byte [handoff_addr + handoff_net_status], net_status_tls_serverhello_received
     mov byte [handoff_addr + handoff_net_error], net_error_none
     clc
     ret
