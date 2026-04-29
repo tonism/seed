@@ -70,6 +70,11 @@ sector 12+     file data, starting with CORE.SYS
 runtime. Normal runtime updates can replace that file without rewriting the
 boot sector or reserved loader.
 
+The reserved loader keeps its FAT buffer below the `CORE.SYS` load address and
+uses a `0x9000` stack so larger core builds can be read through the FAT12
+cluster chain without overwriting loader state. `CORE.SYS` also switches to a
+`0x9000` runtime stack after entry.
+
 Future artifacts may also ship host-specific loaders that jump into `CORE.SYS`
 from an already-running OS. DOS `.COM`, Windows, macOS/OSX, Linux, and other
 common hosts are possible candidates, but this is a one-way takeover path, not
@@ -155,8 +160,10 @@ the Jacobian result into the affine X-coordinate pre-master secret, derives
 the TLS master secret and ChaCha20-Poly1305 client/server write keys and IVs
 with the TLS 1.2 SHA-256 PRF, sends ClientKeyExchange with the fixed client
 public point, adds it to the live handshake transcript, sends ChangeCipherSpec,
-and writes the validated values back best-effort. Encrypted Finished records
-are later Build 6 work.
+derives client Finished verify_data from the live transcript, sends an
+encrypted client Finished record, adds that plaintext handshake message to the
+live transcript, and writes the validated values back best-effort. Server
+Finished receive and verification are later Build 6 work.
 Missing or invalid `AGENTS.CFG` content falls back to
 built-in `openai`, `anthropic`, and `google`; other agent setup failures still
 fail in the bright `"o"` phase as `agent setup failed`.

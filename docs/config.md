@@ -135,8 +135,8 @@ the boot medium. The current ClientHello random is fixed, and the current ECDHE
 scalar is a sparse fixed development value so emulator boot tests do not spend
 minutes in the `"o"` secure/crypto phases. A real entropy path and a faster
 full-scalar strategy are required before this can be treated as secure TLS.
-Seed currently sends ClientKeyExchange with the fixed-scalar public point and
-then ChangeCipherSpec. TLS transcript digest use for Finished,
-ChaCha20-Poly1305 records, the remaining TLS handshake, authenticated API
+Seed currently sends ClientKeyExchange with the fixed-scalar public point,
+ChangeCipherSpec, and an encrypted client Finished record. Server Finished
+receive/verification, generalized ChaCha20-Poly1305 records, authenticated API
 calls, capability fetches, model selection, and reasoning selection are still
 build 6 follow-up work.

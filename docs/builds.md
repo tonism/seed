@@ -99,7 +99,12 @@ TLS 1.2 SHA-256 PRF for master-secret and key-expansion derivation
 ChaCha20-Poly1305 key-block split into client/server write keys and IVs
 fixed-scalar ECDHE ClientKeyExchange record construction and transcript update
 plaintext ChangeCipherSpec transmit after the client key exchange
+ChaCha20 block helper for the current TLS 1.2 record path
+Poly1305 helper for the current one-record Finished MAC shape
+client Finished verify_data derivation from the live SHA-256 transcript
+encrypted client Finished record construction and transmit
 dependency-free TLS PRF and key-schedule vector checker
+dependency-free ChaCha20/Poly1305 vector and Finished record shape checker
 best-effort USER.CFG write of validated agent, model, reasoning, key, and endpoint values
 ```
 
@@ -108,9 +113,8 @@ Still in build 6 scope:
 ```text
 replace fixed client random/scalar with a real entropy path before claiming secure TLS
 reduce the eventual full-random-scalar path below the current full double-and-add cost
-implement ChaCha20-Poly1305 records
-add Finished transcript digest copy/finalization support
-send and verify encrypted Finished records
+generalize ChaCha20-Poly1305 beyond the current single client Finished record
+receive and verify encrypted server Finished
 complete TLS directly from the 8088 runtime
 validate the selected provider key with a model API request
 fetch model and reasoning capabilities from the provider when available

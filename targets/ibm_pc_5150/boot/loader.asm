@@ -7,6 +7,7 @@ org 0x0600
 %endif
 
 core_offset equ 0x1000
+loader_stack_top equ 0x9000
 sector_size equ 512
 floppy_sectors_per_track equ 8
 fat_count equ 2
@@ -19,7 +20,7 @@ fat_start_lba equ 1 + LOADER_SECTORS
 root_start_lba equ fat_start_lba + fat_count
 data_start_lba equ root_start_lba + root_sectors
 root_buffer equ 0x7000
-fat_buffer equ 0x7200
+fat_buffer equ 0x0e00
 
 start:
     cli
@@ -27,7 +28,7 @@ start:
     mov ds, ax
     mov es, ax
     mov ss, ax
-    mov sp, 0x7c00
+    mov sp, loader_stack_top
     sti
     cld
 

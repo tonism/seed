@@ -117,6 +117,13 @@ tls_prf_output_len dw 0
 tls_prf_output_remaining dw 0
 tls_prf_chunk_len dw 0
 tls_prf_current_output_ptr dw 0
+chacha_key_ptr dw 0
+chacha_nonce_ptr dw 0
+chacha_counter_low dw 0
+chacha_counter_high dw 0
+poly_block_ptr dw 0
+poly_i db 0
+poly_j db 0
 tls_server_certificate_len_low dw 0
 tls_server_certificate_list_len_low dw 0
 tls_record_major db 0
@@ -218,6 +225,23 @@ tls_client_write_key times tls_chacha_key_len db 0
 tls_server_write_key times tls_chacha_key_len db 0
 tls_client_write_iv times tls_chacha_iv_len db 0
 tls_server_write_iv times tls_chacha_iv_len db 0
+tls_client_record_seq times tls_client_record_seq_len db 0
+tls_client_nonce times tls_chacha_iv_len db 0
+tls_aead_aad times tls_aead_aad_len db 0
+tls_handshake_hash times sha256_digest_len db 0
+tls_verify_data times tls_finished_verify_len db 0
+tls_finished_plain times tls_finished_plain_len db 0
+tls_finished_cipher times tls_finished_cipher_len db 0
+tls_finished_tag times 16 db 0
+chacha_state times chacha_block_len db 0
+chacha_work times chacha_block_len db 0
+chacha_block times chacha_block_len db 0
+poly_r times poly1305_r_len db 0
+poly_s times poly1305_s_len db 0
+poly_acc times poly1305_acc_len db 0
+poly_block times 16 db 0
+poly_product times poly1305_product_len db 0
+poly_value times poly1305_value_len db 0
 p256_lhs times p256_word_len db 0
 p256_rhs times p256_word_len db 0
 p256_tmp times p256_word_len db 0
@@ -313,6 +337,13 @@ tls_label_master_secret db 'master secret'
 tls_label_master_secret_len equ $ - tls_label_master_secret
 tls_label_key_expansion db 'key expansion'
 tls_label_key_expansion_len equ $ - tls_label_key_expansion
+tls_label_client_finished db 'client finished'
+tls_label_client_finished_len equ $ - tls_label_client_finished
+chacha_constants dw 0x7865, 0x6170, 0x646e, 0x3320
+                 dw 0x2d32, 0x7962, 0x6574, 0x6b20
+poly1305_prime db 0xfb
+               times 15 db 0xff
+               db 0x03
 p256_prime dw 0xffff, 0xffff, 0xffff, 0xffff
            dw 0xffff, 0xffff, 0x0000, 0x0000
            dw 0x0000, 0x0000, 0x0000, 0x0000

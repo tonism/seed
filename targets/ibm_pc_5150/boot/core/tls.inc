@@ -41,6 +41,8 @@ tls_probe_server:
     jc .failed
     call tls_send_change_cipher_spec
     jc .failed
+    call tls_send_client_finished
+    jc .failed
     clc
     ret
 .failed:
@@ -437,6 +439,7 @@ tls_transcript_start:
     mov word [tls_transcript_len_high], 0
     mov word [tls_transcript_certificate_remaining], 0
     mov byte [tls_transcript_flags], 0
+    call tls_clear_client_record_seq
     call sha256_init
     ret
 
@@ -811,6 +814,248 @@ tls_send_change_cipher_spec:
     ret
 .failed:
     stc
+    ret
+
+tls_send_client_finished:
+    call tls_build_client_finished_plaintext
+    jc .failed
+    call tls_encrypt_client_finished
+    jc .failed
+    mov si, fs_sector_buffer
+    mov cx, [tls_tx_len]
+    call tcp_send_payload
+    jc .failed
+    mov si, tls_finished_plain
+    mov cx, tls_finished_plain_len
+    call tls_transcript_update
+    jc .failed
+    call tls_increment_client_record_seq
+    mov byte [handoff_addr + handoff_net_status], net_status_tls_clientfinished_sent
+    mov byte [handoff_addr + handoff_net_error], net_error_none
+    clc
+    ret
+.failed:
+    stc
+    ret
+
+tls_build_client_finished_plaintext:
+    call sha256_save_context
+    mov di, tls_handshake_hash
+    call sha256_finish
+    call sha256_restore_context
+
+    call tls_build_client_finished_seed
+    mov word [tls_prf_secret_ptr], tls_master_secret
+    mov word [tls_prf_secret_len], tls_master_secret_len
+    mov word [tls_prf_seed_ptr], tls_prf_seed
+    mov word [tls_prf_output_ptr], tls_verify_data
+    mov word [tls_prf_output_len], tls_finished_verify_len
+    call tls_prf_sha256_expand
+    jc .failed
+
+    push ds
+    pop es
+    mov di, tls_finished_plain
+    mov al, 0x14
+    stosb
+    xor al, al
+    stosb
+    stosb
+    mov al, tls_finished_verify_len
+    stosb
+    mov si, tls_verify_data
+    mov cx, tls_finished_verify_len
+    rep movsb
+    clc
+    ret
+.failed:
+    stc
+    ret
+
+tls_build_client_finished_seed:
+    push cx
+    push si
+    push di
+    push es
+    push ds
+    pop es
+    mov di, tls_prf_seed
+    mov si, tls_label_client_finished
+    mov cx, tls_label_client_finished_len
+    rep movsb
+    mov si, tls_handshake_hash
+    mov cx, sha256_digest_len
+    rep movsb
+    mov word [tls_prf_seed_len], tls_label_client_finished_len + sha256_digest_len
+    pop es
+    pop di
+    pop si
+    pop cx
+    ret
+
+tls_encrypt_client_finished:
+    call tls_build_client_nonce
+    call tls_build_finished_aad
+
+    mov word [chacha_key_ptr], tls_client_write_key
+    mov word [chacha_nonce_ptr], tls_client_nonce
+    mov word [chacha_counter_low], 0
+    mov word [chacha_counter_high], 0
+    call chacha20_block
+    call poly1305_load_key
+
+    mov word [chacha_counter_low], 1
+    mov word [chacha_counter_high], 0
+    call chacha20_block
+    call tls_xor_finished_plaintext
+    call poly1305_mac_finished
+    call build_tls_client_finished_record
+    clc
+    ret
+
+tls_build_client_nonce:
+    push ax
+    push bx
+    push cx
+    push si
+    push di
+    push es
+    push ds
+    pop es
+    mov si, tls_client_write_iv
+    mov di, tls_client_nonce
+    mov cx, tls_chacha_iv_len
+    rep movsb
+    mov si, tls_client_record_seq
+    mov di, tls_client_nonce + 4
+    mov cx, tls_client_record_seq_len
+.xor_seq:
+    lodsb
+    xor [di], al
+    inc di
+    loop .xor_seq
+    pop es
+    pop di
+    pop si
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+tls_build_finished_aad:
+    push ax
+    push cx
+    push si
+    push di
+    push es
+    push ds
+    pop es
+    mov si, tls_client_record_seq
+    mov di, tls_aead_aad
+    mov cx, tls_client_record_seq_len
+    rep movsb
+    mov al, 0x16
+    stosb
+    mov ax, 0x0303
+    stosw
+    mov ax, tls_finished_plain_len
+    call tls_write_be16
+    pop es
+    pop di
+    pop si
+    pop cx
+    pop ax
+    ret
+
+tls_xor_finished_plaintext:
+    push ax
+    push bx
+    push cx
+    push si
+    push di
+    push es
+    push ds
+    pop es
+    mov si, tls_finished_plain
+    mov di, tls_finished_cipher
+    mov bx, chacha_block
+    mov cx, tls_finished_plain_len
+.next:
+    lodsb
+    xor al, [bx]
+    stosb
+    inc bx
+    loop .next
+    pop es
+    pop di
+    pop si
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+build_tls_client_finished_record:
+    push cx
+    push si
+    push di
+    push es
+    push ds
+    pop es
+    mov word [tls_tx_len], tls_finished_total_len
+    mov di, fs_sector_buffer
+    mov al, 0x16
+    stosb
+    mov ax, 0x0303
+    stosw
+    mov ax, tls_finished_record_len
+    call tls_write_be16
+    mov si, tls_finished_cipher
+    mov cx, tls_finished_cipher_len
+    rep movsb
+    mov si, tls_finished_tag
+    mov cx, 16
+    rep movsb
+    pop es
+    pop di
+    pop si
+    pop cx
+    ret
+
+tls_clear_client_record_seq:
+    push ax
+    push cx
+    push di
+    push es
+    push ds
+    pop es
+    mov di, tls_client_record_seq
+    mov cx, tls_client_record_seq_len
+    xor al, al
+    rep stosb
+    pop es
+    pop di
+    pop cx
+    pop ax
+    ret
+
+tls_increment_client_record_seq:
+    push ax
+    push cx
+    push si
+    mov si, tls_client_record_seq + tls_client_record_seq_len - 1
+    mov cx, tls_client_record_seq_len
+    stc
+.next:
+    mov al, [si]
+    adc al, 0
+    mov [si], al
+    jnc .done
+    dec si
+    loop .next
+.done:
+    pop si
+    pop cx
+    pop ax
     ret
 
 tls_parse_next_handshake_header:

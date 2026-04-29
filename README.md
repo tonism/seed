@@ -51,10 +51,10 @@ handshake transcript context through ServerHelloDone, computes the sparse
 fixed-scalar ECDHE shared point, converts the Jacobian result into the affine
 X-coordinate pre-master secret, derives the TLS master secret plus
 client/server ChaCha20-Poly1305 write keys and IVs with the TLS 1.2 SHA-256
-PRF, sends ClientKeyExchange and ChangeCipherSpec, then writes validated
-values back best-effort.
-Encrypted Finished records, model API calls, capability fetches, session creation, and
-environment handover remain later build 6 work.
+PRF, sends ClientKeyExchange, ChangeCipherSpec, and encrypted client Finished,
+then writes validated values back best-effort.
+Server Finished verification, model API calls, capability fetches, session
+creation, and environment handover remain later build 6 work.
 
 Build 5 completed the internet-readiness milestone. It initializes
 NE1000/NE2000-family packet hardware after a valid MAC read, reads one pending
@@ -129,6 +129,7 @@ targets/ibm_pc_5150/86box/       86Box profiles and NIC inventory
 tools/build-fat12-image.py       deterministic 160 KiB FAT12 image builder
 tools/check-p256.py              dependency-free P-256 vector and field checker
 tools/check-tls-prf.py           dependency-free TLS PRF and key schedule checker
+tools/check-chacha-poly1305.py   dependency-free record crypto shape checker
 tools/run-86box.sh               build and launch a 86Box profile
 ```
 

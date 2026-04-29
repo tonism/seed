@@ -65,6 +65,7 @@ inspect: $(FLOPPY_IMG)
 test:
 	python3 tools/check-p256.py
 	python3 tools/check-tls-prf.py
+	python3 tools/check-chacha-poly1305.py
 
 clean:
 	rm -rf build

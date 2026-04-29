@@ -4,6 +4,7 @@
 
 build_number equ 6
 handoff_addr equ 0x0600
+runtime_stack_top equ 0x9000
 handoff_magic equ 0
 handoff_version equ 4
 handoff_size equ 5
@@ -74,6 +75,7 @@ net_status_tls_premaster_ready equ 29
 net_status_tls_keys_ready equ 30
 net_status_tls_clientkeyexchange_sent equ 31
 net_status_tls_changecipherspec_sent equ 32
+net_status_tls_clientfinished_sent equ 33
 net_error_none equ 0
 net_error_ne_init equ 1
 net_error_ne_tx equ 2
@@ -282,6 +284,20 @@ tls_client_key_exchange_handshake_len equ 1 + tls_ec_public_uncompressed_len
 tls_client_key_exchange_record_len equ 4 + tls_client_key_exchange_handshake_len
 tls_client_key_exchange_total_len equ 5 + tls_client_key_exchange_record_len
 tls_change_cipher_spec_total_len equ 6
+tls_finished_verify_len equ 12
+tls_finished_plain_len equ 4 + tls_finished_verify_len
+tls_finished_cipher_len equ tls_finished_plain_len
+tls_finished_record_len equ tls_finished_cipher_len + 16
+tls_finished_total_len equ 5 + tls_finished_record_len
+tls_aead_aad_len equ 13
+tls_client_record_seq_len equ 8
+chacha_word_count equ 16
+chacha_block_len equ 64
+poly1305_r_len equ 16
+poly1305_s_len equ 16
+poly1305_acc_len equ 17
+poly1305_product_len equ 36
+poly1305_value_len equ 24
 p256_word_count equ 16
 p256_word_len equ p256_word_count * 2
 p256_product_word_count equ p256_word_count * 2

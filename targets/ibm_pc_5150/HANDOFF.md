@@ -117,7 +117,8 @@ offset  size  value
 29 ECDHE pre-master secret generated from the server public point
 30 TLS master secret and client/server traffic keys derived
 31 TLS ClientKeyExchange sent and added to the live handshake transcript
-32 TLS ChangeCipherSpec sent; encrypted Finished is still pending
+32 TLS ChangeCipherSpec sent
+33 encrypted TLS client Finished sent and added to the live handshake transcript
 ```
 
 ## Network Error
@@ -197,7 +198,9 @@ X-coordinate pre-master secret, derives the TLS master secret and
 ChaCha20-Poly1305 client/server write keys and IVs with the TLS 1.2 SHA-256
 PRF while preserving the live transcript hash context, sends the fixed-scalar
 ECDHE ClientKeyExchange while adding it to that transcript, sends plaintext
-ChangeCipherSpec, and only then finishes writing the validated values back
-best-effort. Encrypted Finished records are later Build 6 work.
+ChangeCipherSpec, derives client Finished verify_data from the live transcript,
+sends an encrypted client Finished record with the current ChaCha20-Poly1305
+path, and only then finishes writing the validated values back best-effort.
+Server Finished receive and verification are later Build 6 work.
 If agent endpoint reachability fails, status is set to 5 and Seed enters the
 agent setup error path before the ready splash.
