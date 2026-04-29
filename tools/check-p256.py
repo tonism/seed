@@ -32,6 +32,8 @@ PEER_PUBLIC = (
 SHARED_X = 0x9238E9B85EF84AC3139AFB2631242B767DDE271E31972DE6A9B8BBE51A4A7CCB
 
 WORD_COUNT = 16
+PRODUCT_WORD_COUNT = WORD_COUNT * 2
+PRIME_SHIFT_WORD_COUNT = WORD_COUNT + 1
 ROOT = Path(__file__).resolve().parents[1]
 DATA_INC = ROOT / "targets" / "ibm_pc_5150" / "boot" / "core" / "data.inc"
 
@@ -82,6 +84,10 @@ def to_words_le(value: int) -> list[int]:
     return [(value >> (16 * index)) & 0xFFFF for index in range(WORD_COUNT)]
 
 
+def to_product_words_le(value: int) -> list[int]:
+    return [(value >> (16 * index)) & 0xFFFF for index in range(PRODUCT_WORD_COUNT)]
+
+
 def from_words_le(words: list[int]) -> int:
     value = 0
     for index, word in enumerate(words):
@@ -123,31 +129,109 @@ def sub_words_mod(left: int, right: int) -> int:
     return raw
 
 
+def mul_product_words(left: int, right: int) -> list[int]:
+    product = [0] * PRODUCT_WORD_COUNT
+    left_words = to_words_le(left)
+    right_words = to_words_le(right)
+    for i, left_word in enumerate(left_words):
+        for j, right_word in enumerate(right_words):
+            raw = left_word * right_word
+            index = i + j
+            carry = raw >> 16
+            raw_low = raw & 0xFFFF
+            total = product[index] + raw_low
+            product[index] = total & 0xFFFF
+            carry += total >> 16
+            index += 1
+            while carry:
+                total = product[index] + carry
+                product[index] = total & 0xFFFF
+                carry = total >> 16
+                index += 1
+    return product
+
+
+def shifted_prime_words(bit_shift: int) -> list[int]:
+    return [(P << bit_shift) >> (16 * index) & 0xFFFF for index in range(PRIME_SHIFT_WORD_COUNT)]
+
+
+def compare_product_shifted_prime(
+    product: list[int], word_shift: int, bit_shift: int, shifts: list[list[int]]
+) -> int:
+    shifted = shifts[bit_shift]
+    for index in range(PRODUCT_WORD_COUNT - 1, -1, -1):
+        relative = index - word_shift
+        shifted_word = shifted[relative] if 0 <= relative < PRIME_SHIFT_WORD_COUNT else 0
+        if product[index] != shifted_word:
+            return 1 if product[index] > shifted_word else -1
+    return 0
+
+
+def sub_product_shifted_prime(
+    product: list[int], word_shift: int, bit_shift: int, shifts: list[list[int]]
+) -> None:
+    shifted = shifts[bit_shift]
+    count = PRIME_SHIFT_WORD_COUNT - 1 if word_shift == WORD_COUNT else PRIME_SHIFT_WORD_COUNT
+    borrow = 0
+    for relative in range(count):
+        index = word_shift + relative
+        raw = product[index] - shifted[relative] - borrow
+        if raw < 0:
+            raw += 0x10000
+            borrow = 1
+        else:
+            borrow = 0
+        product[index] = raw
+    assert borrow == 0
+
+
+def reduce_product_words(product: list[int]) -> list[int]:
+    shifts = [parse_dw_words(f"p256_prime_shift_{bit}") for bit in range(16)]
+    if compare_product_shifted_prime(product, WORD_COUNT, 0, shifts) >= 0:
+        sub_product_shifted_prime(product, WORD_COUNT, 0, shifts)
+    for word_shift in range(WORD_COUNT - 1, -1, -1):
+        for bit_shift in range(15, -1, -1):
+            if compare_product_shifted_prime(product, word_shift, bit_shift, shifts) >= 0:
+                sub_product_shifted_prime(product, word_shift, bit_shift, shifts)
+    assert all(word == 0 for word in product[WORD_COUNT:])
+    assert from_words_le(product[:WORD_COUNT]) < P
+    return product[:WORD_COUNT]
+
+
+def mul_words_mod(left: int, right: int) -> int:
+    return from_words_le(reduce_product_words(mul_product_words(left, right)))
+
+
 def check_field_words() -> None:
     assert parse_dw_words("p256_prime") == to_words_le(P)
-    for value in (
+    for bit_shift in range(16):
+        assert parse_dw_words(f"p256_prime_shift_{bit_shift}") == shifted_prime_words(bit_shift)
+    values = [
         0,
         1,
+        2,
         P - 1,
+        P - 2,
+        P // 2,
         CLIENT_PUBLIC[0],
         CLIENT_PUBLIC[1],
         PEER_PUBLIC[0],
         PEER_PUBLIC[1],
         SHARED_X,
-    ):
+    ]
+    seed = 0x123456789ABCDEF
+    for _ in range(10):
+        seed = (seed * 6364136223846793005 + 1442695040888963407) & ((1 << 256) - 1)
+        values.append(seed % P)
+    for value in values:
         assert from_words_le(to_words_le(value)) == value
         assert value < P
-    cases = (
-        (0, 0),
-        (1, 2),
-        (P - 1, 1),
-        (P - 2, P - 3),
-        (CLIENT_PUBLIC[0], PEER_PUBLIC[0]),
-        (CLIENT_PUBLIC[1], PEER_PUBLIC[1]),
-    )
-    for left, right in cases:
-        assert add_words_mod(left, right) == (left + right) % P
-        assert sub_words_mod(left, right) == (left - right) % P
+    for left in values:
+        for right in values[:8]:
+            assert add_words_mod(left, right) == (left + right) % P
+            assert sub_words_mod(left, right) == (left - right) % P
+            assert mul_product_words(left, right) == to_product_words_le(left * right)
+            assert mul_words_mod(left, right) == (left * right) % P
 
 
 def der_len(length: int) -> bytes:
@@ -222,9 +306,9 @@ def main() -> None:
     openssl_x = openssl_shared_x(CLIENT_PRIVATE, PEER_PRIVATE)
     if openssl_x is not None:
         assert openssl_x == SHARED_X
-        print("p256 vectors and field words ok; openssl cross-check ok")
+        print("p256 vectors and field math ok; openssl cross-check ok")
     else:
-        print("p256 vectors and field words ok; openssl unavailable")
+        print("p256 vectors and field math ok; openssl unavailable")
 
 
 if __name__ == "__main__":

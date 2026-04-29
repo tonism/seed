@@ -125,7 +125,7 @@ same path.
 
 `reasoning` is stored as a plain text effort value such as `xhigh`; provider
 specific request mapping is later Build 6 work. The `key` value is plaintext on
-the boot medium. P-256 field multiplication/reduction, point math, ECDHE, TLS
-transcript digest finalization, the remaining TLS handshake, authenticated API
-calls, capability fetches, model selection, and reasoning selection are still
-build 6 follow-up work.
+the boot medium. P-256 curve validation, point math, ECDHE, TLS transcript
+digest finalization, the remaining TLS handshake, authenticated API calls,
+capability fetches, model selection, and reasoning selection are still build 6
+follow-up work.

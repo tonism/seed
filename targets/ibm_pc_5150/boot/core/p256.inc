@@ -179,3 +179,211 @@ p256_sub_mod:
     pop di
 .done:
     ret
+
+p256_mul_mod:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    mov [p256_left_ptr], si
+    mov [p256_right_ptr], di
+    mov [p256_result_ptr], bx
+    call p256_clear_product
+    call p256_mul_product
+    call p256_reduce_product
+    mov si, p256_product
+    mov di, [p256_result_ptr]
+    mov cx, p256_word_count
+    push ds
+    pop es
+    rep movsw
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+p256_clear_product:
+    push ax
+    push cx
+    push di
+    push es
+    xor ax, ax
+    mov di, p256_product
+    mov cx, p256_product_word_count
+    push ds
+    pop es
+    rep stosw
+    pop es
+    pop di
+    pop cx
+    pop ax
+    ret
+
+p256_mul_product:
+    mov byte [p256_i], 0
+.outer_loop:
+    cmp byte [p256_i], p256_word_count
+    jae .done
+    mov si, [p256_left_ptr]
+    mov bl, [p256_i]
+    xor bh, bh
+    add bx, bx
+    add si, bx
+    mov ax, [si]
+    mov [p256_mul_left_word], ax
+    mov byte [p256_j], 0
+.inner_loop:
+    cmp byte [p256_j], p256_word_count
+    jae .next_outer
+    mov si, [p256_right_ptr]
+    mov bl, [p256_j]
+    xor bh, bh
+    add bx, bx
+    add si, bx
+    mov ax, [p256_mul_left_word]
+    mul word [si]
+    mov bl, [p256_i]
+    add bl, [p256_j]
+    xor bh, bh
+    add bx, bx
+    add bx, p256_product
+    call p256_add_mul_word
+    inc byte [p256_j]
+    jmp .inner_loop
+.next_outer:
+    inc byte [p256_i]
+    jmp .outer_loop
+.done:
+    ret
+
+p256_add_mul_word:
+    ; Adds DX:AX to p256_product at word offset BX.
+    mov word [p256_mul_carry], 0
+    add [bx], ax
+    adc dx, 0
+    adc word [p256_mul_carry], 0
+    add [bx + 2], dx
+    adc word [p256_mul_carry], 0
+    add bx, 4
+    mov ax, [p256_mul_carry]
+    or ax, ax
+    jz .done
+    add [bx], ax
+    jnc .done
+    add bx, 2
+.propagate:
+    inc word [bx]
+    jnz .done
+    add bx, 2
+    jmp .propagate
+.done:
+    ret
+
+p256_reduce_product:
+    mov byte [p256_word_shift], 16
+    mov byte [p256_bit_shift], 0
+    call p256_reduce_current_shift
+    mov byte [p256_word_shift], 15
+.word_loop:
+    mov byte [p256_bit_shift], 15
+.bit_loop:
+    call p256_reduce_current_shift
+    cmp byte [p256_bit_shift], 0
+    je .next_word
+    dec byte [p256_bit_shift]
+    jmp .bit_loop
+.next_word:
+    cmp byte [p256_word_shift], 0
+    je .done
+    dec byte [p256_word_shift]
+    jmp .word_loop
+.done:
+    ret
+
+p256_reduce_current_shift:
+    call p256_compare_product_shifted_prime
+    jc .done
+    call p256_sub_product_shifted_prime
+.done:
+    ret
+
+p256_compare_product_shifted_prime:
+    mov byte [p256_compare_index], p256_product_word_count - 1
+.next_word:
+    mov al, [p256_compare_index]
+    call p256_get_shifted_prime_word
+    mov bl, [p256_compare_index]
+    xor bh, bh
+    add bx, bx
+    mov ax, [p256_product + bx]
+    cmp ax, dx
+    jb .less
+    ja .greater_or_equal
+    cmp byte [p256_compare_index], 0
+    je .greater_or_equal
+    dec byte [p256_compare_index]
+    jmp .next_word
+.greater_or_equal:
+    clc
+    ret
+.less:
+    stc
+    ret
+
+p256_get_shifted_prime_word:
+    ; AL is product word index. Returns the shifted-prime word in DX.
+    push ax
+    push bx
+    push si
+    xor dx, dx
+    cmp al, [p256_word_shift]
+    jb .done
+    sub al, [p256_word_shift]
+    cmp al, p256_prime_shift_word_count
+    jae .done
+    mov bl, [p256_bit_shift]
+    xor bh, bh
+    add bx, bx
+    mov si, [p256_prime_shift_ptrs + bx]
+    mov bl, al
+    xor bh, bh
+    add bx, bx
+    add si, bx
+    mov dx, [si]
+.done:
+    pop si
+    pop bx
+    pop ax
+    ret
+
+p256_sub_product_shifted_prime:
+    mov bl, [p256_bit_shift]
+    xor bh, bh
+    add bx, bx
+    mov si, [p256_prime_shift_ptrs + bx]
+    mov bl, [p256_word_shift]
+    xor bh, bh
+    add bx, bx
+    mov di, p256_product
+    add di, bx
+    mov cx, p256_prime_shift_word_count
+    cmp byte [p256_word_shift], 16
+    jne .subtract
+    dec cx
+.subtract:
+    clc
+.next_word:
+    mov ax, [di]
+    sbb ax, [si]
+    mov [di], ax
+    lea si, [si + 2]
+    lea di, [di + 2]
+    loop .next_word
+    ret
