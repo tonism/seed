@@ -204,7 +204,6 @@ p256_i db 0
 p256_j db 0
 p256_word_shift db 0
 p256_bit_shift db 0
-p256_compare_index db 0
 p256_carry db 0
 builtin_agent_ids db 'openai', 0
                   times agent_id_len - 7 db 0

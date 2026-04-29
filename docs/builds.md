@@ -80,6 +80,7 @@ ECDHE ServerKeyExchange header parse with uncompressed P-256 public-point captur
 P-256 coordinate conversion to 16-bit little-endian field words and coordinate range checks
 8086 P-256 field add/sub modulo-p primitives
 8086 P-256 field multiplication/reduction primitives
+direct shifted-prime reduction compare for faster P-256 field multiplication
 runtime P-256 public-point curve-equation validation for ServerKeyExchange
 8086 P-256 Jacobian point double and mixed-add helper primitives
 8086 P-256 scalar multiplication helper for mixed affine points

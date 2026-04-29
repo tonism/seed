@@ -763,52 +763,39 @@ p256_reduce_current_shift:
     ret
 
 p256_compare_product_shifted_prime:
-    mov byte [p256_compare_index], p256_product_word_count - 1
-.next_word:
-    mov al, [p256_compare_index]
-    call p256_get_shifted_prime_word
-    mov bl, [p256_compare_index]
+    mov bl, [p256_bit_shift]
     xor bh, bh
     add bx, bx
-    mov ax, [p256_product + bx]
-    cmp ax, dx
+    mov si, [p256_prime_shift_ptrs + bx]
+    mov cx, p256_prime_shift_word_count
+    cmp byte [p256_word_shift], 16
+    jne .have_count
+    dec cx
+.have_count:
+    mov bx, cx
+    dec bx
+    mov ax, bx
+    add bx, bx
+    add si, bx
+    mov bl, [p256_word_shift]
+    xor bh, bh
+    add bx, ax
+    add bx, bx
+    mov di, p256_product
+    add di, bx
+.next_word:
+    mov ax, [di]
+    cmp ax, [si]
     jb .less
     ja .greater_or_equal
-    cmp byte [p256_compare_index], 0
-    je .greater_or_equal
-    dec byte [p256_compare_index]
-    jmp .next_word
+    sub di, 2
+    sub si, 2
+    loop .next_word
 .greater_or_equal:
     clc
     ret
 .less:
     stc
-    ret
-
-p256_get_shifted_prime_word:
-    ; AL is product word index. Returns the shifted-prime word in DX.
-    push ax
-    push bx
-    push si
-    xor dx, dx
-    cmp al, [p256_word_shift]
-    jb .done
-    sub al, [p256_word_shift]
-    cmp al, p256_prime_shift_word_count
-    jae .done
-    mov bl, [p256_bit_shift]
-    xor bh, bh
-    add bx, bx
-    mov si, [p256_prime_shift_ptrs + bx]
-    mov bl, al
-    xor bh, bh
-    add bx, bx
-    add si, bx
-    mov dx, [si]
-.done:
-    pop si
-    pop bx
-    pop ax
     ret
 
 p256_sub_product_shifted_prime:
