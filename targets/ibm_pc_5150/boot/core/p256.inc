@@ -180,6 +180,63 @@ p256_sub_mod:
 .done:
     ret
 
+p256_validate_point_on_curve:
+    ; Validates the loaded ServerKeyExchange point: y^2 == x^3 - 3x + b.
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov si, tls_server_ec_y_words
+    mov di, tls_server_ec_y_words
+    mov bx, p256_lhs
+    call p256_mul_mod
+    mov si, tls_server_ec_x_words
+    mov di, tls_server_ec_x_words
+    mov bx, p256_rhs
+    call p256_mul_mod
+    mov si, p256_rhs
+    mov di, tls_server_ec_x_words
+    mov bx, p256_rhs
+    call p256_mul_mod
+    mov si, tls_server_ec_x_words
+    mov di, tls_server_ec_x_words
+    mov bx, p256_tmp
+    call p256_add_mod
+    mov si, p256_tmp
+    mov di, tls_server_ec_x_words
+    mov bx, p256_tmp
+    call p256_add_mod
+    mov si, p256_rhs
+    mov di, p256_tmp
+    mov bx, p256_rhs
+    call p256_sub_mod
+    mov si, p256_rhs
+    mov di, p256_b
+    mov bx, p256_rhs
+    call p256_add_mod
+    mov si, p256_lhs
+    mov di, p256_rhs
+    call p256_cmp_words
+    jc .invalid
+    mov si, p256_rhs
+    mov di, p256_lhs
+    call p256_cmp_words
+    jc .invalid
+    clc
+    jmp .done
+.invalid:
+    stc
+.done:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
 p256_mul_mod:
     push ax
     push bx

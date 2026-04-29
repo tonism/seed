@@ -705,6 +705,8 @@ tls_parse_server_key_exchange:
     mov di, p256_prime
     call p256_cmp_words
     jnc .failed
+    call p256_validate_point_on_curve
+    jc .failed
     mov al, [tls_server_key_public_len]
     xor ah, ah
     mov bx, [tls_next_handshake_body_ptr]

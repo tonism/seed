@@ -202,8 +202,20 @@ def mul_words_mod(left: int, right: int) -> int:
     return from_words_le(reduce_product_words(mul_product_words(left, right)))
 
 
+def curve_rhs_words(x: int) -> int:
+    x2 = mul_words_mod(x, x)
+    x3 = mul_words_mod(x2, x)
+    three_x = add_words_mod(add_words_mod(x, x), x)
+    return add_words_mod(sub_words_mod(x3, three_x), B)
+
+
+def curve_lhs_words(y: int) -> int:
+    return mul_words_mod(y, y)
+
+
 def check_field_words() -> None:
     assert parse_dw_words("p256_prime") == to_words_le(P)
+    assert parse_dw_words("p256_b") == to_words_le(B)
     for bit_shift in range(16):
         assert parse_dw_words(f"p256_prime_shift_{bit_shift}") == shifted_prime_words(bit_shift)
     values = [
@@ -232,6 +244,9 @@ def check_field_words() -> None:
             assert sub_words_mod(left, right) == (left - right) % P
             assert mul_product_words(left, right) == to_product_words_le(left * right)
             assert mul_words_mod(left, right) == (left * right) % P
+    for x, y in (G, CLIENT_PUBLIC, PEER_PUBLIC):
+        assert curve_lhs_words(y) == curve_rhs_words(x)
+        assert curve_lhs_words((y + 1) % P) != curve_rhs_words(x)
 
 
 def der_len(length: int) -> bytes:

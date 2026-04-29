@@ -144,8 +144,8 @@ parsed version, random, cipher-suite, session-id, extension flags, and selected
 cipher path, Certificate handshake
 header parsing and draining, ServerKeyExchange header parsing with
 uncompressed P-256 public-point capture, 16-bit field-word conversion and
-coordinate range checks, P-256 field add/sub/mul/reduction helpers that are not
-yet wired into live curve validation, ServerHelloDone proof, live SHA-256 TLS
+coordinate range checks, P-256 field add/sub/mul/reduction helpers, runtime
+P-256 public-point curve-equation validation, ServerHelloDone proof, live SHA-256 TLS
 handshake transcript context through ServerHelloDone, and bright questions when
 saved values are missing or invalid; retest individual profiles when changing
 boot, filesystem, agent-prep code, or shared packet code.
