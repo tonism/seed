@@ -37,6 +37,10 @@ tls_probe_server:
     call show_load_marker
     call tls_prepare_premaster_secret
     jc .failed
+    call tls_send_client_key_exchange
+    jc .failed
+    call tls_send_change_cipher_spec
+    jc .failed
     clc
     ret
 .failed:
@@ -773,6 +777,42 @@ tls_split_key_block:
     pop cx
     ret
 
+tls_send_client_key_exchange:
+    call build_tls_client_key_exchange
+    jc .failed
+    mov si, fs_sector_buffer
+    add si, 5
+    mov cx, [tls_tx_len]
+    sub cx, 5
+    call tls_transcript_update
+    jc .failed
+    mov si, fs_sector_buffer
+    mov cx, [tls_tx_len]
+    call tcp_send_payload
+    jc .failed
+    mov byte [handoff_addr + handoff_net_status], net_status_tls_clientkeyexchange_sent
+    mov byte [handoff_addr + handoff_net_error], net_error_none
+    clc
+    ret
+.failed:
+    stc
+    ret
+
+tls_send_change_cipher_spec:
+    call build_tls_change_cipher_spec
+    jc .failed
+    mov si, fs_sector_buffer
+    mov cx, [tls_tx_len]
+    call tcp_send_payload
+    jc .failed
+    mov byte [handoff_addr + handoff_net_status], net_status_tls_changecipherspec_sent
+    mov byte [handoff_addr + handoff_net_error], net_error_none
+    clc
+    ret
+.failed:
+    stc
+    ret
+
 tls_parse_next_handshake_header:
     cmp cx, 4
     jb .failed
@@ -1036,6 +1076,44 @@ build_tls_client_hello:
     ret
 .failed:
     stc
+    ret
+
+build_tls_client_key_exchange:
+    mov word [tls_tx_len], tls_client_key_exchange_total_len
+    mov di, fs_sector_buffer
+    mov al, 0x16
+    stosb
+    mov ax, 0x0303
+    stosw
+    mov ax, tls_client_key_exchange_record_len
+    call tls_write_be16
+
+    mov al, 0x10
+    stosb
+    xor al, al
+    stosb
+    mov ax, tls_client_key_exchange_handshake_len
+    call tls_write_be16
+    mov al, tls_ec_public_uncompressed_len
+    stosb
+    mov si, tls_client_ec_public
+    mov cx, tls_ec_public_uncompressed_len
+    rep movsb
+    clc
+    ret
+
+build_tls_change_cipher_spec:
+    mov word [tls_tx_len], tls_change_cipher_spec_total_len
+    mov di, fs_sector_buffer
+    mov al, 0x14
+    stosb
+    mov ax, 0x0303
+    stosw
+    mov ax, 1
+    call tls_write_be16
+    mov al, 1
+    stosb
+    clc
     ret
 
 tls_write_be16:

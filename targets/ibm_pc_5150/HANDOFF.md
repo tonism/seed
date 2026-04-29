@@ -116,6 +116,8 @@ offset  size  value
 28 live SHA-256 TLS handshake transcript context updated through ServerHelloDone
 29 ECDHE pre-master secret generated from the server public point
 30 TLS master secret and client/server traffic keys derived
+31 TLS ClientKeyExchange sent and added to the live handshake transcript
+32 TLS ChangeCipherSpec sent; encrypted Finished is still pending
 ```
 
 ## Network Error
@@ -193,7 +195,9 @@ handshake transcript context through ServerHelloDone, computes the sparse
 fixed-scalar ECDHE shared point, converts the Jacobian result into the affine
 X-coordinate pre-master secret, derives the TLS master secret and
 ChaCha20-Poly1305 client/server write keys and IVs with the TLS 1.2 SHA-256
-PRF while preserving the live transcript hash context, and only then finishes
-writing the validated values back best-effort.
+PRF while preserving the live transcript hash context, sends the fixed-scalar
+ECDHE ClientKeyExchange while adding it to that transcript, sends plaintext
+ChangeCipherSpec, and only then finishes writing the validated values back
+best-effort. Encrypted Finished records are later Build 6 work.
 If agent endpoint reachability fails, status is set to 5 and Seed enters the
 agent setup error path before the ready splash.

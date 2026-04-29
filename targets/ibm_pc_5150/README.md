@@ -153,8 +153,10 @@ maintains a live SHA-256 TLS handshake transcript context through
 ServerHelloDone, computes the sparse fixed-scalar ECDHE shared point, converts
 the Jacobian result into the affine X-coordinate pre-master secret, derives
 the TLS master secret and ChaCha20-Poly1305 client/server write keys and IVs
-with the TLS 1.2 SHA-256 PRF, and writes the validated values back
-best-effort.
+with the TLS 1.2 SHA-256 PRF, sends ClientKeyExchange with the fixed client
+public point, adds it to the live handshake transcript, sends ChangeCipherSpec,
+and writes the validated values back best-effort. Encrypted Finished records
+are later Build 6 work.
 Missing or invalid `AGENTS.CFG` content falls back to
 built-in `openai`, `anthropic`, and `google`; other agent setup failures still
 fail in the bright `"o"` phase as `agent setup failed`.

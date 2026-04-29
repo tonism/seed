@@ -72,6 +72,8 @@ net_status_tls_serverhellodone_received equ 27
 net_status_tls_transcript_ready equ 28
 net_status_tls_premaster_ready equ 29
 net_status_tls_keys_ready equ 30
+net_status_tls_clientkeyexchange_sent equ 31
+net_status_tls_changecipherspec_sent equ 32
 net_error_none equ 0
 net_error_ne_init equ 1
 net_error_ne_tx equ 2
@@ -276,6 +278,10 @@ tls_key_block_len equ 88
 tls_chacha_key_len equ 32
 tls_chacha_iv_len equ 12
 tls_prf_seed_max_len equ 80
+tls_client_key_exchange_handshake_len equ 1 + tls_ec_public_uncompressed_len
+tls_client_key_exchange_record_len equ 4 + tls_client_key_exchange_handshake_len
+tls_client_key_exchange_total_len equ 5 + tls_client_key_exchange_record_len
+tls_change_cipher_spec_total_len equ 6
 p256_word_count equ 16
 p256_word_len equ p256_word_count * 2
 p256_product_word_count equ p256_word_count * 2

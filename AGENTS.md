@@ -134,8 +134,8 @@ tools/run-86box.sh vm-net-ne2k8
 
 Useful expected screens:
 
-The Build 6 internet-proof checkpoint for these IBM PC 5150 profiles was
-validated on 28 April 2026 with saved `USER.CFG` included in the test floppy.
+The Build 6 agent-prep checkpoint for these IBM PC 5150 profiles was
+validated on 29 April 2026 with saved `USER.CFG` included in the test floppy.
 Build 6 currently adds FAT12 `AGENTS.CFG` and `NET.CFG` parsing, built-in
 fallback agent interfaces, optional `USER.CFG` persistence for selected
 agent/model/reasoning/key/endpoint values, with `server?` shown for LiteLLM's
@@ -153,7 +153,9 @@ with leading-zero skip, ServerHelloDone proof, live SHA-256 TLS handshake
 transcript context through ServerHelloDone, sparse fixed-scalar ECDHE
 shared-point generation, Jacobian shared point conversion into the affine
 X-coordinate pre-master secret, TLS 1.2 SHA-256 PRF key schedule deriving the
-master secret and ChaCha20-Poly1305 client/server write keys and IVs, and
+master secret and ChaCha20-Poly1305 client/server write keys and IVs,
+fixed-scalar ClientKeyExchange transmit with live transcript update,
+ChangeCipherSpec transmit, and
 bright questions when
 saved values are missing or invalid; retest individual profiles when changing
 boot, filesystem, agent-prep code, or shared packet code.
@@ -161,13 +163,13 @@ boot, filesystem, agent-prep code, or shared packet code.
 ```text
 vm                   red "." no network card, retry/restart menu
 vm-mda               red "." no network card, retry/restart menu
-vm-net-3c501         auto family, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, then splash
-vm-net-3c503         MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, then splash
-vm-net-ne1k          auto family, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, then splash
-vm-net-ne2k8         auto family, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, then splash
-vm-net-novell-ne1k   auto family, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, then splash
-vm-net-wd8003e       auto family, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, then splash
-vm-net-wd8003eb      auto family, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, then splash
+vm-net-3c501         auto family, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, then splash
+vm-net-3c503         MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, then splash
+vm-net-ne1k          auto family, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, then splash
+vm-net-ne2k8         auto family, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, then splash
+vm-net-novell-ne1k   auto family, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, then splash
+vm-net-wd8003e       auto family, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, then splash
+vm-net-wd8003eb      auto family, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, then splash
 ```
 
 ## Documentation
