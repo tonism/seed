@@ -30,7 +30,7 @@ probe <host-or-url>
 ```
 
 The default tracked value is `probe example.com`. If `NET.CFG` is missing,
-unreadable, or invalid, Seed falls back to `example.com` for the dark `"o"`
+unreadable, or invalid, Seed falls back to `example.com` for the dark `","`
 internet-readiness proof.
 
 `USER.CFG` is user-local state. It should only contain values that were entered

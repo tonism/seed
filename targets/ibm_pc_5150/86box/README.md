@@ -52,15 +52,16 @@ targets/ibm_pc_5150/86box/NICS.md
 Expected first screen:
 
 ```text
-project init    " " at centered project start for active text columns
-HAL setup       dim "." for hardware detection and adapter initialization
-internet prep   dim "o" for network configuration and reachability
-agent prep      bright "o" for gateway, model, reasoning, key, session, and environment setup
+boot loader     no marker
+hardware setup  dim "." for CORE.SYS display baseline, hardware detection, and adapter initialization
+internet prep   dim "," for network configuration and plain reachability
+secure prep     dim "o" for selected endpoint setup and TLS/crypto proof
+agent/env prep  bright "o" for API validation, model, reasoning, session, and environment setup
 no card         current marker turns red, low descending PC speaker tone, fast-typed no network card, then retry/restart
 question        phase-colored blinking marker, low PC speaker attention tone, bright fast-typed prompt ending with ?
 agent question  agent? with AGENTS.CFG entries or built-in big-three fallback when USER.CFG has no valid agent choice
 field question  server? and/or key? with cursor shown only while typing; Up/Down moves field focus
-success         " " -> dim "." -> dim "o" -> bright "o" -> seed build 6
+success         dim "." -> dim "," -> dim "o" -> bright "o" -> seed build 6
 ```
 
 The splash is only the ready handoff animation. No setup work happens during
@@ -146,8 +147,8 @@ restart
 
 The `.` marker is rendered in the error color. On MDA, the error is expected to render bright because monochrome adapters do
 not have red. The no-card path also plays the low failure tone through the PC
-speaker using the PIT rather than the BIOS bell. Retry returns to the HAL setup
-phase without rereading floppy sectors; restart performs a warm machine restart.
+speaker using the PIT rather than the BIOS bell. Retry returns to the hardware
+setup phase without rereading floppy sectors; restart performs a warm machine restart.
 `vm-net-ne1k`, `vm-net-ne2k8`, and `vm-net-novell-ne1k` showed the adapter
 prompt when needed, accepted their NE family, initialized packet hardware,
 checked the receive-ring read path, sent DHCPDISCOVER, and performed a bounded

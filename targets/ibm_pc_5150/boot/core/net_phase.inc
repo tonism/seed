@@ -44,6 +44,9 @@ prepare_agent_path:
 .values_ready:
     call prepare_agent_endpoint_path
     jc .failed
+    mov bl, [ready_attr]
+    mov al, 'o'
+    call show_load_marker
     cmp byte [user_cfg_dirty], 0
     je .ready
     call save_user_cfg

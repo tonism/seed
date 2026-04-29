@@ -19,10 +19,11 @@ Small status markers can appear immediately because they represent state, not
 message content:
 
 ```text
-" "          project init
-"." dark     HAL setup
-"o" dark     internet prep
-"o" bright   agent prep
+none         boot sector, loader, CORE.SYS load
+"." dark     hardware and local machine setup
+"," dark     internet prep and reachability
+"o" dark     secure connection setup
+"o" bright   agent and environment prep
 red marker   fatal error state; keep the current phase glyph
 ```
 
@@ -32,7 +33,7 @@ prompts are always bright and end with `?`. Fatal errors should turn the
 current status marker red, play the low failure tone, fast-type the error text,
 then fast-type a minimal `retry` / `restart` menu.
 
-`retry` reruns from the dark `"."` HAL setup phase without rereading floppy
+`retry` reruns from the dark `"."` hardware phase without rereading floppy
 sectors. `restart` performs a warm machine restart through BIOS.
 
 The splash is only a short ready handoff animation. No loading, probing,

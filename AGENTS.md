@@ -49,9 +49,9 @@ and included only when `config/USER.CFG` exists.
 - Target 8088-compatible 16-bit real-mode code for `ibm_pc_5150`. Keep NASM
   sources locked to `cpu 8086` so unsupported opcodes are caught at build time.
 - Do not introduce protected mode or graphics mode unless explicitly scoped.
-- Keep Build 6 focused on agent prep. Do not add TLS, model API requests,
-  agent sessions, or environment handover beyond the current Build 6 step
-  unless explicitly scoped.
+- Keep Build 6 focused on secure connection plus agent/environment prep. Do
+  not add model API requests, agent sessions, or environment handover beyond
+  the current Build 6 step unless explicitly scoped.
 - OpenAI, Anthropic, and Google define the supported agent TLS compatibility
   surface. Extra default `AGENTS.CFG` entries may stay only if they fit the
   same path; do not add alternate crypto paths just to keep a gateway.
@@ -90,16 +90,17 @@ button labels
 Small status markers may appear immediately because they represent state:
 
 ```text
-" "          project init
-"." dark     HAL setup
-"o" dark     internet prep
-"o" bright   agent prep
+none         boot sector, loader, CORE.SYS load
+"." dark     hardware and local machine setup
+"," dark     internet prep and reachability
+"o" dark     secure connection setup
+"o" bright   agent and environment prep
 red marker   fatal error state; keep the current phase glyph
 ```
 
 Fatal errors should turn the current marker red, play the low failure tone,
 fast-type the error text, then offer `retry` and `restart`. Retry should return
-to the dark `"."` HAL setup phase without rereading floppy sectors; restart
+to the dark `"."` hardware phase without rereading floppy sectors; restart
 should perform a warm machine restart. Questions should use the low attention
 tone and fast-type the prompt. Menus indicate selection by color rather than
 marker glyphs.

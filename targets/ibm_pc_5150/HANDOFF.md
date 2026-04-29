@@ -162,11 +162,13 @@ lease was acknowledged. When status is 11, the DNS server's Ethernet MAC has
 been resolved. When status is 13, a DNS response matching Seed's query ID and
 UDP port was received and an A record was parsed. When status is 18, the TCP
 reachability proof has completed the handshake. If no offer, ACK, ARP reply,
-DNS response, or SYN-ACK is observed during the bounded waits, the dark `"o"`
+DNS response, or SYN-ACK is observed during the bounded waits, the dark `","`
 internet phase fails into the network setup error path with the corresponding
 status and network error.
 
-Build 6 starts the bright `"o"` agent-prep phase. The current checkpoint
+Build 6 starts after the dark `","` internet phase. It uses a dark `"o"` for
+secure connection prep and switches to a bright `"o"` after the current TLS
+proof succeeds. The current checkpoint
 extends the network readiness states for TCP payload send/receive and the first
 TLS handshake proof. It parses up to five `AGENTS.CFG` `agent ` declarations and falls
 back to built-in `openai`, `anthropic`, and `google` when that file is missing

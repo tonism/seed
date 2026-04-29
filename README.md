@@ -57,11 +57,11 @@ receive-ring frame when available, sends DHCPDISCOVER, performs bounded
 DHCPOFFER and DHCPACK waits, ARPs for the DHCP-provided DNS server, resolves
 the `NET.CFG` probe host, selects and ARPs the TCP next hop, opens a port 80
 TCP connection through the same connect path used by agent prep, and sends the
-final ACK before leaving the dark `"o"` phase.
+final ACK before leaving the dark `","` phase.
 
 If no card responds, Seed turns the current `.` marker red and fast-types
 `no network card` with a low PC speaker failure tone, then offers `retry` or
-`restart`. Retry returns to the dark `.` HAL setup phase without rereading the
+`restart`. Retry returns to the dark `.` hardware phase without rereading the
 floppy; restart asks BIOS for a warm machine restart. Seed first tries to
 resolve shared ISA NIC bases with safe station-address PROM probes. It only
 pauses on a dim `.` and asks `adapter?` if the adapter family is still

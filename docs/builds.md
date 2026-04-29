@@ -3,15 +3,16 @@
 Seed's loading marker has four semantic phases plus the final splash:
 
 ```text
-" "          project init: boot sector, loader, CORE.SYS entry, display setup
-"." dark     HAL setup: hardware detection, adapter init, hardware handoff
-"o" dark     internet prep: network configuration and reachability
-"o" bright   agent prep: gateway, model, reasoning, key, session, and environment setup
+none         boot sector, loader, CORE.SYS load
+"." dark     hardware: CORE.SYS entry, display baseline, hardware detection, adapter init, hardware handoff
+"," dark     internet: IP configuration, DNS, and plain reachability proof
+"o" dark     secure connection: selected endpoint setup and TLS/crypto proof
+"o" bright   agent/environment: API validation, model/session, and environment handoff
 splash       ready handoff animation; no loading work happens here
 ```
 
-`retry` returns to the dark `"."` HAL setup phase. It does not rerun the
-project-init phase or reread floppy sectors.
+`retry` returns to the dark `"."` hardware phase. It does not reread floppy
+sectors or rerun the boot-sector/loader path.
 
 Builds can be larger than individual internal checkpoints. A build should map
 to a user-visible readiness goal; commits inside that build can still be small.
@@ -21,10 +22,10 @@ to a user-visible readiness goal; commits inside that build can still be small.
 ```text
 build 1   boot floppy proof
 build 2   minimal boot presentation: centered marker and fast-type banner
-build 3   " " phase: project init, display baseline, handoff block, retry boundary
-build 4   "." dark phase: HAL setup, adapter autodetect/fallback questions, hardware handoff
-build 5   "o" dark phase: internet prep, IP config, reachability proof
-build 6   "o" bright phase: agent prep, credentials, TLS, API, session, handover
+build 3   no-marker bootstrap: loader boundary, display baseline, handoff block, retry boundary
+build 4   "." dark phase: hardware setup, adapter autodetect/fallback questions, hardware handoff
+build 5   "," dark phase: internet prep, IP config, reachability proof
+build 6   "o" dark + bright phases: secure connection, credentials, API, session, handover
 ```
 
 Build 5 is intentionally broad. It should end when Seed can bring up a network
@@ -46,15 +47,16 @@ packet hardware init, bounded receive polling, DHCPDISCOVER/OFFER,
 DHCPREQUEST/ACK, DHCP subnet/router/DNS capture, DNS-server ARP, DNS A
 resolution for the `NET.CFG` probe host, subnet-aware next-hop ARP, and a TCP
 connect handshake to port 80 through the boot-core TCP connect path. NE-family
-cards also perform the receive-ring read diagnostic. This gives the dark `"o"`
+cards also perform the receive-ring read diagnostic. This gives the dark `","`
 phase a real outbound reachability proof without starting TLS, model API calls,
 or an agent session.
 
 ## Build 6
 
-Build 6 owns the bright `"o"` phase. It starts after internet readiness is
-proven and ends when Seed can connect to an agent and hand over to the first
-agent/user environment.
+Build 6 owns the dark `"o"` secure-connection phase and the bright `"o"`
+agent/environment phase. It starts after internet readiness is proven and ends
+when Seed can connect to an agent and hand over to the first agent/user
+environment.
 
 Current build 6 checkpoint:
 
@@ -64,7 +66,7 @@ optional tracked AGENTS.CFG root file with five agent interfaces
 optional tracked NET.CFG root file with the generic internet probe host
 fallback built-in agent interfaces for openai, anthropic, and google
 ignored USER.CFG for validated local user choices and secrets
-bright "o" parsing of up to five AGENTS.CFG agent declarations when present
+dark "o" parsing of up to five AGENTS.CFG agent declarations when present
 agent? drill-down menu when USER.CFG is missing, unreadable, unparseable, or invalid
 same-panel server?/key? form for selected agents that need both values
 preserve saved model/reasoning values, but do not ask the user to type them

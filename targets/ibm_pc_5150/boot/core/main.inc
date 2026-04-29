@@ -13,11 +13,6 @@ start:
     call clear_screen
     call hide_cursor
 
-    call set_seed_cursor
-    mov bl, [load_attr]
-    mov al, ' '
-    call show_load_marker
-
 hal_start:
     call clear_question_area
     call reset_hal_state
@@ -33,12 +28,12 @@ hal_start:
     jc network_setup_error
 
     mov bl, [load_attr]
-    mov al, 'o'
+    mov al, ','
     call show_load_marker
     call prepare_internet_path
     jc network_setup_error
 
-    mov bl, [ready_attr]
+    mov bl, [load_attr]
     mov al, 'o'
     call show_load_marker
     call prepare_agent_path

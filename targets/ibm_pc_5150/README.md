@@ -11,20 +11,19 @@ BIOS loads boot sector
   -> loader reads CORE.SYS from the FAT12 root directory
   -> CORE.SYS reads the current BIOS text-mode column count
   -> CORE.SYS clears text mode
-  -> shows the project-init load marker at the centered project start column
-  -> switches to a dim . marker for HAL setup
+  -> shows a dim . marker for hardware setup
   -> probes common ISA network card I/O bases
   -> records the responding NIC I/O base if one is found
   -> publishes boot, video, and NIC state to the handoff block at 0000:0600
   -> turns the . marker red and plays a low failure tone if no card responds
-  -> offers retry/restart after a critical failure; retry returns to HAL setup
+  -> offers retry/restart after a critical failure; retry returns to hardware setup
   -> probes station-address PROMs when the responding I/O base is ambiguous
   -> asks for adapter family only if the probes remain ambiguous
   -> records the current 86Box profile IRQ after adapter family resolution
   -> reads station-address PROMs into handoff when valid
   -> initializes NE1000/NE2000-family packet hardware
   -> reads one NE1000/NE2000-family pending receive-ring frame when available
-  -> switches to a dim o marker for internet prep
+  -> switches to a dim , marker for internet prep
   -> sends one NE1000/NE2000-family DHCPDISCOVER
   -> performs a two-pass filtered DHCPOFFER wait and parses it when available
   -> sends DHCPREQUEST and waits for DHCPACK when an offer is available
@@ -32,7 +31,7 @@ BIOS loads boot sector
   -> reads NET.CFG and resolves its probe host with a minimal DNS A query
   -> selects and ARPs the TCP next hop
   -> opens the probe TCP target on port 80 and sends the final ACK
-  -> switches to a bright o marker for agent prep
+  -> switches to a dim o marker for secure connection prep
   -> reads AGENTS.CFG and parses up to five agent declarations
   -> falls back to built-in openai/anthropic/google if AGENTS.CFG is missing or bad
   -> reads USER.CFG when present and validates the saved agent choice
@@ -45,6 +44,7 @@ BIOS loads boot sector
   -> parses ServerKeyExchange and range-checks the P-256 public point
   -> parses ServerHelloDone
   -> maintains a live SHA-256 TLS handshake transcript context through ServerHelloDone
+  -> switches to a bright o marker for agent and environment prep
   -> writes validated agent config back best-effort
   -> otherwise types seed build 6 rightward from that column
   -> waits about 500 ms
@@ -158,15 +158,16 @@ the centered project-name anchor.
 The first screen text is hardcoded in `CORE.SYS` for now:
 
 ```text
-project init    " "
-HAL setup       dim "."
-internet prep   dim "o"
-agent prep      bright "o"
+boot loader     no marker
+hardware setup  dim "."
+internet prep   dim ","
+secure prep     dim "o"
+agent/env prep  bright "o"
 failure         current marker turns red, low descending PC speaker tone, fast-typed error, then retry/restart
 question        phase-colored blinking marker, low PC speaker attention tone, bright fast-typed prompt ending with ?
 agent question  agent? with AGENTS.CFG entries or built-in big-three fallback when USER.CFG has no valid agent choice
 field question  server? and/or key? with cursor shown only while typing; Up/Down moves field focus
-success         " " -> dim "." -> dim "o" -> bright "o" -> seed build 6
+success         dim "." -> dim "," -> dim "o" -> bright "o" -> seed build 6
 ```
 
 The splash is only the ready handoff animation. No hardware setup, network

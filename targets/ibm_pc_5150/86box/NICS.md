@@ -13,11 +13,12 @@ sends ARP for the DHCP-provided DNS server, resolves the `NET.CFG` probe host,
 selects and ARPs the TCP next hop, opens a TCP connection to port 80, and sends
 the final ACK.
 
-Build 6 adds the bright `"o"` agent-prep checkpoint. The current ready screen
-also proves that agent interfaces came from either a valid FAT12 root
+Build 6 adds the dark `"o"` secure-connection checkpoint and the bright `"o"`
+agent/environment checkpoint. The current ready screen also proves that agent
+interfaces came from either a valid FAT12 root
 `AGENTS.CFG` file or the built-in `openai`, `anthropic`, and `google`
 fallback, and that selected agent and connection values came from either valid
-`USER.CFG` state or the bright question flow. With valid saved `USER.CFG`, the
+`USER.CFG` state or the question flow. With valid saved `USER.CFG`, the
 Build 6 path also resolves the selected agent host and proves TCP 443
 connection, then sends a minimal TLS 1.2 ClientHello with SNI offering only
 P-256 ECDHE-RSA-CHACHA20-POLY1305 for the current crypto path, parses
@@ -92,7 +93,7 @@ rtl8139c+            Realtek RTL8139C+
 
 All current 5150 candidate profiles were boot-tested for the Build 6
 internet-proof checkpoint on 27 April 2026 with `USER.CFG` excluded from the
-test floppy. Each NIC-present profile reached the bright `"o"` agent-prep
+test floppy. Each NIC-present profile reached the dark `"o"` secure-connection
 `agent?` prompt after packet-level internet readiness and FAT12 `AGENTS.CFG`
 parsing. With a valid `USER.CFG`, the same checkpoint can skip the prompt and
 advance to the `seed build 6` splash.
