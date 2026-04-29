@@ -616,8 +616,24 @@ p256_scalar_mult_mixed:
     call p256_point_set_infinity
     mov si, [p256_scalar_ptr]
     add si, p256_word_len - 2
-    mov [p256_scalar_word_ptr], si
     mov byte [p256_scalar_word_count], p256_word_count
+.find_first_word:
+    mov ax, [si]
+    or ax, ax
+    jnz .first_word_ready
+    sub si, 2
+    dec byte [p256_scalar_word_count]
+    jnz .find_first_word
+    jmp .done
+.first_word_ready:
+    mov [p256_scalar_word_ptr], si
+    mov [p256_scalar_word_value], ax
+    mov word [p256_scalar_mask], 0x8000
+.find_first_bit:
+    test ax, [p256_scalar_mask]
+    jnz .bit_loop
+    shr word [p256_scalar_mask], 1
+    jmp .find_first_bit
 .word_loop:
     mov si, [p256_scalar_word_ptr]
     mov ax, [si]
@@ -636,6 +652,7 @@ p256_scalar_mult_mixed:
     sub word [p256_scalar_word_ptr], 2
     dec byte [p256_scalar_word_count]
     jnz .word_loop
+.done:
     pop di
     pop si
     pop dx

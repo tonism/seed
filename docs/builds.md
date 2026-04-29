@@ -86,11 +86,11 @@ P-256-specific coefficient reduction for faster field multiplication
 Comba-style P-256 product accumulation and inlined reduction coefficient folding
 runtime P-256 public-point curve-equation validation for ServerKeyExchange
 8086 P-256 Jacobian point double and mixed-add helper primitives
-8086 P-256 scalar multiplication helper for mixed affine points
+8086 P-256 scalar multiplication helper for mixed affine points with leading-zero skip
 dependency-free P-256 vector, field-math, and point-math checker with optional OpenSSL cross-check
 ServerHelloDone proof
 live SHA-256 TLS handshake transcript context through ServerHelloDone
-fixed-scalar ECDHE shared-point generation from the server public point
+sparse fixed-scalar ECDHE shared-point generation from the server public point
 Jacobian shared point conversion into the affine X-coordinate pre-master secret
 best-effort USER.CFG write of validated agent, model, reasoning, key, and endpoint values
 ```
@@ -100,7 +100,7 @@ Still in build 6 scope:
 ```text
 replace fixed client random/scalar with a real entropy path before claiming secure TLS
 add transcript digest finalization/copy support for Finished verification
-reduce scalar multiplication from the current full double-and-add cost
+reduce the eventual full-random-scalar path below the current full double-and-add cost
 implement TLS 1.2 SHA-256 PRF and ChaCha20-Poly1305 records
 complete TLS directly from the 8088 runtime
 validate the selected provider key with a model API request

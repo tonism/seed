@@ -28,9 +28,9 @@ the Certificate handshake to the next handshake boundary, parses
 ServerKeyExchange, captures the uncompressed P-256 public point, converts X/Y
 into 16-bit little-endian field words, range-checks them below the P-256 prime,
 parses ServerHelloDone, maintains a live SHA-256 TLS handshake transcript
-context through ServerHelloDone, computes the fixed-scalar ECDHE shared point,
-converts the Jacobian result into the affine X-coordinate pre-master secret,
-and then reaches the ready splash.
+context through ServerHelloDone, computes the sparse fixed-scalar ECDHE shared
+point, converts the Jacobian result into the affine X-coordinate pre-master
+secret, and then reaches the ready splash.
 
 ## IBM PC 5150 Candidates
 
