@@ -180,6 +180,109 @@ p256_sub_mod:
 .done:
     ret
 
+p256_double_mod:
+    push di
+    mov di, si
+    call p256_add_mod
+    pop di
+    ret
+
+p256_quad_mod:
+    push si
+    call p256_double_mod
+    mov si, bx
+    call p256_double_mod
+    pop si
+    ret
+
+p256_eight_mod:
+    push si
+    call p256_quad_mod
+    mov si, bx
+    call p256_double_mod
+    pop si
+    ret
+
+p256_copy_words:
+    push cx
+    push si
+    push di
+    push es
+    mov cx, p256_word_count
+    push ds
+    pop es
+    rep movsw
+    pop es
+    pop di
+    pop si
+    pop cx
+    ret
+
+p256_clear_words:
+    push ax
+    push cx
+    push di
+    push es
+    xor ax, ax
+    mov cx, p256_word_count
+    push ds
+    pop es
+    rep stosw
+    pop es
+    pop di
+    pop cx
+    pop ax
+    ret
+
+p256_set_one:
+    call p256_clear_words
+    mov word [di], 1
+    ret
+
+p256_is_zero:
+    ; Returns CF=1 when the field element at SI is zero.
+    push ax
+    push cx
+    push si
+    mov cx, p256_word_count
+.next_word:
+    mov ax, [si]
+    or ax, ax
+    jnz .not_zero
+    lea si, [si + 2]
+    loop .next_word
+    pop si
+    pop cx
+    pop ax
+    stc
+    ret
+.not_zero:
+    pop si
+    pop cx
+    pop ax
+    clc
+    ret
+
+p256_point_set_infinity:
+    mov di, p256_jac_x
+    call p256_clear_words
+    mov di, p256_jac_y
+    call p256_clear_words
+    mov di, p256_jac_z
+    call p256_clear_words
+    ret
+
+p256_point_set_from_affine:
+    mov si, [p256_affine_x_ptr]
+    mov di, p256_jac_x
+    call p256_copy_words
+    mov si, [p256_affine_y_ptr]
+    mov di, p256_jac_y
+    call p256_copy_words
+    mov di, p256_jac_z
+    call p256_set_one
+    ret
+
 p256_validate_point_on_curve:
     ; Validates the loaded ServerKeyExchange point: y^2 == x^3 - 3x + b.
     push ax
@@ -228,6 +331,243 @@ p256_validate_point_on_curve:
     jmp .done
 .invalid:
     stc
+.done:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+p256_point_double_jacobian:
+    ; In-place Jacobian point doubling for the current p256_jac_* point.
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov si, p256_jac_z
+    call p256_is_zero
+    jc .done
+    mov si, p256_jac_y
+    call p256_is_zero
+    jc .infinity
+    mov si, p256_jac_z
+    mov di, p256_jac_z
+    mov bx, p256_s0
+    call p256_mul_mod
+    mov si, p256_jac_y
+    mov di, p256_jac_y
+    mov bx, p256_s1
+    call p256_mul_mod
+    mov si, p256_jac_x
+    mov di, p256_s1
+    mov bx, p256_s2
+    call p256_mul_mod
+    mov si, p256_jac_x
+    mov di, p256_s0
+    mov bx, p256_s3
+    call p256_sub_mod
+    mov si, p256_jac_x
+    mov di, p256_s0
+    mov bx, p256_s4
+    call p256_add_mod
+    mov si, p256_s3
+    mov di, p256_s4
+    mov bx, p256_s3
+    call p256_mul_mod
+    mov si, p256_s3
+    mov bx, p256_s4
+    call p256_double_mod
+    mov si, p256_s4
+    mov di, p256_s3
+    mov bx, p256_s3
+    call p256_add_mod
+    mov si, p256_s3
+    mov di, p256_s3
+    mov bx, p256_s4
+    call p256_mul_mod
+    mov si, p256_s2
+    mov bx, p256_s5
+    call p256_eight_mod
+    mov si, p256_s4
+    mov di, p256_s5
+    mov bx, p256_jac_x
+    call p256_sub_mod
+    mov si, p256_jac_y
+    mov di, p256_jac_z
+    mov bx, p256_s4
+    call p256_add_mod
+    mov si, p256_s4
+    mov di, p256_s4
+    mov bx, p256_s4
+    call p256_mul_mod
+    mov si, p256_s4
+    mov di, p256_s1
+    mov bx, p256_s4
+    call p256_sub_mod
+    mov si, p256_s4
+    mov di, p256_s0
+    mov bx, p256_jac_z
+    call p256_sub_mod
+    mov si, p256_s2
+    mov bx, p256_s4
+    call p256_quad_mod
+    mov si, p256_s4
+    mov di, p256_jac_x
+    mov bx, p256_s4
+    call p256_sub_mod
+    mov si, p256_s3
+    mov di, p256_s4
+    mov bx, p256_s4
+    call p256_mul_mod
+    mov si, p256_s1
+    mov di, p256_s1
+    mov bx, p256_s5
+    call p256_mul_mod
+    mov si, p256_s5
+    mov bx, p256_s5
+    call p256_eight_mod
+    mov si, p256_s4
+    mov di, p256_s5
+    mov bx, p256_jac_y
+    call p256_sub_mod
+    jmp .done
+.infinity:
+    call p256_point_set_infinity
+.done:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+p256_point_add_mixed:
+    ; In-place p256_jac_* += affine point referenced by p256_affine_*_ptr.
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov si, p256_jac_z
+    call p256_is_zero
+    jc .copy_affine
+    mov si, p256_jac_z
+    mov di, p256_jac_z
+    mov bx, p256_s0
+    call p256_mul_mod
+    mov si, [p256_affine_x_ptr]
+    mov di, p256_s0
+    mov bx, p256_s1
+    call p256_mul_mod
+    mov si, p256_jac_z
+    mov di, p256_s0
+    mov bx, p256_s2
+    call p256_mul_mod
+    mov si, [p256_affine_y_ptr]
+    mov di, p256_s2
+    mov bx, p256_s2
+    call p256_mul_mod
+    mov si, p256_s1
+    mov di, p256_jac_x
+    mov bx, p256_s3
+    call p256_sub_mod
+    mov si, p256_s2
+    mov di, p256_jac_y
+    mov bx, p256_s6
+    call p256_sub_mod
+    mov si, p256_s3
+    call p256_is_zero
+    jnc .regular_add
+    mov si, p256_s6
+    call p256_is_zero
+    jc .same_point
+    call p256_point_set_infinity
+    jmp .done
+.same_point:
+    call p256_point_double_jacobian
+    jmp .done
+.regular_add:
+    mov si, p256_s3
+    mov di, p256_s3
+    mov bx, p256_s4
+    call p256_mul_mod
+    mov si, p256_s4
+    mov bx, p256_s4
+    call p256_quad_mod
+    mov si, p256_s3
+    mov di, p256_s4
+    mov bx, p256_s5
+    call p256_mul_mod
+    mov si, p256_s6
+    mov bx, p256_s6
+    call p256_double_mod
+    mov si, p256_jac_x
+    mov di, p256_s4
+    mov bx, p256_s7
+    call p256_mul_mod
+    mov si, p256_s6
+    mov di, p256_s6
+    mov bx, p256_s8
+    call p256_mul_mod
+    mov si, p256_s8
+    mov di, p256_s5
+    mov bx, p256_s8
+    call p256_sub_mod
+    mov si, p256_s7
+    mov bx, p256_s4
+    call p256_double_mod
+    mov si, p256_s8
+    mov di, p256_s4
+    mov bx, p256_jac_x
+    call p256_sub_mod
+    mov si, p256_s7
+    mov di, p256_jac_x
+    mov bx, p256_s4
+    call p256_sub_mod
+    mov si, p256_s6
+    mov di, p256_s4
+    mov bx, p256_s4
+    call p256_mul_mod
+    mov si, p256_jac_y
+    mov di, p256_s5
+    mov bx, p256_s5
+    call p256_mul_mod
+    mov si, p256_s5
+    mov bx, p256_s5
+    call p256_double_mod
+    mov si, p256_s4
+    mov di, p256_s5
+    mov bx, p256_jac_y
+    call p256_sub_mod
+    mov si, p256_s3
+    mov di, p256_s3
+    mov bx, p256_s8
+    call p256_mul_mod
+    mov si, p256_jac_z
+    mov di, p256_s3
+    mov bx, p256_s4
+    call p256_add_mod
+    mov si, p256_s4
+    mov di, p256_s4
+    mov bx, p256_s4
+    call p256_mul_mod
+    mov si, p256_s4
+    mov di, p256_s0
+    mov bx, p256_s4
+    call p256_sub_mod
+    mov si, p256_s4
+    mov di, p256_s8
+    mov bx, p256_jac_z
+    call p256_sub_mod
+    jmp .done
+.copy_affine:
+    call p256_point_set_from_affine
 .done:
     pop di
     pop si

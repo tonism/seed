@@ -175,7 +175,21 @@ tls_server_ec_y_words times p256_word_len db 0
 p256_lhs times p256_word_len db 0
 p256_rhs times p256_word_len db 0
 p256_tmp times p256_word_len db 0
+p256_jac_x times p256_word_len db 0
+p256_jac_y times p256_word_len db 0
+p256_jac_z times p256_word_len db 0
+p256_s0 times p256_word_len db 0
+p256_s1 times p256_word_len db 0
+p256_s2 times p256_word_len db 0
+p256_s3 times p256_word_len db 0
+p256_s4 times p256_word_len db 0
+p256_s5 times p256_word_len db 0
+p256_s6 times p256_word_len db 0
+p256_s7 times p256_word_len db 0
+p256_s8 times p256_word_len db 0
 p256_product times p256_product_word_len db 0
+p256_affine_x_ptr dw 0
+p256_affine_y_ptr dw 0
 p256_left_ptr dw 0
 p256_right_ptr dw 0
 p256_result_ptr dw 0

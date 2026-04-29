@@ -213,6 +213,77 @@ def curve_lhs_words(y: int) -> int:
     return mul_words_mod(y, y)
 
 
+def jacobian_from_affine(point: tuple[int, int]) -> tuple[int, int, int]:
+    return point[0], point[1], 1
+
+
+def jacobian_to_affine(point: tuple[int, int, int]) -> tuple[int, int] | None:
+    x, y, z = point
+    if z == 0:
+        return None
+    z_inv = inv_mod(z)
+    z2_inv = mul_words_mod(z_inv, z_inv)
+    z3_inv = mul_words_mod(z2_inv, z_inv)
+    return mul_words_mod(x, z2_inv), mul_words_mod(y, z3_inv)
+
+
+def jacobian_double_words(point: tuple[int, int, int]) -> tuple[int, int, int]:
+    x, y, z = point
+    if z == 0 or y == 0:
+        return 0, 0, 0
+    delta = mul_words_mod(z, z)
+    gamma = mul_words_mod(y, y)
+    beta = mul_words_mod(x, gamma)
+    alpha = mul_words_mod(sub_words_mod(x, delta), add_words_mod(x, delta))
+    alpha = add_words_mod(add_words_mod(alpha, alpha), alpha)
+    x3 = sub_words_mod(mul_words_mod(alpha, alpha), mul_words_mod(8, beta))
+    z3 = sub_words_mod(sub_words_mod(mul_words_mod(add_words_mod(y, z), add_words_mod(y, z)), gamma), delta)
+    y3 = sub_words_mod(
+        mul_words_mod(alpha, sub_words_mod(mul_words_mod(4, beta), x3)),
+        mul_words_mod(8, mul_words_mod(gamma, gamma)),
+    )
+    return x3, y3, z3
+
+
+def jacobian_add_mixed_words(
+    left: tuple[int, int, int], right: tuple[int, int]
+) -> tuple[int, int, int]:
+    x1, y1, z1 = left
+    x2, y2 = right
+    if z1 == 0:
+        return x2, y2, 1
+    z1z1 = mul_words_mod(z1, z1)
+    u2 = mul_words_mod(x2, z1z1)
+    s2 = mul_words_mod(y2, mul_words_mod(z1, z1z1))
+    h = sub_words_mod(u2, x1)
+    s_delta = sub_words_mod(s2, y1)
+    if h == 0:
+        if s_delta == 0:
+            return jacobian_double_words(left)
+        return 0, 0, 0
+    hh = mul_words_mod(h, h)
+    i = mul_words_mod(4, hh)
+    j = mul_words_mod(h, i)
+    r = add_words_mod(s_delta, s_delta)
+    v = mul_words_mod(x1, i)
+    x3 = sub_words_mod(sub_words_mod(mul_words_mod(r, r), j), add_words_mod(v, v))
+    y3 = sub_words_mod(mul_words_mod(r, sub_words_mod(v, x3)), mul_words_mod(2, mul_words_mod(y1, j)))
+    z3 = sub_words_mod(sub_words_mod(mul_words_mod(add_words_mod(z1, h), add_words_mod(z1, h)), z1z1), hh)
+    return x3, y3, z3
+
+
+def scalar_mult_jacobian_words(scalar: int, point: tuple[int, int]) -> tuple[int, int]:
+    result = (0, 0, 0)
+    for bit in range(scalar.bit_length() - 1, -1, -1):
+        result = jacobian_double_words(result)
+        if scalar & (1 << bit):
+            result = jacobian_add_mixed_words(result, point)
+    affine = jacobian_to_affine(result)
+    if affine is None:
+        raise AssertionError("unexpected point at infinity")
+    return affine
+
+
 def check_field_words() -> None:
     assert parse_dw_words("p256_prime") == to_words_le(P)
     assert parse_dw_words("p256_b") == to_words_le(B)
@@ -247,6 +318,13 @@ def check_field_words() -> None:
     for x, y in (G, CLIENT_PUBLIC, PEER_PUBLIC):
         assert curve_lhs_words(y) == curve_rhs_words(x)
         assert curve_lhs_words((y + 1) % P) != curve_rhs_words(x)
+    assert jacobian_to_affine(jacobian_double_words(jacobian_from_affine(G))) == point_add(G, G)
+    assert jacobian_to_affine(jacobian_add_mixed_words(jacobian_from_affine(G), G)) == point_add(G, G)
+    two_g = jacobian_double_words(jacobian_from_affine(G))
+    assert jacobian_to_affine(jacobian_add_mixed_words(two_g, G)) == scalar_mult(3, G)
+    assert scalar_mult_jacobian_words(CLIENT_PRIVATE, G) == CLIENT_PUBLIC
+    assert scalar_mult_jacobian_words(PEER_PRIVATE, G) == PEER_PUBLIC
+    assert scalar_mult_jacobian_words(CLIENT_PRIVATE, PEER_PUBLIC)[0] == SHARED_X
 
 
 def der_len(length: int) -> bytes:
@@ -321,9 +399,9 @@ def main() -> None:
     openssl_x = openssl_shared_x(CLIENT_PRIVATE, PEER_PRIVATE)
     if openssl_x is not None:
         assert openssl_x == SHARED_X
-        print("p256 vectors and field math ok; openssl cross-check ok")
+        print("p256 vectors, field math, and point math ok; openssl cross-check ok")
     else:
-        print("p256 vectors and field math ok; openssl unavailable")
+        print("p256 vectors, field math, and point math ok; openssl unavailable")
 
 
 if __name__ == "__main__":
