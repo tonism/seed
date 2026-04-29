@@ -55,13 +55,14 @@ Expected first screen:
 boot loader     no marker
 hardware setup  dim "." for CORE.SYS display baseline, hardware detection, and adapter initialization
 internet prep   dim "," for network configuration and plain reachability
-secure prep     dim "o" for selected endpoint setup and TLS/crypto proof
+secure prep     dim "o" for selected endpoint setup and TLS protocol proof
+crypto prep     normal "o" on CGA/VGA, dim "o" on MDA, for ECDHE/key setup
 agent/env prep  bright "o" for API validation, model, reasoning, session, and environment setup
 no card         current marker turns red, low descending PC speaker tone, fast-typed no network card, then retry/restart
 question        phase-colored blinking marker, low PC speaker attention tone, bright fast-typed prompt ending with ?
 agent question  agent? with AGENTS.CFG entries or built-in big-three fallback when USER.CFG has no valid agent choice
 field question  server? and/or key? with cursor shown only while typing; Up/Down moves field focus
-success         dim "." -> dim "," -> dim "o" -> bright "o" -> seed build 6
+success         dim "." -> dim "," -> dim "o" -> normal "o" -> bright "o" -> seed build 6
 ```
 
 The splash is only the ready handoff animation. No setup work happens during
@@ -95,6 +96,7 @@ Default CGA colors:
 seed       white
 build 6    dark gray
 loading    dark gray
+crypto     light gray
 ready      white
 question   white
 error      red

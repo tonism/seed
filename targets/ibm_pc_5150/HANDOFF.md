@@ -169,8 +169,9 @@ internet phase fails into the network setup error path with the corresponding
 status and network error.
 
 Build 6 starts after the dark `","` internet phase. It uses a dark `"o"` for
-secure connection prep and switches to a bright `"o"` after the current TLS
-proof succeeds. The current checkpoint
+secure connection prep, switches to a normal `"o"` for local ECDHE/key
+material derivation, and switches to a bright `"o"` after the current TLS
+proof succeeds. On MDA, dark and normal `"o"` both render non-bright. The current checkpoint
 extends the network readiness states for TCP payload send/receive and the first
 TLS handshake proof. It parses up to five `AGENTS.CFG` `agent ` declarations and falls
 back to built-in `openai`, `anthropic`, and `google` when that file is missing

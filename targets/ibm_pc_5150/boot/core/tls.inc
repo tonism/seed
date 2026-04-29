@@ -32,6 +32,9 @@ tls_probe_server:
     jc .failed
     call tls_wait_for_server_key_exchange_or_done
     jc .failed
+    mov bl, [crypto_attr]
+    mov al, 'o'
+    call show_load_marker
     call tls_prepare_premaster_secret
     jc .failed
     clc

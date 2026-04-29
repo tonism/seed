@@ -43,6 +43,7 @@ detect_display:
     mov byte [seed_attr], seed_attr_mda
     mov byte [build_attr], build_attr_mda
     mov byte [load_attr], load_attr_mda
+    mov byte [crypto_attr], crypto_attr_mda
     mov byte [ready_attr], ready_attr_mda
     mov byte [question_attr], question_attr_mda
     mov byte [error_attr], error_attr_mda

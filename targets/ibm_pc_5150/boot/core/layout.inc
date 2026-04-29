@@ -89,6 +89,7 @@ net_error_tls equ 13
 seed_attr_cga equ 0x0f
 build_attr_cga equ 0x08
 load_attr_cga equ 0x08
+crypto_attr_cga equ 0x07
 ready_attr_cga equ 0x0f
 question_attr_cga equ 0x0f
 error_attr_cga equ 0x0c
@@ -97,6 +98,7 @@ menu_idle_attr_cga equ 0x08
 seed_attr_mda equ 0x0f
 build_attr_mda equ 0x07
 load_attr_mda equ 0x07
+crypto_attr_mda equ 0x07
 ready_attr_mda equ 0x0f
 question_attr_mda equ 0x0f
 error_attr_mda equ 0x0f

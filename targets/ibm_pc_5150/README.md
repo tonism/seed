@@ -47,6 +47,7 @@ BIOS loads boot sector
   -> computes the sparse fixed-scalar ECDHE shared point
   -> converts the Jacobian shared point into the affine X-coordinate pre-master secret
   -> derives TLS master secret and ChaCha20-Poly1305 traffic keys
+  -> uses a normal o marker during local crypto/key setup
   -> switches to a bright o marker for agent and environment prep
   -> writes validated agent config back best-effort
   -> otherwise types seed build 6 rightward from that column
@@ -169,12 +170,13 @@ boot loader     no marker
 hardware setup  dim "."
 internet prep   dim ","
 secure prep     dim "o"
+crypto prep     normal "o" on CGA/VGA, dim "o" on MDA
 agent/env prep  bright "o"
 failure         current marker turns red, low descending PC speaker tone, fast-typed error, then retry/restart
 question        phase-colored blinking marker, low PC speaker attention tone, bright fast-typed prompt ending with ?
 agent question  agent? with AGENTS.CFG entries or built-in big-three fallback when USER.CFG has no valid agent choice
 field question  server? and/or key? with cursor shown only while typing; Up/Down moves field focus
-success         dim "." -> dim "," -> dim "o" -> bright "o" -> seed build 6
+success         dim "." -> dim "," -> dim "o" -> normal "o" -> bright "o" -> seed build 6
 ```
 
 The splash is only the ready handoff animation. No hardware setup, network
@@ -195,6 +197,7 @@ Default display attributes:
 seed       CGA white / MDA bright
 build 6    CGA dark gray / MDA normal
 loading    CGA dark gray / MDA normal
+crypto     CGA light gray / MDA normal
 ready      CGA white / MDA bright
 question   CGA white / MDA bright
 error      CGA red / MDA bright

@@ -133,8 +133,8 @@ same path.
 specific request mapping is later Build 6 work. The `key` value is plaintext on
 the boot medium. The current ClientHello random is fixed, and the current ECDHE
 scalar is a sparse fixed development value so emulator boot tests do not spend
-minutes in the dark `"o"` phase. A real entropy path and a faster full-scalar
-strategy are required before this can be treated as secure TLS. TLS transcript
-digest use for Finished, ChaCha20-Poly1305 records, the remaining TLS
-handshake, authenticated API calls, capability fetches, model selection, and
-reasoning selection are still build 6 follow-up work.
+minutes in the `"o"` secure/crypto phases. A real entropy path and a faster
+full-scalar strategy are required before this can be treated as secure TLS.
+TLS transcript digest use for Finished, ChaCha20-Poly1305 records, the
+remaining TLS handshake, authenticated API calls, capability fetches, model
+selection, and reasoning selection are still build 6 follow-up work.

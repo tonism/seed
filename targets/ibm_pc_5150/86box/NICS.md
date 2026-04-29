@@ -13,12 +13,13 @@ sends ARP for the DHCP-provided DNS server, resolves the `NET.CFG` probe host,
 selects and ARPs the TCP next hop, opens a TCP connection to port 80, and sends
 the final ACK.
 
-Build 6 adds the dark `"o"` secure-connection checkpoint and the bright `"o"`
-agent/environment checkpoint. The current ready screen also proves that agent
-interfaces came from either a valid FAT12 root
-`AGENTS.CFG` file or the built-in `openai`, `anthropic`, and `google`
-fallback, and that selected agent and connection values came from either valid
-`USER.CFG` state or the question flow. With valid saved `USER.CFG`, the
+Build 6 adds the dark `"o"` secure-connection checkpoint, the normal `"o"`
+local crypto checkpoint, and the bright `"o"` agent/environment checkpoint.
+MDA collapses dark and normal `"o"` to the same non-bright attribute. The
+current ready screen also proves that agent interfaces came from either a valid
+FAT12 root `AGENTS.CFG` file or the built-in `openai`, `anthropic`, and
+`google` fallback, and that selected agent and connection values came from
+either valid `USER.CFG` state or the question flow. With valid saved `USER.CFG`, the
 Build 6 path also resolves the selected agent host and proves TCP 443
 connection, then sends a minimal TLS 1.2 ClientHello with SNI offering only
 P-256 ECDHE-RSA-CHACHA20-POLY1305 for the current crypto path, parses

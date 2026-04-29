@@ -1,12 +1,13 @@
 # Build Scope
 
-Seed's loading marker has four semantic phases plus the final splash:
+Seed's loading marker has five semantic states plus the final splash:
 
 ```text
 none         boot sector, loader, CORE.SYS load
 "." dark     hardware: CORE.SYS entry, display baseline, hardware detection, adapter init, hardware handoff
 "," dark     internet: IP configuration, DNS, and plain reachability proof
-"o" dark     secure connection: selected endpoint setup and TLS/crypto proof
+"o" dark     secure connection: selected endpoint setup and TLS protocol proof
+"o" normal   local crypto: P-256 ECDHE and TLS key-material derivation
 "o" bright   agent/environment: API validation, model/session, and environment handoff
 splash       ready handoff animation; no loading work happens here
 ```
@@ -25,7 +26,7 @@ build 2   minimal boot presentation: centered marker and fast-type banner
 build 3   no-marker bootstrap: loader boundary, display baseline, handoff block, retry boundary
 build 4   "." dark phase: hardware setup, adapter autodetect/fallback questions, hardware handoff
 build 5   "," dark phase: internet prep, IP config, reachability proof
-build 6   "o" dark + bright phases: secure connection, credentials, API, session, handover
+build 6   "o" dark + normal + bright phases: secure connection, credentials, API, session, handover
 ```
 
 Build 5 is intentionally broad. It should end when Seed can bring up a network
@@ -53,10 +54,11 @@ or an agent session.
 
 ## Build 6
 
-Build 6 owns the dark `"o"` secure-connection phase and the bright `"o"`
-agent/environment phase. It starts after internet readiness is proven and ends
-when Seed can connect to an agent and hand over to the first agent/user
-environment.
+Build 6 owns the dark `"o"` secure-connection phase, the normal `"o"` local
+crypto phase, and the bright `"o"` agent/environment phase. It starts after
+internet readiness is proven and ends when Seed can connect to an agent and
+hand over to the first agent/user environment. On MDA, dark and normal `"o"`
+both render with the same non-bright attribute.
 
 Current build 6 checkpoint:
 

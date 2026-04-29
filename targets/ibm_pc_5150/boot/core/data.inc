@@ -5,6 +5,7 @@ seed_col db (80 - seed_len) / 2
 seed_attr db seed_attr_cga
 build_attr db build_attr_cga
 load_attr db load_attr_cga
+crypto_attr db crypto_attr_cga
 ready_attr db ready_attr_cga
 question_attr db question_attr_cga
 error_attr db error_attr_cga

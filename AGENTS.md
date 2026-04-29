@@ -94,6 +94,7 @@ none         boot sector, loader, CORE.SYS load
 "." dark     hardware and local machine setup
 "," dark     internet prep and reachability
 "o" dark     secure connection setup
+"o" normal   local TLS crypto/key material setup
 "o" bright   agent and environment prep
 red marker   fatal error state; keep the current phase glyph
 ```
