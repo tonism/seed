@@ -170,6 +170,37 @@ def mul_product_words(left: int, right: int) -> list[int]:
     return product
 
 
+def mul_product_words_comba(left: int, right: int) -> list[int]:
+    product = [0] * PRODUCT_WORD_COUNT
+    left_words = to_words_le(left)
+    right_words = to_words_le(right)
+    acc0 = 0
+    acc1 = 0
+    acc2 = 0
+    for column in range(PRODUCT_WORD_COUNT):
+        start = 0 if column < WORD_COUNT else column - (WORD_COUNT - 1)
+        end = min(column, WORD_COUNT - 1)
+        if start <= end:
+            left_index = start
+            right_index = column - start
+            for _ in range(end - start + 1):
+                raw = left_words[left_index] * right_words[right_index]
+                acc0 += raw & 0xFFFF
+                carry = acc0 >> 16
+                acc0 &= 0xFFFF
+                acc1 += (raw >> 16) + carry
+                carry = acc1 >> 16
+                acc1 &= 0xFFFF
+                acc2 = (acc2 + carry) & 0xFFFF
+                left_index += 1
+                right_index -= 1
+        product[column] = acc0
+        acc0 = acc1
+        acc1 = acc2
+        acc2 = 0
+    return product
+
+
 def reduce_coeff_row(power: int) -> list[int]:
     coeff = [0] * (power + 1)
     coeff[power] = 1
@@ -339,6 +370,7 @@ def check_field_words() -> None:
             assert add_words_mod(left, right) == (left + right) % P
             assert sub_words_mod(left, right) == (left - right) % P
             assert mul_product_words(left, right) == to_product_words_le(left * right)
+            assert mul_product_words_comba(left, right) == mul_product_words(left, right)
             assert mul_words_mod(left, right) == (left * right) % P
     for x, y in (G, CLIENT_PUBLIC, PEER_PUBLIC):
         assert curve_lhs_words(y) == curve_rhs_words(x)

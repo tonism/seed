@@ -639,7 +639,6 @@ p256_mul_mod:
     mov [p256_left_ptr], si
     mov [p256_right_ptr], di
     mov [p256_result_ptr], bx
-    call p256_clear_product
     call p256_mul_product
     call p256_reduce_product
     mov si, p256_product
@@ -657,80 +656,68 @@ p256_mul_mod:
     pop ax
     ret
 
-p256_clear_product:
-    push ax
-    push cx
-    push di
-    push es
-    xor ax, ax
-    mov di, p256_product
-    mov cx, p256_product_word_count
-    push ds
-    pop es
-    rep stosw
-    pop es
-    pop di
-    pop cx
-    pop ax
-    ret
-
 p256_mul_product:
+    mov word [p256_mul_acc0], 0
+    mov word [p256_mul_acc1], 0
+    mov word [p256_mul_acc2], 0
     mov byte [p256_i], 0
 .outer_loop:
-    cmp byte [p256_i], p256_word_count
+    cmp byte [p256_i], p256_product_word_count
     jae .done
+    mov al, [p256_i]
+    cmp al, p256_word_count
+    jb .start_zero
+    sub al, p256_word_count - 1
+    jmp .start_ready
+.start_zero:
+    xor al, al
+.start_ready:
+    mov [p256_j], al
+    mov ah, [p256_i]
+    cmp ah, p256_word_count - 1
+    jbe .end_ready
+    mov ah, p256_word_count - 1
+.end_ready:
+    cmp ah, [p256_j]
+    jb .store_word
+    sub ah, [p256_j]
+    inc ah
+    xor ch, ch
+    mov cl, ah
     mov si, [p256_left_ptr]
-    mov bl, [p256_i]
-    xor bh, bh
-    add bx, bx
-    add si, bx
-    mov ax, [si]
-    mov [p256_mul_left_word], ax
-    mov byte [p256_j], 0
-.inner_loop:
-    cmp byte [p256_j], p256_word_count
-    jae .next_outer
-    mov si, [p256_right_ptr]
     mov bl, [p256_j]
     xor bh, bh
     add bx, bx
     add si, bx
-    mov ax, [p256_mul_left_word]
-    mul word [si]
+    mov di, [p256_right_ptr]
     mov bl, [p256_i]
-    add bl, [p256_j]
+    sub bl, [p256_j]
     xor bh, bh
     add bx, bx
-    add bx, p256_product
-    call p256_add_mul_word
-    inc byte [p256_j]
-    jmp .inner_loop
-.next_outer:
+    add di, bx
+.inner_loop:
+    mov ax, [si]
+    mul word [di]
+    add [p256_mul_acc0], ax
+    adc [p256_mul_acc1], dx
+    adc word [p256_mul_acc2], 0
+.next_inner:
+    add si, 2
+    sub di, 2
+    loop .inner_loop
+.store_word:
+    mov bl, [p256_i]
+    xor bh, bh
+    add bx, bx
+    mov ax, [p256_mul_acc0]
+    mov [p256_product + bx], ax
+    mov ax, [p256_mul_acc1]
+    mov [p256_mul_acc0], ax
+    mov ax, [p256_mul_acc2]
+    mov [p256_mul_acc1], ax
+    mov word [p256_mul_acc2], 0
     inc byte [p256_i]
     jmp .outer_loop
-.done:
-    ret
-
-p256_add_mul_word:
-    ; Adds DX:AX to p256_product at word offset BX.
-    mov word [p256_mul_carry], 0
-    add [bx], ax
-    adc dx, 0
-    adc word [p256_mul_carry], 0
-    add [bx + 2], dx
-    adc word [p256_mul_carry], 0
-    add bx, 4
-    mov ax, [p256_mul_carry]
-    or ax, ax
-    jz .done
-    add [bx], ax
-    jnc .done
-    add bx, 2
-.propagate:
-    inc word [bx]
-    jnz .done
-    add bx, 2
-    jmp .propagate
 .done:
     ret
 
@@ -797,13 +784,26 @@ p256_reduce_fold_high_words:
     lodsb
     or al, al
     jz .next_coeff
-    push bx
-    push cx
-    push si
-    call p256_reduce_apply_coeff
-    pop si
-    pop cx
-    pop bx
+    mov [p256_j], al
+    mov ax, [p256_mul_left_word]
+    xor dx, dx
+    cmp byte [p256_j], 0xff
+    je .subtract_coeff
+    cmp byte [p256_j], 1
+    je .add_coeff
+    shl ax, 1
+    rcl dx, 1
+    cmp byte [p256_j], 2
+    je .add_coeff
+    add ax, [p256_mul_left_word]
+    adc dx, 0
+.add_coeff:
+    add [di], ax
+    adc [di + 2], dx
+    jmp .next_coeff
+.subtract_coeff:
+    sub [di], ax
+    sbb [di + 2], dx
 .next_coeff:
     add di, 4
     loop .coeff_loop
@@ -820,42 +820,6 @@ p256_reduce_fold_high_words:
     pop cx
     pop bx
     pop ax
-    ret
-
-p256_reduce_apply_coeff:
-    ; Applies AL coefficient (-1, 1, 2, or 3) times p256_mul_left_word to DI.
-    push bx
-    push cx
-    push dx
-    mov bl, al
-    mov ax, [p256_mul_left_word]
-    xor dx, dx
-    cmp bl, 0xff
-    je .subtract
-    cmp bl, 1
-    je .add
-    cmp bl, 2
-    je .double
-    mov cx, ax
-    shl ax, 1
-    rcl dx, 1
-    add ax, cx
-    adc dx, 0
-    jmp .add
-.double:
-    shl ax, 1
-    rcl dx, 1
-.add:
-    add [di], ax
-    adc [di + 2], dx
-    jmp .done
-.subtract:
-    sub [di], ax
-    sbb [di + 2], dx
-.done:
-    pop dx
-    pop cx
-    pop bx
     ret
 
 p256_reduce_normalize_acc:

@@ -81,6 +81,7 @@ P-256 coordinate conversion to 16-bit little-endian field words and coordinate r
 8086 P-256 field add/sub modulo-p primitives
 8086 P-256 field multiplication/reduction primitives
 P-256-specific coefficient reduction for faster field multiplication
+Comba-style P-256 product accumulation and inlined reduction coefficient folding
 runtime P-256 public-point curve-equation validation for ServerKeyExchange
 8086 P-256 Jacobian point double and mixed-add helper primitives
 8086 P-256 scalar multiplication helper for mixed affine points
@@ -94,7 +95,7 @@ Still in build 6 scope:
 
 ```text
 add transcript digest finalization/copy support for Finished verification
-optimize and wire P-256 scalar multiplication into ECDHE shared-secret generation
+reduce scalar multiplication from the current full double-and-add cost and wire it into ECDHE shared-secret generation
 convert the Jacobian ECDHE shared point into the affine x-coordinate pre-master secret
 implement TLS 1.2 SHA-256 PRF and ChaCha20-Poly1305 records
 complete TLS directly from the 8088 runtime

@@ -143,9 +143,10 @@ cipher-suite, session-id, known extension flags, and selected cipher path,
 parses the following Certificate handshake header, drains that Certificate
 handshake to the next handshake boundary, parses the ECDHE ServerKeyExchange
 header, captures the uncompressed P-256 public point, converts X/Y into 16-bit
-little-endian field words, range-checks them below the P-256 prime, and parses
-ServerHelloDone, maintains a live SHA-256 TLS handshake transcript context
-through ServerHelloDone, and writes the validated values back best-effort.
+little-endian field words, range-checks them below the P-256 prime, verifies
+the point with the current P-256 field math, and parses ServerHelloDone,
+maintains a live SHA-256 TLS handshake transcript context through
+ServerHelloDone, and writes the validated values back best-effort.
 Missing or invalid `AGENTS.CFG` content falls back to
 built-in `openai`, `anthropic`, and `google`; other agent setup failures still
 fail in the bright `"o"` phase as `agent setup failed`.

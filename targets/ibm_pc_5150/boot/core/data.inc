@@ -200,7 +200,9 @@ p256_left_ptr dw 0
 p256_right_ptr dw 0
 p256_result_ptr dw 0
 p256_mul_left_word dw 0
-p256_mul_carry dw 0
+p256_mul_acc0 dw 0
+p256_mul_acc1 dw 0
+p256_mul_acc2 dw 0
 p256_reduce_carry dw 0
 p256_i db 0
 p256_j db 0
