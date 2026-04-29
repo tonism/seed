@@ -70,6 +70,7 @@ net_status_tls_certificate_drained equ 25
 net_status_tls_serverkeyexchange_received equ 26
 net_status_tls_serverhellodone_received equ 27
 net_status_tls_transcript_ready equ 28
+net_status_tls_premaster_ready equ 29
 net_error_none equ 0
 net_error_ne_init equ 1
 net_error_ne_tx equ 2

@@ -172,6 +172,8 @@ tls_server_ec_x times tls_ec_coordinate_len db 0
 tls_server_ec_y times tls_ec_coordinate_len db 0
 tls_server_ec_x_words times p256_word_len db 0
 tls_server_ec_y_words times p256_word_len db 0
+tls_shared_x_words times p256_word_len db 0
+tls_premaster_secret times tls_ec_coordinate_len db 0
 p256_lhs times p256_word_len db 0
 p256_rhs times p256_word_len db 0
 p256_tmp times p256_word_len db 0
@@ -199,6 +201,7 @@ p256_scalar_word_count db 0
 p256_left_ptr dw 0
 p256_right_ptr dw 0
 p256_result_ptr dw 0
+p256_inv_output_ptr dw 0
 p256_mul_left_word dw 0
 p256_mul_acc0 dw 0
 p256_mul_acc1 dw 0
@@ -257,6 +260,10 @@ p256_prime dw 0xffff, 0xffff, 0xffff, 0xffff
            dw 0xffff, 0xffff, 0x0000, 0x0000
            dw 0x0000, 0x0000, 0x0000, 0x0000
            dw 0x0001, 0x0000, 0xffff, 0xffff
+p256_prime_minus_2 dw 0xfffd, 0xffff, 0xffff, 0xffff
+                   dw 0xffff, 0xffff, 0x0000, 0x0000
+                   dw 0x0000, 0x0000, 0x0000, 0x0000
+                   dw 0x0001, 0x0000, 0xffff, 0xffff
 p256_b dw 0x604b, 0x27d2, 0x3c3e, 0x3bce
        dw 0xb0f6, 0xcc53, 0x06b0, 0x651d
        dw 0x86bc, 0x7698, 0xbd55, 0xb3eb

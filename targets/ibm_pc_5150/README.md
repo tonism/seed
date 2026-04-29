@@ -44,6 +44,8 @@ BIOS loads boot sector
   -> parses ServerKeyExchange and range-checks the P-256 public point
   -> parses ServerHelloDone
   -> maintains a live SHA-256 TLS handshake transcript context through ServerHelloDone
+  -> computes the fixed-scalar ECDHE shared point
+  -> converts the Jacobian shared point into the affine X-coordinate pre-master secret
   -> switches to a bright o marker for agent and environment prep
   -> writes validated agent config back best-effort
   -> otherwise types seed build 6 rightward from that column
@@ -146,7 +148,9 @@ header, captures the uncompressed P-256 public point, converts X/Y into 16-bit
 little-endian field words, range-checks them below the P-256 prime, verifies
 the point with the current P-256 field math, and parses ServerHelloDone,
 maintains a live SHA-256 TLS handshake transcript context through
-ServerHelloDone, and writes the validated values back best-effort.
+ServerHelloDone, computes the fixed-scalar ECDHE shared point, converts the
+Jacobian result into the affine X-coordinate pre-master secret, and writes the
+validated values back best-effort.
 Missing or invalid `AGENTS.CFG` content falls back to
 built-in `openai`, `anthropic`, and `google`; other agent setup failures still
 fail in the bright `"o"` phase as `agent setup failed`.

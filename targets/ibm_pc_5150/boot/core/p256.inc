@@ -24,6 +24,32 @@ p256_from_be32:
     pop ax
     ret
 
+p256_to_be32:
+    push ax
+    push bx
+    push cx
+    push si
+    push di
+    push es
+    push ds
+    pop es
+    mov bx, si
+    add bx, p256_word_len - 2
+    mov cx, p256_word_count
+.next_word:
+    mov ax, [bx]
+    xchg al, ah
+    stosw
+    sub bx, 2
+    loop .next_word
+    pop es
+    pop di
+    pop si
+    pop cx
+    pop bx
+    pop ax
+    ret
+
 p256_cmp_words:
     ; Returns CF=1 when SI value is below DI value, CF=0 otherwise.
     push ax
@@ -626,6 +652,83 @@ p256_compute_server_shared_jacobian:
     mov si, p256_client_private
     call p256_scalar_mult_mixed
     pop si
+    ret
+
+p256_compute_server_premaster_secret:
+    call p256_compute_server_shared_jacobian
+    mov si, p256_jac_z
+    call p256_is_zero
+    jc .failed
+    mov si, p256_jac_z
+    mov di, p256_s0
+    call p256_inv_mod
+    mov si, p256_s0
+    mov di, p256_s0
+    mov bx, p256_s1
+    call p256_mul_mod
+    mov si, p256_jac_x
+    mov di, p256_s1
+    mov bx, tls_shared_x_words
+    call p256_mul_mod
+    mov si, tls_shared_x_words
+    mov di, tls_premaster_secret
+    call p256_to_be32
+    clc
+    ret
+.failed:
+    stc
+    ret
+
+p256_inv_mod:
+    ; Raises SI to p-2 and writes the field inverse to DI.
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov [p256_inv_output_ptr], di
+    mov di, p256_s1
+    call p256_copy_words
+    mov di, p256_s0
+    call p256_set_one
+    mov si, p256_prime_minus_2
+    add si, p256_word_len - 2
+    mov [p256_scalar_word_ptr], si
+    mov byte [p256_scalar_word_count], p256_word_count
+.word_loop:
+    mov si, [p256_scalar_word_ptr]
+    mov ax, [si]
+    mov [p256_scalar_word_value], ax
+    mov word [p256_scalar_mask], 0x8000
+.bit_loop:
+    mov si, p256_s0
+    mov di, p256_s0
+    mov bx, p256_s0
+    call p256_mul_mod
+    mov ax, [p256_scalar_word_value]
+    test ax, [p256_scalar_mask]
+    jz .skip_mul
+    mov si, p256_s0
+    mov di, p256_s1
+    mov bx, p256_s0
+    call p256_mul_mod
+.skip_mul:
+    shr word [p256_scalar_mask], 1
+    cmp word [p256_scalar_mask], 0
+    jne .bit_loop
+    sub word [p256_scalar_word_ptr], 2
+    dec byte [p256_scalar_word_count]
+    jnz .word_loop
+    mov si, p256_s0
+    mov di, [p256_inv_output_ptr]
+    call p256_copy_words
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
     ret
 
 p256_mul_mod:

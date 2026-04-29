@@ -114,6 +114,7 @@ offset  size  value
 26 TLS ServerKeyExchange received and P-256 public point range-checked
 27 TLS ServerHelloDone received
 28 live SHA-256 TLS handshake transcript context updated through ServerHelloDone
+29 ECDHE pre-master secret generated from the server public point
 ```
 
 ## Network Error
@@ -186,7 +187,9 @@ Certificate handshake to the next handshake boundary, parses the ECDHE
 ServerKeyExchange header, captures the uncompressed P-256 public point,
 converts X/Y into 16-bit little-endian field words, range-checks them below
 the P-256 prime, parses ServerHelloDone, maintains a live SHA-256 TLS
-handshake transcript context through ServerHelloDone, and only then finishes
-writing the validated values back best-effort.
+handshake transcript context through ServerHelloDone, computes the fixed-scalar
+ECDHE shared point, converts the Jacobian result into the affine X-coordinate
+pre-master secret, and only then finishes writing the validated values back
+best-effort.
 If agent endpoint reachability fails, status is set to 5 and Seed enters the
 agent setup error path before the ready splash.

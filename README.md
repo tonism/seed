@@ -46,10 +46,12 @@ then parses the following Certificate handshake header, declared list length,
 drains that Certificate handshake to the next handshake boundary, parses the
 ECDHE ServerKeyExchange header, captures the uncompressed P-256 public point,
 converts X/Y into 16-bit little-endian field words, range-checks them below
-the P-256 prime, and parses ServerHelloDone, maintains a live SHA-256 TLS
-handshake transcript context through ServerHelloDone, then writes validated
-values back best-effort. Completing TLS, model API calls, capability fetches,
-session creation, and environment handover remain later build 6 work.
+the P-256 prime, parses ServerHelloDone, maintains a live SHA-256 TLS
+handshake transcript context through ServerHelloDone, computes the fixed-scalar
+ECDHE shared point, converts the Jacobian result into the affine X-coordinate
+pre-master secret, then writes validated values back best-effort. Completing
+TLS, model API calls, capability fetches, session creation, and environment
+handover remain later build 6 work.
 
 Build 5 completed the internet-readiness milestone. It initializes
 NE1000/NE2000-family packet hardware after a valid MAC read, reads one pending

@@ -101,9 +101,10 @@ ECDHE ServerKeyExchange header, captures the uncompressed P-256 public point,
 converts X/Y into 16-bit little-endian field words, range-checks them below
 the P-256 prime, verifies that the point satisfies the P-256 curve equation,
 provides Jacobian point double, mixed-add, scalar multiplication helpers, and
-Comba-style field product accumulation for the upcoming ECDHE shared-secret
-path, parses ServerHelloDone, and maintains a live SHA-256 handshake transcript
-context through ServerHelloDone. Seed writes validated values back on a
+Comba-style field product accumulation, parses ServerHelloDone, maintains a
+live SHA-256 handshake transcript context through ServerHelloDone, computes the
+fixed-scalar ECDHE shared point, and converts the Jacobian result into the
+affine X-coordinate pre-master secret. Seed writes validated values back on a
 best-effort basis:
 
 ```text
@@ -128,9 +129,9 @@ same path.
 
 `reasoning` is stored as a plain text effort value such as `xhigh`; provider
 specific request mapping is later Build 6 work. The `key` value is plaintext on
-the boot medium. Reducing scalar multiplication from the current full
-double-and-add cost and wiring it into the live ECDHE path, converting the
-Jacobian shared point into the affine x-coordinate pre-master secret, TLS
-transcript digest finalization, the remaining TLS handshake, authenticated API
-calls, capability fetches, model selection, and reasoning selection are still
-build 6 follow-up work.
+the boot medium. The current ClientHello random and ECDHE scalar are fixed
+development values; a real entropy path is required before this can be treated
+as secure TLS. Reducing scalar multiplication from the current full
+double-and-add cost, TLS transcript digest finalization, the remaining TLS
+handshake, authenticated API calls, capability fetches, model selection, and
+reasoning selection are still build 6 follow-up work.

@@ -32,6 +32,8 @@ tls_probe_server:
     jc .failed
     call tls_wait_for_server_key_exchange_or_done
     jc .failed
+    call tls_prepare_premaster_secret
+    jc .failed
     clc
     ret
 .failed:
@@ -572,6 +574,20 @@ tls_wait_for_server_hello_done:
     jc .failed
     mov byte [handoff_addr + handoff_net_status], net_status_tls_transcript_ready
     mov byte [handoff_addr + handoff_net_error], net_error_none
+    clc
+    ret
+.failed:
+    stc
+    ret
+
+tls_prepare_premaster_secret:
+    cmp byte [tls_server_key_exchange], tls_kx_ecdhe_rsa
+    jne .done
+    call p256_compute_server_premaster_secret
+    jc .failed
+    mov byte [handoff_addr + handoff_net_status], net_status_tls_premaster_ready
+    mov byte [handoff_addr + handoff_net_error], net_error_none
+.done:
     clc
     ret
 .failed:
