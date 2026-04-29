@@ -188,6 +188,7 @@ p256_s6 times p256_word_len db 0
 p256_s7 times p256_word_len db 0
 p256_s8 times p256_word_len db 0
 p256_product times p256_product_word_len db 0
+p256_reduce_acc times p256_word_count * 4 db 0
 p256_affine_x_ptr dw 0
 p256_affine_y_ptr dw 0
 p256_scalar_ptr dw 0
@@ -200,10 +201,9 @@ p256_right_ptr dw 0
 p256_result_ptr dw 0
 p256_mul_left_word dw 0
 p256_mul_carry dw 0
+p256_reduce_carry dw 0
 p256_i db 0
 p256_j db 0
-p256_word_shift db 0
-p256_bit_shift db 0
 p256_carry db 0
 builtin_agent_ids db 'openai', 0
                   times agent_id_len - 7 db 0
@@ -263,94 +263,22 @@ p256_client_private dw 0x31a7, 0xf75b, 0xb1a6, 0x1a07
                     dw 0x47a4, 0xd18b, 0xbda7, 0x01d0
                     dw 0x3645, 0x60ad, 0x8e6c, 0xb1d3
                     dw 0x79a4, 0x982d, 0xf9e2, 0xc9a1
-p256_prime_shift_ptrs dw p256_prime_shift_0, p256_prime_shift_1
-                      dw p256_prime_shift_2, p256_prime_shift_3
-                      dw p256_prime_shift_4, p256_prime_shift_5
-                      dw p256_prime_shift_6, p256_prime_shift_7
-                      dw p256_prime_shift_8, p256_prime_shift_9
-                      dw p256_prime_shift_10, p256_prime_shift_11
-                      dw p256_prime_shift_12, p256_prime_shift_13
-                      dw p256_prime_shift_14, p256_prime_shift_15
-p256_prime_shift_0 dw 0xffff, 0xffff, 0xffff, 0xffff
-                   dw 0xffff, 0xffff, 0x0000, 0x0000
-                   dw 0x0000, 0x0000, 0x0000, 0x0000
-                   dw 0x0001, 0x0000, 0xffff, 0xffff
-                   dw 0x0000
-p256_prime_shift_1 dw 0xfffe, 0xffff, 0xffff, 0xffff
-                   dw 0xffff, 0xffff, 0x0001, 0x0000
-                   dw 0x0000, 0x0000, 0x0000, 0x0000
-                   dw 0x0002, 0x0000, 0xfffe, 0xffff
-                   dw 0x0001
-p256_prime_shift_2 dw 0xfffc, 0xffff, 0xffff, 0xffff
-                   dw 0xffff, 0xffff, 0x0003, 0x0000
-                   dw 0x0000, 0x0000, 0x0000, 0x0000
-                   dw 0x0004, 0x0000, 0xfffc, 0xffff
-                   dw 0x0003
-p256_prime_shift_3 dw 0xfff8, 0xffff, 0xffff, 0xffff
-                   dw 0xffff, 0xffff, 0x0007, 0x0000
-                   dw 0x0000, 0x0000, 0x0000, 0x0000
-                   dw 0x0008, 0x0000, 0xfff8, 0xffff
-                   dw 0x0007
-p256_prime_shift_4 dw 0xfff0, 0xffff, 0xffff, 0xffff
-                   dw 0xffff, 0xffff, 0x000f, 0x0000
-                   dw 0x0000, 0x0000, 0x0000, 0x0000
-                   dw 0x0010, 0x0000, 0xfff0, 0xffff
-                   dw 0x000f
-p256_prime_shift_5 dw 0xffe0, 0xffff, 0xffff, 0xffff
-                   dw 0xffff, 0xffff, 0x001f, 0x0000
-                   dw 0x0000, 0x0000, 0x0000, 0x0000
-                   dw 0x0020, 0x0000, 0xffe0, 0xffff
-                   dw 0x001f
-p256_prime_shift_6 dw 0xffc0, 0xffff, 0xffff, 0xffff
-                   dw 0xffff, 0xffff, 0x003f, 0x0000
-                   dw 0x0000, 0x0000, 0x0000, 0x0000
-                   dw 0x0040, 0x0000, 0xffc0, 0xffff
-                   dw 0x003f
-p256_prime_shift_7 dw 0xff80, 0xffff, 0xffff, 0xffff
-                   dw 0xffff, 0xffff, 0x007f, 0x0000
-                   dw 0x0000, 0x0000, 0x0000, 0x0000
-                   dw 0x0080, 0x0000, 0xff80, 0xffff
-                   dw 0x007f
-p256_prime_shift_8 dw 0xff00, 0xffff, 0xffff, 0xffff
-                   dw 0xffff, 0xffff, 0x00ff, 0x0000
-                   dw 0x0000, 0x0000, 0x0000, 0x0000
-                   dw 0x0100, 0x0000, 0xff00, 0xffff
-                   dw 0x00ff
-p256_prime_shift_9 dw 0xfe00, 0xffff, 0xffff, 0xffff
-                   dw 0xffff, 0xffff, 0x01ff, 0x0000
-                   dw 0x0000, 0x0000, 0x0000, 0x0000
-                   dw 0x0200, 0x0000, 0xfe00, 0xffff
-                   dw 0x01ff
-p256_prime_shift_10 dw 0xfc00, 0xffff, 0xffff, 0xffff
-                    dw 0xffff, 0xffff, 0x03ff, 0x0000
-                    dw 0x0000, 0x0000, 0x0000, 0x0000
-                    dw 0x0400, 0x0000, 0xfc00, 0xffff
-                    dw 0x03ff
-p256_prime_shift_11 dw 0xf800, 0xffff, 0xffff, 0xffff
-                    dw 0xffff, 0xffff, 0x07ff, 0x0000
-                    dw 0x0000, 0x0000, 0x0000, 0x0000
-                    dw 0x0800, 0x0000, 0xf800, 0xffff
-                    dw 0x07ff
-p256_prime_shift_12 dw 0xf000, 0xffff, 0xffff, 0xffff
-                    dw 0xffff, 0xffff, 0x0fff, 0x0000
-                    dw 0x0000, 0x0000, 0x0000, 0x0000
-                    dw 0x1000, 0x0000, 0xf000, 0xffff
-                    dw 0x0fff
-p256_prime_shift_13 dw 0xe000, 0xffff, 0xffff, 0xffff
-                    dw 0xffff, 0xffff, 0x1fff, 0x0000
-                    dw 0x0000, 0x0000, 0x0000, 0x0000
-                    dw 0x2000, 0x0000, 0xe000, 0xffff
-                    dw 0x1fff
-p256_prime_shift_14 dw 0xc000, 0xffff, 0xffff, 0xffff
-                    dw 0xffff, 0xffff, 0x3fff, 0x0000
-                    dw 0x0000, 0x0000, 0x0000, 0x0000
-                    dw 0x4000, 0x0000, 0xc000, 0xffff
-                    dw 0x3fff
-p256_prime_shift_15 dw 0x8000, 0xffff, 0xffff, 0xffff
-                    dw 0xffff, 0xffff, 0x7fff, 0x0000
-                    dw 0x0000, 0x0000, 0x0000, 0x0000
-                    dw 0x8000, 0x0000, 0x8000, 0xffff
-                    dw 0x7fff
+p256_reduce_coeffs db 1, 0, 0, 0, 0, 0, -1, 0, 0, 0, 0, 0, -1, 0, 1, 0
+                   db 0, 1, 0, 0, 0, 0, 0, -1, 0, 0, 0, 0, 0, -1, 0, 1
+                   db 1, 0, 1, 0, 0, 0, -1, 0, -1, 0, 0, 0, -1, 0, 0, 0
+                   db 0, 1, 0, 1, 0, 0, 0, -1, 0, -1, 0, 0, 0, -1, 0, 0
+                   db 0, 0, 1, 0, 1, 0, 0, 0, -1, 0, -1, 0, 0, 0, -1, 0
+                   db 0, 0, 0, 1, 0, 1, 0, 0, 0, -1, 0, -1, 0, 0, 0, -1
+                   db -1, 0, 0, 0, 1, 0, 2, 0, 0, 0, -1, 0, 0, 0, -1, 0
+                   db 0, -1, 0, 0, 0, 1, 0, 2, 0, 0, 0, -1, 0, 0, 0, -1
+                   db -1, 0, -1, 0, 0, 0, 2, 0, 2, 0, 0, 0, 0, 0, -1, 0
+                   db 0, -1, 0, -1, 0, 0, 0, 2, 0, 2, 0, 0, 0, 0, 0, -1
+                   db -1, 0, -1, 0, -1, 0, 1, 0, 2, 0, 2, 0, 1, 0, -1, 0
+                   db 0, -1, 0, -1, 0, -1, 0, 1, 0, 2, 0, 2, 0, 1, 0, -1
+                   db -1, 0, -1, 0, -1, 0, 0, 0, 1, 0, 2, 0, 3, 0, 0, 0
+                   db 0, -1, 0, -1, 0, -1, 0, 0, 0, 1, 0, 2, 0, 3, 0, 0
+                   db 0, 0, -1, 0, -1, 0, -1, 0, 0, 0, 1, 0, 2, 0, 3, 0
+                   db 0, 0, 0, -1, 0, -1, 0, -1, 0, 0, 0, 1, 0, 2, 0, 3
 sha256_initial_state dw 0xe667, 0x6a09, 0xae85, 0xbb67
                      dw 0xf372, 0x3c6e, 0xf53a, 0xa54f
                      dw 0x527f, 0x510e, 0x688c, 0x9b05

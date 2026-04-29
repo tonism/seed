@@ -33,7 +33,6 @@ SHARED_X = 0x9238E9B85EF84AC3139AFB2631242B767DDE271E31972DE6A9B8BBE51A4A7CCB
 
 WORD_COUNT = 16
 PRODUCT_WORD_COUNT = WORD_COUNT * 2
-PRIME_SHIFT_WORD_COUNT = WORD_COUNT + 1
 ROOT = Path(__file__).resolve().parents[1]
 DATA_INC = ROOT / "targets" / "ibm_pc_5150" / "boot" / "core" / "data.inc"
 
@@ -115,6 +114,26 @@ def parse_dw_words(label: str) -> list[int]:
     return words
 
 
+def parse_db_values(label: str) -> list[int]:
+    values: list[int] = []
+    active = False
+    for line in DATA_INC.read_text().splitlines():
+        if line.startswith(f"{label} "):
+            active = True
+        elif active and not line.lstrip().startswith("db "):
+            break
+        if not active:
+            continue
+        match = re.search(r"\bdb\b(.+)$", line)
+        if match is None:
+            continue
+        for item in match.group(1).split(","):
+            values.append(int(item.strip(), 0))
+    if not values:
+        raise AssertionError(f"{label} not found")
+    return values
+
+
 def add_words_mod(left: int, right: int) -> int:
     raw = from_words_le(to_words_le(left)) + from_words_le(to_words_le(right))
     if raw >= P:
@@ -151,51 +170,57 @@ def mul_product_words(left: int, right: int) -> list[int]:
     return product
 
 
-def shifted_prime_words(bit_shift: int) -> list[int]:
-    return [(P << bit_shift) >> (16 * index) & 0xFFFF for index in range(PRIME_SHIFT_WORD_COUNT)]
+def reduce_coeff_row(power: int) -> list[int]:
+    coeff = [0] * (power + 1)
+    coeff[power] = 1
+    while len(coeff) > WORD_COUNT:
+        index = len(coeff) - 1
+        carry = coeff.pop()
+        if carry:
+            coeff[index - 16] += carry
+            coeff[index - 2] += carry
+            coeff[index - 4] -= carry
+            coeff[index - 10] -= carry
+    return coeff + [0] * (WORD_COUNT - len(coeff))
 
 
-def compare_product_shifted_prime(
-    product: list[int], word_shift: int, bit_shift: int, shifts: list[list[int]]
-) -> int:
-    shifted = shifts[bit_shift]
-    for index in range(PRODUCT_WORD_COUNT - 1, -1, -1):
-        relative = index - word_shift
-        shifted_word = shifted[relative] if 0 <= relative < PRIME_SHIFT_WORD_COUNT else 0
-        if product[index] != shifted_word:
-            return 1 if product[index] > shifted_word else -1
-    return 0
+def reduce_coeff_rows() -> list[list[int]]:
+    return [reduce_coeff_row(power) for power in range(16, 32)]
 
 
-def sub_product_shifted_prime(
-    product: list[int], word_shift: int, bit_shift: int, shifts: list[list[int]]
-) -> None:
-    shifted = shifts[bit_shift]
-    count = PRIME_SHIFT_WORD_COUNT - 1 if word_shift == WORD_COUNT else PRIME_SHIFT_WORD_COUNT
-    borrow = 0
-    for relative in range(count):
-        index = word_shift + relative
-        raw = product[index] - shifted[relative] - borrow
-        if raw < 0:
-            raw += 0x10000
-            borrow = 1
-        else:
-            borrow = 0
-        product[index] = raw
-    assert borrow == 0
+def parsed_reduce_coeff_rows() -> list[list[int]]:
+    values = parse_db_values("p256_reduce_coeffs")
+    if len(values) != WORD_COUNT * WORD_COUNT:
+        raise AssertionError("unexpected p256_reduce_coeffs length")
+    return [
+        values[index : index + WORD_COUNT]
+        for index in range(0, len(values), WORD_COUNT)
+    ]
 
 
 def reduce_product_words(product: list[int]) -> list[int]:
-    shifts = [parse_dw_words(f"p256_prime_shift_{bit}") for bit in range(16)]
-    if compare_product_shifted_prime(product, WORD_COUNT, 0, shifts) >= 0:
-        sub_product_shifted_prime(product, WORD_COUNT, 0, shifts)
-    for word_shift in range(WORD_COUNT - 1, -1, -1):
-        for bit_shift in range(15, -1, -1):
-            if compare_product_shifted_prime(product, word_shift, bit_shift, shifts) >= 0:
-                sub_product_shifted_prime(product, word_shift, bit_shift, shifts)
-    assert all(word == 0 for word in product[WORD_COUNT:])
-    assert from_words_le(product[:WORD_COUNT]) < P
-    return product[:WORD_COUNT]
+    coeff_rows = parsed_reduce_coeff_rows()
+    acc = [word for word in product[:WORD_COUNT]]
+    for high_word, coeff_row in zip(product[WORD_COUNT:], coeff_rows):
+        for index, coeff in enumerate(coeff_row):
+            acc[index] += high_word * coeff
+    while True:
+        carry = 0
+        for index in range(WORD_COUNT):
+            acc[index] += carry
+            carry = acc[index] >> 16
+            acc[index] &= 0xFFFF
+        if carry == 0:
+            break
+        acc[0] += carry
+        acc[14] += carry
+        acc[12] -= carry
+        acc[6] -= carry
+    value = from_words_le(acc)
+    while value >= P:
+        value -= P
+    assert value < P
+    return to_words_le(value)
 
 
 def mul_words_mod(left: int, right: int) -> int:
@@ -288,8 +313,7 @@ def check_field_words() -> None:
     assert parse_dw_words("p256_prime") == to_words_le(P)
     assert parse_dw_words("p256_b") == to_words_le(B)
     assert parse_dw_words("p256_client_private") == to_words_le(CLIENT_PRIVATE)
-    for bit_shift in range(16):
-        assert parse_dw_words(f"p256_prime_shift_{bit_shift}") == shifted_prime_words(bit_shift)
+    assert parsed_reduce_coeff_rows() == reduce_coeff_rows()
     values = [
         0,
         1,

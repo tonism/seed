@@ -269,7 +269,6 @@ p256_word_count equ 16
 p256_word_len equ p256_word_count * 2
 p256_product_word_count equ p256_word_count * 2
 p256_product_word_len equ p256_product_word_count * 2
-p256_prime_shift_word_count equ p256_word_count + 1
 wd_saprom equ 0x08
 fat_root_start_lba equ LOADER_SECTORS + 3
 fat_fat_start_lba equ LOADER_SECTORS + 1

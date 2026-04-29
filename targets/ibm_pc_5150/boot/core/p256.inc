@@ -735,90 +735,204 @@ p256_add_mul_word:
     ret
 
 p256_reduce_product:
-    mov byte [p256_word_shift], 16
-    mov byte [p256_bit_shift], 0
-    call p256_reduce_current_shift
-    mov byte [p256_word_shift], 15
-.word_loop:
-    mov byte [p256_bit_shift], 15
-.bit_loop:
-    call p256_reduce_current_shift
-    cmp byte [p256_bit_shift], 0
-    je .next_word
-    dec byte [p256_bit_shift]
-    jmp .bit_loop
-.next_word:
-    cmp byte [p256_word_shift], 0
-    je .done
-    dec byte [p256_word_shift]
-    jmp .word_loop
-.done:
-    ret
-
-p256_reduce_current_shift:
-    call p256_compare_product_shifted_prime
+    call p256_reduce_init_acc
+    call p256_reduce_fold_high_words
+.normalize:
+    call p256_reduce_normalize_acc
+    cmp word [p256_reduce_carry], 0
+    je .copy_result
+    call p256_reduce_fold_carry
+    jmp .normalize
+.copy_result:
+    call p256_reduce_copy_acc_to_product
+.correct:
+    mov si, p256_product
+    mov di, p256_prime
+    call p256_cmp_words
     jc .done
-    call p256_sub_product_shifted_prime
+    mov di, p256_product
+    call p256_sub_prime_inplace
+    jmp .correct
 .done:
     ret
 
-p256_compare_product_shifted_prime:
-    mov bl, [p256_bit_shift]
-    xor bh, bh
-    add bx, bx
-    mov si, [p256_prime_shift_ptrs + bx]
-    mov cx, p256_prime_shift_word_count
-    cmp byte [p256_word_shift], 16
-    jne .have_count
-    dec cx
-.have_count:
-    mov bx, cx
-    dec bx
-    mov ax, bx
-    add bx, bx
-    add si, bx
-    mov bl, [p256_word_shift]
-    xor bh, bh
-    add bx, ax
-    add bx, bx
-    mov di, p256_product
-    add di, bx
+p256_reduce_init_acc:
+    push ax
+    push cx
+    push si
+    push di
+    mov si, p256_product
+    mov di, p256_reduce_acc
+    mov cx, p256_word_count
 .next_word:
-    mov ax, [di]
-    cmp ax, [si]
-    jb .less
-    ja .greater_or_equal
-    sub di, 2
-    sub si, 2
+    lodsw
+    mov [di], ax
+    mov word [di + 2], 0
+    add di, 4
     loop .next_word
-.greater_or_equal:
-    clc
-    ret
-.less:
-    stc
+    pop di
+    pop si
+    pop cx
+    pop ax
     ret
 
-p256_sub_product_shifted_prime:
-    mov bl, [p256_bit_shift]
-    xor bh, bh
-    add bx, bx
-    mov si, [p256_prime_shift_ptrs + bx]
-    mov bl, [p256_word_shift]
-    xor bh, bh
-    add bx, bx
-    mov di, p256_product
-    add di, bx
-    mov cx, p256_prime_shift_word_count
-    cmp byte [p256_word_shift], 16
-    jne .subtract
-    dec cx
+p256_reduce_fold_high_words:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov bx, p256_product + p256_word_len
+    mov si, p256_reduce_coeffs
+    mov byte [p256_i], p256_word_count
+.high_loop:
+    mov ax, [bx]
+    mov [p256_mul_left_word], ax
+    or ax, ax
+    jz .skip_row
+    mov di, p256_reduce_acc
+    mov cx, p256_word_count
+.coeff_loop:
+    lodsb
+    or al, al
+    jz .next_coeff
+    push bx
+    push cx
+    push si
+    call p256_reduce_apply_coeff
+    pop si
+    pop cx
+    pop bx
+.next_coeff:
+    add di, 4
+    loop .coeff_loop
+    jmp .next_high
+.skip_row:
+    add si, p256_word_count
+.next_high:
+    add bx, 2
+    dec byte [p256_i]
+    jnz .high_loop
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+p256_reduce_apply_coeff:
+    ; Applies AL coefficient (-1, 1, 2, or 3) times p256_mul_left_word to DI.
+    push bx
+    push cx
+    push dx
+    mov bl, al
+    mov ax, [p256_mul_left_word]
+    xor dx, dx
+    cmp bl, 0xff
+    je .subtract
+    cmp bl, 1
+    je .add
+    cmp bl, 2
+    je .double
+    mov cx, ax
+    shl ax, 1
+    rcl dx, 1
+    add ax, cx
+    adc dx, 0
+    jmp .add
+.double:
+    shl ax, 1
+    rcl dx, 1
+.add:
+    add [di], ax
+    adc [di + 2], dx
+    jmp .done
 .subtract:
-    clc
+    sub [di], ax
+    sbb [di + 2], dx
+.done:
+    pop dx
+    pop cx
+    pop bx
+    ret
+
+p256_reduce_normalize_acc:
+    push ax
+    push cx
+    push dx
+    push di
+    mov word [p256_reduce_carry], 0
+    mov di, p256_reduce_acc
+    mov cx, p256_word_count
 .next_word:
-    mov ax, [di]
-    sbb ax, [si]
-    mov [di], ax
-    lea si, [si + 2]
-    lea di, [di + 2]
+    mov ax, [p256_reduce_carry]
+    cwd
+    add [di], ax
+    adc [di + 2], dx
+    mov ax, [di + 2]
+    mov [p256_reduce_carry], ax
+    mov word [di + 2], 0
+    add di, 4
     loop .next_word
+    pop di
+    pop dx
+    pop cx
+    pop ax
+    ret
+
+p256_reduce_fold_carry:
+    push ax
+    push di
+    mov ax, [p256_reduce_carry]
+    mov di, p256_reduce_acc
+    call p256_reduce_add_signed_word
+    mov ax, [p256_reduce_carry]
+    mov di, p256_reduce_acc + 14 * 4
+    call p256_reduce_add_signed_word
+    mov ax, [p256_reduce_carry]
+    mov di, p256_reduce_acc + 12 * 4
+    call p256_reduce_sub_signed_word
+    mov ax, [p256_reduce_carry]
+    mov di, p256_reduce_acc + 6 * 4
+    call p256_reduce_sub_signed_word
+    pop di
+    pop ax
+    ret
+
+p256_reduce_add_signed_word:
+    push dx
+    cwd
+    add [di], ax
+    adc [di + 2], dx
+    pop dx
+    ret
+
+p256_reduce_sub_signed_word:
+    push dx
+    cwd
+    sub [di], ax
+    sbb [di + 2], dx
+    pop dx
+    ret
+
+p256_reduce_copy_acc_to_product:
+    push ax
+    push cx
+    push si
+    push di
+    mov si, p256_reduce_acc
+    mov di, p256_product
+    mov cx, p256_word_count
+.next_word:
+    mov ax, [si]
+    mov [di], ax
+    add si, 4
+    add di, 2
+    loop .next_word
+    pop di
+    pop si
+    pop cx
+    pop ax
     ret
