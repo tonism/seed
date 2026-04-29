@@ -190,6 +190,11 @@ p256_s8 times p256_word_len db 0
 p256_product times p256_product_word_len db 0
 p256_affine_x_ptr dw 0
 p256_affine_y_ptr dw 0
+p256_scalar_ptr dw 0
+p256_scalar_word_ptr dw 0
+p256_scalar_word_value dw 0
+p256_scalar_mask dw 0
+p256_scalar_word_count db 0
 p256_left_ptr dw 0
 p256_right_ptr dw 0
 p256_result_ptr dw 0
@@ -255,6 +260,10 @@ p256_b dw 0x604b, 0x27d2, 0x3c3e, 0x3bce
        dw 0xb0f6, 0xcc53, 0x06b0, 0x651d
        dw 0x86bc, 0x7698, 0xbd55, 0xb3eb
        dw 0x93e7, 0xaa3a, 0x35d8, 0x5ac6
+p256_client_private dw 0x31a7, 0xf75b, 0xb1a6, 0x1a07
+                    dw 0x47a4, 0xd18b, 0xbda7, 0x01d0
+                    dw 0x3645, 0x60ad, 0x8e6c, 0xb1d3
+                    dw 0x79a4, 0x982d, 0xf9e2, 0xc9a1
 p256_prime_shift_ptrs dw p256_prime_shift_0, p256_prime_shift_1
                       dw p256_prime_shift_2, p256_prime_shift_3
                       dw p256_prime_shift_4, p256_prime_shift_5

@@ -100,10 +100,10 @@ that Certificate handshake to the next handshake boundary. It then parses the
 ECDHE ServerKeyExchange header, captures the uncompressed P-256 public point,
 converts X/Y into 16-bit little-endian field words, range-checks them below
 the P-256 prime, verifies that the point satisfies the P-256 curve equation,
-provides Jacobian point double and mixed-add helpers for the upcoming ECDHE
-shared-secret path, parses ServerHelloDone, and maintains a live SHA-256
-handshake transcript context through ServerHelloDone. Seed writes validated
-values back on a best-effort basis:
+provides Jacobian point double, mixed-add, and scalar multiplication helpers for
+the upcoming ECDHE shared-secret path, parses ServerHelloDone, and maintains a
+live SHA-256 handshake transcript context through ServerHelloDone. Seed writes
+validated values back on a best-effort basis:
 
 ```text
 agent <id>
@@ -127,7 +127,8 @@ same path.
 
 `reasoning` is stored as a plain text effort value such as `xhigh`; provider
 specific request mapping is later Build 6 work. The `key` value is plaintext on
-the boot medium. Wiring P-256 point math into ECDHE, TLS transcript digest
-finalization, the remaining TLS handshake, authenticated API calls, capability
-fetches, model selection, and reasoning selection are still build 6 follow-up
-work.
+the boot medium. Optimizing and wiring P-256 scalar multiplication into the
+live ECDHE path, converting the Jacobian shared point into the affine
+x-coordinate pre-master secret, TLS transcript digest finalization, the
+remaining TLS handshake, authenticated API calls, capability fetches, model
+selection, and reasoning selection are still build 6 follow-up work.

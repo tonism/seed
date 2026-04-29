@@ -82,6 +82,7 @@ P-256 coordinate conversion to 16-bit little-endian field words and coordinate r
 8086 P-256 field multiplication/reduction primitives
 runtime P-256 public-point curve-equation validation for ServerKeyExchange
 8086 P-256 Jacobian point double and mixed-add helper primitives
+8086 P-256 scalar multiplication helper for mixed affine points
 dependency-free P-256 vector, field-math, and point-math checker with optional OpenSSL cross-check
 ServerHelloDone proof
 live SHA-256 TLS handshake transcript context through ServerHelloDone
@@ -92,7 +93,8 @@ Still in build 6 scope:
 
 ```text
 add transcript digest finalization/copy support for Finished verification
-wire P-256 point math into ECDHE shared-secret generation
+optimize and wire P-256 scalar multiplication into ECDHE shared-secret generation
+convert the Jacobian ECDHE shared point into the affine x-coordinate pre-master secret
 implement TLS 1.2 SHA-256 PRF and ChaCha20-Poly1305 records
 complete TLS directly from the 8088 runtime
 validate the selected provider key with a model API request

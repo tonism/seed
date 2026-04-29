@@ -577,6 +577,57 @@ p256_point_add_mixed:
     pop ax
     ret
 
+p256_scalar_mult_mixed:
+    ; Multiplies affine p256_affine_* by the 256-bit scalar at SI.
+    ; The resulting Jacobian point is left in p256_jac_*.
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov [p256_scalar_ptr], si
+    call p256_point_set_infinity
+    mov si, [p256_scalar_ptr]
+    add si, p256_word_len - 2
+    mov [p256_scalar_word_ptr], si
+    mov byte [p256_scalar_word_count], p256_word_count
+.word_loop:
+    mov si, [p256_scalar_word_ptr]
+    mov ax, [si]
+    mov [p256_scalar_word_value], ax
+    mov word [p256_scalar_mask], 0x8000
+.bit_loop:
+    call p256_point_double_jacobian
+    mov ax, [p256_scalar_word_value]
+    test ax, [p256_scalar_mask]
+    jz .skip_add
+    call p256_point_add_mixed
+.skip_add:
+    shr word [p256_scalar_mask], 1
+    cmp word [p256_scalar_mask], 0
+    jne .bit_loop
+    sub word [p256_scalar_word_ptr], 2
+    dec byte [p256_scalar_word_count]
+    jnz .word_loop
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+p256_compute_server_shared_jacobian:
+    ; Uses the current ServerKeyExchange public point and fixed client scalar.
+    push si
+    mov word [p256_affine_x_ptr], tls_server_ec_x_words
+    mov word [p256_affine_y_ptr], tls_server_ec_y_words
+    mov si, p256_client_private
+    call p256_scalar_mult_mixed
+    pop si
+    ret
+
 p256_mul_mod:
     push ax
     push bx
