@@ -64,6 +64,7 @@ inspect: $(FLOPPY_IMG)
 
 test:
 	python3 tools/check-p256.py
+	python3 tools/check-tls-prf.py
 
 clean:
 	rm -rf build

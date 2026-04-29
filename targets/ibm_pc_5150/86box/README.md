@@ -186,6 +186,10 @@ selected-agent DNS resolution and TCP 443 SYN-ACK reachability before reaching
 `seed build 6`. If `AGENTS.CFG` is missing or invalid, the agent menu falls
 back to built-in `openai`, `anthropic`, and `google`.
 
+On 29 April 2026, `vm-net-ne2k8` reached `seed build 6` after deriving the
+TLS master secret and ChaCha20-Poly1305 client/server write keys and IVs from
+the ECDHE pre-master secret.
+
 On 28 April 2026, the boot layout was split into a reserved FAT12 loader plus
 root `CORE.SYS`. The no-card `vm` profile reached the red `"."` failure state,
 and `vm-net-3c501` reached `seed build 6` from the file-backed runtime.

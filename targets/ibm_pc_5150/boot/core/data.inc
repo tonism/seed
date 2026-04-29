@@ -89,6 +89,33 @@ tls_transcript_len_high dw 0
 tls_transcript_certificate_remaining dw 0
 sha256_w_ptr dw 0
 sha256_k_ptr dw 0
+sha256_len_low dw 0
+sha256_len_high dw 0
+sha256_saved_len_low dw 0
+sha256_saved_len_high dw 0
+sha256_bit_len0 dw 0
+sha256_bit_len1 dw 0
+sha256_bit_len2 dw 0
+sha256_bit_len3 dw 0
+sha256_digest_ptr dw 0
+hmac_key_ptr dw 0
+hmac_key_len dw 0
+hmac_data1_ptr dw 0
+hmac_data1_len dw 0
+hmac_data2_ptr dw 0
+hmac_data2_len dw 0
+hmac_data3_ptr dw 0
+hmac_data3_len dw 0
+hmac_output_ptr dw 0
+tls_prf_secret_ptr dw 0
+tls_prf_secret_len dw 0
+tls_prf_seed_ptr dw 0
+tls_prf_seed_len dw 0
+tls_prf_output_ptr dw 0
+tls_prf_output_len dw 0
+tls_prf_output_remaining dw 0
+tls_prf_chunk_len dw 0
+tls_prf_current_output_ptr dw 0
 tls_server_certificate_len_low dw 0
 tls_server_certificate_list_len_low dw 0
 tls_record_major db 0
@@ -110,6 +137,7 @@ tls_server_certificate_len_high db 0
 tls_server_certificate_list_len_high db 0
 tls_transcript_flags db 0
 sha256_block_len db 0
+sha256_saved_block_len db 0
 sha256_schedule_count db 0
 sha256_round_count db 0
 tls_next_handshake_body_ptr dw 0
@@ -160,7 +188,16 @@ sha256_t2 dw 0, 0
 sha256_new_e dw 0, 0
 sha256_tmp dw 0, 0
 sha256_block times 64 db 0
+sha256_saved_state times 16 dw 0
+sha256_saved_block times sha256_block_size db 0
 sha256_w times 128 dw 0
+sha256_digest times sha256_digest_len db 0
+hmac_ipad times sha256_block_size db 0
+hmac_opad times sha256_block_size db 0
+hmac_inner_digest times sha256_digest_len db 0
+tls_prf_seed times tls_prf_seed_max_len db 0
+tls_prf_a times sha256_digest_len db 0
+tls_prf_chunk times sha256_digest_len db 0
 agent_ids times agent_slot_count * agent_id_len db 0
 seed_agent_id times agent_id_len db 0
 seed_model times seed_model_len db 0
@@ -174,6 +211,12 @@ tls_server_ec_x_words times p256_word_len db 0
 tls_server_ec_y_words times p256_word_len db 0
 tls_shared_x_words times p256_word_len db 0
 tls_premaster_secret times tls_ec_coordinate_len db 0
+tls_master_secret times tls_master_secret_len db 0
+tls_key_block times tls_key_block_len db 0
+tls_client_write_key times tls_chacha_key_len db 0
+tls_server_write_key times tls_chacha_key_len db 0
+tls_client_write_iv times tls_chacha_iv_len db 0
+tls_server_write_iv times tls_chacha_iv_len db 0
 p256_lhs times p256_word_len db 0
 p256_rhs times p256_word_len db 0
 p256_tmp times p256_word_len db 0
@@ -256,6 +299,10 @@ tls_extensions_tail db 0, 10, 0, 4, 0, 2, 0, 23
                     db 0, 13, 0, 10, 0, 8, 4, 3, 5, 3, 4, 1, 5, 1
                     db 0, 23, 0, 0
                     db 0xff, 1, 0, 1, 0
+tls_label_master_secret db 'master secret'
+tls_label_master_secret_len equ $ - tls_label_master_secret
+tls_label_key_expansion db 'key expansion'
+tls_label_key_expansion_len equ $ - tls_label_key_expansion
 p256_prime dw 0xffff, 0xffff, 0xffff, 0xffff
            dw 0xffff, 0xffff, 0x0000, 0x0000
            dw 0x0000, 0x0000, 0x0000, 0x0000

@@ -49,7 +49,9 @@ converts X/Y into 16-bit little-endian field words, range-checks them below
 the P-256 prime, parses ServerHelloDone, maintains a live SHA-256 TLS
 handshake transcript context through ServerHelloDone, computes the sparse
 fixed-scalar ECDHE shared point, converts the Jacobian result into the affine
-X-coordinate pre-master secret, then writes validated values back best-effort.
+X-coordinate pre-master secret, derives the TLS master secret plus
+client/server ChaCha20-Poly1305 write keys and IVs with the TLS 1.2 SHA-256
+PRF, then writes validated values back best-effort.
 Completing TLS, model API calls, capability fetches, session creation, and
 environment handover remain later build 6 work.
 
@@ -125,6 +127,7 @@ targets/ibm_pc_5150/boot/core/   boot core include files; emitted as CORE.SYS
 targets/ibm_pc_5150/86box/       86Box profiles and NIC inventory
 tools/build-fat12-image.py       deterministic 160 KiB FAT12 image builder
 tools/check-p256.py              dependency-free P-256 vector and field checker
+tools/check-tls-prf.py           dependency-free TLS PRF and key schedule checker
 tools/run-86box.sh               build and launch a 86Box profile
 ```
 

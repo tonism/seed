@@ -104,8 +104,10 @@ provides Jacobian point double, mixed-add, scalar multiplication helpers, and
 Comba-style field product accumulation, parses ServerHelloDone, maintains a
 live SHA-256 handshake transcript context through ServerHelloDone, computes the
 sparse fixed-scalar ECDHE shared point, and converts the Jacobian result into
-the affine X-coordinate pre-master secret. Seed writes validated values back on
-a best-effort basis:
+the affine X-coordinate pre-master secret. It then derives the TLS master
+secret and ChaCha20-Poly1305 client/server write keys and IVs with the TLS 1.2
+SHA-256 PRF while preserving the live transcript hash context. Seed writes
+validated values back on a best-effort basis:
 
 ```text
 agent <id>
@@ -133,6 +135,6 @@ the boot medium. The current ClientHello random is fixed, and the current ECDHE
 scalar is a sparse fixed development value so emulator boot tests do not spend
 minutes in the dark `"o"` phase. A real entropy path and a faster full-scalar
 strategy are required before this can be treated as secure TLS. TLS transcript
-digest finalization, the remaining TLS handshake, authenticated API calls,
-capability fetches, model selection, and reasoning selection are still build 6
-follow-up work.
+digest use for Finished, ChaCha20-Poly1305 records, the remaining TLS
+handshake, authenticated API calls, capability fetches, model selection, and
+reasoning selection are still build 6 follow-up work.

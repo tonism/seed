@@ -92,6 +92,10 @@ ServerHelloDone proof
 live SHA-256 TLS handshake transcript context through ServerHelloDone
 sparse fixed-scalar ECDHE shared-point generation from the server public point
 Jacobian shared point conversion into the affine X-coordinate pre-master secret
+SHA-256 finalization and transcript-safe HMAC-SHA256 helper
+TLS 1.2 SHA-256 PRF for master-secret and key-expansion derivation
+ChaCha20-Poly1305 key-block split into client/server write keys and IVs
+dependency-free TLS PRF and key-schedule vector checker
 best-effort USER.CFG write of validated agent, model, reasoning, key, and endpoint values
 ```
 
@@ -99,9 +103,9 @@ Still in build 6 scope:
 
 ```text
 replace fixed client random/scalar with a real entropy path before claiming secure TLS
-add transcript digest finalization/copy support for Finished verification
+add Finished transcript digest copy/finalization support
 reduce the eventual full-random-scalar path below the current full double-and-add cost
-implement TLS 1.2 SHA-256 PRF and ChaCha20-Poly1305 records
+implement ChaCha20-Poly1305 records
 complete TLS directly from the 8088 runtime
 validate the selected provider key with a model API request
 fetch model and reasoning capabilities from the provider when available

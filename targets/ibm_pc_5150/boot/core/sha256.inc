@@ -6,12 +6,16 @@ sha256_init:
     mov cx, 16
     rep movsw
     mov byte [sha256_block_len], 0
+    mov word [sha256_len_low], 0
+    mov word [sha256_len_high], 0
     clc
     ret
 
 sha256_update:
     or cx, cx
     jz .done
+    add [sha256_len_low], cx
+    adc word [sha256_len_high], 0
 .next:
     lodsb
     mov bx, sha256_block
@@ -32,6 +36,246 @@ sha256_update:
     loop .next
 .done:
     clc
+    ret
+
+sha256_finish:
+    ; Finalizes the current SHA-256 context and writes 32 digest bytes to DI.
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    mov [sha256_digest_ptr], di
+    mov ax, [sha256_len_low]
+    mov dx, [sha256_len_high]
+    xor bx, bx
+    mov cx, 3
+.bit_shift:
+    shl ax, 1
+    rcl dx, 1
+    rcl bx, 1
+    loop .bit_shift
+    mov [sha256_bit_len0], ax
+    mov [sha256_bit_len1], dx
+    mov [sha256_bit_len2], bx
+    mov word [sha256_bit_len3], 0
+
+    mov al, 0x80
+    call sha256_append_padding_byte
+    cmp byte [sha256_block_len], 56
+    jbe .pad_to_56
+.pad_to_64:
+    cmp byte [sha256_block_len], sha256_block_size
+    je .process_pad_block
+    xor al, al
+    call sha256_append_padding_byte
+    jmp .pad_to_64
+.process_pad_block:
+    call sha256_process_block
+    mov byte [sha256_block_len], 0
+.pad_to_56:
+    cmp byte [sha256_block_len], 56
+    je .write_length
+    xor al, al
+    call sha256_append_padding_byte
+    jmp .pad_to_56
+.write_length:
+    mov bx, sha256_block
+    add bx, 56
+    mov ax, [sha256_bit_len3]
+    call sha256_store_be16_at_bx
+    mov ax, [sha256_bit_len2]
+    call sha256_store_be16_at_bx
+    mov ax, [sha256_bit_len1]
+    call sha256_store_be16_at_bx
+    mov ax, [sha256_bit_len0]
+    call sha256_store_be16_at_bx
+    call sha256_process_block
+    mov byte [sha256_block_len], 0
+
+    push ds
+    pop es
+    mov si, sha256_state
+    mov di, [sha256_digest_ptr]
+    mov cx, 8
+.write_digest:
+    mov ax, [si + 2]
+    xchg al, ah
+    stosw
+    mov ax, [si]
+    xchg al, ah
+    stosw
+    add si, 4
+    loop .write_digest
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    clc
+    ret
+
+sha256_append_padding_byte:
+    push bx
+    mov bx, sha256_block
+    mov dl, [sha256_block_len]
+    xor dh, dh
+    add bx, dx
+    mov [bx], al
+    inc byte [sha256_block_len]
+    pop bx
+    ret
+
+sha256_store_be16_at_bx:
+    mov [bx], ah
+    mov [bx + 1], al
+    add bx, 2
+    ret
+
+sha256_save_context:
+    push ax
+    push cx
+    push si
+    push di
+    push es
+    mov ax, [sha256_len_low]
+    mov [sha256_saved_len_low], ax
+    mov ax, [sha256_len_high]
+    mov [sha256_saved_len_high], ax
+    mov al, [sha256_block_len]
+    mov [sha256_saved_block_len], al
+    push ds
+    pop es
+    mov si, sha256_state
+    mov di, sha256_saved_state
+    mov cx, 16
+    rep movsw
+    mov si, sha256_block
+    mov di, sha256_saved_block
+    mov cx, sha256_block_size
+    rep movsb
+    pop es
+    pop di
+    pop si
+    pop cx
+    pop ax
+    ret
+
+sha256_restore_context:
+    push ax
+    push cx
+    push si
+    push di
+    push es
+    mov ax, [sha256_saved_len_low]
+    mov [sha256_len_low], ax
+    mov ax, [sha256_saved_len_high]
+    mov [sha256_len_high], ax
+    mov al, [sha256_saved_block_len]
+    mov [sha256_block_len], al
+    push ds
+    pop es
+    mov si, sha256_saved_state
+    mov di, sha256_state
+    mov cx, 16
+    rep movsw
+    mov si, sha256_saved_block
+    mov di, sha256_block
+    mov cx, sha256_block_size
+    rep movsb
+    pop es
+    pop di
+    pop si
+    pop cx
+    pop ax
+    ret
+
+hmac_sha256:
+    ; Uses hmac_* globals. Key length must be <= 64 bytes.
+    push ax
+    push bx
+    push cx
+    push si
+    push di
+    push es
+    call sha256_save_context
+    cmp word [hmac_key_len], sha256_block_size
+    ja .failed
+    push ds
+    pop es
+    mov di, hmac_ipad
+    mov cx, sha256_block_size
+    mov al, 0x36
+    rep stosb
+    mov di, hmac_opad
+    mov cx, sha256_block_size
+    mov al, 0x5c
+    rep stosb
+    mov si, [hmac_key_ptr]
+    mov cx, [hmac_key_len]
+    mov bx, hmac_ipad
+.xor_ipad:
+    or cx, cx
+    jz .xor_opad_start
+    lodsb
+    xor [bx], al
+    inc bx
+    loop .xor_ipad
+.xor_opad_start:
+    mov si, [hmac_key_ptr]
+    mov cx, [hmac_key_len]
+    mov bx, hmac_opad
+.xor_opad:
+    or cx, cx
+    jz .inner_hash
+    lodsb
+    xor [bx], al
+    inc bx
+    loop .xor_opad
+.inner_hash:
+    call sha256_init
+    mov si, hmac_ipad
+    mov cx, sha256_block_size
+    call sha256_update
+    mov si, [hmac_data1_ptr]
+    mov cx, [hmac_data1_len]
+    call sha256_update
+    mov si, [hmac_data2_ptr]
+    mov cx, [hmac_data2_len]
+    call sha256_update
+    mov si, [hmac_data3_ptr]
+    mov cx, [hmac_data3_len]
+    call sha256_update
+    mov di, hmac_inner_digest
+    call sha256_finish
+
+    call sha256_init
+    mov si, hmac_opad
+    mov cx, sha256_block_size
+    call sha256_update
+    mov si, hmac_inner_digest
+    mov cx, sha256_digest_len
+    call sha256_update
+    mov di, [hmac_output_ptr]
+    call sha256_finish
+    clc
+    jmp .done_hmac
+.failed:
+    stc
+.done_hmac:
+    pushf
+    call sha256_restore_context
+    popf
+    pop es
+    pop di
+    pop si
+    pop cx
+    pop bx
+    pop ax
     ret
 
 sha256_process_block:

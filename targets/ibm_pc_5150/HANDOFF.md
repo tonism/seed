@@ -115,6 +115,7 @@ offset  size  value
 27 TLS ServerHelloDone received
 28 live SHA-256 TLS handshake transcript context updated through ServerHelloDone
 29 ECDHE pre-master secret generated from the server public point
+30 TLS master secret and client/server traffic keys derived
 ```
 
 ## Network Error
@@ -189,7 +190,9 @@ converts X/Y into 16-bit little-endian field words, range-checks them below
 the P-256 prime, parses ServerHelloDone, maintains a live SHA-256 TLS
 handshake transcript context through ServerHelloDone, computes the sparse
 fixed-scalar ECDHE shared point, converts the Jacobian result into the affine
-X-coordinate pre-master secret, and only then finishes writing the validated
-values back best-effort.
+X-coordinate pre-master secret, derives the TLS master secret and
+ChaCha20-Poly1305 client/server write keys and IVs with the TLS 1.2 SHA-256
+PRF while preserving the live transcript hash context, and only then finishes
+writing the validated values back best-effort.
 If agent endpoint reachability fails, status is set to 5 and Seed enters the
 agent setup error path before the ready splash.
