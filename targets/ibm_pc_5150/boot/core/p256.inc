@@ -289,6 +289,77 @@ p256_is_zero:
     clc
     ret
 
+p256_is_one:
+    ; Returns CF=1 when the field element at SI is exactly one.
+    push ax
+    push cx
+    push si
+    lodsw
+    cmp ax, 1
+    jne .not_one
+    mov cx, p256_word_count - 1
+.next_word:
+    lodsw
+    or ax, ax
+    jnz .not_one
+    loop .next_word
+    pop si
+    pop cx
+    pop ax
+    stc
+    ret
+.not_one:
+    pop si
+    pop cx
+    pop ax
+    clc
+    ret
+
+p256_rshift1_inplace:
+    ; Logical right shift of a 256-bit little-endian word array at DI.
+    push cx
+    push di
+    add di, p256_word_len - 2
+    mov cx, p256_word_count
+    clc
+.next_word:
+    rcr word [di], 1
+    lea di, [di - 2]
+    loop .next_word
+    pop di
+    pop cx
+    ret
+
+p256_add_prime_rshift1_inplace:
+    ; DI = (DI + p) / 2. Carries the 257th bit through the shift.
+    push ax
+    push cx
+    push si
+    push di
+    mov si, p256_prime
+    mov cx, p256_word_count
+    clc
+.add_word:
+    mov ax, [si]
+    adc [di], ax
+    lea si, [si + 2]
+    lea di, [di + 2]
+    loop .add_word
+    pushf
+    sub di, p256_word_len
+    add di, p256_word_len - 2
+    mov cx, p256_word_count
+    popf
+.shift_word:
+    rcr word [di], 1
+    lea di, [di - 2]
+    loop .shift_word
+    pop di
+    pop si
+    pop cx
+    pop ax
+    ret
+
 p256_point_set_infinity:
     mov di, p256_jac_x
     call p256_clear_words
@@ -680,6 +751,11 @@ p256_compute_server_premaster_secret:
     clc
     ret
 .full_scalar:
+    call p256_client_private_is_two
+    jnc .generic_scalar
+    call p256_compute_server_premaster_secret_scalar2
+    ret
+.generic_scalar:
     call p256_compute_server_shared_jacobian
     mov si, p256_jac_z
     call p256_is_zero
@@ -730,8 +806,89 @@ p256_client_private_is_one:
     clc
     ret
 
+p256_client_private_is_two:
+    push ax
+    push cx
+    push si
+    cmp word [p256_client_private], 2
+    jne .not_two
+    mov si, p256_client_private + 2
+    mov cx, p256_word_count - 1
+.next:
+    lodsw
+    or ax, ax
+    jnz .not_two
+    loop .next
+    pop si
+    pop cx
+    pop ax
+    stc
+    ret
+.not_two:
+    pop si
+    pop cx
+    pop ax
+    clc
+    ret
+
+p256_compute_server_premaster_secret_scalar2:
+    ; Affine double of the server point. Shared X = lambda^2 - 2*x.
+    ; lambda = (3*x^2 - 3) / (2*y).
+    mov si, tls_server_ec_y_words
+    call p256_is_zero
+    jc .failed
+    mov si, tls_server_ec_x_words
+    mov di, tls_server_ec_x_words
+    mov bx, p256_s0
+    call p256_mul_mod
+    mov si, p256_s0
+    mov bx, p256_s1
+    call p256_double_mod
+    mov si, p256_s1
+    mov di, p256_s0
+    mov bx, p256_s1
+    call p256_add_mod
+    mov si, p256_s1
+    mov di, p256_three
+    mov bx, p256_s1
+    call p256_sub_mod
+    mov si, p256_s1
+    mov di, p256_s4
+    call p256_copy_words
+    mov si, tls_server_ec_y_words
+    mov bx, p256_s2
+    call p256_double_mod
+    mov si, p256_s2
+    mov di, p256_s2
+    mov bx, p256_s2
+    call p256_inv_mod
+    mov si, p256_s4
+    mov di, p256_s2
+    mov bx, p256_s1
+    call p256_mul_mod
+    mov si, p256_s1
+    mov di, p256_s1
+    mov bx, p256_s2
+    call p256_mul_mod
+    mov si, tls_server_ec_x_words
+    mov bx, p256_s0
+    call p256_double_mod
+    mov si, p256_s2
+    mov di, p256_s0
+    mov bx, tls_shared_x_words
+    call p256_sub_mod
+    mov si, tls_shared_x_words
+    mov di, tls_premaster_secret
+    call p256_to_be32
+    clc
+    ret
+.failed:
+    stc
+    ret
+
 p256_inv_mod:
-    ; Raises SI to p-2 and writes the field inverse to DI.
+    ; Binary extended-GCD inverse. This is slower than a tuned addition chain
+    ; on modern CPUs, but much cheaper than exponentiation on an 8088.
     push ax
     push bx
     push cx
@@ -739,41 +896,92 @@ p256_inv_mod:
     push si
     push di
     mov [p256_inv_output_ptr], di
+    mov di, p256_s0
+    call p256_copy_words
+    mov si, p256_prime
     mov di, p256_s1
     call p256_copy_words
-    mov di, p256_s0
-    call p256_set_one
-    mov si, p256_prime_minus_2
-    add si, p256_word_len - 2
-    mov [p256_scalar_word_ptr], si
-    mov byte [p256_scalar_word_count], p256_word_count
-.word_loop:
-    mov si, [p256_scalar_word_ptr]
-    mov ax, [si]
-    mov [p256_scalar_word_value], ax
-    mov word [p256_scalar_mask], 0x8000
-.bit_loop:
     mov si, p256_s0
+    call p256_is_zero
+    jc .failed
+    mov di, p256_s2
+    call p256_set_one
+    mov di, p256_s3
+    call p256_clear_words
+.main_loop:
+    mov si, p256_s0
+    call p256_is_one
+    jc .copy_x1
+    mov si, p256_s1
+    call p256_is_one
+    jc .copy_x2
+.reduce_u:
+    test word [p256_s0], 1
+    jnz .reduce_v
     mov di, p256_s0
-    mov bx, p256_s0
-    call p256_mul_mod
-    mov ax, [p256_scalar_word_value]
-    test ax, [p256_scalar_mask]
-    jz .skip_mul
+    call p256_rshift1_inplace
+    test word [p256_s2], 1
+    jnz .x1_odd
+    mov di, p256_s2
+    call p256_rshift1_inplace
+    jmp .reduce_u
+.x1_odd:
+    mov di, p256_s2
+    call p256_add_prime_rshift1_inplace
+    jmp .reduce_u
+.reduce_v:
+    test word [p256_s1], 1
+    jnz .subtract
+    mov di, p256_s1
+    call p256_rshift1_inplace
+    test word [p256_s3], 1
+    jnz .x2_odd
+    mov di, p256_s3
+    call p256_rshift1_inplace
+    jmp .reduce_v
+.x2_odd:
+    mov di, p256_s3
+    call p256_add_prime_rshift1_inplace
+    jmp .reduce_v
+.subtract:
+    mov si, p256_s0
+    mov di, p256_s1
+    call p256_cmp_words
+    jc .v_larger
     mov si, p256_s0
     mov di, p256_s1
     mov bx, p256_s0
-    call p256_mul_mod
-.skip_mul:
-    shr word [p256_scalar_mask], 1
-    cmp word [p256_scalar_mask], 0
-    jne .bit_loop
-    sub word [p256_scalar_word_ptr], 2
-    dec byte [p256_scalar_word_count]
-    jnz .word_loop
-    mov si, p256_s0
+    call p256_sub_words
+    mov si, p256_s2
+    mov di, p256_s3
+    mov bx, p256_s2
+    call p256_sub_mod
+    jmp .main_loop
+.v_larger:
+    mov si, p256_s1
+    mov di, p256_s0
+    mov bx, p256_s1
+    call p256_sub_words
+    mov si, p256_s3
+    mov di, p256_s2
+    mov bx, p256_s3
+    call p256_sub_mod
+    jmp .main_loop
+.copy_x1:
+    mov si, p256_s2
     mov di, [p256_inv_output_ptr]
     call p256_copy_words
+    clc
+    jmp .done
+.copy_x2:
+    mov si, p256_s3
+    mov di, [p256_inv_output_ptr]
+    call p256_copy_words
+    clc
+    jmp .done
+.failed:
+    stc
+.done:
     pop di
     pop si
     pop dx

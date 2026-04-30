@@ -138,8 +138,11 @@ Useful expected screens:
 The Build 6 agent-prep checkpoint for these IBM PC 5150 profiles is expected
 to use saved `USER.CFG` when present. The full server-Finished proof was
 validated on 30 April 2026 on `vm-net-ne2k8` with saved `USER.CFG` included in
-the test floppy; retest the remaining NIC profiles when changing TLS timing or
-shared packet code.
+the test floppy. The first direct OpenAI API request/response proof was also
+validated on 30 April 2026 on an accelerated `vm-net-ne2k8` profile, displaying
+the returned `ok` answer. The original 4.77 MHz profile still times out before
+the direct API path completes; retest the remaining NIC profiles after that
+timing path is optimized or when changing TLS timing/shared packet code.
 Build 6 currently adds FAT12 `AGENTS.CFG` and `NET.CFG` parsing, built-in
 fallback agent interfaces, optional `USER.CFG` persistence for selected
 agent/model/reasoning/key/endpoint values, with `server?` shown for LiteLLM's
@@ -151,9 +154,10 @@ parsed version, random, cipher-suite, session-id, extension flags, and selected
 cipher path, Certificate handshake
 header parsing and draining, ServerKeyExchange header parsing with
 uncompressed P-256 public-point capture, 16-bit field-word conversion and
-coordinate range checks, P-256 field add/sub/mul/reduction helpers, runtime
-P-256 public-point curve-equation validation, P-256 Jacobian point double and
-mixed-add helpers, P-256 scalar multiplication helper for mixed affine points
+coordinate range checks, P-256 field add/sub/mul/reduction helpers, P-256
+public-point curve-equation validation in the dependency-free checker, P-256
+Jacobian point double and mixed-add helpers, P-256 scalar multiplication helper
+for mixed affine points
 with leading-zero skip, ServerHelloDone proof, live SHA-256 TLS handshake
 transcript context through ServerHelloDone, sparse fixed-scalar ECDHE
 shared-point generation, Jacobian shared point conversion into the affine
@@ -161,8 +165,9 @@ X-coordinate pre-master secret, TLS 1.2 SHA-256 PRF key schedule deriving the
 master secret and ChaCha20-Poly1305 client/server write keys and IVs,
 prepared HMAC-SHA256 states for repeated PRF calls,
 fixed-scalar ClientKeyExchange transmit with live transcript update,
-combined ChangeCipherSpec + encrypted client Finished transmit,
-encrypted server Finished authentication/decryption/verify_data check, and
+ChangeCipherSpec + encrypted client Finished transmit, encrypted server
+Finished authentication/decryption/verify_data check, TLS application-data
+send/receive for the current OpenAI Responses proof, and
 bright questions when
 saved values are missing or invalid; retest individual profiles when changing
 boot, filesystem, agent-prep code, or shared packet code.

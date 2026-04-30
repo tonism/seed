@@ -85,6 +85,21 @@ tls_server_signature_len dw 0
 tls_current_payload_ptr dw 0
 tls_current_payload_len dw 0
 tls_stream_skip_remaining dw 0
+tls_app_data_ptr dw 0
+tls_app_plain_ptr dw 0
+tls_app_record_ptr dw 0
+tls_app_len dw 0
+tls_app_record_len dw 0
+tls_app_total_len dw 0
+tls_app_chunk_len dw 0
+tls_prepared_app_len dw 0
+api_body_len dw 0
+api_answer_ptr dw 0
+api_answer_len dw 0
+api_receive_tries db 0
+api_decimal_started db 0
+tls_app_content_type db 0
+tls_random_state dw 0
 tls_transcript_len_low dw 0
 tls_transcript_len_high dw 0
 tls_transcript_certificate_remaining dw 0
@@ -182,7 +197,7 @@ seed_root_offset dw 0
 user_cfg_size_current dw 0
 ne_prom times ne_prom_len db 0
 ne_tx_frame times net_frame_buffer_len db 0
-tls_rx_copy times tcp_payload_read_len db 0
+tls_rx_copy times tls_stream_buffer_len db 0
 fs_sector_buffer times 512 db 0
 sha256_state times 16 dw 0
 sha256_a dw 0, 0
@@ -320,15 +335,46 @@ host_openrouter_text db 'openrouter.ai', 0
 host_openai_text db 'api.openai.com', 0
 host_anthropic_text db 'api.anthropic.com', 0
 host_google_text db 'generativelanguage.googleapis.com', 0
+http_post_text db 'POST ', 0
+http_get_text db 'GET ', 0
+http_root_path_text db '/', 0
+http_openai_path_text db '/v1/responses', 0
+http_version_text db ' HTTP/1.1', 13, 10, 0
+http_host_text db 'Host: ', 0
+http_auth_bearer_text db 'Authorization: Bearer ', 0
+http_content_type_text db 'Content-Type: application/json', 13, 10, 0
+http_accept_text db 'Accept: application/json', 13, 10, 0
+http_accept_any_text db 'Accept: */*', 13, 10, 0
+http_connection_text db 'Connection: close', 13, 10, 0
+http_content_length_text db 'Content-Length: ', 0
+api_json_model_text db '{"model":"', 0
+api_json_input_text db '","input":"Reply exactly: ok","max_output_tokens":128,"store":false', 0
+api_json_reasoning_text db ',"reasoning":{"effort":"', 0
+api_json_close_text db '"}}', 0
+api_json_plain_close_text db '}', 0
+api_answer_output_pattern db '"output_text":"', 0
+api_answer_output_spaced_pattern db '"output_text": "', 0
+api_answer_text_pattern db '"text":"', 0
+api_answer_text_spaced_pattern db '"text": "', 0
+api_error_message_pattern db '"message":"', 0
+api_error_message_spaced_pattern db '"message": "', 0
 tls_random db 'SEEDBUILD6TLSCLIENTHELLO00000000'
 tls_after_random db 0
                  db 0, 2
                  db 0xcc, 0xa9
                  db 1, 0
-tls_extensions_tail db 0, 10, 0, 4, 0, 2, 0, 23
-                    db 0, 11, 0, 2, 1, 0
-                    db 0, 13, 0, 10, 0, 8, 4, 3, 5, 3, 4, 1, 5, 1
-                    db 0xff, 1, 0, 1, 0
+tls_extensions_prefix db 0xff, 1, 0, 1, 0
+tls_extensions_tail db 0, 11, 0, 2, 1, 0
+                    db 0, 10, 0, 4, 0, 2, 0, 23
+                    db 0, 35, 0, 0
+                    db 0, 22, 0, 0
+                    db 0, 23, 0, 0
+                    db 0, 13, 0, 42, 0, 40
+                    db 4, 3, 5, 3, 6, 3, 8, 7
+                    db 8, 8, 8, 9, 8, 10, 8, 11
+                    db 8, 4, 8, 5, 8, 6, 4, 1
+                    db 5, 1, 6, 1, 3, 3, 3, 1
+                    db 3, 2, 4, 2, 5, 2, 6, 2
 tls_client_ec_public db 0x04
                      db 0x6b, 0x17, 0xd1, 0xf2, 0xe1, 0x2c, 0x42, 0x47
                      db 0xf8, 0xbc, 0xe6, 0xe5, 0x63, 0xa4, 0x40, 0xf2
@@ -365,6 +411,8 @@ p256_b dw 0x604b, 0x27d2, 0x3c3e, 0x3bce
        dw 0xb0f6, 0xcc53, 0x06b0, 0x651d
        dw 0x86bc, 0x7698, 0xbd55, 0xb3eb
        dw 0x93e7, 0xaa3a, 0x35d8, 0x5ac6
+p256_three dw 0x0003
+           times p256_word_count - 1 dw 0x0000
 ; Insecure Build 6 scalar. Keeps the 5150 TLS proof under cloud handshake
 ; timeouts. Replace with entropy-backed scalar math before sending secrets.
 p256_client_private dw 0x0001, 0x0000, 0x0000, 0x0000

@@ -20,6 +20,7 @@ org 0x1000
 %include "core/chacha20.inc"
 %include "core/poly1305.inc"
 %include "core/tls.inc"
+%include "core/agent_api.inc"
 %include "core/net_rx.inc"
 %include "core/ui.inc"
 %include "core/data.inc"

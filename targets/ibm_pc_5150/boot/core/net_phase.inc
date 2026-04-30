@@ -73,6 +73,8 @@ prepare_agent_endpoint_path:
     call tcp_connect_target
     jc .restore
     call tls_probe_server
+    jc .restore
+    call agent_api_exchange
 .restore:
     pushf
     call wd_restore_dp8390_base

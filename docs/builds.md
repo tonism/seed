@@ -87,7 +87,7 @@ P-256 coordinate conversion to 16-bit little-endian field words and coordinate r
 8086 P-256 field multiplication/reduction primitives
 P-256-specific coefficient reduction for faster field multiplication
 Comba-style P-256 product accumulation and inlined reduction coefficient folding
-runtime P-256 public-point curve-equation validation for ServerKeyExchange
+P-256 public-point curve-equation validation in the dependency-free checker
 8086 P-256 Jacobian point double and mixed-add helper primitives
 8086 P-256 scalar multiplication helper for mixed affine points with leading-zero skip
 dependency-free P-256 vector, field-math, and point-math checker with optional OpenSSL cross-check
@@ -100,26 +100,30 @@ TLS 1.2 SHA-256 PRF for master-secret and key-expansion derivation
 prepared HMAC-SHA256 ipad/opad states for repeated TLS PRF calls on 8088-class hardware
 ChaCha20-Poly1305 key-block split into client/server write keys and IVs
 fixed-scalar ECDHE ClientKeyExchange record construction and transcript update
-ClientKeyExchange transmit followed by one combined ChangeCipherSpec + encrypted client Finished flight within the current server timeout
+ClientKeyExchange transmit after local key preparation, with short pacing before the client Finished path
 ChaCha20 block helper for the current TLS 1.2 record path
 Poly1305 helper for the current one-record Finished MAC shape
 client Finished verify_data derivation from the live SHA-256 transcript
-encrypted client Finished record construction and transmit
+ChangeCipherSpec and encrypted client Finished record construction and transmit
 encrypted server Finished receive, ChaCha20-Poly1305 authentication/decryption, and verify_data check
+TLS application-data record construction and ChaCha20-Poly1305 authentication/decryption
+hardcoded OpenAI Responses API request that asks the model to reply exactly "ok"
+OpenAI response scan for the first answer text/error message field
 dependency-free TLS PRF and key-schedule vector checker
 dependency-free ChaCha20/Poly1305 vector and Finished record shape checker
 direct OpenAI TLS 1.2 server-Finished proof on `vm-net-ne2k8`
+direct OpenAI API request/response proof on accelerated `vm-net-ne2k8`, displaying `ok`
 best-effort USER.CFG write of validated agent, model, reasoning, key, and endpoint values
 ```
 
 Still in build 6 scope:
 
 ```text
-replace fixed client random/scalar with a real entropy path before claiming secure TLS
+replace pseudo-random client random and fixed scalar with real entropy/scalar handling before claiming secure TLS
 reduce the eventual full-random-scalar path below the current full double-and-add cost
 generalize ChaCha20-Poly1305 beyond the current Finished-record shapes
-retest the full server-Finished proof across every 5150 NIC profile
-validate the selected provider key with a model API request
+optimize the direct OpenAI request/response path enough for original 4.77 MHz
+retest the full server-Finished/API proof across every 5150 NIC profile
 fetch model and reasoning capabilities from the provider when available
 create the agent session and hand over to the environment path
 ```

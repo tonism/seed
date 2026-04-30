@@ -155,18 +155,22 @@ cipher-suite, session-id, known extension flags, and selected cipher path,
 parses the following Certificate handshake header, drains that Certificate
 handshake to the next handshake boundary, parses the ECDHE ServerKeyExchange
 header, captures the uncompressed P-256 public point, converts X/Y into 16-bit
-little-endian field words, range-checks them below the P-256 prime, verifies
-the point with the current P-256 field math, and parses ServerHelloDone,
+little-endian field words, range-checks them below the P-256 prime, and parses
+ServerHelloDone,
 maintains a live SHA-256 TLS handshake transcript context through
 ServerHelloDone, computes the sparse fixed-scalar ECDHE shared point, converts
 the Jacobian result into the affine X-coordinate pre-master secret, derives
 the TLS master secret and ChaCha20-Poly1305 client/server write keys and IVs
 with the TLS 1.2 SHA-256 PRF using prepared HMAC states for repeated PRF calls,
-sends ClientKeyExchange with the fixed client public point, adds it to the live
-handshake transcript, sends ChangeCipherSpec and encrypted client Finished in
-one TCP payload, adds that plaintext Finished handshake message to the live
-transcript, receives and verifies the encrypted server Finished, and writes the
-validated values back best-effort.
+sends ClientKeyExchange with the fixed client public point after local key
+material is ready, adds it to the live handshake transcript, sends
+ChangeCipherSpec and encrypted client Finished, adds that plaintext Finished
+handshake message to the live transcript, verifies the encrypted server
+Finished, sends a hardcoded OpenAI Responses API request as TLS application
+data, displays the returned `ok` answer on the accelerated `vm-net-ne2k8`
+profile, and writes the validated values back best-effort. The same path still
+times out on the original-speed 4.77 MHz profile and remains the next
+optimization target.
 Missing or invalid `AGENTS.CFG` content falls back to
 built-in `openai`, `anthropic`, and `google`; other agent setup failures still
 fail in the bright `"o"` phase as `agent setup failed`.

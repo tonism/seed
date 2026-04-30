@@ -100,9 +100,9 @@ cipher path, and the following Certificate handshake header before draining
 that Certificate handshake to the next handshake boundary. It then parses the
 ECDHE ServerKeyExchange header, captures the uncompressed P-256 public point,
 converts X/Y into 16-bit little-endian field words, range-checks them below
-the P-256 prime, verifies that the point satisfies the P-256 curve equation,
-provides Jacobian point double, mixed-add, scalar multiplication helpers, and
-Comba-style field product accumulation, parses ServerHelloDone, maintains a
+the P-256 prime, provides Jacobian point double, mixed-add, scalar
+multiplication helpers, and Comba-style field product accumulation, parses
+ServerHelloDone, maintains a
 live SHA-256 handshake transcript context through ServerHelloDone, computes the
 sparse fixed-scalar ECDHE shared point, and converts the Jacobian result into
 the affine X-coordinate pre-master secret. It then derives the TLS master
@@ -132,15 +132,21 @@ master secret. `openrouter.ai` therefore remains in `AGENTS.CFG`. `litellm` is
 a user-supplied endpoint, so it cannot be certified at ship time; it is
 supported only when the configured server negotiates the same path.
 
-`reasoning` is stored as a plain text effort value such as `xhigh`; provider
-specific request mapping is later Build 6 work. The `key` value is plaintext on
-the boot medium. The current ClientHello random is fixed, and the current ECDHE
-scalar is a sparse fixed development value so emulator boot tests do not spend
-minutes in the `"o"` secure/crypto phases. A real entropy path and a faster
-full-scalar strategy are required before this can be treated as secure TLS.
-Seed currently sends ClientKeyExchange with the fixed-scalar public point,
-then sends ChangeCipherSpec and encrypted client Finished together in the next
-TCP payload. It receives, authenticates, decrypts, and verifies the encrypted
-server Finished for the current Finished-record shape. Generalized
-ChaCha20-Poly1305 records, authenticated API calls, capability fetches, model
-selection, and reasoning selection are still build 6 follow-up work.
+`reasoning` is stored as a plain text effort value such as `xhigh`. The first
+OpenAI request path uses that saved value when present and sends a hardcoded
+Responses API request asking the model to reply exactly `ok`; dynamic model
+and reasoning capability fetches remain later Build 6 work. The `key` value is
+plaintext on the boot medium. The current ECDHE scalar is a sparse fixed
+development value so emulator boot tests do not spend minutes in the `"o"`
+secure/crypto phases. A real entropy path and a faster full-scalar strategy
+are required before this can be treated as secure TLS. Seed currently sends
+ClientKeyExchange with the fixed-scalar public point after local key material
+is prepared, waits briefly, sends ChangeCipherSpec and encrypted client
+Finished, waits briefly again, then sends the prepared API request as TLS
+application data. It receives, authenticates, decrypts, and verifies the
+encrypted server Finished and TLS application records for the current
+ChaCha20-Poly1305 path. Direct OpenAI API request/response is proven on an
+accelerated `vm-net-ne2k8` profile; original 4.77 MHz still times out before
+that path is complete and remains optimization work. Capability fetches, model
+selection, reasoning selection, and environment handoff remain later Build 6
+work.

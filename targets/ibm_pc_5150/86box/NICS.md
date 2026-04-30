@@ -34,9 +34,11 @@ context through ServerHelloDone, computes the sparse fixed-scalar ECDHE shared
 point, converts the Jacobian result into the affine X-coordinate pre-master
 secret, derives the TLS master secret and ChaCha20-Poly1305 client/server
 write keys and IVs with the TLS 1.2 SHA-256 PRF, sends ClientKeyExchange,
-sends one combined ChangeCipherSpec + encrypted client Finished payload,
-receives and verifies encrypted server Finished, and then reaches the ready
-splash.
+sends ChangeCipherSpec and encrypted client Finished, receives and verifies
+encrypted server Finished, sends the first hardcoded OpenAI Responses API
+request as TLS application data, and displays the returned `ok` answer on the
+accelerated NE2K proof path. The original-speed 4.77 MHz profile still times
+out before that API path completes.
 
 ## IBM PC 5150 Candidates
 
@@ -124,8 +126,11 @@ remaining NIC-present profiles need retest after scalar-path optimization.
 
 On 30 April 2026, `vm-net-ne2k8` completed the current direct OpenAI TLS path
 through encrypted server Finished verification and reached `seed build 6`.
-The remaining NIC-present profiles need retest for the full server-Finished
-proof.
+The accelerated `vm-net-ne2k8` profile also completed the first hardcoded
+OpenAI Responses API request and displayed the returned `ok` answer. The
+original-speed 4.77 MHz profile still times out before the direct API
+request/response path completes, so the remaining NIC-present profiles need
+retest after the 4.77 MHz timing path is optimized.
 
 Also on 30 April 2026, the fixed shipped agent hosts were checked against
 Seed's single current TLS path: TLS 1.2, P-256,

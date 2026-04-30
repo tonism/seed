@@ -32,6 +32,8 @@ tls_probe_server:
     jc .failed
     call tls_wait_for_server_key_exchange_or_done
     jc .failed
+    call tls_prepare_client_key_exchange_transcript
+    jc .failed
     mov bl, [crypto_attr]
     mov al, 'o'
     call show_load_marker
@@ -39,15 +41,21 @@ tls_probe_server:
     jc .failed
     call tls_prepare_master_secret
     jc .failed
-    call tls_prepare_client_key_exchange_transcript
-    jc .failed
-    call tls_send_client_key_exchange
-    jc .failed
     call tls_prepare_key_block
+    jc .failed
+    call tls_prepare_early_application_data
     jc .failed
     call tls_prepare_client_finished
     jc .failed
+    call tls_send_client_key_exchange
+    jc .failed
+    mov cx, 1
+    call wait_ticks
     call tls_send_client_final_flight
+    jc .failed
+    mov cx, 1
+    call wait_ticks
+    call tls_send_prepared_application_data
     jc .failed
     call tls_wait_for_server_finished
     jc .failed
@@ -507,6 +515,7 @@ tls_transcript_start:
     mov word [tls_transcript_len_high], 0
     mov word [tls_transcript_certificate_remaining], 0
     mov byte [tls_transcript_flags], 0
+    mov word [tls_prepared_app_len], 0
     call tls_clear_client_record_seq
     call tls_clear_server_record_seq
     call sha256_init
@@ -668,13 +677,6 @@ tls_prepare_premaster_secret:
     jne .done
     call p256_compute_server_premaster_secret
     jc .failed
-    mov si, tls_premaster_secret
-    mov di, tls_server_ec_x
-    mov cx, tls_ec_coordinate_len
-    call tls_compare_buffers
-    jnc .premaster_matches
-    jmp .failed
-.premaster_matches:
     mov byte [handoff_addr + handoff_net_status], net_status_tls_premaster_ready
     mov byte [handoff_addr + handoff_net_error], net_error_none
 .done:
@@ -967,7 +969,12 @@ tls_prepare_client_finished:
     ret
 
 tls_send_client_final_flight:
-    call build_tls_client_final_flight
+    call build_tls_change_cipher_spec
+    mov si, fs_sector_buffer
+    mov cx, [tls_tx_len]
+    call tcp_send_payload
+    jc .failed
+    call build_tls_client_finished_record
     mov si, fs_sector_buffer
     mov cx, [tls_tx_len]
     call tcp_send_payload
@@ -1009,7 +1016,6 @@ tls_wait_for_server_finished:
     call tls_transcript_update
     jc .failed
     call tls_increment_server_record_seq
-    call tls_clear_buffered_payload
     call ne_transmit_tcp_ack
     jc .failed
     mov byte [handoff_addr + handoff_net_status], net_status_tls_serverfinished_verified
@@ -1019,6 +1025,446 @@ tls_wait_for_server_finished:
 .failed:
     mov byte [handoff_addr + handoff_net_error], net_error_tls
     stc
+    ret
+
+tls_send_application_data:
+    mov word [tls_app_record_ptr], tls_rx_copy
+    cmp word [tls_app_plain_ptr], 0
+    jne .plain_ready
+    mov word [tls_app_plain_ptr], tls_rx_copy + tls_record_header_len
+.plain_ready:
+    call tls_build_application_data_record
+    jc .failed
+    mov si, [tls_app_record_ptr]
+    mov cx, [tls_tx_len]
+    call tcp_send_payload
+    jc .failed
+    call tls_increment_client_record_seq
+    clc
+    ret
+.failed:
+    mov byte [handoff_addr + handoff_net_error], net_error_tls
+    stc
+    ret
+
+tls_prepare_early_application_data:
+    call agent_api_prepare_request
+    jc .failed
+    cmp word [tls_app_len], 0
+    je .none
+    mov word [tls_app_record_ptr], tls_rx_copy
+    call tls_increment_client_record_seq
+    call tls_build_application_data_record
+    pushf
+    call tls_clear_client_record_seq
+    popf
+    jc .failed
+    mov ax, [tls_tx_len]
+    mov [tls_prepared_app_len], ax
+    clc
+    ret
+.none:
+    mov word [tls_prepared_app_len], 0
+    clc
+    ret
+.failed:
+    mov byte [handoff_addr + handoff_net_error], net_error_tls
+    stc
+    ret
+
+tls_send_prepared_application_data:
+    cmp word [tls_prepared_app_len], 0
+    je .done
+    mov si, tls_rx_copy
+    mov cx, [tls_prepared_app_len]
+    call tcp_send_payload
+    jc .failed
+    call tls_increment_client_record_seq
+.done:
+    clc
+    ret
+.failed:
+    mov byte [handoff_addr + handoff_net_error], net_error_tls
+    stc
+    ret
+
+tls_append_prepared_application_data:
+    cmp word [tls_prepared_app_len], 0
+    je .done
+    push ax
+    push cx
+    push si
+    push di
+    push es
+    push ds
+    pop es
+    mov di, fs_sector_buffer
+    add di, [tls_tx_len]
+    mov si, tls_rx_copy
+    mov cx, [tls_prepared_app_len]
+    mov ax, [tls_tx_len]
+    add ax, cx
+    cmp ax, tcp_payload_max_len
+    ja .too_large
+    mov [tls_tx_len], ax
+    rep movsb
+    clc
+    jmp .restore
+.too_large:
+    stc
+.restore:
+    pop es
+    pop di
+    pop si
+    pop cx
+    pop ax
+    ret
+.done:
+    clc
+    ret
+
+tls_build_application_data_record:
+    cmp word [tls_app_len], tls_app_max_plain_len
+    ja .failed
+    cmp word [tls_app_plain_ptr], 0
+    je .failed
+    cmp word [tls_app_record_ptr], 0
+    je .failed
+    mov byte [tls_app_content_type], 0x17
+    push ds
+    pop es
+    mov si, [tls_app_plain_ptr]
+    mov di, [tls_app_record_ptr]
+    add di, tls_record_header_len
+    mov cx, [tls_app_len]
+    rep movsb
+    mov ax, [tls_app_record_ptr]
+    add ax, tls_record_header_len
+    mov [tls_app_data_ptr], ax
+    call tls_build_client_app_nonce
+    call tls_build_client_app_aad
+    mov word [chacha_key_ptr], tls_client_write_key
+    mov word [chacha_nonce_ptr], tls_client_nonce
+    mov word [chacha_counter_low], 0
+    mov word [chacha_counter_high], 0
+    call chacha20_block
+    call poly1305_load_key
+    mov word [chacha_counter_low], 1
+    mov word [chacha_counter_high], 0
+    call tls_xor_app_data
+    call tls_poly1305_mac_app
+
+    push ds
+    pop es
+    mov di, [tls_app_record_ptr]
+    mov al, [tls_app_content_type]
+    stosb
+    mov ax, 0x0303
+    stosw
+    mov ax, [tls_app_len]
+    add ax, tls_aead_tag_len
+    mov [tls_app_record_len], ax
+    call tls_write_be16
+    mov di, [tls_app_data_ptr]
+    add di, [tls_app_len]
+    mov si, tls_finished_tag
+    mov cx, tls_aead_tag_len
+    rep movsb
+
+    mov ax, [tls_app_len]
+    add ax, tls_record_header_len + tls_aead_tag_len
+    mov [tls_tx_len], ax
+    clc
+    ret
+.failed:
+    stc
+    ret
+
+tls_receive_application_data:
+    call tls_load_server_payload
+    jc .failed
+    call tls_ensure_current_tls_record_complete
+    jc .failed
+    mov si, [tls_current_payload_ptr]
+    mov cx, [tls_current_payload_len]
+    cmp cx, tls_record_header_len + tls_aead_tag_len
+    jb .failed
+    mov al, [si]
+    mov [tls_app_content_type], al
+    cmp byte [tls_app_content_type], 0x17
+    je .type_ready
+    cmp byte [tls_app_content_type], 0x15
+    jne .failed
+.type_ready:
+    cmp byte [si + 1], 0x03
+    jne .failed
+    cmp byte [si + 2], 0x03
+    jne .failed
+    mov ah, [si + 3]
+    mov al, [si + 4]
+    cmp ax, tls_aead_tag_len + 1
+    jb .failed
+    mov [tls_app_record_len], ax
+    mov dx, ax
+    sub dx, tls_aead_tag_len
+    cmp dx, tcp_payload_read_len
+    ja .failed
+    mov [tls_app_len], dx
+    add ax, tls_record_header_len
+    mov [tls_app_total_len], ax
+    cmp ax, cx
+    ja .failed
+    call tls_save_payload_after_current_offset
+
+    push ds
+    pop es
+    add si, tls_record_header_len
+    mov di, tls_rx_copy
+    mov cx, [tls_app_len]
+    rep movsb
+    mov di, tls_received_tag
+    mov cx, tls_aead_tag_len
+    rep movsb
+    mov word [tls_app_data_ptr], tls_rx_copy
+
+    call tls_build_server_app_nonce
+    call tls_build_server_app_aad
+    mov word [chacha_key_ptr], tls_server_write_key
+    mov word [chacha_nonce_ptr], tls_client_nonce
+    mov word [chacha_counter_low], 0
+    mov word [chacha_counter_high], 0
+    call chacha20_block
+    call poly1305_load_key
+    call tls_poly1305_mac_app
+    mov si, tls_finished_tag
+    mov di, tls_received_tag
+    mov cx, tls_aead_tag_len
+    call tls_compare_buffers
+    jc .failed
+    mov word [chacha_counter_low], 1
+    mov word [chacha_counter_high], 0
+    call tls_xor_app_data
+    cmp byte [tls_app_content_type], 0x15
+    jne .application_record
+    jmp .failed
+.application_record:
+    call tls_increment_server_record_seq
+    call ne_transmit_tcp_ack
+    jc .failed
+    clc
+    ret
+.failed:
+    mov byte [handoff_addr + handoff_net_error], net_error_tls
+    stc
+    ret
+
+tls_ensure_current_tls_record_complete:
+    mov si, [tls_current_payload_ptr]
+    cmp word [tls_current_payload_len], 0
+    je .done
+    call tls_copy_current_payload
+    jc .failed
+.receive_header:
+    cmp word [tls_current_payload_len], tls_record_header_len
+    jae .header_ready
+    call .append_next_payload
+    jc .failed
+    jmp .receive_header
+.header_ready:
+    mov si, [tls_current_payload_ptr]
+    mov ah, [si + 3]
+    mov al, [si + 4]
+    add ax, tls_record_header_len
+    cmp ax, tls_stream_buffer_len
+    ja .failed
+    mov [tls_stream_skip_remaining], ax
+    cmp [tls_current_payload_len], ax
+    jae .done
+.receive_more:
+    call .append_next_payload
+    jc .failed
+    mov ax, [tls_current_payload_len]
+    cmp ax, [tls_stream_skip_remaining]
+    jb .receive_more
+.done:
+    clc
+    ret
+.failed:
+    stc
+    ret
+.append_next_payload:
+    call ne_transmit_tcp_ack
+    jc .append_failed
+    call tcp_receive_payload
+    jc .append_failed
+    mov ax, [tls_current_payload_len]
+    mov di, tls_rx_copy
+    add di, ax
+    mov cx, [tcp_rx_payload_len]
+    add ax, cx
+    cmp ax, tls_stream_buffer_len
+    ja .append_failed
+    push ds
+    pop es
+    mov si, [tcp_rx_payload_ptr]
+    rep movsb
+    mov [tls_current_payload_len], ax
+    mov word [tls_current_payload_ptr], tls_rx_copy
+    clc
+    ret
+.append_failed:
+    stc
+    ret
+
+tls_xor_app_data:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    mov si, [tls_app_data_ptr]
+    mov cx, [tls_app_len]
+.next_block:
+    or cx, cx
+    jz .done
+    push cx
+    call chacha20_block
+    pop cx
+    mov dx, cx
+    cmp dx, chacha_block_len
+    jbe .chunk_ready
+    mov dx, chacha_block_len
+.chunk_ready:
+    mov [tls_app_chunk_len], dx
+    sub cx, dx
+    push cx
+    mov cx, dx
+    mov bx, chacha_block
+.xor_byte:
+    mov al, [si]
+    xor al, [bx]
+    mov [si], al
+    inc si
+    inc bx
+    loop .xor_byte
+    inc word [chacha_counter_low]
+    jnz .counter_ready
+    inc word [chacha_counter_high]
+.counter_ready:
+    pop cx
+    jmp .next_block
+.done:
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+tls_poly1305_mac_app:
+    call poly1305_clear_acc
+
+    call poly1305_clear_block
+    push ds
+    pop es
+    mov si, tls_aead_aad
+    mov di, poly_block
+    mov cx, tls_aead_aad_len
+    rep movsb
+    mov word [poly_block_ptr], poly_block
+    call poly1305_process_block
+
+    mov si, [tls_app_data_ptr]
+    mov cx, [tls_app_len]
+.cipher_block:
+    or cx, cx
+    jz .length_block
+    call poly1305_clear_block
+    mov dx, cx
+    cmp dx, 16
+    jbe .cipher_chunk_ready
+    mov dx, 16
+.cipher_chunk_ready:
+    mov [tls_app_chunk_len], dx
+    sub cx, dx
+    push cx
+    push ds
+    pop es
+    mov di, poly_block
+    mov cx, dx
+    rep movsb
+    mov word [poly_block_ptr], poly_block
+    call poly1305_process_block
+    pop cx
+    jmp .cipher_block
+
+.length_block:
+    call poly1305_clear_block
+    mov byte [poly_block], tls_aead_aad_len
+    mov ax, [tls_app_len]
+    mov [poly_block + 8], ax
+    mov word [poly_block_ptr], poly_block
+    call poly1305_process_block
+    call poly1305_emit_tag
+    clc
+    ret
+
+tls_build_client_app_nonce:
+    call tls_build_client_nonce
+    ret
+
+tls_build_server_app_nonce:
+    call tls_build_server_nonce
+    ret
+
+tls_build_client_app_aad:
+    push ax
+    push cx
+    push si
+    push di
+    push es
+    push ds
+    pop es
+    mov si, tls_client_record_seq
+    mov di, tls_aead_aad
+    mov cx, tls_client_record_seq_len
+    rep movsb
+    mov al, [tls_app_content_type]
+    stosb
+    mov ax, 0x0303
+    stosw
+    mov ax, [tls_app_len]
+    call tls_write_be16
+    pop es
+    pop di
+    pop si
+    pop cx
+    pop ax
+    ret
+
+tls_build_server_app_aad:
+    push ax
+    push cx
+    push si
+    push di
+    push es
+    push ds
+    pop es
+    mov si, tls_server_record_seq
+    mov di, tls_aead_aad
+    mov cx, tls_server_record_seq_len
+    rep movsb
+    mov al, [tls_app_content_type]
+    stosb
+    mov ax, 0x0303
+    stosw
+    mov ax, [tls_app_len]
+    call tls_write_be16
+    pop es
+    pop di
+    pop si
+    pop cx
+    pop ax
     ret
 
 tls_maybe_consume_server_new_session_ticket:
@@ -1477,6 +1923,33 @@ build_tls_client_final_flight:
     pop cx
     ret
 
+build_tls_client_finished_record:
+    push cx
+    push si
+    push di
+    push es
+    push ds
+    pop es
+    mov word [tls_tx_len], tls_finished_total_len
+    mov di, fs_sector_buffer
+    mov al, 0x16
+    stosb
+    mov ax, 0x0303
+    stosw
+    mov ax, tls_finished_record_len
+    call tls_write_be16
+    mov si, tls_finished_cipher
+    mov cx, tls_finished_cipher_len
+    rep movsb
+    mov si, tls_finished_tag
+    mov cx, 16
+    rep movsb
+    pop es
+    pop di
+    pop si
+    pop cx
+    ret
+
 tls_clear_client_record_seq:
     push ax
     push cx
@@ -1710,8 +2183,6 @@ tls_parse_server_key_exchange:
     mov di, p256_prime
     call p256_cmp_words
     jnc .failed
-    call p256_validate_point_on_curve
-    jc .failed
     mov al, [tls_server_key_public_len]
     xor ah, ah
     mov bx, [tls_next_handshake_body_ptr]
@@ -1774,6 +2245,7 @@ tls_parse_server_hello_done:
     ret
 
 build_tls_client_hello:
+    call tls_seed_client_random
     mov al, [dns_qname_len]
     cmp al, 3
     jb .failed
@@ -1814,6 +2286,11 @@ build_tls_client_hello:
     mov ax, [tls_host_len]
     add ax, tls_extensions_base_len
     call tls_write_be16
+
+    mov si, tls_extensions_prefix
+    mov cx, tls_extensions_prefix_len
+    rep movsb
+
     xor ax, ax
     stosw
     mov ax, [tls_host_len]
@@ -1848,6 +2325,49 @@ build_tls_client_hello:
     ret
 .failed:
     stc
+    ret
+
+tls_seed_client_random:
+    push ax
+    push bx
+    push cx
+    push dx
+    push di
+    push es
+    push ds
+    pop es
+    mov ax, [0x046c]
+    xor ax, [0x046e]
+    xor ax, [tcp_local_seq]
+    xor ax, [tcp_local_seq + 2]
+    xor ax, [tcp_remote_ack]
+    xor ax, [tcp_remote_ack + 2]
+    xor al, [handoff_addr + handoff_mac]
+    xor ah, [handoff_addr + handoff_mac + 5]
+    or ax, ax
+    jnz .seed_ready
+    mov ax, 0x5eed
+.seed_ready:
+    mov [tls_random_state], ax
+    mov bx, 25173
+    mov di, tls_random
+    mov cx, tls_random_len / 2
+.next_word:
+    mov ax, [tls_random_state]
+    mul bx
+    add ax, 13849
+    adc dx, 0
+    xor ax, dx
+    add ax, cx
+    mov [tls_random_state], ax
+    stosw
+    loop .next_word
+    pop es
+    pop di
+    pop dx
+    pop cx
+    pop bx
+    pop ax
     ret
 
 build_tls_client_key_exchange:

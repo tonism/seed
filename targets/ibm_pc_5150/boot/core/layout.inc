@@ -4,7 +4,7 @@
 
 build_number equ 6
 handoff_addr equ 0x0600
-runtime_stack_top equ 0x9000
+runtime_stack_top equ 0xf000
 handoff_magic equ 0
 handoff_version equ 4
 handoff_size equ 5
@@ -240,20 +240,22 @@ tcp_tx_frame_len equ 60
 tcp_rx_read_len equ 96
 tcp_offset equ eth_header_len + ipv4_header_len
 tcp_payload_offset equ tcp_offset + 20
-tcp_payload_max_len equ dhcp_rx_frame_len - tcp_payload_offset
+tcp_payload_max_len equ 1460
 tcp_payload_read_len equ net_frame_buffer_len
+tls_stream_buffer_len equ tcp_payload_read_len * 2
 tcp_source_port_word equ 0x02c0
 tcp_port_http_word equ 0x5000
 tcp_port_https_word equ 0xbb01
 tcp_wait_count equ 4
-tcp_payload_wait_count equ 128
-tls_client_base_len equ 94
-tls_body_base_len equ 85
-tls_record_base_len equ 89
-tls_extensions_base_len equ 42
+tcp_payload_wait_count equ 512
+tls_client_base_len equ 138
+tls_body_base_len equ 129
+tls_record_base_len equ 133
+tls_extensions_base_len equ 86
 tls_random_len equ 32
 tls_after_random_len equ 7
-tls_extensions_tail_len equ 33
+tls_extensions_prefix_len equ 5
+tls_extensions_tail_len equ 72
 tls_ext_ec_point_formats equ 0x01
 tls_ext_extended_master_secret equ 0x02
 tls_ext_renegotiation_info equ 0x04
@@ -295,6 +297,9 @@ tls_aead_aad_len equ 13
 tls_record_seq_len equ 8
 tls_client_record_seq_len equ tls_record_seq_len
 tls_server_record_seq_len equ tls_record_seq_len
+tls_record_header_len equ 5
+tls_aead_tag_len equ 16
+tls_app_max_plain_len equ tcp_payload_max_len - tls_record_header_len - tls_aead_tag_len
 chacha_word_count equ 16
 chacha_block_len equ 64
 poly1305_r_len equ 16
