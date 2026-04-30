@@ -119,6 +119,8 @@ offset  size  value
 31 TLS ClientKeyExchange sent and added to the live handshake transcript
 32 TLS ChangeCipherSpec sent
 33 encrypted TLS client Finished sent and added to the live handshake transcript
+34 TLS server ChangeCipherSpec received
+35 encrypted TLS server Finished authenticated, decrypted, and verified
 ```
 
 ## Network Error
@@ -137,7 +139,7 @@ offset  size  value
 10 no matching DNS response observed before the bounded wait ended
 11 selected TCP next hop was missing or did not resolve before the bounded wait ended
 12 no matching TCP SYN-ACK observed before the bounded wait ended
-13 no TLS ServerHello observed after ClientHello
+13 TLS handshake proof failed
 ```
 
 Build 4 fills the block through adapter-family resolution plus 3c501, 3c503,
@@ -183,7 +185,8 @@ or bad. It validates a saved `USER.CFG` selected-agent choice when present, asks
 one form when both selected-agent connection values are required, preserves
 saved model and reasoning values when present, resolves the selected agent
 host, proves TCP 443 connection, sends a minimal TLS 1.2 ClientHello with SNI
-offering only P-256 ECDHE-RSA-CHACHA20-POLY1305 for the current crypto path,
+offering only P-256 ECDHE-ECDSA-CHACHA20-POLY1305 without extended master
+secret for the current crypto path,
 requires a handshake record, parses the first handshake message as ServerHello,
 stores the ServerHello version, random, cipher-suite, session-id, known
 extension flags, and selected cipher path internally, then parses the following
@@ -196,11 +199,12 @@ handshake transcript context through ServerHelloDone, computes the sparse
 fixed-scalar ECDHE shared point, converts the Jacobian result into the affine
 X-coordinate pre-master secret, derives the TLS master secret and
 ChaCha20-Poly1305 client/server write keys and IVs with the TLS 1.2 SHA-256
-PRF while preserving the live transcript hash context, sends the fixed-scalar
-ECDHE ClientKeyExchange while adding it to that transcript, sends plaintext
-ChangeCipherSpec, derives client Finished verify_data from the live transcript,
-sends an encrypted client Finished record with the current ChaCha20-Poly1305
-path, and only then finishes writing the validated values back best-effort.
-Server Finished receive and verification are later Build 6 work.
+PRF while preserving the live transcript hash context and reusing prepared HMAC
+states for repeated PRF calls, sends the fixed-scalar ECDHE ClientKeyExchange
+while adding it to that transcript, derives client Finished verify_data from
+the live transcript, sends plaintext ChangeCipherSpec and the encrypted client
+Finished in one TCP payload, authenticates, decrypts, and verifies the
+encrypted server Finished, and only then finishes writing the validated values
+back best-effort.
 If agent endpoint reachability fails, status is set to 5 and Seed enters the
 agent setup error path before the ready splash.

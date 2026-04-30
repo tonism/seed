@@ -38,7 +38,7 @@ BIOS loads boot sector
   -> asks agent? when the saved choice is missing or invalid
   -> asks server? and key? on one form when the selected agent needs both
   -> resolves the selected agent host and proves TCP 443 connection
-  -> sends a minimal TLS 1.2 ClientHello with SNI and P-256 ECDHE-RSA-CHACHA20-POLY1305
+  -> sends a minimal TLS 1.2 ClientHello with SNI and P-256 ECDHE-ECDSA-CHACHA20-POLY1305 without extended master secret
   -> parses ServerHello plus Certificate header
   -> drains the Certificate handshake to the next handshake boundary
   -> parses ServerKeyExchange and range-checks the P-256 public point
@@ -47,6 +47,8 @@ BIOS loads boot sector
   -> computes the sparse fixed-scalar ECDHE shared point
   -> converts the Jacobian shared point into the affine X-coordinate pre-master secret
   -> derives TLS master secret and ChaCha20-Poly1305 traffic keys
+  -> sends ClientKeyExchange, then ChangeCipherSpec + encrypted client Finished
+  -> receives and verifies encrypted server Finished
   -> uses a normal o marker during local crypto/key setup
   -> switches to a bright o marker for agent and environment prep
   -> writes validated agent config back best-effort
@@ -146,8 +148,9 @@ saved choice is missing or invalid, asks `server?` and `key?` on one form when
 the selected agent needs both values, preserves saved model and reasoning
 values when present, resolves the selected agent host, proves TCP 443
 connection through the same TCP connect path, sends a minimal TLS 1.2
-ClientHello with SNI offering only P-256 ECDHE-RSA-CHACHA20-POLY1305 for the
-current crypto path, parses and stores ServerHello version, random,
+ClientHello with SNI offering only P-256 ECDHE-ECDSA-CHACHA20-POLY1305 without
+extended master secret for the current crypto path, parses and stores
+ServerHello version, random,
 cipher-suite, session-id, known extension flags, and selected cipher path,
 parses the following Certificate handshake header, drains that Certificate
 handshake to the next handshake boundary, parses the ECDHE ServerKeyExchange
@@ -158,12 +161,12 @@ maintains a live SHA-256 TLS handshake transcript context through
 ServerHelloDone, computes the sparse fixed-scalar ECDHE shared point, converts
 the Jacobian result into the affine X-coordinate pre-master secret, derives
 the TLS master secret and ChaCha20-Poly1305 client/server write keys and IVs
-with the TLS 1.2 SHA-256 PRF, sends ClientKeyExchange with the fixed client
-public point, adds it to the live handshake transcript, sends ChangeCipherSpec,
-derives client Finished verify_data from the live transcript, sends an
-encrypted client Finished record, adds that plaintext handshake message to the
-live transcript, and writes the validated values back best-effort. Server
-Finished receive and verification are later Build 6 work.
+with the TLS 1.2 SHA-256 PRF using prepared HMAC states for repeated PRF calls,
+sends ClientKeyExchange with the fixed client public point, adds it to the live
+handshake transcript, sends ChangeCipherSpec and encrypted client Finished in
+one TCP payload, adds that plaintext Finished handshake message to the live
+transcript, receives and verifies the encrypted server Finished, and writes the
+validated values back best-effort.
 Missing or invalid `AGENTS.CFG` content falls back to
 built-in `openai`, `anthropic`, and `google`; other agent setup failures still
 fail in the bright `"o"` phase as `agent setup failed`.

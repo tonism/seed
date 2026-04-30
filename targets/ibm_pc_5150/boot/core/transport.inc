@@ -10,6 +10,7 @@ tcp_resolve_target_name:
     jc .done
     cmp byte [handoff_addr + handoff_net_status], net_status_arp_resolved
     jne .failed
+    call ne_flush_receive_frames
     call ne_transmit_dns_query
     jc .done
     call ne_wait_for_dns_response
@@ -20,6 +21,21 @@ tcp_resolve_target_name:
 .failed:
     stc
 .done:
+    ret
+
+ne_flush_receive_frames:
+    mov word [ne_rx_read_limit], ne_rx_sample_len
+    mov cx, 8
+.next:
+    push cx
+    call ne_try_receive_frame
+    pop cx
+    jc .done
+    cmp word [ne_rx_sample_count], 0
+    je .done
+    loop .next
+.done:
+    clc
     ret
 
 tcp_open_resolved_target:

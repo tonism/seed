@@ -93,7 +93,8 @@ agent endpoint can be reached and its capabilities can be fetched. Seed proves
 selected-agent TCP reachability by resolving the selected provider host,
 receiving a SYN-ACK on port 443, sending the final ACK, then sending a minimal
 TLS 1.2 ClientHello with SNI offering only P-256
-ECDHE-RSA-CHACHA20-POLY1305 for the current crypto path, parsing ServerHello
+ECDHE-ECDSA-CHACHA20-POLY1305 without extended master secret for the current
+crypto path, parsing ServerHello
 version, random, cipher-suite, session-id, known extension flags, selected
 cipher path, and the following Certificate handshake header before draining
 that Certificate handshake to the next handshake boundary. It then parses the
@@ -106,7 +107,8 @@ live SHA-256 handshake transcript context through ServerHelloDone, computes the
 sparse fixed-scalar ECDHE shared point, and converts the Jacobian result into
 the affine X-coordinate pre-master secret. It then derives the TLS master
 secret and ChaCha20-Poly1305 client/server write keys and IVs with the TLS 1.2
-SHA-256 PRF while preserving the live transcript hash context. Seed writes
+SHA-256 PRF while preserving the live transcript hash context and reusing
+prepared HMAC pad states for repeated PRF calls. Seed writes
 validated values back on a best-effort basis:
 
 ```text
@@ -123,11 +125,12 @@ The `server?` prompt maps to the stored `endpoint` line. The on-disk name stays
 OpenAI, Anthropic, and Google define the supported TLS compatibility surface.
 Extra shipped agent entries are allowed only when they fit that same path;
 Seed should not grow alternate crypto paths just to keep a gateway in the
-default config. On 29 April 2026, `openrouter.ai` was verified against the same
-TLS 1.2 P-256 ECDHE-RSA-CHACHA20-POLY1305 path, so it remains in
-`AGENTS.CFG`. `litellm` is a user-supplied endpoint, so it cannot be certified
-at ship time; it is supported only when the configured server negotiates the
-same path.
+default config. On 30 April 2026, `api.openai.com`, `api.anthropic.com`,
+`generativelanguage.googleapis.com`, and `openrouter.ai` were verified against
+the same TLS 1.2 P-256 ECDHE-ECDSA-CHACHA20-POLY1305 path without extended
+master secret. `openrouter.ai` therefore remains in `AGENTS.CFG`. `litellm` is
+a user-supplied endpoint, so it cannot be certified at ship time; it is
+supported only when the configured server negotiates the same path.
 
 `reasoning` is stored as a plain text effort value such as `xhigh`; provider
 specific request mapping is later Build 6 work. The `key` value is plaintext on
@@ -136,7 +139,8 @@ scalar is a sparse fixed development value so emulator boot tests do not spend
 minutes in the `"o"` secure/crypto phases. A real entropy path and a faster
 full-scalar strategy are required before this can be treated as secure TLS.
 Seed currently sends ClientKeyExchange with the fixed-scalar public point,
-ChangeCipherSpec, and an encrypted client Finished record. Server Finished
-receive/verification, generalized ChaCha20-Poly1305 records, authenticated API
-calls, capability fetches, model selection, and reasoning selection are still
-build 6 follow-up work.
+then sends ChangeCipherSpec and encrypted client Finished together in the next
+TCP payload. It receives, authenticates, decrypts, and verifies the encrypted
+server Finished for the current Finished-record shape. Generalized
+ChaCha20-Poly1305 records, authenticated API calls, capability fetches, model
+selection, and reasoning selection are still build 6 follow-up work.

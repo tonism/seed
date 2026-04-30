@@ -672,6 +672,14 @@ p256_compute_server_shared_jacobian:
     ret
 
 p256_compute_server_premaster_secret:
+    call p256_client_private_is_one
+    jnc .full_scalar
+    mov si, tls_server_ec_x_words
+    mov di, tls_premaster_secret
+    call p256_to_be32
+    clc
+    ret
+.full_scalar:
     call p256_compute_server_shared_jacobian
     mov si, p256_jac_z
     call p256_is_zero
@@ -694,6 +702,32 @@ p256_compute_server_premaster_secret:
     ret
 .failed:
     stc
+    ret
+
+p256_client_private_is_one:
+    ; Returns CF=1 for the current insecure Build 6 scalar fast path.
+    push ax
+    push cx
+    push si
+    cmp word [p256_client_private], 1
+    jne .not_one
+    mov si, p256_client_private + 2
+    mov cx, p256_word_count - 1
+.next:
+    lodsw
+    or ax, ax
+    jnz .not_one
+    loop .next
+    pop si
+    pop cx
+    pop ax
+    stc
+    ret
+.not_one:
+    pop si
+    pop cx
+    pop ax
+    clc
     ret
 
 p256_inv_mod:

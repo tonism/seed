@@ -76,7 +76,8 @@ selected-agent DNS resolution and TCP 443 connect proof
 shared TCP connect boundary for internet and selected-agent reachability
 minimal TCP payload send/receive primitives used by the TLS proof
 TCP receive sequence validation so retransmits do not corrupt the TLS stream
-minimal TLS 1.2 ClientHello with SNI and P-256 ECDHE-RSA-CHACHA20-POLY1305
+minimal TLS 1.2 ClientHello with SNI and P-256 ECDHE-ECDSA-CHACHA20-POLY1305
+without extended master secret for the current cloud timeout budget
 ServerHello state parse for version, random, cipher-suite, session-id, extension flags, and selected cipher path
 Certificate handshake header parse with declared certificate-list length
 Certificate handshake drain to the next handshake boundary
@@ -96,15 +97,18 @@ sparse fixed-scalar ECDHE shared-point generation from the server public point
 Jacobian shared point conversion into the affine X-coordinate pre-master secret
 SHA-256 finalization and transcript-safe HMAC-SHA256 helper
 TLS 1.2 SHA-256 PRF for master-secret and key-expansion derivation
+prepared HMAC-SHA256 ipad/opad states for repeated TLS PRF calls on 8088-class hardware
 ChaCha20-Poly1305 key-block split into client/server write keys and IVs
 fixed-scalar ECDHE ClientKeyExchange record construction and transcript update
-plaintext ChangeCipherSpec transmit after the client key exchange
+ClientKeyExchange transmit followed by one combined ChangeCipherSpec + encrypted client Finished flight within the current server timeout
 ChaCha20 block helper for the current TLS 1.2 record path
 Poly1305 helper for the current one-record Finished MAC shape
 client Finished verify_data derivation from the live SHA-256 transcript
 encrypted client Finished record construction and transmit
+encrypted server Finished receive, ChaCha20-Poly1305 authentication/decryption, and verify_data check
 dependency-free TLS PRF and key-schedule vector checker
 dependency-free ChaCha20/Poly1305 vector and Finished record shape checker
+direct OpenAI TLS 1.2 server-Finished proof on `vm-net-ne2k8`
 best-effort USER.CFG write of validated agent, model, reasoning, key, and endpoint values
 ```
 
@@ -113,9 +117,8 @@ Still in build 6 scope:
 ```text
 replace fixed client random/scalar with a real entropy path before claiming secure TLS
 reduce the eventual full-random-scalar path below the current full double-and-add cost
-generalize ChaCha20-Poly1305 beyond the current single client Finished record
-receive and verify encrypted server Finished
-complete TLS directly from the 8088 runtime
+generalize ChaCha20-Poly1305 beyond the current Finished-record shapes
+retest the full server-Finished proof across every 5150 NIC profile
 validate the selected provider key with a model API request
 fetch model and reasoning capabilities from the provider when available
 create the agent session and hand over to the environment path

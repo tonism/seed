@@ -349,6 +349,7 @@ ne_wait_for_dns_response:
     ret
 .failed:
     mov byte [handoff_addr + handoff_net_status], net_status_dns_query_sent
+    mov byte [handoff_addr + handoff_net_error], net_error_dns
     clc
     ret
 .done:
@@ -703,20 +704,33 @@ parse_dns_response:
     xor bh, bh
     add si, bx
     add si, 4
+.answer:
+    mov al, [ne_tx_frame + dns_payload_offset + 7]
+    mov [dns_answer_remaining], al
+.next_answer:
+    cmp byte [dns_answer_remaining], 0
+    je .not_response
     call dns_skip_name
     jc .not_response
     cmp word [si], 0x0100
-    jne .not_response
+    jne .skip_answer
     cmp word [si + 2], 0x0100
-    jne .not_response
+    jne .skip_answer
     cmp word [si + 8], 0x0400
-    jne .not_response
+    jne .skip_answer
     add si, 10
     mov di, tcp_target_ip
     mov cx, 4
     rep movsb
     clc
     ret
+.skip_answer:
+    mov ah, [si + 8]
+    mov al, [si + 9]
+    add si, 10
+    add si, ax
+    dec byte [dns_answer_remaining]
+    jmp .next_answer
 .not_response:
     stc
     ret

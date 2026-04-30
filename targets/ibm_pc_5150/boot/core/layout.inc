@@ -76,6 +76,8 @@ net_status_tls_keys_ready equ 30
 net_status_tls_clientkeyexchange_sent equ 31
 net_status_tls_changecipherspec_sent equ 32
 net_status_tls_clientfinished_sent equ 33
+net_status_tls_serverccs_received equ 34
+net_status_tls_serverfinished_verified equ 35
 net_error_none equ 0
 net_error_ne_init equ 1
 net_error_ne_tx equ 2
@@ -232,7 +234,7 @@ dns_rx_read_len equ 192
 dns_udp_offset equ eth_header_len + ipv4_header_len
 dns_payload_offset equ dns_udp_offset + udp_header_len
 dns_query_id_word equ 0x4453
-dns_wait_count equ 8
+dns_wait_count equ 32
 tcp_ip_len equ ipv4_header_len + 20
 tcp_tx_frame_len equ 60
 tcp_rx_read_len equ 96
@@ -244,14 +246,14 @@ tcp_source_port_word equ 0x02c0
 tcp_port_http_word equ 0x5000
 tcp_port_https_word equ 0xbb01
 tcp_wait_count equ 4
-tcp_payload_wait_count equ 32
-tls_client_base_len equ 98
-tls_body_base_len equ 89
-tls_record_base_len equ 93
-tls_extensions_base_len equ 46
+tcp_payload_wait_count equ 128
+tls_client_base_len equ 94
+tls_body_base_len equ 85
+tls_record_base_len equ 89
+tls_extensions_base_len equ 42
 tls_random_len equ 32
 tls_after_random_len equ 7
-tls_extensions_tail_len equ 37
+tls_extensions_tail_len equ 33
 tls_ext_ec_point_formats equ 0x01
 tls_ext_extended_master_secret equ 0x02
 tls_ext_renegotiation_info equ 0x04
@@ -290,7 +292,9 @@ tls_finished_cipher_len equ tls_finished_plain_len
 tls_finished_record_len equ tls_finished_cipher_len + 16
 tls_finished_total_len equ 5 + tls_finished_record_len
 tls_aead_aad_len equ 13
-tls_client_record_seq_len equ 8
+tls_record_seq_len equ 8
+tls_client_record_seq_len equ tls_record_seq_len
+tls_server_record_seq_len equ tls_record_seq_len
 chacha_word_count equ 16
 chacha_block_len equ 64
 poly1305_r_len equ 16

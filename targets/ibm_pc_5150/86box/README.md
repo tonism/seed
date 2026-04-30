@@ -175,6 +175,13 @@ with `USER.CFG` excluded from the test floppy. `vm-net-3c501`,
 DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, and TCP
 SYN-ACK.
 
+On 30 April 2026, `vm-net-ne2k8` reached `seed build 6` after completing the
+current direct OpenAI TLS 1.2 path through encrypted server Finished
+verification. The current TLS compatibility path is P-256
+ECDHE-ECDSA-CHACHA20-POLY1305 without extended master secret. The remaining
+NIC-present profiles should be retested for the full server-Finished proof
+after changes to TLS timing or shared packet code.
+
 The WD8003 profiles use `ram_addr = D0000` and `ram_size = 8192`; 86Box expects
 the shared-memory address as a five-digit physical address and the EB RAM size
 in bytes.

@@ -117,6 +117,7 @@ tls_prf_output_len dw 0
 tls_prf_output_remaining dw 0
 tls_prf_chunk_len dw 0
 tls_prf_current_output_ptr dw 0
+tls_prf_prepared_hmac db 0
 chacha_key_ptr dw 0
 chacha_nonce_ptr dw 0
 chacha_counter_low dw 0
@@ -151,6 +152,7 @@ sha256_round_count db 0
 tls_next_handshake_body_ptr dw 0
 dns_qname_len db dns_qname_default_len
 dns_label_len db 0
+dns_answer_remaining db 0
 dns_label_ptr dw 0
 dns_tx_len dw dns_tx_frame_default_len
 fs_lba dw 0
@@ -203,6 +205,8 @@ sha256_digest times sha256_digest_len db 0
 hmac_ipad times sha256_block_size db 0
 hmac_opad times sha256_block_size db 0
 hmac_inner_digest times sha256_digest_len db 0
+hmac_prepared_inner_state times 16 dw 0
+hmac_prepared_outer_state times 16 dw 0
 tls_prf_seed times tls_prf_seed_max_len db 0
 tls_prf_a times sha256_digest_len db 0
 tls_prf_chunk times sha256_digest_len db 0
@@ -226,6 +230,7 @@ tls_server_write_key times tls_chacha_key_len db 0
 tls_client_write_iv times tls_chacha_iv_len db 0
 tls_server_write_iv times tls_chacha_iv_len db 0
 tls_client_record_seq times tls_client_record_seq_len db 0
+tls_server_record_seq times tls_server_record_seq_len db 0
 tls_client_nonce times tls_chacha_iv_len db 0
 tls_aead_aad times tls_aead_aad_len db 0
 tls_handshake_hash times sha256_digest_len db 0
@@ -233,6 +238,7 @@ tls_verify_data times tls_finished_verify_len db 0
 tls_finished_plain times tls_finished_plain_len db 0
 tls_finished_cipher times tls_finished_cipher_len db 0
 tls_finished_tag times 16 db 0
+tls_received_tag times 16 db 0
 chacha_state times chacha_block_len db 0
 chacha_work times chacha_block_len db 0
 chacha_block times chacha_block_len db 0
@@ -317,28 +323,31 @@ host_google_text db 'generativelanguage.googleapis.com', 0
 tls_random db 'SEEDBUILD6TLSCLIENTHELLO00000000'
 tls_after_random db 0
                  db 0, 2
-                 db 0xcc, 0xa8
+                 db 0xcc, 0xa9
                  db 1, 0
 tls_extensions_tail db 0, 10, 0, 4, 0, 2, 0, 23
                     db 0, 11, 0, 2, 1, 0
                     db 0, 13, 0, 10, 0, 8, 4, 3, 5, 3, 4, 1, 5, 1
-                    db 0, 23, 0, 0
                     db 0xff, 1, 0, 1, 0
 tls_client_ec_public db 0x04
-                     db 0xc2, 0x04, 0x31, 0xc4, 0x0b, 0xa2, 0x5e, 0x0a
-                     db 0x9f, 0xc5, 0x0f, 0x97, 0x21, 0x97, 0x72, 0xc0
-                     db 0xd9, 0x50, 0xc9, 0x6f, 0xfc, 0x6e, 0xd1, 0xa7
-                     db 0xc6, 0xb9, 0x51, 0xb7, 0x16, 0xa8, 0x6c, 0xb0
-                     db 0x68, 0xfc, 0x15, 0x3b, 0xa3, 0xbd, 0x94, 0x30
-                     db 0xd0, 0x2a, 0x49, 0xe3, 0xe2, 0x20, 0x63, 0x2b
-                     db 0x0d, 0x37, 0x60, 0xcd, 0xe8, 0x87, 0xef, 0xbe
-                     db 0xa3, 0x3a, 0x5e, 0x2a, 0xdd, 0x41, 0xda, 0xa4
+                     db 0x6b, 0x17, 0xd1, 0xf2, 0xe1, 0x2c, 0x42, 0x47
+                     db 0xf8, 0xbc, 0xe6, 0xe5, 0x63, 0xa4, 0x40, 0xf2
+                     db 0x77, 0x03, 0x7d, 0x81, 0x2d, 0xeb, 0x33, 0xa0
+                     db 0xf4, 0xa1, 0x39, 0x45, 0xd8, 0x98, 0xc2, 0x96
+                     db 0x4f, 0xe3, 0x42, 0xe2, 0xfe, 0x1a, 0x7f, 0x9b
+                     db 0x8e, 0xe7, 0xeb, 0x4a, 0x7c, 0x0f, 0x9e, 0x16
+                     db 0x2b, 0xce, 0x33, 0x57, 0x6b, 0x31, 0x5e, 0xce
+                     db 0xcb, 0xb6, 0x40, 0x68, 0x37, 0xbf, 0x51, 0xf5
 tls_label_master_secret db 'master secret'
 tls_label_master_secret_len equ $ - tls_label_master_secret
+tls_label_extended_master_secret db 'extended master secret'
+tls_label_extended_master_secret_len equ $ - tls_label_extended_master_secret
 tls_label_key_expansion db 'key expansion'
 tls_label_key_expansion_len equ $ - tls_label_key_expansion
 tls_label_client_finished db 'client finished'
 tls_label_client_finished_len equ $ - tls_label_client_finished
+tls_label_server_finished db 'server finished'
+tls_label_server_finished_len equ $ - tls_label_server_finished
 chacha_constants dw 0x7865, 0x6170, 0x646e, 0x3320
                  dw 0x2d32, 0x7962, 0x6574, 0x6b20
 poly1305_prime db 0xfb
@@ -356,8 +365,9 @@ p256_b dw 0x604b, 0x27d2, 0x3c3e, 0x3bce
        dw 0xb0f6, 0xcc53, 0x06b0, 0x651d
        dw 0x86bc, 0x7698, 0xbd55, 0xb3eb
        dw 0x93e7, 0xaa3a, 0x35d8, 0x5ac6
-; Fixed sparse development scalar. Replace with entropy-backed scalar before secure TLS.
-p256_client_private dw 0x0001, 0x0000, 0x0000, 0x8000
+; Insecure Build 6 scalar. Keeps the 5150 TLS proof under cloud handshake
+; timeouts. Replace with entropy-backed scalar math before sending secrets.
+p256_client_private dw 0x0001, 0x0000, 0x0000, 0x0000
                     dw 0x0000, 0x0000, 0x0000, 0x0000
                     dw 0x0000, 0x0000, 0x0000, 0x0000
                     dw 0x0000, 0x0000, 0x0000, 0x0000

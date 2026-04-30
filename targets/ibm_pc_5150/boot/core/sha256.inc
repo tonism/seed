@@ -278,6 +278,163 @@ hmac_sha256:
     pop ax
     ret
 
+hmac_prepare_current_key_context:
+    ; Pre-hashes HMAC ipad/opad blocks for repeated calls with hmac_key_*.
+    push ax
+    push bx
+    push cx
+    push si
+    push di
+    push es
+    call sha256_save_context
+    cmp word [hmac_key_len], sha256_block_size
+    ja .failed
+    push ds
+    pop es
+    mov di, hmac_ipad
+    mov cx, sha256_block_size
+    mov al, 0x36
+    rep stosb
+    mov di, hmac_opad
+    mov cx, sha256_block_size
+    mov al, 0x5c
+    rep stosb
+    mov si, [hmac_key_ptr]
+    mov cx, [hmac_key_len]
+    mov bx, hmac_ipad
+.xor_ipad:
+    or cx, cx
+    jz .xor_opad_start
+    lodsb
+    xor [bx], al
+    inc bx
+    loop .xor_ipad
+.xor_opad_start:
+    mov si, [hmac_key_ptr]
+    mov cx, [hmac_key_len]
+    mov bx, hmac_opad
+.xor_opad:
+    or cx, cx
+    jz .hash_ipad
+    lodsb
+    xor [bx], al
+    inc bx
+    loop .xor_opad
+.hash_ipad:
+    call sha256_init
+    mov si, hmac_ipad
+    mov cx, sha256_block_size
+    call sha256_update
+    mov si, sha256_state
+    mov di, hmac_prepared_inner_state
+    mov cx, 16
+    rep movsw
+    call sha256_init
+    mov si, hmac_opad
+    mov cx, sha256_block_size
+    call sha256_update
+    mov si, sha256_state
+    mov di, hmac_prepared_outer_state
+    mov cx, 16
+    rep movsw
+    clc
+    jmp .done_prepare
+.failed:
+    stc
+.done_prepare:
+    pushf
+    call sha256_restore_context
+    popf
+    pop es
+    pop di
+    pop si
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+hmac_sha256_prepared:
+    ; Uses hmac_data* globals and hmac_prepared_* states.
+    push ax
+    push cx
+    push si
+    push di
+    push es
+    call sha256_save_context
+    call hmac_load_prepared_inner
+    mov si, [hmac_data1_ptr]
+    mov cx, [hmac_data1_len]
+    call sha256_update
+    mov si, [hmac_data2_ptr]
+    mov cx, [hmac_data2_len]
+    call sha256_update
+    mov si, [hmac_data3_ptr]
+    mov cx, [hmac_data3_len]
+    call sha256_update
+    mov di, hmac_inner_digest
+    call sha256_finish
+
+    call hmac_load_prepared_outer
+    mov si, hmac_inner_digest
+    mov cx, sha256_digest_len
+    call sha256_update
+    mov di, [hmac_output_ptr]
+    call sha256_finish
+    clc
+    pushf
+    call sha256_restore_context
+    popf
+    pop es
+    pop di
+    pop si
+    pop cx
+    pop ax
+    ret
+
+hmac_load_prepared_inner:
+    push ax
+    push cx
+    push si
+    push di
+    push es
+    push ds
+    pop es
+    mov si, hmac_prepared_inner_state
+    mov di, sha256_state
+    mov cx, 16
+    rep movsw
+    mov word [sha256_len_low], sha256_block_size
+    mov word [sha256_len_high], 0
+    mov byte [sha256_block_len], 0
+    pop es
+    pop di
+    pop si
+    pop cx
+    pop ax
+    ret
+
+hmac_load_prepared_outer:
+    push ax
+    push cx
+    push si
+    push di
+    push es
+    push ds
+    pop es
+    mov si, hmac_prepared_outer_state
+    mov di, sha256_state
+    mov cx, 16
+    rep movsw
+    mov word [sha256_len_low], sha256_block_size
+    mov word [sha256_len_high], 0
+    mov byte [sha256_block_len], 0
+    pop es
+    pop di
+    pop si
+    pop cx
+    pop ax
+    ret
+
 sha256_process_block:
     push ds
     pop es
