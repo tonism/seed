@@ -10,18 +10,34 @@ agent_api_prepare_request:
     ret
 
 agent_api_exchange:
-    cmp word [tls_prepared_app_len], 0
+    mov byte [tls_debug_stage], 0xa0
+    mov byte [tls_debug_detail], 0
+    mov byte [api_debug_records], 0
+    mov byte [api_debug_first], 0
+    cmp byte [tls_app_sent], 0
     jne .receive_response
+    cmp word [tls_app_len], 0
+    jne .send_request
+    mov byte [tls_debug_stage], 0xa1
     call agent_api_prepare_request
     jc .failed
-    call tls_send_application_data
+.send_request:
+    mov byte [tls_debug_stage], 0xa2
+    call tls_send_application_data_for_nic
     jc .failed
+    call debug_elapsed_ax
+    mov [debug_tick_request_sent], ax
 
 .receive_response:
+    mov byte [tls_debug_stage], 0xa3
     mov byte [api_receive_tries], 8
 .receive:
     call tls_receive_application_data
     jc .failed
+    mov byte [tls_debug_stage], 0xa4
+    inc byte [api_debug_records]
+    mov al, [tls_rx_copy]
+    mov [api_debug_first], al
     call api_find_answer
     jnc .answer
     dec byte [api_receive_tries]
@@ -61,7 +77,7 @@ build_openai_request:
     jc .failed
     push ds
     pop es
-    mov di, ne_tx_frame
+    mov di, api_request_plain
     mov si, http_post_text
     call append_z_to_buffer
     mov si, http_openai_path_text
@@ -94,9 +110,9 @@ build_openai_request:
     mov cx, [api_body_len]
     rep movsb
     mov ax, di
-    sub ax, ne_tx_frame
+    sub ax, api_request_plain
     mov [tls_app_len], ax
-    mov word [tls_app_plain_ptr], ne_tx_frame
+    mov word [tls_app_plain_ptr], api_request_plain
     cmp ax, tls_app_max_plain_len
     ja .failed
     clc

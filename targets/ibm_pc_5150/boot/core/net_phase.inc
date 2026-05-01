@@ -70,6 +70,8 @@ prepare_agent_endpoint_path:
     pop es
     call wd_enable_shared_ram
     call wd_select_dp8390_base
+    call agent_api_prepare_request
+    jc .restore
     call tcp_connect_target
     jc .restore
     call tls_probe_server

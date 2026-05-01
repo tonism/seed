@@ -141,12 +141,14 @@ development value so emulator boot tests do not spend minutes in the `"o"`
 secure/crypto phases. A real entropy path and a faster full-scalar strategy
 are required before this can be treated as secure TLS. Seed currently sends
 ClientKeyExchange with the fixed-scalar public point after local key material
-is prepared, waits briefly, sends ChangeCipherSpec and encrypted client
-Finished, waits briefly again, then sends the prepared API request as TLS
-application data. It receives, authenticates, decrypts, and verifies the
+is prepared, sends ChangeCipherSpec and encrypted client Finished, and can
+send the prepared API request early as TLS application data before waiting for
+the server Finished. It receives, authenticates, decrypts, and verifies the
 encrypted server Finished and TLS application records for the current
-ChaCha20-Poly1305 path. Direct OpenAI API request/response is proven on an
-accelerated `vm-net-ne2k8` profile; original 4.77 MHz still times out before
-that path is complete and remains optimization work. Capability fetches, model
-selection, reasoning selection, and environment handoff remain later Build 6
-work.
+ChaCha20-Poly1305 path. On 1 May 2026, the original 4.77 MHz `vm-net-ne2k8`
+profile completed the direct OpenAI Responses request/response proof and
+displayed the returned `ok`; the remaining NIC profiles still need full API
+proof retest/repair. The 8 MHz `vm-net-ne2k8-8mhz` profile is only a benchmark
+lane for timing experiments.
+Capability fetches, model selection, reasoning selection, and environment
+handoff remain later Build 6 work.

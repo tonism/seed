@@ -73,8 +73,7 @@ tcp_receive_payload:
     call tcp_parse_3c501_second_frame
     jnc .done
 .wait:
-    mov cx, 2
-    call wait_ticks
+    call tcp_payload_poll_delay
     dec word [dhcp_wait_count]
     jnz .poll
     mov byte [handoff_addr + handoff_net_error], net_error_tcp
@@ -88,6 +87,14 @@ tcp_receive_payload:
     mov byte [handoff_addr + handoff_net_status], net_status_tcp_payload_received
     mov byte [handoff_addr + handoff_net_error], net_error_none
     clc
+    ret
+
+tcp_payload_poll_delay:
+    push cx
+    mov cx, 0x0800
+.delay:
+    loop .delay
+    pop cx
     ret
 
 tcp_parse_3c501_second_frame:

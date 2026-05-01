@@ -1,6 +1,9 @@
 tls_probe_server:
+    mov byte [tls_debug_stage], 0x01
+    mov byte [tls_debug_detail], 0
     call build_tls_client_hello
     jc .failed
+    mov byte [tls_debug_stage], 0x02
     call tls_transcript_start
     mov si, fs_sector_buffer
     add si, 5
@@ -12,6 +15,7 @@ tls_probe_server:
     call tls_prepare_3c501_receive
     mov si, fs_sector_buffer
     mov cx, [tls_tx_len]
+    mov byte [tls_debug_stage], 0x03
     call tcp_send_payload
     jc .failed
     mov byte [handoff_addr + handoff_net_status], net_status_tls_clienthello_sent
@@ -20,6 +24,7 @@ tls_probe_server:
     mov cx, 4
     call wait_ticks
 .wait_for_record:
+    mov byte [tls_debug_stage], 0x04
     call tls_wait_for_server_hello
     jc .failed
     cmp word [tls_buffered_payload_len], 0
@@ -28,37 +33,55 @@ tls_probe_server:
     jc .failed
     mov byte [handoff_addr + handoff_net_status], net_status_tls_serverhello_received
 .parse_certificate:
+    mov byte [tls_debug_stage], 0x05
     call tls_wait_for_server_certificate
     jc .failed
+    mov byte [tls_debug_stage], 0x06
     call tls_wait_for_server_key_exchange_or_done
     jc .failed
+    call debug_elapsed_ax
+    mov [debug_tick_hello_done], ax
+    mov byte [tls_debug_stage], 0x07
     call tls_prepare_client_key_exchange_transcript
     jc .failed
     mov bl, [crypto_attr]
     mov al, 'o'
     call show_load_marker
+    mov byte [tls_debug_stage], 0x08
     call tls_prepare_premaster_secret
     jc .failed
+    call debug_elapsed_ax
+    mov [debug_tick_premaster], ax
+    mov byte [tls_debug_stage], 0x09
     call tls_prepare_master_secret
     jc .failed
+    call debug_elapsed_ax
+    mov [debug_tick_master], ax
+    mov byte [tls_debug_stage], 0x0a
     call tls_prepare_key_block
     jc .failed
-    call tls_prepare_early_application_data
-    jc .failed
+    call debug_elapsed_ax
+    mov [debug_tick_keyblock], ax
+    mov byte [tls_debug_stage], 0x0b
     call tls_prepare_client_finished
     jc .failed
+    call debug_elapsed_ax
+    mov [debug_tick_finished], ax
+    mov byte [tls_debug_stage], 0x0c
     call tls_send_client_key_exchange
     jc .failed
-    mov cx, 1
-    call wait_ticks
+    mov byte [tls_debug_stage], 0x0d
     call tls_send_client_final_flight
     jc .failed
-    mov cx, 1
-    call wait_ticks
-    call tls_send_prepared_application_data
+    mov byte [tls_debug_stage], 0x11
+    call tls_send_pending_application_data_early
     jc .failed
+    call tls_prepare_3c501_receive
+    mov byte [tls_debug_stage], 0x0e
     call tls_wait_for_server_finished
     jc .failed
+    call debug_elapsed_ax
+    mov [debug_tick_server_finished], ax
     clc
     ret
 .failed:
@@ -516,6 +539,7 @@ tls_transcript_start:
     mov word [tls_transcript_certificate_remaining], 0
     mov byte [tls_transcript_flags], 0
     mov word [tls_prepared_app_len], 0
+    mov byte [tls_app_sent], 0
     call tls_clear_client_record_seq
     call tls_clear_server_record_seq
     call sha256_init
@@ -995,10 +1019,14 @@ tls_send_client_final_flight:
 tls_wait_for_server_finished:
     call tls_load_server_payload
     jc .failed
+    mov si, [tls_current_payload_ptr]
+    mov al, [si]
+    mov [tls_debug_detail], al
     call tls_maybe_consume_server_new_session_ticket
     jc .failed
     call tls_parse_server_change_cipher_spec
     jc .failed
+    mov byte [tls_debug_stage], 0x0f
     mov byte [handoff_addr + handoff_net_status], net_status_tls_serverccs_received
     cmp word [tls_buffered_payload_len], 0
     jne .load_finished
@@ -1007,8 +1035,12 @@ tls_wait_for_server_finished:
 .load_finished:
     call tls_load_server_payload
     jc .failed
+    mov si, [tls_current_payload_ptr]
+    mov al, [si]
+    mov [tls_debug_detail], al
     call tls_parse_server_finished_record
     jc .failed
+    mov byte [tls_debug_stage], 0x10
     call tls_verify_server_finished
     jc .failed
     mov si, tls_finished_plain
@@ -1040,6 +1072,7 @@ tls_send_application_data:
     call tcp_send_payload
     jc .failed
     call tls_increment_client_record_seq
+    mov byte [tls_app_sent], 1
     clc
     ret
 .failed:
@@ -1047,9 +1080,34 @@ tls_send_application_data:
     stc
     ret
 
+tls_send_pending_application_data_early:
+    cmp byte [handoff_addr + handoff_nic_family], family_3c501
+    je .done
+    cmp byte [tls_app_sent], 0
+    jne .done
+    cmp word [tls_app_len], 0
+    je .done
+    call tls_send_application_data_for_nic
+    jc .failed
+    call debug_elapsed_ax
+    mov [debug_tick_request_sent], ax
+.done:
+    clc
+    ret
+.failed:
+    stc
+    ret
+
+tls_send_application_data_for_nic:
+    call tls_send_application_data
+    ret
+
 tls_prepare_early_application_data:
+    cmp word [tls_app_len], 0
+    jne .request_ready
     call agent_api_prepare_request
     jc .failed
+.request_ready:
     cmp word [tls_app_len], 0
     je .none
     mov word [tls_app_record_ptr], tls_rx_copy
@@ -1080,6 +1138,7 @@ tls_send_prepared_application_data:
     call tcp_send_payload
     jc .failed
     call tls_increment_client_record_seq
+    mov byte [tls_app_sent], 1
 .done:
     clc
     ret
@@ -1183,6 +1242,9 @@ tls_build_application_data_record:
 tls_receive_application_data:
     call tls_load_server_payload
     jc .failed
+    mov si, [tls_current_payload_ptr]
+    mov al, [si]
+    mov [tls_debug_detail], al
     call tls_ensure_current_tls_record_complete
     jc .failed
     mov si, [tls_current_payload_ptr]
@@ -1246,6 +1308,9 @@ tls_receive_application_data:
     call tls_xor_app_data
     cmp byte [tls_app_content_type], 0x15
     jne .application_record
+    mov byte [tls_debug_stage], 0xa5
+    mov al, [tls_rx_copy + 1]
+    mov [tls_debug_detail], al
     jmp .failed
 .application_record:
     call tls_increment_server_record_seq

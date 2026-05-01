@@ -13,6 +13,16 @@ menu_selected_attr db menu_selected_attr_cga
 menu_idle_attr db menu_idle_attr_cga
 load_marker_char db ' '
 load_marker_attr db load_attr_cga
+tls_debug_stage db 0
+tls_debug_detail db 0
+debug_start_tick dw 0
+debug_tick_hello_done dw 0
+debug_tick_premaster dw 0
+debug_tick_master dw 0
+debug_tick_keyblock dw 0
+debug_tick_finished dw 0
+debug_tick_server_finished dw 0
+debug_tick_request_sent dw 0
 menu_option_a dw 0
 menu_option_b dw 0
 menu_value_a db 0
@@ -92,11 +102,14 @@ tls_app_len dw 0
 tls_app_record_len dw 0
 tls_app_total_len dw 0
 tls_app_chunk_len dw 0
+tls_app_sent db 0
 tls_prepared_app_len dw 0
 api_body_len dw 0
 api_answer_ptr dw 0
 api_answer_len dw 0
 api_receive_tries db 0
+api_debug_records db 0
+api_debug_first db 0
 api_decimal_started db 0
 tls_app_content_type db 0
 tls_random_state dw 0
@@ -199,6 +212,7 @@ ne_prom times ne_prom_len db 0
 ne_tx_frame times net_frame_buffer_len db 0
 tls_rx_copy times tls_stream_buffer_len db 0
 fs_sector_buffer times 512 db 0
+api_request_plain times tls_app_max_plain_len db 0
 sha256_state times 16 dw 0
 sha256_a dw 0, 0
 sha256_b dw 0, 0
@@ -313,6 +327,7 @@ build_text db 'build ', '0' + build_number, 0
 network_error_text db 'no network card', 0
 network_setup_error_text db 'network setup failed', 0
 agent_setup_error_text db 'agent setup failed', 0
+agent_fail_short_text db 'fail', 0
 retry_text db 'retry', 0
 restart_text db 'restart', 0
 adapter_prompt_text db 'adapter?', 0
@@ -348,7 +363,7 @@ http_accept_any_text db 'Accept: */*', 13, 10, 0
 http_connection_text db 'Connection: close', 13, 10, 0
 http_content_length_text db 'Content-Length: ', 0
 api_json_model_text db '{"model":"', 0
-api_json_input_text db '","input":"Reply exactly: ok","max_output_tokens":128,"store":false', 0
+api_json_input_text db '","input":"Reply exactly: ok","store":false', 0
 api_json_reasoning_text db ',"reasoning":{"effort":"', 0
 api_json_close_text db '"}}', 0
 api_json_plain_close_text db '}', 0
@@ -368,7 +383,6 @@ tls_extensions_tail db 0, 11, 0, 2, 1, 0
                     db 0, 10, 0, 4, 0, 2, 0, 23
                     db 0, 35, 0, 0
                     db 0, 22, 0, 0
-                    db 0, 23, 0, 0
                     db 0, 13, 0, 42, 0, 40
                     db 4, 3, 5, 3, 6, 3, 8, 7
                     db 8, 8, 8, 9, 8, 10, 8, 11
