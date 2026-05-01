@@ -78,7 +78,6 @@ tls_probe_server:
     mov byte [tls_debug_stage], 0x11
     call tls_send_pending_application_data_early
     jc .failed
-    call tls_prepare_3c501_receive
     mov byte [tls_debug_stage], 0x0e
     call tls_wait_for_server_finished
     jc .failed
@@ -1089,8 +1088,6 @@ tls_send_application_data:
     ret
 
 tls_send_pending_application_data_early:
-    cmp byte [handoff_addr + handoff_nic_family], family_3c501
-    je .done
     cmp byte [tls_app_sent], 0
     jne .done
     cmp word [tls_app_len], 0

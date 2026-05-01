@@ -146,12 +146,11 @@ The Build 6 agent-prep checkpoint for these IBM PC 5150 profiles is expected
 to use saved `USER.CFG` when present. Use `vm-net-ne2k8-8mhz` for Build 6
 optimization timing and keep original 4.77 MHz `vm-net-ne2k8` as the
 compatibility gate. The earlier 16 MHz ad hoc profile is no longer part of the
-normal workflow. On 1 May 2026, six original-speed NIC profiles completed the
-minimal direct OpenAI Responses request/response proof and displayed the
-returned `ok`: `vm-net-3c503`, `vm-net-ne1k`, `vm-net-ne2k8`,
-`vm-net-novell-ne1k`, `vm-net-wd8003e`, and `vm-net-wd8003eb`. Retest and
-repair `vm-net-3c501` for that full API proof when changing TLS timing/shared
-packet code.
+normal workflow. On 1 May 2026, all seven original-speed NIC profiles completed
+the minimal direct OpenAI Responses request/response proof and displayed the
+returned `ok`: `vm-net-3c501`, `vm-net-3c503`, `vm-net-ne1k`, `vm-net-ne2k8`,
+`vm-net-novell-ne1k`, `vm-net-wd8003e`, and `vm-net-wd8003eb`. Retest
+individual profiles when changing TLS timing/shared packet code.
 Build 6 currently adds FAT12 `AGENTS.CFG` and `NET.CFG` parsing, built-in
 fallback agent interfaces, optional `USER.CFG` persistence for selected
 agent/model/reasoning/key/endpoint values, with `server?` shown for LiteLLM's
@@ -177,7 +176,7 @@ fixed-scalar ClientKeyExchange transmit with live transcript update,
 ChangeCipherSpec + encrypted client Finished transmit, encrypted server
 Finished authentication/decryption/verify_data check, early TLS
 application-data send/receive for the current minimal OpenAI Responses proof on
-six original-speed NIC profiles, and
+all seven original-speed NIC profiles, and
 bright questions when
 saved values are missing or invalid; retest individual profiles when changing
 boot, filesystem, agent-prep code, or shared packet code.
@@ -185,7 +184,7 @@ boot, filesystem, agent-prep code, or shared packet code.
 ```text
 vm                   red "." no network card, retry/restart menu
 vm-mda               red "." no network card, retry/restart menu
-vm-net-3c501         auto family, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, encrypted client Finished; full API response pending repair
+vm-net-3c501         auto family, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, encrypted client Finished, server Finished verification, OpenAI Responses request/response, returned ok, then splash
 vm-net-3c503         MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, encrypted client Finished, server Finished verification, OpenAI Responses request/response, returned ok, then splash
 vm-net-ne1k          auto family, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, encrypted client Finished, server Finished verification, OpenAI Responses request/response, returned ok, then splash
 vm-net-ne2k8         auto family, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, encrypted client Finished, server Finished verification, OpenAI Responses request/response, returned ok, then splash

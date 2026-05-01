@@ -112,7 +112,7 @@ OpenAI response scan for the first answer text/error message field
 dependency-free TLS PRF and key-schedule vector checker
 dependency-free ChaCha20/Poly1305 vector and Finished record shape checker
 direct OpenAI TLS 1.2 server-Finished proof on `vm-net-ne2k8`
-direct OpenAI Responses request/response proof on six original 4.77 MHz NIC profiles, displaying returned `ok`
+direct OpenAI Responses request/response proof on all seven original 4.77 MHz NIC profiles, displaying returned `ok`
 best-effort USER.CFG write of validated agent, model, reasoning, key, and endpoint values
 ```
 
@@ -122,7 +122,6 @@ Still in build 6 scope:
 replace pseudo-random client random and fixed scalar with real entropy/scalar handling before claiming secure TLS
 reduce the eventual full-random-scalar path below the current full double-and-add cost
 generalize ChaCha20-Poly1305 beyond the current Finished-record shapes
-repair the 3c501 full API proof and retest the full server-Finished/API proof across every 5150 NIC profile
 fetch model and reasoning capabilities from the provider when available
 create the agent session and hand over to the environment path
 ```
@@ -130,5 +129,5 @@ create the agent session and hand over to the environment path
 Build 6 optimization uses `vm-net-ne2k8-8mhz` as the benchmark lane and the
 original 4.77 MHz `vm-net-ne2k8` profile as the compatibility gate. The earlier
 16 MHz ad hoc profile is no longer part of the normal workflow. On 1 May 2026,
-six original-speed 4.77 MHz NIC profiles completed the first minimal direct
-OpenAI Responses request/response proof and displayed the returned `ok`.
+all seven original-speed 4.77 MHz NIC profiles completed the first minimal
+direct OpenAI Responses request/response proof and displayed the returned `ok`.

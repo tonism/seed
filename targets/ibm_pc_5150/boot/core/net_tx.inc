@@ -219,10 +219,27 @@ el1_transmit_frame:
     out dx, al
     inc dx
     mov cx, [ne_tx_len]
-.write:
+.write4:
+    cmp cx, 4
+    jb .write_tail
     lodsb
     out dx, al
-    loop .write
+    lodsb
+    out dx, al
+    lodsb
+    out dx, al
+    lodsb
+    out dx, al
+    sub cx, 4
+    jmp .write4
+.write_tail:
+    or cx, cx
+    jz .write_done
+.write1:
+    lodsb
+    out dx, al
+    loop .write1
+.write_done:
 
     mov ax, [el1_tx_ptr]
     call el1_set_gp
@@ -243,6 +260,12 @@ el1_transmit_frame:
     stc
     ret
 .done:
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, el1_aux
+    mov al, el1_aux_system
+    out dx, al
+    mov al, el1_aux_receive
+    out dx, al
     mov byte [handoff_addr + handoff_net_status], net_status_tx_ready
     clc
     ret

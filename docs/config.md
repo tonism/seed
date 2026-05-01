@@ -145,10 +145,9 @@ is prepared, sends ChangeCipherSpec and encrypted client Finished, and can
 send the prepared API request early as TLS application data before waiting for
 the server Finished. It receives, authenticates, decrypts, and verifies the
 encrypted server Finished and TLS application records for the current
-ChaCha20-Poly1305 path. On 1 May 2026, the original 4.77 MHz `vm-net-ne2k8`
-profile completed the direct OpenAI Responses request/response proof and
-displayed the returned `ok`; the remaining NIC profiles still need full API
-proof retest/repair. The 8 MHz `vm-net-ne2k8-8mhz` profile is only a benchmark
-lane for timing experiments.
+ChaCha20-Poly1305 path. On 1 May 2026, all seven original 4.77 MHz NIC
+profiles completed the direct OpenAI Responses request/response proof and
+displayed the returned `ok`. The 8 MHz `vm-net-ne2k8-8mhz` profile is only a
+benchmark lane for timing experiments.
 Capability fetches, model selection, reasoning selection, and environment
 handoff remain later Build 6 work.

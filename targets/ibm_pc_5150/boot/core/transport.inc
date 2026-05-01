@@ -100,16 +100,44 @@ tcp_payload_poll_delay:
 tcp_parse_3c501_second_frame:
     cmp byte [handoff_addr + handoff_nic_family], family_3c501
     jne .failed
-    ; In coalesced 3c501 reads, the TLS data can follow a padded 60-byte ACK.
-    cmp word [ne_rx_sample_count], 60 + tcp_offset + 20 + 5
-    jb .failed
-    mov cx, [ne_rx_sample_count]
-    sub cx, 60
-    mov [ne_rx_sample_count], cx
-    mov si, ne_tx_frame + 60
-    mov di, ne_tx_frame
-    rep movsb
+    call tcp_3c501_drop_first_frame
+    jc .failed
     call parse_tcp_payload
+    jnc .done
+    call tcp_3c501_drop_first_frame
+    jc .failed
+    call parse_tcp_payload
+.done:
+    ret
+.failed:
+    stc
+    ret
+
+tcp_3c501_drop_first_frame:
+    cmp word [ne_rx_sample_count], eth_header_len + ipv4_header_len
+    jb .failed
+    cmp word [ne_tx_frame + 12], 0x0008
+    jne .failed
+    mov ah, [ne_tx_frame + eth_header_len + 2]
+    mov al, [ne_tx_frame + eth_header_len + 3]
+    add ax, eth_header_len
+    cmp ax, 60
+    jae .frame_len_ready
+    mov ax, 60
+.frame_len_ready:
+    mov dx, [ne_rx_sample_count]
+    cmp ax, dx
+    jae .failed
+    sub dx, ax
+    cmp dx, tcp_offset + 20 + 5
+    jb .failed
+    mov [ne_rx_sample_count], dx
+    mov si, ne_tx_frame
+    add si, ax
+    mov di, ne_tx_frame
+    mov cx, dx
+    rep movsb
+    clc
     ret
 .failed:
     stc

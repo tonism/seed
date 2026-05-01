@@ -130,10 +130,27 @@ el1_try_receive_frame:
     mov di, ne_tx_frame
     mov dx, [handoff_addr + handoff_nic_base]
     add dx, el1_data
-.read:
+.read4:
+    cmp cx, 4
+    jb .read_tail
     in al, dx
     stosb
-    loop .read
+    in al, dx
+    stosb
+    in al, dx
+    stosb
+    in al, dx
+    stosb
+    sub cx, 4
+    jmp .read4
+.read_tail:
+    or cx, cx
+    jz .read_done
+.read1:
+    in al, dx
+    stosb
+    loop .read1
+.read_done:
     mov byte [handoff_addr + handoff_net_status], net_status_rx_frame_read
 
 .release_frame:
