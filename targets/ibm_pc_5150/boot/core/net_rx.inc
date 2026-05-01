@@ -1080,15 +1080,47 @@ wd_read_sharedmem_bytes:
 c503_write_chipmem_bytes:
     mov [ne_dma_addr], bx
     mov [ne_dma_count], cx
-    call c503_begin_dma
+    call c503_begin_dma_write
+    mov cx, [ne_dma_count]
+    inc cx
+    shr cx, 1
+.write:
+    push cx
+    mov cx, 0x1000
+.wait_ready:
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, el2_status
+    in al, dx
+    test al, el2_status_dprdy
+    jnz .ready
+    loop .wait_ready
+    pop cx
+    jmp .done
+.ready:
+    pop cx
+    lodsw
     mov dx, [handoff_addr + handoff_nic_base]
     add dx, el2_data
-    mov cx, [ne_dma_count]
-.write:
-    lodsb
-    out dx, al
+    out dx, ax
     loop .write
+.done:
     call c503_select_dp8390
+    ret
+
+c503_begin_dma_write:
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, el2_ctrl
+    mov al, el2_ctrl_dma | el2_ctrl_download | el2_ctrl_thin
+    out dx, al
+
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, el2_da_high
+    mov ax, [ne_dma_addr]
+    mov al, ah
+    out dx, al
+    inc dx
+    mov ax, [ne_dma_addr]
+    out dx, al
     ret
 
 c503_read_chipmem_bytes:

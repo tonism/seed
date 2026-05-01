@@ -35,11 +35,12 @@ point, converts the Jacobian result into the affine X-coordinate pre-master
 secret, derives the TLS master secret and ChaCha20-Poly1305 client/server
 write keys and IVs with the TLS 1.2 SHA-256 PRF, sends ClientKeyExchange,
 sends ChangeCipherSpec and encrypted client Finished, receives and verifies
-encrypted server Finished, then begins the hardcoded OpenAI Responses API
-request path. On 1 May 2026, original-speed `vm-net-ne2k8` completed that
-request/response proof and displayed the returned `ok`. The 8 MHz
-`vm-net-ne2k8-8mhz` profile is only a benchmark lane for timing experiments;
-the remaining NIC profiles still need full API proof retest/repair.
+encrypted server Finished, then begins the minimal hardcoded OpenAI Responses
+API request path. On 1 May 2026, six original-speed NIC profiles completed
+that request/response proof and displayed the returned `ok`: `vm-net-3c503`,
+`vm-net-ne1k`, `vm-net-ne2k8`, `vm-net-novell-ne1k`, `vm-net-wd8003e`, and
+`vm-net-wd8003eb`. The 8 MHz `vm-net-ne2k8-8mhz` profile is only a benchmark
+lane for timing experiments; `vm-net-3c501` still needs full API proof repair.
 
 ## IBM PC 5150 Candidates
 
@@ -120,17 +121,18 @@ smoke-tested across all listed NIC-present profiles. TCP receive sequence
 validation, ChaCha20-Poly1305-only cipher negotiation, ServerKeyExchange and
 P-256 public-point capture/range-check, ServerHelloDone parsing, and the live
 SHA-256 transcript context through ServerHelloDone were smoke-tested on
-`vm-net-3c501` and `vm-net-ne2k8`. ECDHE pre-master generation was
-smoke-tested on `vm-net-ne2k8`. TLS key-schedule derivation after the
-pre-master secret was smoke-tested on `vm-net-ne2k8` on 29 April 2026; the
-remaining NIC-present profiles need retest after scalar-path optimization.
+`vm-net-3c501` and `vm-net-ne2k8`. ECDHE pre-master generation and TLS
+key-schedule derivation after the pre-master secret were first smoke-tested on
+`vm-net-ne2k8` on 29 April 2026.
 
 On 30 April 2026, `vm-net-ne2k8` completed the current direct OpenAI TLS path
 through encrypted server Finished verification and reached `seed build 6`.
-On 1 May 2026, original-speed 4.77 MHz `vm-net-ne2k8` completed the direct
-OpenAI Responses request/response proof and displayed the returned `ok`. The
-8 MHz `vm-net-ne2k8-8mhz` profile is used only for Build 6 timing experiments.
-The remaining NIC-present profiles need full API proof retest/repair.
+On 1 May 2026, original-speed 4.77 MHz `vm-net-ne2k8`, `vm-net-ne1k`,
+`vm-net-novell-ne1k`, `vm-net-3c503`, `vm-net-wd8003e`, and
+`vm-net-wd8003eb` completed the minimal direct OpenAI Responses
+request/response proof and displayed the returned `ok`. The 8 MHz
+`vm-net-ne2k8-8mhz` profile is used only for Build 6 timing experiments.
+`vm-net-3c501` still needs full API proof repair.
 
 Also on 30 April 2026, the fixed shipped agent hosts were checked against
 Seed's single current TLS path: TLS 1.2, P-256,
@@ -142,13 +144,13 @@ point at a server with the same compatibility profile.
 ```text
 vm                   no network card; expected: red "." no network card, retry/restart menu
 vm-mda               no network card, MDA; expected: bright "." no network card, retry/restart menu
-vm-net-3c501         3Com EtherLink; expected: auto family, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, encrypted client Finished, server Finished verification; full API response pending retest
-vm-net-3c503         3Com EtherLink II; expected: MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, encrypted client Finished, server Finished verification; full API response pending retest
-vm-net-ne1k          NE1000-compatible; expected: auto family, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, encrypted client Finished, server Finished verification; full API response pending retest
+vm-net-3c501         3Com EtherLink; expected: auto family, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, encrypted client Finished; full API response pending repair
+vm-net-3c503         3Com EtherLink II; expected: MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, encrypted client Finished, server Finished verification, OpenAI Responses request/response, returned ok, then splash
+vm-net-ne1k          NE1000-compatible; expected: auto family, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, encrypted client Finished, server Finished verification, OpenAI Responses request/response, returned ok, then splash
 vm-net-ne2k8         8-bit NE2000-compatible; expected: auto family, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, encrypted client Finished, server Finished verification, OpenAI Responses request/response, returned ok, then splash
-vm-net-novell-ne1k   Novell NE1000; expected: auto family, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, encrypted client Finished, server Finished verification; full API response pending retest
-vm-net-wd8003e       Western Digital WD8003E; expected: auto family, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, encrypted client Finished, server Finished verification; full API response pending retest
-vm-net-wd8003eb      Western Digital WD8003EB; expected: auto family, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, encrypted client Finished, server Finished verification; full API response pending retest
+vm-net-novell-ne1k   Novell NE1000; expected: auto family, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, encrypted client Finished, server Finished verification, OpenAI Responses request/response, returned ok, then splash
+vm-net-wd8003e       Western Digital WD8003E; expected: auto family, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, encrypted client Finished, server Finished verification, OpenAI Responses request/response, returned ok, then splash
+vm-net-wd8003eb      Western Digital WD8003EB; expected: auto family, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, encrypted client Finished, server Finished verification, OpenAI Responses request/response, returned ok, then splash
 ```
 
 The WD8003 86Box profiles must use a five-digit shared-memory address and byte

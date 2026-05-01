@@ -54,9 +54,11 @@ X-coordinate pre-master secret, derives the TLS master secret plus
 client/server ChaCha20-Poly1305 write keys and IVs with the TLS 1.2 SHA-256
 PRF using prepared HMAC states for repeated PRF calls, sends ClientKeyExchange,
 sends ChangeCipherSpec and encrypted client Finished together, verifies the
-encrypted server Finished, then writes validated values back best-effort.
-Model API calls, capability fetches, session creation, and environment handover
-remain later build 6 work.
+encrypted server Finished, sends a minimal OpenAI Responses request asking for
+`ok`, displays the returned answer, then writes validated values back
+best-effort. Six original-speed 5150 NIC profiles currently reach that proof;
+3c501 still needs repair for the full API path. Capability fetches, session
+creation, and environment handover remain later build 6 work.
 
 Build 5 completed the internet-readiness milestone. It initializes
 NE1000/NE2000-family packet hardware after a valid MAC read, reads one pending

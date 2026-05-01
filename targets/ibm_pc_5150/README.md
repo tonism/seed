@@ -166,11 +166,12 @@ sends ClientKeyExchange with the fixed client public point after local key
 material is ready, adds it to the live handshake transcript, sends
 ChangeCipherSpec and encrypted client Finished, adds that plaintext Finished
 handshake message to the live transcript, verifies the encrypted server
-Finished, sends a hardcoded OpenAI Responses API request as TLS application
-data, displays the returned `ok` answer on the accelerated `vm-net-ne2k8`
-profile, and writes the validated values back best-effort. The same path still
-times out on the original-speed 4.77 MHz profile and remains the next
-optimization target.
+Finished, sends a minimal OpenAI Responses API request as TLS application
+data, displays the returned `ok` answer, and writes the validated values back
+best-effort. On 1 May 2026, six original-speed 4.77 MHz profiles reached that
+proof: `vm-net-3c503`, `vm-net-ne1k`, `vm-net-ne2k8`,
+`vm-net-novell-ne1k`, `vm-net-wd8003e`, and `vm-net-wd8003eb`. `vm-net-3c501`
+still needs repair for the full API path.
 Missing or invalid `AGENTS.CFG` content falls back to
 built-in `openai`, `anthropic`, and `google`; other agent setup failures still
 fail in the bright `"o"` phase as `agent setup failed`.

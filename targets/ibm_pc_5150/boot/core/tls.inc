@@ -73,6 +73,8 @@ tls_probe_server:
     mov byte [tls_debug_stage], 0x0d
     call tls_send_client_final_flight
     jc .failed
+    call tls_prepare_application_data_current_seq
+    jc .failed
     mov byte [tls_debug_stage], 0x11
     call tls_send_pending_application_data_early
     jc .failed
@@ -993,12 +995,7 @@ tls_prepare_client_finished:
     ret
 
 tls_send_client_final_flight:
-    call build_tls_change_cipher_spec
-    mov si, fs_sector_buffer
-    mov cx, [tls_tx_len]
-    call tcp_send_payload
-    jc .failed
-    call build_tls_client_finished_record
+    call build_tls_client_final_flight
     mov si, fs_sector_buffer
     mov cx, [tls_tx_len]
     call tcp_send_payload
@@ -1048,8 +1045,19 @@ tls_wait_for_server_finished:
     call tls_transcript_update
     jc .failed
     call tls_increment_server_record_seq
+    cmp byte [handoff_addr + handoff_nic_family], family_3c503
+    je .maybe_defer_finished_ack
+    cmp byte [handoff_addr + handoff_nic_family], family_wd8003
+    jne .send_finished_ack
+.maybe_defer_finished_ack:
+    cmp byte [tls_app_sent], 0
+    jne .send_finished_ack
+    cmp word [tls_prepared_app_len], 0
+    jne .finished_ack_done
+.send_finished_ack:
     call ne_transmit_tcp_ack
     jc .failed
+.finished_ack_done:
     mov byte [handoff_addr + handoff_net_status], net_status_tls_serverfinished_verified
     mov byte [handoff_addr + handoff_net_error], net_error_none
     clc
@@ -1060,7 +1068,7 @@ tls_wait_for_server_finished:
     ret
 
 tls_send_application_data:
-    mov word [tls_app_record_ptr], tls_rx_copy
+    mov word [tls_app_record_ptr], tls_app_record_buffer
     cmp word [tls_app_plain_ptr], 0
     jne .plain_ready
     mov word [tls_app_plain_ptr], tls_rx_copy + tls_record_header_len
@@ -1099,6 +1107,8 @@ tls_send_pending_application_data_early:
     ret
 
 tls_send_application_data_for_nic:
+    cmp word [tls_prepared_app_len], 0
+    jne tls_send_prepared_application_data
     call tls_send_application_data
     ret
 
@@ -1110,7 +1120,7 @@ tls_prepare_early_application_data:
 .request_ready:
     cmp word [tls_app_len], 0
     je .none
-    mov word [tls_app_record_ptr], tls_rx_copy
+    mov word [tls_app_record_ptr], tls_app_record_buffer
     call tls_increment_client_record_seq
     call tls_build_application_data_record
     pushf
@@ -1130,15 +1140,40 @@ tls_prepare_early_application_data:
     stc
     ret
 
+tls_prepare_application_data_current_seq:
+    cmp word [tls_app_len], 0
+    jne .request_ready
+    call agent_api_prepare_request
+    jc .failed
+.request_ready:
+    cmp word [tls_app_len], 0
+    je .none
+    mov word [tls_app_record_ptr], tls_app_record_buffer
+    call tls_build_application_data_record
+    jc .failed
+    mov ax, [tls_tx_len]
+    mov [tls_prepared_app_len], ax
+    clc
+    ret
+.none:
+    mov word [tls_prepared_app_len], 0
+    clc
+    ret
+.failed:
+    mov byte [handoff_addr + handoff_net_error], net_error_tls
+    stc
+    ret
+
 tls_send_prepared_application_data:
     cmp word [tls_prepared_app_len], 0
     je .done
-    mov si, tls_rx_copy
+    mov si, [tls_app_record_ptr]
     mov cx, [tls_prepared_app_len]
     call tcp_send_payload
     jc .failed
     call tls_increment_client_record_seq
     mov byte [tls_app_sent], 1
+    mov word [tls_prepared_app_len], 0
 .done:
     clc
     ret

@@ -53,6 +53,10 @@ init_ne_packet_io:
     mov byte [ne_rx_start], ne_rx_start_1k
     mov byte [ne_rx_stop], ne_rx_stop_1k
 .pages_ready:
+    cmp byte [handoff_addr + handoff_nic_family], family_3c503
+    jne .dp8390_init
+    call c503_init_gate_array
+.dp8390_init:
     mov dx, [handoff_addr + handoff_nic_base]
     add dx, ne_cr
     mov al, ne_cmd_stop_nodma
@@ -150,6 +154,34 @@ c503_select_dp8390:
     mov dx, [handoff_addr + handoff_nic_base]
     add dx, el2_ctrl
     mov al, el2_ctrl_thin
+    out dx, al
+    ret
+
+c503_init_gate_array:
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, el2_start_page
+    mov al, [ne_rx_start]
+    out dx, al
+    inc dx
+    mov al, [ne_rx_stop]
+    out dx, al
+
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, el2_drq_count
+    mov al, 8
+    out dx, al
+
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, el2_ga_config
+    mov al, el2_ga_config_norm
+    out dx, al
+
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, el2_da_high
+    mov al, [ne_tx_start]
+    out dx, al
+    inc dx
+    xor al, al
     out dx, al
     ret
 

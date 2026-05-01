@@ -96,10 +96,6 @@ build_openai_request:
     call append_crlf_to_buffer
     mov si, http_content_type_text
     call append_z_to_buffer
-    mov si, http_accept_text
-    call append_z_to_buffer
-    mov si, http_connection_text
-    call append_z_to_buffer
     mov si, http_content_length_text
     call append_z_to_buffer
     mov ax, [api_body_len]
@@ -131,19 +127,8 @@ build_openai_body:
     call append_z_to_buffer
     mov si, api_json_input_text
     call append_z_to_buffer
-    test byte [seed_config_flags], seed_flag_reasoning
-    jz .plain_close
-    mov si, api_json_reasoning_text
-    call append_z_to_buffer
-    mov si, seed_reasoning
-    call append_z_to_buffer
-    mov si, api_json_close_text
-    call append_z_to_buffer
-    jmp .done
-.plain_close:
     mov si, api_json_plain_close_text
     call append_z_to_buffer
-.done:
     mov ax, di
     sub ax, fs_sector_buffer
     mov [api_body_len], ax

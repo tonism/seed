@@ -563,7 +563,7 @@ build_tcp_segment_frame:
 
     mov di, ne_tx_frame
     xor al, al
-    mov cx, dhcp_rx_frame_len
+    mov cx, net_frame_buffer_len
     rep stosb
 
     mov di, ne_tx_frame

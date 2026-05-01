@@ -213,6 +213,7 @@ ne_tx_frame times net_frame_buffer_len db 0
 tls_rx_copy times tls_stream_buffer_len db 0
 fs_sector_buffer times 512 db 0
 api_request_plain times tls_app_max_plain_len db 0
+tls_app_record_buffer times tcp_payload_max_len db 0
 sha256_state times 16 dw 0
 sha256_a dw 0, 0
 sha256_b dw 0, 0
