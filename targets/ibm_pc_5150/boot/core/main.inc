@@ -8,8 +8,6 @@ start:
     sti
     cld
 
-    mov ax, [0x046c]
-    mov [debug_start_tick], ax
     call init_handoff
     call detect_display
     call clear_screen
@@ -56,9 +54,6 @@ hal_start:
     mov si, build_text
     call type_z
 
-    call type_debug_elapsed
-    call type_debug_milestones
-
     mov cx, done_ticks
     call wait_ticks
 
@@ -100,34 +95,8 @@ agent_setup_error:
 
     inc byte [cursor_col]
     call notify_failure
-    mov si, agent_fail_short_text
+    mov si, agent_setup_error_text
     call type_z
-    mov al, ' '
-    call type_char
-    mov al, [handoff_addr + handoff_net_status]
-    call type_hex_byte
-    mov al, '/'
-    call type_char
-    mov al, [handoff_addr + handoff_net_error]
-    call type_hex_byte
-    mov al, ' '
-    call type_char
-    mov al, [tls_debug_stage]
-    call type_hex_byte
-    mov al, '/'
-    call type_char
-    mov al, [tls_debug_detail]
-    call type_hex_byte
-    mov al, ' '
-    call type_char
-    mov al, [api_debug_records]
-    call type_hex_byte
-    mov al, '/'
-    call type_char
-    mov al, [api_debug_first]
-    call type_hex_byte
-    call type_debug_elapsed
-    call type_debug_milestones
     call ask_failure_action
     jmp halt
 
@@ -135,95 +104,4 @@ set_seed_cursor:
     mov byte [cursor_row], seed_row
     mov al, [seed_col]
     mov [cursor_col], al
-    ret
-
-type_hex_byte:
-    push ax
-    shr al, 1
-    shr al, 1
-    shr al, 1
-    shr al, 1
-    call type_hex_nibble
-    pop ax
-    and al, 0x0f
-    call type_hex_nibble
-    ret
-
-type_hex_nibble:
-    cmp al, 10
-    jb .digit
-    add al, 'a' - 10
-    jmp .type
-.digit:
-    add al, '0'
-.type:
-    call type_char
-    ret
-
-type_debug_elapsed:
-    mov al, ' '
-    call type_char
-    mov al, 't'
-    call type_char
-    call debug_elapsed_ax
-    call type_hex_word
-    ret
-
-debug_elapsed_ax:
-    mov ax, [0x046c]
-    sub ax, [debug_start_tick]
-    ret
-
-type_debug_milestones:
-    mov byte [cursor_row], question_row + 4
-    mov byte [cursor_col], 0
-    mov bl, [error_attr]
-    mov al, 'h'
-    call type_char
-    mov ax, [debug_tick_hello_done]
-    call type_hex_word
-    mov al, ' '
-    call type_char
-    mov al, 'p'
-    call type_char
-    mov ax, [debug_tick_premaster]
-    call type_hex_word
-    mov al, ' '
-    call type_char
-    mov al, 'm'
-    call type_char
-    mov ax, [debug_tick_master]
-    call type_hex_word
-    mov al, ' '
-    call type_char
-    mov al, 'k'
-    call type_char
-    mov ax, [debug_tick_keyblock]
-    call type_hex_word
-    mov al, ' '
-    call type_char
-    mov al, 'f'
-    call type_char
-    mov ax, [debug_tick_finished]
-    call type_hex_word
-    mov al, ' '
-    call type_char
-    mov al, 's'
-    call type_char
-    mov ax, [debug_tick_server_finished]
-    call type_hex_word
-    mov al, ' '
-    call type_char
-    mov al, 'r'
-    call type_char
-    mov ax, [debug_tick_request_sent]
-    call type_hex_word
-    ret
-
-type_hex_word:
-    push ax
-    mov al, ah
-    call type_hex_byte
-    pop ax
-    call type_hex_byte
     ret

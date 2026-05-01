@@ -13,16 +13,6 @@ menu_selected_attr db menu_selected_attr_cga
 menu_idle_attr db menu_idle_attr_cga
 load_marker_char db ' '
 load_marker_attr db load_attr_cga
-tls_debug_stage db 0
-tls_debug_detail db 0
-debug_start_tick dw 0
-debug_tick_hello_done dw 0
-debug_tick_premaster dw 0
-debug_tick_master dw 0
-debug_tick_keyblock dw 0
-debug_tick_finished dw 0
-debug_tick_server_finished dw 0
-debug_tick_request_sent dw 0
 menu_option_a dw 0
 menu_option_b dw 0
 menu_value_a db 0
@@ -108,8 +98,6 @@ api_body_len dw 0
 api_answer_ptr dw 0
 api_answer_len dw 0
 api_receive_tries db 0
-api_debug_records db 0
-api_debug_first db 0
 api_decimal_started db 0
 tls_app_content_type db 0
 tls_random_state dw 0
@@ -328,7 +316,6 @@ build_text db 'build ', '0' + build_number, 0
 network_error_text db 'no network card', 0
 network_setup_error_text db 'network setup failed', 0
 agent_setup_error_text db 'agent setup failed', 0
-agent_fail_short_text db 'fail', 0
 retry_text db 'retry', 0
 restart_text db 'restart', 0
 adapter_prompt_text db 'adapter?', 0

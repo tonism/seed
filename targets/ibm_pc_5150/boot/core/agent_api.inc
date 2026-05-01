@@ -10,34 +10,22 @@ agent_api_prepare_request:
     ret
 
 agent_api_exchange:
-    mov byte [tls_debug_stage], 0xa0
-    mov byte [tls_debug_detail], 0
-    mov byte [api_debug_records], 0
-    mov byte [api_debug_first], 0
     cmp byte [tls_app_sent], 0
     jne .receive_response
     cmp word [tls_app_len], 0
     jne .send_request
-    mov byte [tls_debug_stage], 0xa1
     call agent_api_prepare_request
     jc .failed
 .send_request:
-    mov byte [tls_debug_stage], 0xa2
     call tls_send_application_data_for_nic
     jc .failed
-    call debug_elapsed_ax
-    mov [debug_tick_request_sent], ax
 
 .receive_response:
-    mov byte [tls_debug_stage], 0xa3
     mov byte [api_receive_tries], 8
 .receive:
     call tls_receive_application_data
     jc .failed
-    mov byte [tls_debug_stage], 0xa4
-    inc byte [api_debug_records]
     mov al, [tls_rx_copy]
-    mov [api_debug_first], al
     call api_find_answer
     jnc .answer
     dec byte [api_receive_tries]
