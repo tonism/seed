@@ -4,7 +4,7 @@
 
 build_number equ 6
 handoff_addr equ 0x0600
-runtime_stack_top equ 0xf000
+runtime_stack_top equ 0xc000
 handoff_magic equ 0
 handoff_version equ 4
 handoff_size equ 5
