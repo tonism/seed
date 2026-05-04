@@ -26,7 +26,6 @@ targets/ibm_pc_5150/86box/vm-net-3c501/86box.cfg
 targets/ibm_pc_5150/86box/vm-net-3c503/86box.cfg
 targets/ibm_pc_5150/86box/vm-net-ne1k/86box.cfg
 targets/ibm_pc_5150/86box/vm-net-ne2k8/86box.cfg
-targets/ibm_pc_5150/86box/vm-net-ne2k8-8mhz/86box.cfg
 targets/ibm_pc_5150/86box/vm-net-novell-ne1k/86box.cfg
 targets/ibm_pc_5150/86box/vm-net-wd8003e/86box.cfg
 targets/ibm_pc_5150/86box/vm-net-wd8003eb/86box.cfg
@@ -44,12 +43,8 @@ Floppy:  5.25" single-sided drive as A:
 Disk A:  build/ibm_pc_5150/floppy-160k.img
 ```
 
-The original-speed profiles stay at 4.77 MHz and remain the compatibility
-gate. The `vm-net-ne2k8-8mhz` profile is the Build 6 optimization benchmark:
-it uses the same 5150/NE2000 8-bit shape with an 8 MHz 8088 clock so API path
-timing differences are easier to measure without leaving the 8088 target
-family. Do not keep a 16 MHz benchmark profile unless a future debugging task
-needs a faster API-liveness check.
+The original-speed 4.77 MHz, 64 KiB profiles are the compatibility gate. Faster
+ad hoc profiles are not part of the normal workflow.
 
 The 86Box NIC inventory for this target is tracked in:
 
@@ -121,7 +116,6 @@ This launcher builds the floppy and starts a VM profile:
 ```sh
 tools/run-86box.sh
 tools/run-86box.sh vm-net-ne2k8
-tools/run-86box.sh vm-net-ne2k8-8mhz
 ```
 
 Without an argument it starts `vm`. 86Box 5.x starts specific machines with
@@ -187,12 +181,15 @@ SYN-ACK.
 On 30 April 2026, `vm-net-ne2k8` reached `seed build 6` after completing the
 current direct OpenAI TLS 1.2 path through encrypted server Finished
 verification. The current TLS compatibility path is P-256
-ECDHE-ECDSA-CHACHA20-POLY1305 without extended master secret. The 8 MHz
-`vm-net-ne2k8-8mhz` profile is only a benchmark lane for timing experiments.
+ECDHE-ECDSA-CHACHA20-POLY1305 without extended master secret.
 On 1 May 2026, original-speed 4.77 MHz `vm-net-ne2k8` completed the direct
 OpenAI Responses request/response proof and displayed the returned `ok`.
-The remaining NIC-present profiles should be retested/repaired for the full
-server-Finished/API proof when changing TLS timing or shared packet code.
+On 4 May 2026, the 64 KiB baseline was retested before memory-slimming work:
+`vm-net-3c503`, `vm-net-ne1k`, `vm-net-ne2k8`, `vm-net-novell-ne1k`,
+`vm-net-wd8003e`, and `vm-net-wd8003eb` reached `seed build 6` and displayed
+`ok`; `vm-net-3c501` failed at agent setup and remains the open valid-profile
+failure. Retest individual profiles when changing TLS timing or shared packet
+code.
 
 The WD8003 profiles use `ram_addr = D0000` and `ram_size = 8192`; 86Box expects
 the shared-memory address as a five-digit physical address and the EB RAM size

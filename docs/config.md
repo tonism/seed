@@ -147,7 +147,9 @@ the server Finished. It receives, authenticates, decrypts, and verifies the
 encrypted server Finished and TLS application records for the current
 ChaCha20-Poly1305 path. On 1 May 2026, all seven original 4.77 MHz NIC
 profiles completed the direct OpenAI Responses request/response proof and
-displayed the returned `ok`. The 8 MHz `vm-net-ne2k8-8mhz` profile is only a
-benchmark lane for timing experiments.
+displayed the returned `ok`. On 4 May 2026, the 64 KiB baseline was retested
+before memory-slimming work: all valid profiles except `vm-net-3c501` reached
+`seed build 6` and displayed `ok`; `vm-net-3c501` failed at agent setup and
+remains open.
 Capability fetches, model selection, reasoning selection, and environment
 handoff remain later Build 6 work.

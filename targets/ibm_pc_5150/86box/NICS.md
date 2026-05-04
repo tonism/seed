@@ -39,8 +39,12 @@ encrypted server Finished, then begins the minimal hardcoded OpenAI Responses
 API request path. On 1 May 2026, all seven original-speed NIC profiles
 completed that request/response proof and displayed the returned `ok`:
 `vm-net-3c501`, `vm-net-3c503`, `vm-net-ne1k`, `vm-net-ne2k8`,
-`vm-net-novell-ne1k`, `vm-net-wd8003e`, and `vm-net-wd8003eb`. The 8 MHz
-`vm-net-ne2k8-8mhz` profile is only a benchmark lane for timing experiments.
+`vm-net-novell-ne1k`, `vm-net-wd8003e`, and `vm-net-wd8003eb`. On 4 May 2026,
+the 64 KiB baseline was retested before memory-slimming work:
+`vm-net-3c503`, `vm-net-ne1k`, `vm-net-ne2k8`, `vm-net-novell-ne1k`,
+`vm-net-wd8003e`, and `vm-net-wd8003eb` reached `seed build 6` and displayed
+`ok`; `vm-net-3c501` failed at agent setup and remains the open valid-profile
+failure.
 
 ## IBM PC 5150 Candidates
 
@@ -130,8 +134,10 @@ through encrypted server Finished verification and reached `seed build 6`.
 On 1 May 2026, all original-speed 4.77 MHz NIC profiles completed the minimal
 direct OpenAI Responses request/response proof and displayed the returned `ok`:
 `vm-net-3c501`, `vm-net-3c503`, `vm-net-ne1k`, `vm-net-ne2k8`,
-`vm-net-novell-ne1k`, `vm-net-wd8003e`, and `vm-net-wd8003eb`. The 8 MHz
-`vm-net-ne2k8-8mhz` profile is used only for Build 6 timing experiments.
+`vm-net-novell-ne1k`, `vm-net-wd8003e`, and `vm-net-wd8003eb`.
+On 4 May 2026, the 64 KiB baseline was retested before memory-slimming work:
+all valid profiles except `vm-net-3c501` reached `seed build 6` and displayed
+`ok`; `vm-net-3c501` failed at agent setup and remains open.
 
 Also on 30 April 2026, the fixed shipped agent hosts were checked against
 Seed's single current TLS path: TLS 1.2, P-256,
