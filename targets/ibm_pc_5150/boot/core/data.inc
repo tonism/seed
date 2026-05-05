@@ -220,7 +220,6 @@ sha256_block times 64 db 0
 sha256_saved_state times 16 dw 0
 sha256_saved_block times sha256_block_size db 0
 sha256_w times 128 dw 0
-sha256_digest times sha256_digest_len db 0
 hmac_ipad times sha256_block_size db 0
 hmac_opad times sha256_block_size db 0
 hmac_inner_digest times sha256_digest_len db 0
@@ -340,21 +339,14 @@ host_openai_text db 'api.openai.com', 0
 host_anthropic_text db 'api.anthropic.com', 0
 host_google_text db 'generativelanguage.googleapis.com', 0
 http_post_text db 'POST ', 0
-http_get_text db 'GET ', 0
-http_root_path_text db '/', 0
 http_openai_path_text db '/v1/responses', 0
 http_version_text db ' HTTP/1.1', 13, 10, 0
 http_host_text db 'Host: ', 0
 http_auth_bearer_text db 'Authorization: Bearer ', 0
 http_content_type_text db 'Content-Type: application/json', 13, 10, 0
-http_accept_text db 'Accept: application/json', 13, 10, 0
-http_accept_any_text db 'Accept: */*', 13, 10, 0
-http_connection_text db 'Connection: close', 13, 10, 0
 http_content_length_text db 'Content-Length: ', 0
 api_json_model_text db '{"model":"', 0
 api_json_input_text db '","input":"Reply exactly: ok","store":false', 0
-api_json_reasoning_text db ',"reasoning":{"effort":"', 0
-api_json_close_text db '"}}', 0
 api_json_plain_close_text db '}', 0
 api_answer_output_pattern db '"output_text":"', 0
 api_answer_output_spaced_pattern db '"output_text": "', 0
@@ -406,10 +398,6 @@ p256_prime dw 0xffff, 0xffff, 0xffff, 0xffff
            dw 0xffff, 0xffff, 0x0000, 0x0000
            dw 0x0000, 0x0000, 0x0000, 0x0000
            dw 0x0001, 0x0000, 0xffff, 0xffff
-p256_prime_minus_2 dw 0xfffd, 0xffff, 0xffff, 0xffff
-                   dw 0xffff, 0xffff, 0x0000, 0x0000
-                   dw 0x0000, 0x0000, 0x0000, 0x0000
-                   dw 0x0001, 0x0000, 0xffff, 0xffff
 p256_b dw 0x604b, 0x27d2, 0x3c3e, 0x3bce
        dw 0xb0f6, 0xcc53, 0x06b0, 0x651d
        dw 0x86bc, 0x7698, 0xbd55, 0xb3eb

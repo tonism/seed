@@ -718,17 +718,6 @@ tls_prepare_premaster_secret:
     stc
     ret
 
-tls_prepare_key_schedule:
-    call tls_prepare_master_secret
-    jc .failed
-    call tls_prepare_key_block
-    jc .failed
-    clc
-    ret
-.failed:
-    stc
-    ret
-
 tls_prepare_master_secret:
     call tls_build_master_secret_seed
     mov word [tls_prf_secret_ptr], tls_premaster_secret
@@ -1110,34 +1099,6 @@ tls_send_application_data_for_nic:
     call tls_send_application_data
     ret
 
-tls_prepare_early_application_data:
-    cmp word [tls_app_len], 0
-    jne .request_ready
-    call agent_api_prepare_request
-    jc .failed
-.request_ready:
-    cmp word [tls_app_len], 0
-    je .none
-    mov word [tls_app_record_ptr], tls_app_record_buffer
-    call tls_increment_client_record_seq
-    call tls_build_application_data_record
-    pushf
-    call tls_clear_client_record_seq
-    popf
-    jc .failed
-    mov ax, [tls_tx_len]
-    mov [tls_prepared_app_len], ax
-    clc
-    ret
-.none:
-    mov word [tls_prepared_app_len], 0
-    clc
-    ret
-.failed:
-    mov byte [handoff_addr + handoff_net_error], net_error_tls
-    stc
-    ret
-
 tls_prepare_application_data_current_seq:
     cmp word [tls_app_len], 0
     jne .request_ready
@@ -1178,41 +1139,6 @@ tls_send_prepared_application_data:
 .failed:
     mov byte [handoff_addr + handoff_net_error], net_error_tls
     stc
-    ret
-
-tls_append_prepared_application_data:
-    cmp word [tls_prepared_app_len], 0
-    je .done
-    push ax
-    push cx
-    push si
-    push di
-    push es
-    push ds
-    pop es
-    mov di, fs_sector_buffer
-    add di, [tls_tx_len]
-    mov si, tls_rx_copy
-    mov cx, [tls_prepared_app_len]
-    mov ax, [tls_tx_len]
-    add ax, cx
-    cmp ax, tcp_payload_max_len
-    ja .too_large
-    mov [tls_tx_len], ax
-    rep movsb
-    clc
-    jmp .restore
-.too_large:
-    stc
-.restore:
-    pop es
-    pop di
-    pop si
-    pop cx
-    pop ax
-    ret
-.done:
-    clc
     ret
 
 tls_build_application_data_record:
@@ -2016,33 +1942,6 @@ build_tls_client_final_flight:
     pop cx
     ret
 
-build_tls_client_finished_record:
-    push cx
-    push si
-    push di
-    push es
-    push ds
-    pop es
-    mov word [tls_tx_len], tls_finished_total_len
-    mov di, fs_sector_buffer
-    mov al, 0x16
-    stosb
-    mov ax, 0x0303
-    stosw
-    mov ax, tls_finished_record_len
-    call tls_write_be16
-    mov si, tls_finished_cipher
-    mov cx, tls_finished_cipher_len
-    rep movsb
-    mov si, tls_finished_tag
-    mov cx, 16
-    rep movsb
-    pop es
-    pop di
-    pop si
-    pop cx
-    ret
-
 tls_clear_client_record_seq:
     push ax
     push cx
@@ -2484,20 +2383,6 @@ build_tls_client_key_exchange:
     mov si, tls_client_ec_public
     mov cx, tls_ec_public_uncompressed_len
     rep movsb
-    clc
-    ret
-
-build_tls_change_cipher_spec:
-    mov word [tls_tx_len], tls_change_cipher_spec_total_len
-    mov di, fs_sector_buffer
-    mov al, 0x14
-    stosb
-    mov ax, 0x0303
-    stosw
-    mov ax, 1
-    call tls_write_be16
-    mov al, 1
-    stosb
     clc
     ret
 

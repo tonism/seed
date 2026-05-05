@@ -342,7 +342,6 @@ def scalar_mult_jacobian_words(scalar: int, point: tuple[int, int]) -> tuple[int
 
 def check_field_words() -> None:
     assert parse_dw_words("p256_prime") == to_words_le(P)
-    assert parse_dw_words("p256_prime_minus_2") == to_words_le(P - 2)
     assert parse_dw_words("p256_b") == to_words_le(B)
     assert parse_dw_words("p256_client_private") == to_words_le(CLIENT_PRIVATE)
     assert bytes(parse_db_values("tls_client_ec_public")) == (
