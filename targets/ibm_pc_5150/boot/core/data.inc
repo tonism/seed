@@ -161,6 +161,7 @@ tls_server_signature_alg db 0
 tls_server_certificate_len_high db 0
 tls_server_certificate_list_len_high db 0
 tls_transcript_flags db 0
+tls_key_schedule_ready db 0
 sha256_block_len db 0
 sha256_saved_block_len db 0
 sha256_schedule_count db 0

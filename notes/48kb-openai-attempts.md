@@ -34,3 +34,37 @@ Conclusion:
   The observed boot failure was caused by stack placement above installed RAM.
 - With stacks moved to `0xc000`, all valid non-3c501 NIC profiles completed the
   direct OpenAI proof at 4.77 MHz / 48KB.
+
+## 2026-05-05 - 3c501 OpenAI timing fix
+
+Branch: `work/48kb-slim`
+
+Starting point:
+- `vm-net-3c501` failed with red `o` / `agent setup failed` while the other
+  valid 48KB NIC profiles reached the Build 6 splash and displayed `ok`.
+- Relay probing with `/private/tmp/seed_tls_relay_probe.py` showed the 3c501
+  TLS crypto was valid: the relay verified the client Finished and decrypted
+  the OpenAI request. The failure was timing and receive pacing, not an invalid
+  ECDHE/AEAD result.
+
+Changes tried and kept:
+- Precompute the non-EMS TLS key schedule for 3c501 immediately after
+  ServerKeyExchange parsing, before waiting for ServerHelloDone.
+- Send 3c501 ClientKeyExchange immediately after ServerHelloDone, then finish
+  the local final-flight work and send CCS/encrypted Finished.
+- Reduce the advertised TCP receive window only for 3c501 from 1024 bytes to
+  512 bytes, pacing the server TLS/application response around the 3c501's
+  single receive buffer.
+- Clear the 3c501 receive pointer high byte during init/release paths.
+
+Result:
+- Relay test reached OpenAI, received `HTTP/1.1 200 OK`, and decrypted a
+  response body containing `"text": "ok"`.
+- Direct `vm-net-3c501` test reached `seed build 6` and displayed returned
+  `ok`.
+- Direct `vm-net-ne2k8` regression test also reached `seed build 6` and
+  displayed returned `ok`.
+
+Size:
+- `CORE.SYS` after rebuild: 36,442 bytes (`0x8e5a`), ending at about `0x9e5a`
+  when loaded at `0x1000`.

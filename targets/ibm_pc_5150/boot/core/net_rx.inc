@@ -156,6 +156,7 @@ el1_try_receive_frame:
 .release_frame:
     mov dx, [handoff_addr + handoff_nic_base]
     add dx, el1_rcvptr
+    xor al, al
     out dx, al
     mov dx, [handoff_addr + handoff_nic_base]
     add dx, el1_aux

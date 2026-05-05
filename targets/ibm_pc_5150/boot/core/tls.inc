@@ -34,19 +34,30 @@ tls_probe_server:
     jc .failed
     call tls_prepare_client_key_exchange_transcript
     jc .failed
+    cmp byte [handoff_addr + handoff_nic_family], family_3c501
+    jne .prepare_keys
+    call tls_send_client_key_exchange
+    jc .failed
+.prepare_keys:
     mov bl, [crypto_attr]
     mov al, 'o'
     call show_load_marker
+    cmp byte [tls_key_schedule_ready], 1
+    je .key_schedule_ready
     call tls_prepare_premaster_secret
     jc .failed
     call tls_prepare_master_secret
     jc .failed
     call tls_prepare_key_block
     jc .failed
+.key_schedule_ready:
     call tls_prepare_client_finished
     jc .failed
+    cmp byte [handoff_addr + handoff_nic_family], family_3c501
+    je .send_final_flight
     call tls_send_client_key_exchange
     jc .failed
+.send_final_flight:
     call tls_send_client_final_flight
     jc .failed
     call tls_prepare_application_data_current_seq
@@ -511,6 +522,7 @@ tls_transcript_start:
     mov word [tls_transcript_len_high], 0
     mov word [tls_transcript_certificate_remaining], 0
     mov byte [tls_transcript_flags], 0
+    mov byte [tls_key_schedule_ready], 0
     mov word [tls_prepared_app_len], 0
     mov byte [tls_app_sent], 0
     call tls_clear_client_record_seq
@@ -637,6 +649,8 @@ tls_wait_for_server_key_exchange_or_done:
     jc .failed
     call tls_finish_server_key_exchange
     jc .failed
+    call tls_prepare_early_key_schedule
+    jc .failed
 .wait_done:
     call tls_wait_for_server_hello_done
     jc .failed
@@ -644,6 +658,24 @@ tls_wait_for_server_key_exchange_or_done:
     ret
 .failed:
     mov byte [handoff_addr + handoff_net_error], net_error_tls
+    stc
+    ret
+
+tls_prepare_early_key_schedule:
+    cmp byte [handoff_addr + handoff_nic_family], family_3c501
+    jne .done
+    test byte [tls_server_extension_flags], tls_ext_extended_master_secret
+    jnz .done
+    call tls_prepare_premaster_secret
+    jc .failed
+    call tls_prepare_master_secret
+    jc .failed
+    call tls_prepare_key_block
+    jc .failed
+.done:
+    clc
+    ret
+.failed:
     stc
     ret
 
@@ -659,8 +691,11 @@ tls_wait_for_server_hello_done:
     jc .failed
     or byte [tls_transcript_flags], tls_transcript_serverhellodone
     call tls_clear_buffered_payload
+    cmp byte [handoff_addr + handoff_nic_family], family_3c501
+    je .ack_done
     call ne_transmit_tcp_ack
     jc .failed
+.ack_done:
     mov byte [handoff_addr + handoff_net_status], net_status_tls_transcript_ready
     mov byte [handoff_addr + handoff_net_error], net_error_none
     clc
@@ -735,6 +770,7 @@ tls_prepare_key_block:
     popf
     jc .failed
     call tls_split_key_block
+    mov byte [tls_key_schedule_ready], 1
     mov byte [handoff_addr + handoff_net_status], net_status_tls_keys_ready
     mov byte [handoff_addr + handoff_net_error], net_error_none
     clc
@@ -985,6 +1021,7 @@ tls_send_client_final_flight:
     ret
 
 tls_wait_for_server_finished:
+    call tls_prepare_3c501_receive
     call tls_load_server_payload
     jc .failed
     mov si, [tls_current_payload_ptr]

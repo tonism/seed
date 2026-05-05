@@ -636,7 +636,13 @@ build_tcp_segment_frame:
     mov ah, [tcp_tx_flags]
     mov al, 0x50
     stosw
+    cmp byte [handoff_addr + handoff_nic_family], family_3c501
+    jne .default_window
+    mov ax, 0x0002
+    jmp .write_window
+.default_window:
     mov ax, 0x0004
+.write_window:
     stosw
     xor ax, ax
     stosw
