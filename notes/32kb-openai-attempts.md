@@ -182,3 +182,88 @@ Family checkpoint after reductions 5 and 6:
   each displayed `ok` and `seed build 6`.
 - Remaining gap to the hard 32KB load ceiling is about 2,281 bytes; allowing a
   small stack/guard target leaves roughly 2.8KB still to cut.
+
+Failed reduction 7a:
+- Tried a broad post-P-256 scratch alias: `agent_ids`, premaster/key-block
+  output, PRF seed/chunks, HMAC pads and prepared states, SHA saved context,
+  and shared-X scratch all reused the P-256 arena.
+- Also converted ServerKeyExchange public coordinates directly into P-256 word
+  buffers instead of first staging separate raw X/Y byte copies.
+- Resulting `CORE.SYS` size: 30,168 bytes, saving 785 bytes
+  (5,784 bytes cumulative), and local crypto checks passed with `make test`.
+- 48KB NE2K VM failed at `agent setup failed`, so the broad PRF/HMAC/SHA alias
+  is not valid as written.
+
+Controlled reduction 7:
+- Kept the lower-risk parts of 7a only: `agent_ids`, premaster/key-block
+  output, and shared-X scratch reuse the P-256 arena, and ServerKeyExchange
+  public coordinates are converted directly into P-256 word buffers.
+- Left PRF seed/chunks, HMAC pads/prepared states, and SHA saved context as
+  separate resident storage.
+- Resulting `CORE.SYS` size: 30,632 bytes, saving 321 bytes
+  (5,320 bytes cumulative).
+- Remaining gap to the hard 32KB load ceiling is about 1,960 bytes; allowing a
+  small stack/guard target leaves roughly 2.5KB still to cut.
+- 48KB NE2K test stayed green: displayed `ok` and `seed build 6`.
+- Representative family validation stayed green:
+  `vm-net-ne2k8`, `vm-net-3c501`, `vm-net-3c503`, and `vm-net-wd8003e`
+  each displayed `ok` and `seed build 6`. The first 3c501 run failed at
+  `agent setup failed`, but an immediate rerun of the same image passed, so
+  this cut is treated as family-green while keeping 3c501 as the timing canary.
+
+Failed reduction 8:
+- Host-side OpenAI timing probe still showed that adding
+  `"max_output_tokens":16` reduces the successful response from about 2790
+  bytes to about 2282 bytes.
+- Tried adding that field to the real-mode OpenAI request and trimming
+  `tls_stream_buffer_len` from two full TCP payloads to
+  `tcp_payload_read_len + 1024`.
+- Resulting `CORE.SYS` size: 30,165 bytes, saving 467 bytes from reduction 7,
+  and local crypto checks passed.
+- 48KB NE2K failed at `agent setup failed`; an immediate rerun failed the same
+  way.
+- Tried a safer partial receive trim, `tcp_payload_read_len + 1302`.
+  Resulting `CORE.SYS` size: 30,443 bytes, saving 189 bytes from reduction 7,
+  and local crypto checks passed, but 48KB NE2K still failed at
+  `agent setup failed`.
+- Diagnostic split restored the full two-payload receive buffer while keeping
+  `"max_output_tokens":16`; 48KB NE2K still failed. Therefore the request shape
+  change, not just the smaller receive buffer, is incompatible with the current
+  parser/receive flow. Reverted this attempt and returned to reduction 7.
+
+Controlled reduction 9:
+- Compiled out the dormant full P-256 scalar/arithmetic path and kept a
+  guarded scalar-1 premaster path. The current Build 6 client private key is
+  fixed to scalar 1, so the ECDHE shared X is the server public X; if the
+  scalar changes, the guard fails closed.
+- Resulting `CORE.SYS` size: 28,396 bytes, saving 2,236 bytes from reduction 7
+  (7,556 bytes cumulative).
+- Local P-256, TLS PRF, and ChaCha20/Poly1305 checks passed.
+- 48KB representative family tests passed:
+  `vm-net-ne2k8`, `vm-net-3c501`, `vm-net-3c503`, and `vm-net-wd8003e`
+  each displayed `ok` and `seed build 6`.
+- This put the image 276 bytes under the hard 32KB load ceiling, but with
+  essentially no practical stack/guard room.
+
+Failed reduction 10a:
+- Tried removing the now-dormant full P-256 scratch arena and replacing the
+  overlapping ChaCha/Poly scratch windows with explicit smaller buffers.
+- Resulting `CORE.SYS` sizes were 27,706 bytes for the first broad removal and
+  27,767 bytes after restoring explicit ChaCha/Poly scratch tails.
+- Local crypto checks passed, but 48KB NE2K failed at `agent setup failed` in
+  both forms. The broad scratch layout is therefore not valid as written.
+- Reverted to the reduction 9 arena shape.
+
+Controlled reduction 10:
+- Removed only dormant full P-256 constant tables: curve `b`, constant `three`,
+  and the reduction coefficient table. Left the proven scratch arena layout
+  unchanged.
+- Resulting `CORE.SYS` size: 28,092 bytes, saving 304 bytes from reduction 9
+  (7,860 bytes cumulative).
+- Local P-256, TLS PRF, and ChaCha20/Poly1305 checks passed.
+- 48KB representative family tests passed so far:
+  `vm-net-ne2k8`, `vm-net-3c501`, and `vm-net-3c503` each displayed `ok` and
+  `seed build 6`. `vm-net-wd8003e` remains to be rerun for the complete family
+  checkpoint.
+- Current hard 32KB load gap: `0x8000 - (0x1000 + 28092) = 580` bytes. That is
+  below the ceiling, but still tight for a lowered 32KB stack and guard.

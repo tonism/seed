@@ -233,21 +233,15 @@ hmac_prepared_outer_state times 16 dw 0
 tls_prf_seed times tls_prf_seed_max_len db 0
 tls_prf_a times sha256_digest_len db 0
 tls_prf_chunk times sha256_digest_len db 0
-agent_ids times agent_slot_count * agent_id_len db 0
 seed_agent_id times agent_id_len db 0
 seed_model times seed_model_len db 0
 seed_key times seed_key_len db 0
 seed_endpoint times seed_endpoint_len db 0
 seed_reasoning times seed_reasoning_len db 0
 tls_server_random times tls_random_len db 0
-tls_server_ec_x times tls_ec_coordinate_len db 0
-tls_server_ec_y times tls_ec_coordinate_len db 0
 tls_server_ec_x_words times p256_word_len db 0
 tls_server_ec_y_words times p256_word_len db 0
-tls_shared_x_words times p256_word_len db 0
-tls_premaster_secret times tls_ec_coordinate_len db 0
 tls_master_secret times tls_master_secret_len db 0
-tls_key_block times tls_key_block_len db 0
 tls_client_write_key times tls_chacha_key_len db 0
 tls_server_write_key times tls_chacha_key_len db 0
 tls_client_write_iv times tls_chacha_iv_len db 0
@@ -279,6 +273,10 @@ p256_s7 times p256_word_len db 0
 p256_s8 times p256_word_len db 0
 p256_product times p256_product_word_len db 0
 p256_reduce_acc times p256_word_count * 4 db 0
+agent_ids equ p256_lhs
+tls_premaster_secret equ p256_lhs
+tls_key_block equ p256_lhs
+tls_shared_x_words equ p256_s8
 chacha_state equ p256_lhs
 chacha_work equ p256_tmp
 chacha_block equ p256_jac_y
@@ -403,33 +401,12 @@ p256_prime dw 0xffff, 0xffff, 0xffff, 0xffff
            dw 0xffff, 0xffff, 0x0000, 0x0000
            dw 0x0000, 0x0000, 0x0000, 0x0000
            dw 0x0001, 0x0000, 0xffff, 0xffff
-p256_b dw 0x604b, 0x27d2, 0x3c3e, 0x3bce
-       dw 0xb0f6, 0xcc53, 0x06b0, 0x651d
-       dw 0x86bc, 0x7698, 0xbd55, 0xb3eb
-       dw 0x93e7, 0xaa3a, 0x35d8, 0x5ac6
-p256_three dw 0x0003
-           times p256_word_count - 1 dw 0x0000
 ; Insecure Build 6 scalar. Keeps the 5150 TLS proof under cloud handshake
 ; timeouts. Replace with entropy-backed scalar math before sending secrets.
 p256_client_private dw 0x0001, 0x0000, 0x0000, 0x0000
                     dw 0x0000, 0x0000, 0x0000, 0x0000
                     dw 0x0000, 0x0000, 0x0000, 0x0000
                     dw 0x0000, 0x0000, 0x0000, 0x0000
-p256_reduce_coeffs db 1, 0, 0, 0, 0, 0, -1, 0, 0, 0, 0, 0, -1, 0, 1, 0
-                   db 0, 1, 0, 0, 0, 0, 0, -1, 0, 0, 0, 0, 0, -1, 0, 1
-                   db 1, 0, 1, 0, 0, 0, -1, 0, -1, 0, 0, 0, -1, 0, 0, 0
-                   db 0, 1, 0, 1, 0, 0, 0, -1, 0, -1, 0, 0, 0, -1, 0, 0
-                   db 0, 0, 1, 0, 1, 0, 0, 0, -1, 0, -1, 0, 0, 0, -1, 0
-                   db 0, 0, 0, 1, 0, 1, 0, 0, 0, -1, 0, -1, 0, 0, 0, -1
-                   db -1, 0, 0, 0, 1, 0, 2, 0, 0, 0, -1, 0, 0, 0, -1, 0
-                   db 0, -1, 0, 0, 0, 1, 0, 2, 0, 0, 0, -1, 0, 0, 0, -1
-                   db -1, 0, -1, 0, 0, 0, 2, 0, 2, 0, 0, 0, 0, 0, -1, 0
-                   db 0, -1, 0, -1, 0, 0, 0, 2, 0, 2, 0, 0, 0, 0, 0, -1
-                   db -1, 0, -1, 0, -1, 0, 1, 0, 2, 0, 2, 0, 1, 0, -1, 0
-                   db 0, -1, 0, -1, 0, -1, 0, 1, 0, 2, 0, 2, 0, 1, 0, -1
-                   db -1, 0, -1, 0, -1, 0, 0, 0, 1, 0, 2, 0, 3, 0, 0, 0
-                   db 0, -1, 0, -1, 0, -1, 0, 0, 0, 1, 0, 2, 0, 3, 0, 0
-                   db 0, 0, -1, 0, -1, 0, -1, 0, 0, 0, 1, 0, 2, 0, 3, 0
                    db 0, 0, 0, -1, 0, -1, 0, -1, 0, 0, 0, 1, 0, 2, 0, 3
 sha256_initial_state dw 0xe667, 0x6a09, 0xae85, 0xbb67
                      dw 0xf372, 0x3c6e, 0xf53a, 0xa54f

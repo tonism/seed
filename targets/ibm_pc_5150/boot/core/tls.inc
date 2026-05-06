@@ -2151,20 +2151,12 @@ tls_parse_server_key_exchange:
     ja .failed
     cmp byte [bx + 4], 0x04
     jne .failed
-    push ds
-    pop es
     mov si, bx
     add si, 5
-    mov di, tls_server_ec_x
-    mov cx, tls_ec_coordinate_len
-    rep movsb
-    mov di, tls_server_ec_y
-    mov cx, tls_ec_coordinate_len
-    rep movsb
-    mov si, tls_server_ec_x
     mov di, tls_server_ec_x_words
     call p256_from_be32
-    mov si, tls_server_ec_y
+    mov si, bx
+    add si, 5 + tls_ec_coordinate_len
     mov di, tls_server_ec_y_words
     call p256_from_be32
     mov si, tls_server_ec_x_words

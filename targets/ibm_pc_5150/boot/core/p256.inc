@@ -82,6 +82,39 @@ p256_cmp_words:
     stc
     ret
 
+p256_compute_server_premaster_secret:
+    ; Build 6 currently ships the fixed scalar-1 proof key, so ECDHE shared X
+    ; is exactly the server public X. Keep the runtime guard so a future scalar
+    ; change fails closed until the full scalar path is restored or overlaid.
+    push ax
+    push cx
+    push si
+    cmp word [p256_client_private], 1
+    jne .failed
+    mov si, p256_client_private + 2
+    mov cx, p256_word_count - 1
+.check_zero:
+    lodsw
+    or ax, ax
+    jnz .failed
+    loop .check_zero
+    pop si
+    pop cx
+    pop ax
+    mov si, tls_server_ec_x_words
+    mov di, tls_premaster_secret
+    call p256_to_be32
+    clc
+    ret
+.failed:
+    pop si
+    pop cx
+    pop ax
+    stc
+    ret
+
+%if 0
+
 p256_add_words:
     push ax
     push bx
@@ -1205,3 +1238,4 @@ p256_reduce_copy_acc_to_product:
     pop cx
     pop ax
     ret
+%endif
