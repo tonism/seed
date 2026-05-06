@@ -267,3 +267,19 @@ Controlled reduction 10:
   checkpoint.
 - Current hard 32KB load gap: `0x8000 - (0x1000 + 28092) = 580` bytes. That is
   below the ceiling, but still tight for a lowered 32KB stack and guard.
+
+Controlled reduction 11:
+- Removed only the inactive tail of the old full P-256 scratch/loop state:
+  `p256_s7`, `p256_s8`, `p256_product`, `p256_reduce_acc`, and the dormant
+  scalar/arithmetic pointer/counter temporaries.
+- Kept the proven active scratch windows through `p256_s6`, including the
+  ChaCha20/Poly1305 aliases that made broader scratch removal fail in reduction
+  10a.
+- Resulting `CORE.SYS` size: 27,866 bytes, saving 226 bytes from reduction 10
+  (8,086 bytes cumulative).
+- Local P-256, TLS PRF, and ChaCha20/Poly1305 checks passed.
+- 48KB representative family tests passed:
+  `vm-net-ne2k8`, `vm-net-3c501`, `vm-net-3c503`, and `vm-net-wd8003e` each
+  displayed `ok` and `seed build 6`.
+- Current hard 32KB load gap: `0x8000 - (0x1000 + 27866) = 806` bytes. Still
+  tight, but meaningfully better than reduction 10.

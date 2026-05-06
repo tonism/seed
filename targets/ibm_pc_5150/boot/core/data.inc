@@ -269,14 +269,9 @@ p256_s3 times p256_word_len db 0
 p256_s4 times p256_word_len db 0
 p256_s5 times p256_word_len db 0
 p256_s6 times p256_word_len db 0
-p256_s7 times p256_word_len db 0
-p256_s8 times p256_word_len db 0
-p256_product times p256_product_word_len db 0
-p256_reduce_acc times p256_word_count * 4 db 0
 agent_ids equ p256_lhs
 tls_premaster_secret equ p256_lhs
 tls_key_block equ p256_lhs
-tls_shared_x_words equ p256_s8
 chacha_state equ p256_lhs
 chacha_work equ p256_tmp
 chacha_block equ p256_jac_y
@@ -286,25 +281,6 @@ poly_acc equ p256_s1
 poly_block equ p256_s2
 poly_product equ p256_s3
 poly_value equ p256_s5
-p256_affine_x_ptr dw 0
-p256_affine_y_ptr dw 0
-p256_scalar_ptr dw 0
-p256_scalar_word_ptr dw 0
-p256_scalar_word_value dw 0
-p256_scalar_mask dw 0
-p256_scalar_word_count db 0
-p256_left_ptr dw 0
-p256_right_ptr dw 0
-p256_result_ptr dw 0
-p256_inv_output_ptr dw 0
-p256_mul_left_word dw 0
-p256_mul_acc0 dw 0
-p256_mul_acc1 dw 0
-p256_mul_acc2 dw 0
-p256_reduce_carry dw 0
-p256_i db 0
-p256_j db 0
-p256_carry db 0
 builtin_agent_ids db 'openai', 0
                   times agent_id_len - 7 db 0
                   db 'anthropic', 0
