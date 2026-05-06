@@ -139,3 +139,18 @@ Checkpoint validation:
 - This checkpoint is not yet 32KB-bootable. With `CORE.SYS` loaded at
   `0x1000`, a 32KB system has at most 28,672 bytes before `0x8000`, and less
   after reserving stack/guard space.
+
+Controlled reduction 4:
+- Merged the outgoing HTTP plaintext buffer and TLS application record buffer.
+  The request is now built at `api_request_plain + tls_record_header_len`, and
+  `tls_app_record_buffer` aliases `api_request_plain` so the existing AEAD
+  send path can encrypt in place.
+- This does not change TLS final-flight ordering or receive buffering.
+- Resulting `CORE.SYS` size: 31,442 bytes, saving 512 bytes
+  (4,510 bytes cumulative).
+- 48KB NE2K test stayed green: displayed `ok` and `seed build 6`.
+- 48KB representative family tests also stayed green:
+  `vm-net-3c501`, `vm-net-3c503`, and `vm-net-wd8003e` each displayed `ok`
+  and `seed build 6`.
+- Remaining gap to the hard 32KB load ceiling is about 2,770 bytes; allowing a
+  small stack/guard target leaves roughly 3.3KB still to cut.

@@ -65,7 +65,7 @@ build_openai_request:
     jc .failed
     push ds
     pop es
-    mov di, api_request_plain
+    mov di, api_request_plain + tls_record_header_len
     mov si, http_post_text
     call append_z_to_buffer
     mov si, http_openai_path_text
@@ -94,9 +94,9 @@ build_openai_request:
     mov cx, [api_body_len]
     rep movsb
     mov ax, di
-    sub ax, api_request_plain
+    sub ax, api_request_plain + tls_record_header_len
     mov [tls_app_len], ax
-    mov word [tls_app_plain_ptr], api_request_plain
+    mov word [tls_app_plain_ptr], api_request_plain + tls_record_header_len
     cmp ax, api_request_plain_len
     ja .failed
     clc

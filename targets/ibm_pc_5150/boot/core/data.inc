@@ -206,8 +206,8 @@ low_file_scratch_end equ fs_sector_buffer + 512
 %error "low packet scratch arena overflow"
 %endif
 tls_rx_copy times tls_stream_buffer_len db 0
-api_request_plain times api_request_plain_len db 0
-tls_app_record_buffer times tls_app_record_buffer_len db 0
+api_request_plain times tls_app_record_buffer_len db 0
+tls_app_record_buffer equ api_request_plain
 sha256_state times 16 dw 0
 sha256_a dw 0, 0
 sha256_b dw 0, 0
