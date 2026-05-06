@@ -251,7 +251,7 @@ tcp_rx_read_len equ 96
 tcp_offset equ eth_header_len + ipv4_header_len
 tcp_payload_offset equ tcp_offset + 20
 tcp_payload_max_len equ 1460
-tcp_payload_read_len equ net_frame_buffer_len
+tcp_payload_read_len equ tcp_payload_offset + tcp_payload_max_len
 tls_stream_buffer_len equ tcp_payload_read_len * 2
 tcp_source_port_word equ 0x02c0
 tcp_port_http_word equ 0x5000

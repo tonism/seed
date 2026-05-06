@@ -262,15 +262,6 @@ tls_finished_plain times tls_finished_plain_len db 0
 tls_finished_cipher times tls_finished_cipher_len db 0
 tls_finished_tag times 16 db 0
 tls_received_tag times 16 db 0
-chacha_state times chacha_block_len db 0
-chacha_work times chacha_block_len db 0
-chacha_block times chacha_block_len db 0
-poly_r times poly1305_r_len db 0
-poly_s times poly1305_s_len db 0
-poly_acc times poly1305_acc_len db 0
-poly_block times 16 db 0
-poly_product times poly1305_product_len db 0
-poly_value times poly1305_value_len db 0
 p256_lhs times p256_word_len db 0
 p256_rhs times p256_word_len db 0
 p256_tmp times p256_word_len db 0
@@ -288,6 +279,15 @@ p256_s7 times p256_word_len db 0
 p256_s8 times p256_word_len db 0
 p256_product times p256_product_word_len db 0
 p256_reduce_acc times p256_word_count * 4 db 0
+chacha_state equ p256_lhs
+chacha_work equ p256_tmp
+chacha_block equ p256_jac_y
+poly_r equ p256_s0
+poly_s equ p256_s0 + poly1305_r_len
+poly_acc equ p256_s1
+poly_block equ p256_s2
+poly_product equ p256_s3
+poly_value equ p256_s5
 p256_affine_x_ptr dw 0
 p256_affine_y_ptr dw 0
 p256_scalar_ptr dw 0

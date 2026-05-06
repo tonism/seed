@@ -154,3 +154,31 @@ Controlled reduction 4:
   and `seed build 6`.
 - Remaining gap to the hard 32KB load ceiling is about 2,770 bytes; allowing a
   small stack/guard target leaves roughly 3.3KB still to cut.
+
+Controlled reduction 5:
+- Reduced the TCP/TLS receive read cap from the old `net_frame_buffer_len`
+  budget of 1600 bytes to `tcp_payload_offset + tcp_payload_max_len`, which is
+  1514 bytes. This preserves room for Ethernet/IP/TCP headers plus one full
+  1460-byte TCP payload while shrinking both `tls_rx_copy` slots.
+- Resulting `CORE.SYS` size: 31,270 bytes, saving 172 bytes
+  (4,682 bytes cumulative).
+- 48KB NE2K test stayed green: displayed `ok` and `seed build 6`.
+
+Controlled reduction 6:
+- Reused the P-256 scratch arena for ChaCha20 and Poly1305 scratch. P-256 is
+  only needed through premaster-secret generation; ChaCha/Poly start after the
+  TLS key schedule has derived the write keys, so these workspaces do not need
+  separate resident storage.
+- Resulting `CORE.SYS` size: 30,953 bytes, saving 317 bytes
+  (4,999 bytes cumulative).
+- 48KB NE2K test stayed green: displayed `ok` and `seed build 6`.
+
+Family checkpoint after reductions 5 and 6:
+- Rebuilt and tested the combined TCP/TLS read-cap reduction plus the
+  P-256/ChaCha/Poly scratch alias.
+- `CORE.SYS` size: 30,953 bytes.
+- 48KB representative family tests passed:
+  `vm-net-ne2k8`, `vm-net-3c501`, `vm-net-3c503`, and `vm-net-wd8003e`
+  each displayed `ok` and `seed build 6`.
+- Remaining gap to the hard 32KB load ceiling is about 2,281 bytes; allowing a
+  small stack/guard target leaves roughly 2.8KB still to cut.
