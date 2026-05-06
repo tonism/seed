@@ -5,6 +5,8 @@
 build_number equ 6
 handoff_addr equ 0x0600
 runtime_stack_top equ 0xc000
+low_scratch_start equ 0x0700
+low_scratch_end equ 0x1000
 handoff_magic equ 0
 handoff_version equ 4
 handoff_size equ 5
@@ -308,6 +310,8 @@ tls_server_record_seq_len equ tls_record_seq_len
 tls_record_header_len equ 5
 tls_aead_tag_len equ 16
 tls_app_max_plain_len equ tcp_payload_max_len - tls_record_header_len - tls_aead_tag_len
+api_request_plain_len equ 512
+tls_app_record_buffer_len equ api_request_plain_len + tls_record_header_len + tls_aead_tag_len
 chacha_word_count equ 16
 chacha_block_len equ 64
 poly1305_r_len equ 16

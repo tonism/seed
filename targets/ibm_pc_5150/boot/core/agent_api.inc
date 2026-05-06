@@ -97,7 +97,7 @@ build_openai_request:
     sub ax, api_request_plain
     mov [tls_app_len], ax
     mov word [tls_app_plain_ptr], api_request_plain
-    cmp ax, tls_app_max_plain_len
+    cmp ax, api_request_plain_len
     ja .failed
     clc
     ret

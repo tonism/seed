@@ -1142,7 +1142,7 @@ tls_send_prepared_application_data:
     ret
 
 tls_build_application_data_record:
-    cmp word [tls_app_len], tls_app_max_plain_len
+    cmp word [tls_app_len], api_request_plain_len
     ja .failed
     cmp word [tls_app_plain_ptr], 0
     je .failed

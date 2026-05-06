@@ -197,12 +197,17 @@ seed_size_high dw 0
 seed_root_lba dw 0
 seed_root_offset dw 0
 user_cfg_size_current dw 0
-ne_prom times ne_prom_len db 0
-ne_tx_frame times net_frame_buffer_len db 0
+ne_tx_frame equ low_scratch_start
+ne_prom equ ne_tx_frame + net_frame_buffer_len
+low_packet_scratch_end equ ne_prom + ne_prom_len
+fs_sector_buffer equ low_packet_scratch_end
+low_file_scratch_end equ fs_sector_buffer + 512
+%if low_file_scratch_end > low_scratch_end
+%error "low packet scratch arena overflow"
+%endif
 tls_rx_copy times tls_stream_buffer_len db 0
-fs_sector_buffer times 512 db 0
-api_request_plain times tls_app_max_plain_len db 0
-tls_app_record_buffer times tcp_payload_max_len db 0
+api_request_plain times api_request_plain_len db 0
+tls_app_record_buffer times tls_app_record_buffer_len db 0
 sha256_state times 16 dw 0
 sha256_a dw 0, 0
 sha256_b dw 0, 0
