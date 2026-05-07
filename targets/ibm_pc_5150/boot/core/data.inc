@@ -30,7 +30,6 @@ agent_count db 0
 agent_draw_index db 0
 agent_scan_index db 0
 blink_state db 0
-phase_probe db 0
 ne_tx_start db 0
 ne_rx_start db 0
 ne_rx_stop db 0
@@ -279,8 +278,6 @@ builtin_agent_ids db 'openai', 0
 dns_default_qname db 7, 'example', 3, 'com', 0
 dns_qname db 7, 'example', 3, 'com', 0
            times dns_qname_max_len - dns_qname_default_len db 0
-seed_text db 'seed', 0
-build_text db 'build ', '0' + build_number, 0
 network_error_text db 'no network card', 0
 network_setup_error_text db 'network setup failed', 0
 agent_setup_error_text db 'agent setup failed', 0
@@ -306,22 +303,6 @@ host_openrouter_text db 'openrouter.ai', 0
 host_openai_text db 'api.openai.com', 0
 host_anthropic_text db 'api.anthropic.com', 0
 host_google_text db 'generativelanguage.googleapis.com', 0
-http_post_text db 'POST ', 0
-http_openai_path_text db '/v1/responses', 0
-http_version_text db ' HTTP/1.1', 13, 10, 0
-http_host_text db 'Host: ', 0
-http_auth_bearer_text db 'Authorization: Bearer ', 0
-http_content_type_text db 'Content-Type: application/json', 13, 10, 0
-http_content_length_text db 'Content-Length: ', 0
-api_json_model_text db '{"model":"', 0
-api_json_input_text db '","input":"Reply exactly: ok","store":false', 0
-api_json_plain_close_text db '}', 0
-api_answer_output_pattern db '"output_text":"', 0
-api_answer_output_spaced_pattern db '"output_text": "', 0
-api_answer_text_pattern db '"text":"', 0
-api_answer_text_spaced_pattern db '"text": "', 0
-api_error_message_pattern db '"message":"', 0
-api_error_message_spaced_pattern db '"message": "', 0
 tls_random db 'SEEDBUILD6TLSCLIENTHELLO00000000'
 tls_after_random db 0
                  db 0, 2

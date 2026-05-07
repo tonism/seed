@@ -42,10 +42,138 @@ core_header_end:
 %include "core/ui.inc"
 %include "core/data.inc"
 
+core_resident_end:
+
+%if (core_resident_end - $$) > (runtime_stack_top - runtime_stack_guard_len - 0x1000)
+%error "CORE.SYS exceeds 32KB runtime stack guard"
+%endif
+
+align 512, db 0
+
+core_probe_cfg_phase_start:
+%define PHASE_BASE core_probe_cfg_phase_start
+%include "phases/net_probe_cfg.inc"
+%undef PHASE_BASE
+core_probe_cfg_phase_end:
+
+%if (core_probe_cfg_phase_end - core_probe_cfg_phase_start) > 512
+%error "probe config phase exceeds one sector"
+%endif
+
+times 512 - (core_probe_cfg_phase_end - core_probe_cfg_phase_start) db 0
+
+core_agents_cfg_phase_start:
+%define PHASE_BASE core_agents_cfg_phase_start
+%include "phases/agents_cfg.inc"
+%undef PHASE_BASE
+core_agents_cfg_phase_end:
+
+%if (core_agents_cfg_phase_end - core_agents_cfg_phase_start) > 512
+%error "agents config phase exceeds one sector"
+%endif
+
+times 512 - (core_agents_cfg_phase_end - core_agents_cfg_phase_start) db 0
+
+core_user_cfg_phase_start:
+%define PHASE_BASE core_user_cfg_phase_start
+%include "phases/user_cfg.inc"
+%undef PHASE_BASE
+core_user_cfg_phase_end:
+
+%if (core_user_cfg_phase_end - core_user_cfg_phase_start) > 2048
+%error "user config phase exceeds low scratch window"
+%endif
+
+align 512, db 0
+
+core_agent_setup_phase_start:
+%define PHASE_BASE core_agent_setup_phase_start
+%include "phases/agent_setup.inc"
+%undef PHASE_BASE
+core_agent_setup_phase_end:
+
+%if (core_agent_setup_phase_end - core_agent_setup_phase_start) > 2048
+%error "agent setup phase exceeds low scratch window"
+%endif
+
+align 512, db 0
+
+core_agent_request_phase_start:
+%define PHASE_BASE core_agent_request_phase_start
+%include "phases/agent_request.inc"
+%undef PHASE_BASE
+core_agent_request_phase_end:
+
+%if (core_agent_request_phase_end - core_agent_request_phase_start) > 1024
+%error "agent request phase exceeds cold request window"
+%endif
+
+align 512, db 0
+
+core_agent_response_phase_start:
+%define PHASE_BASE core_agent_response_phase_start
+%include "phases/agent_response.inc"
+%undef PHASE_BASE
+core_agent_response_phase_end:
+
+%if (core_agent_response_phase_end - core_agent_response_phase_start) > 1024
+%error "agent response phase exceeds cold response window"
+%endif
+
+align 512, db 0
+
+core_splash_phase_start:
+%define PHASE_BASE core_splash_phase_start
+%include "phases/splash.inc"
+%undef PHASE_BASE
+core_splash_phase_end:
+
+%if (core_splash_phase_end - core_splash_phase_start) > 512
+%error "splash phase exceeds one sector"
+%endif
+
+times 512 - (core_splash_phase_end - core_splash_phase_start) db 0
+
+core_save_phase_start:
+%define PHASE_BASE core_save_phase_start
+%include "phases/save_user_cfg.inc"
+%undef PHASE_BASE
+core_save_phase_end:
+
 core_phase_table:
-    db 'N', 0
-    dw (core_noop_phase_start - $$) / 512
-    dw 1
+    db 'P', 0
+    dw (core_probe_cfg_phase_start - $$) / 512
+    dw (core_probe_cfg_phase_end - core_probe_cfg_phase_start + 511) / 512
+    dw low_scratch_start
+    dw 0
+    db 'A', 0
+    dw (core_agents_cfg_phase_start - $$) / 512
+    dw (core_agents_cfg_phase_end - core_agents_cfg_phase_start + 511) / 512
+    dw low_scratch_start
+    dw 0
+    db 'U', 0
+    dw (core_user_cfg_phase_start - $$) / 512
+    dw (core_user_cfg_phase_end - core_user_cfg_phase_start + 511) / 512
+    dw low_scratch_start
+    dw 0
+    db 'Q', 0
+    dw (core_agent_setup_phase_start - $$) / 512
+    dw (core_agent_setup_phase_end - core_agent_setup_phase_start + 511) / 512
+    dw low_scratch_start
+    dw 0
+    db 'R', 0
+    dw (core_agent_request_phase_start - $$) / 512
+    dw (core_agent_request_phase_end - core_agent_request_phase_start + 511) / 512
+    dw low_scratch_start
+    dw 0
+    db 'T', 0
+    dw (core_agent_response_phase_start - $$) / 512
+    dw (core_agent_response_phase_end - core_agent_response_phase_start + 511) / 512
+    dw low_scratch_start
+    dw 0
+    db 'B', 0
+    dw (core_splash_phase_start - $$) / 512
+    dw (core_splash_phase_end - core_splash_phase_start + 511) / 512
     dw low_scratch_start
     dw 0
     db 'S', 0
@@ -55,34 +183,10 @@ core_phase_table:
     dw 0
 core_phase_table_end:
 
-core_resident_end:
-
-%if (core_resident_end - $$) > (runtime_stack_top - runtime_stack_guard_len - 0x1000)
-%error "CORE.SYS exceeds 32KB runtime stack guard"
+%if (core_phase_table_end - core_save_phase_start) > 512
+%error "save phase and metadata exceed one sector"
 %endif
 
-align 512, db 0
-
-core_noop_phase_start:
-    incbin "phase-noop.bin"
-core_noop_phase_end:
-
-%if (core_noop_phase_end - core_noop_phase_start) > 512
-%error "noop phase exceeds one sector"
-%endif
-
-times 512 - (core_noop_phase_end - core_noop_phase_start) db 0
-
-core_save_phase_start:
-%define PHASE_BASE core_save_phase_start
-%include "phases/save_user_cfg.inc"
-%undef PHASE_BASE
-core_save_phase_end:
-
-%if (core_save_phase_end - core_save_phase_start) > 512
-%error "save phase exceeds one sector"
-%endif
-
-times 512 - (core_save_phase_end - core_save_phase_start) db 0
+times 512 - (core_phase_table_end - core_save_phase_start) db 0
 
 core_image_end:

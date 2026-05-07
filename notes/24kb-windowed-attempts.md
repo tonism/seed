@@ -26,7 +26,7 @@ Design direction:
   current safe RAM size, then lower the VM ceiling only when the measured
   memory map justifies it.
 - Keep the detailed architecture reference in
-  `notes/24kb-windowed-design.md`.
+  `notes/windowed-architecture-design.md`.
 
 Initial hard numbers from the 32 KiB release:
 - `CORE.SYS` loads at `0x1000`.
@@ -60,6 +60,244 @@ Change:
   release `CORE.SYS` is still too large for this path, so running the BASIC
   bootstrap now should show the red `X` failure marker until the resident core
   is slimmed.
+
+Verification:
+- `make inspect` passes.
+
+## 2026-05-07 - Move response parsing, splash, and phase metadata out of resident memory
+
+Change:
+- Moved decrypted application response parsing and answer typing into
+  nonresident `T`, loaded after TLS has already copied the decrypted record into
+  `tls_rx_copy`.
+- Moved the final `seed build 6` splash into nonresident `B`.
+- Moved the phase table out of the resident image and into the padded `S` phase
+  sector; `tools/core-sys-info.py` now validates phase table bounds against the
+  full `CORE.SYS` container instead of resident bytes.
+- Removed the unreachable post-TLS request resend fallback and compacted several
+  small resident branches.
+
+Measurements:
+- Resident sectors dropped from 47 to 46.
+- Resident bytes when sector-rounded dropped from 24,064 to 23,552.
+- `CORE.SYS` total size is 29,184 bytes / 57 sectors.
+- Phase entries:
+  - `P`: sector offset 46, one sector, load address `0x0700`.
+  - `A`: sector offset 47, one sector, load address `0x0700`.
+  - `U`: sector offset 48, two sectors, load address `0x0700`.
+  - `Q`: sector offset 50, three sectors, load address `0x0700`.
+  - `R`: sector offset 53, one sector, load address `0x0700`.
+  - `T`: sector offset 54, one sector, load address `0x0700`.
+  - `B`: sector offset 55, one sector, load address `0x0700`.
+  - `S`: sector offset 56, one sector, load address `0x0700`.
+- Gap to the guarded 24 KiB BASIC target is now 9 resident sectors / 4,608
+  bytes.
+
+Verification:
+- `make inspect` passes.
+- `make test` passes.
+- `git diff --check` passes.
+- Saved `USER.CFG` `vm-net-ne2k8` canary reaches `seed build 6` with `ok`.
+- Saved `USER.CFG` `vm-net-3c501` canary initially showed one `agent setup
+  failed` warning, then two immediate reruns reached `seed build 6` with `ok`.
+- Saved `USER.CFG` `vm-net-3c503` canary reaches `seed build 6` with `ok`.
+- Saved `USER.CFG` `vm-net-wd8003e` canary reaches `seed build 6` with `ok`.
+
+## 2026-05-07 - Move optional config readers into phases
+
+Change:
+- Moved optional `NET.CFG` probe parsing into nonresident `P`.
+- Moved `AGENTS.CFG` agent-list parsing and built-in fallback population into
+  nonresident `A`.
+- Added a generic one-sector phase runner; the existing `S` save phase now uses
+  the same path.
+- Left the resident TLS/OpenAI fast path unchanged.
+
+Measurements:
+- Resident sectors dropped from 52 to 51.
+- Resident bytes when sector-rounded dropped from 26,624 to 26,112.
+- `CORE.SYS` total size returned to 27,648 bytes because `P`, `A`, and `S`
+  each occupy one nonresident sector.
+- Phase table entries:
+  - `P`: sector offset 51, one sector, load address `0x0700`.
+  - `A`: sector offset 52, one sector, load address `0x0700`.
+  - `S`: sector offset 53, one sector, load address `0x0700`.
+- Phase table offset is 26,002 bytes into `CORE.SYS`.
+- Estimated `core_resident_end` is now image offset 26,032, leaving 80 bytes
+  before the 51-sector resident boundary.
+
+Verification:
+- `make inspect` passes.
+- `make test` passes.
+- `git diff --check` passes.
+- First `vm-net-ne2k8` canary reached the agent selection prompt instead of
+  saved `USER.CFG`; the menu showed the old built-in fallback stride bug
+  (`openai`, truncated `anthropic`, hidden `google`).
+- Root cause was the phase resident-call relocation macro targeting one byte
+  before the intended resident routine.
+- Fixed the phase-call displacement in all phase includes and made built-in
+  fallback agent IDs populate the same 16-byte slots used by the menu.
+- Re-run `vm-net-ne2k8` canary reaches `seed build 6` with `ok`.
+- `vm-net-ne2k8` canary reaches `seed build 6` with `ok`.
+
+## 2026-05-07 - Move USER.CFG read/parser into a phase
+
+Change:
+- Moved optional `USER.CFG` read, line parsing, and saved-agent matching into
+  nonresident `U`.
+- Generalized the resident phase runner to load multi-sector phase windows into
+  low scratch before jumping to them.
+- Kept the resident interactive prompt, validation, and save trigger in place.
+- Left the resident TLS/OpenAI fast path unchanged.
+
+Measurements:
+- Resident sectors dropped from 51 to 50.
+- Resident bytes when sector-rounded dropped from 26,112 to 25,600.
+- `CORE.SYS` total size grew from 27,648 to 28,160 bytes because `U` occupies
+  two nonresident sectors.
+- Phase table entries:
+  - `P`: sector offset 50, one sector, load address `0x0700`.
+  - `A`: sector offset 51, one sector, load address `0x0700`.
+  - `U`: sector offset 52, two sectors, load address `0x0700`.
+  - `S`: sector offset 54, one sector, load address `0x0700`.
+- Phase table offset is 25,422 bytes into `CORE.SYS`.
+- Estimated `core_resident_end` is now image offset 25,462, leaving 138 bytes
+  before the 50-sector resident boundary.
+- Gap to the guarded 24 KiB BASIC target is now roughly 6.7 KiB of resident
+  code/data.
+
+Verification:
+- `make inspect` passes.
+- `make test` passes.
+- `git diff --check` passes.
+- `make test` passes.
+- `git diff --check` passes.
+- `vm-net-ne2k8` canary reaches `seed build 6` with `ok`.
+
+## 2026-05-07 - Move missing-config agent setup into a phase
+
+Change:
+- Moved the interactive agent selector and key/endpoint entry path into a
+  nonresident `Q` phase.
+- Changed resident `ensure_seed_values` into a validation-only guard: saved
+  `USER.CFG` with required values skips `Q`; missing or invalid values load
+  `Q` from floppy.
+- Kept the resident TLS/OpenAI fast path unchanged.
+- Left the shared form drawing helpers resident for this cut to reduce UI
+  regression risk.
+
+Measurements:
+- Resident sectors dropped from 50 to 49.
+- Resident bytes when sector-rounded dropped from 25,600 to 25,088.
+- `CORE.SYS` total size grew from 28,160 to 28,672 bytes because `Q` occupies
+  two nonresident sectors.
+- Phase table entries:
+  - `P`: sector offset 49, one sector, load address `0x0700`.
+  - `A`: sector offset 50, one sector, load address `0x0700`.
+  - `U`: sector offset 51, two sectors, load address `0x0700`.
+  - `Q`: sector offset 53, two sectors, load address `0x0700`.
+  - `S`: sector offset 55, one sector, load address `0x0700`.
+- Phase table offset is 24,842 bytes into `CORE.SYS`.
+- Gap to the guarded 24 KiB BASIC target is now roughly 6.0 KiB of resident
+  code/data.
+
+Verification:
+- `make inspect` passes.
+- `make test` passes.
+- `git diff --check` passes.
+- Saved `USER.CFG` `vm-net-ne2k8` canary reaches `seed build 6` with `ok`.
+- `INCLUDE_USER_CFG=0` `vm-net-ne2k8` canary reaches the `agent?` selector and
+  shows all configured agents, including `anthropic` and `google`.
+
+## 2026-05-07 - Move agent-specific UI helpers into Q
+
+Change:
+- Moved the agent selector drawing, agent values form drawing, input line
+  rendering, and agent-specific panel clearing helpers into the nonresident
+  `Q` phase.
+- Kept generic text output, failure UI, tones, and hot network/TLS/OpenAI code
+  resident.
+
+Measurements:
+- Resident sectors dropped from 49 to 48.
+- Resident bytes when sector-rounded dropped from 25,088 to 24,576.
+- `CORE.SYS` total size remains 28,672 bytes.
+- `Q` grew from two phase sectors to three phase sectors.
+- Phase table entries:
+  - `P`: sector offset 48, one sector, load address `0x0700`.
+  - `A`: sector offset 49, one sector, load address `0x0700`.
+  - `U`: sector offset 50, two sectors, load address `0x0700`.
+  - `Q`: sector offset 52, three sectors, load address `0x0700`.
+  - `S`: sector offset 55, one sector, load address `0x0700`.
+- Phase table offset is 24,355 bytes into `CORE.SYS`.
+- Gap to the guarded 24 KiB BASIC target is now roughly 5.5 KiB of resident
+  code/data.
+
+Verification:
+- `make inspect` passes.
+- `make test` passes.
+- `git diff --check` passes.
+- Saved `USER.CFG` `vm-net-ne2k8` canary reaches `seed build 6` with `ok`.
+- `INCLUDE_USER_CFG=0` `vm-net-ne2k8` canary reaches the `agent?` selector and
+  shows all configured agents, including `anthropic` and `google`.
+
+## 2026-05-07 - Move OpenAI request build into R
+
+Change:
+- Moved the OpenAI HTTP/JSON request construction into a nonresident `R` phase.
+- The resident agent path now loads `R` before TCP connect and TLS handshake,
+  so the critical TLS/application-data window only consumes the already-built
+  `api_request_plain` buffer.
+- Removed the fallback that could build an application request from inside the
+  TLS send path. A missing prepared request now fails instead of touching
+  floppy during the fast window.
+- First NE2K canary failed because `R` used phase-local string labels without
+  rebasing them to the low-scratch load address. Fixed the phase-local string
+  references to use `low_scratch_start + (label - PHASE_BASE)`.
+
+Measurements:
+- Resident sectors dropped from 48 to 47.
+- Resident bytes when sector-rounded dropped from 24,576 to 24,064.
+- `CORE.SYS` total size remains 28,672 bytes.
+- Added one phase sector:
+  - `P`: sector offset 47, one sector, load address `0x0700`.
+  - `A`: sector offset 48, one sector, load address `0x0700`.
+  - `U`: sector offset 49, two sectors, load address `0x0700`.
+  - `Q`: sector offset 51, three sectors, load address `0x0700`.
+  - `R`: sector offset 54, one sector, load address `0x0700`.
+  - `S`: sector offset 55, one sector, load address `0x0700`.
+- Phase table offset is 23,906 bytes into `CORE.SYS`.
+- Gap to the guarded 24 KiB BASIC target is now roughly 5.0 KiB of resident
+  code/data.
+
+Verification:
+- `make inspect` passes.
+- `make test` passes.
+- `git diff --check` passes.
+- Saved `USER.CFG` `vm-net-ne2k8` canary reaches `seed build 6` with `ok`.
+- Saved `USER.CFG` `vm-net-3c501` canary reaches `seed build 6` with `ok`.
+
+## 2026-05-07 - Remove temporary no-op phase
+
+Change:
+- Removed the temporary `N` no-op phase that only proved nonresident phase
+  loading.
+- Removed the associated startup phase probe, probe byte, service-vector slot,
+  and `phase-noop.bin` build rule.
+- Kept the real nonresident `S` save phase as the only phase entry.
+
+Measurements:
+- `CORE.SYS` total size dropped from 27,648 bytes to 27,136 bytes.
+- Total sectors dropped from 54 to 53.
+- Resident sectors remain 52.
+- Resident bytes when sector-rounded remain 26,624.
+- Phase table now has one entry:
+  - `S`: sector offset 52, one sector, load address `0x0700`.
+- Phase table offset is 26,492 bytes into `CORE.SYS`.
+- Estimated `core_resident_end` is now image offset 26,502, leaving 122 bytes
+  before the 52-sector resident boundary.
+- This recovered about 59 resident bytes, so dropping to 51 resident sectors
+  still needs roughly 390 more resident bytes moved or cut.
 
 Verification:
 - `make inspect` passes.

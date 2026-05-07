@@ -1088,8 +1088,7 @@ tls_send_application_data_for_nic:
 tls_prepare_application_data_current_seq:
     cmp word [tls_app_len], 0
     jne .request_ready
-    call agent_api_prepare_request
-    jc .failed
+    jmp .none
 .request_ready:
     cmp word [tls_app_len], 0
     je .none

@@ -12,12 +12,11 @@ BOOT_SRC := targets/$(TARGET)/boot/boot.asm
 LOADER_SRC := targets/$(TARGET)/boot/loader.asm
 CORE_SRC := targets/$(TARGET)/boot/core.asm
 BASIC_BOOT_SRC := targets/$(TARGET)/basic/bootstrap.asm
-PHASE_NOOP_SRC := targets/$(TARGET)/boot/phases/noop.asm
 CORE_INCLUDES := $(wildcard targets/$(TARGET)/boot/core/*.inc)
+CORE_PHASE_INCLUDES := $(wildcard targets/$(TARGET)/boot/phases/*.inc)
 BOOT_BIN := $(BUILD_DIR)/boot.bin
 LOADER_BIN := $(BUILD_DIR)/loader.bin
 CORE_SYS := $(BUILD_DIR)/CORE.SYS
-PHASE_NOOP_BIN := $(BUILD_DIR)/phase-noop.bin
 BASIC_BOOT_A_BIN := $(BUILD_DIR)/seed24a-loader.bin
 BASIC_BOOT_A_BAS := $(BUILD_DIR)/SEED24A.BAS
 BASIC_BOOT_B_BIN := $(BUILD_DIR)/seed24b-loader.bin
@@ -63,10 +62,7 @@ $(BOOT_BIN): $(BOOT_SRC) | $(BUILD_DIR)
 $(LOADER_BIN): $(LOADER_SRC) | $(BUILD_DIR)
 	nasm $(NASM_FLAGS) -f bin -o $@ $<
 
-$(PHASE_NOOP_BIN): $(PHASE_NOOP_SRC) $(CORE_INCLUDES) | $(BUILD_DIR)
-	nasm $(NASM_FLAGS) -f bin -o $@ $<
-
-$(CORE_SYS): $(CORE_SRC) $(CORE_INCLUDES) $(PHASE_NOOP_BIN) $(CORE_SYS_INFO) | $(BUILD_DIR)
+$(CORE_SYS): $(CORE_SRC) $(CORE_INCLUDES) $(CORE_PHASE_INCLUDES) $(CORE_SYS_INFO) | $(BUILD_DIR)
 	nasm $(NASM_FLAGS) -f bin -o $@ $<
 	python3 $(CORE_SYS_INFO) --check $@
 

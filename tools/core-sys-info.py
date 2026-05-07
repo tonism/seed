@@ -70,8 +70,8 @@ def check_core(path: Path, info: dict[str, int]) -> None:
         table_end = info["phase-table-off"] + info["phase-count"] * PHASE_ENTRY_SIZE
         if info["phase-table-off"] < info["header-len"]:
             raise SystemExit(f"{path}: phase table overlaps CORE.SYS header")
-        if table_end > info["resident-bytes"]:
-            raise SystemExit(f"{path}: phase table is outside resident sectors")
+        if table_end > info["bytes"]:
+            raise SystemExit(f"{path}: phase table extends past CORE.SYS")
 
 
 def read_phases(path: Path, info: dict[str, int]) -> list[dict[str, int | str]]:

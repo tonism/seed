@@ -32,15 +32,13 @@ prepare_internet_path:
     jmp .done
 
 prepare_agent_path:
-    call load_agents_cfg
-    call load_user_cfg
-    jnc .have_agent
-    call ask_agent_setup
-    jmp .values_ready
-.have_agent:
+    call run_agents_cfg_phase
+    call run_user_cfg_phase
+    jc .setup_agent
     call ensure_seed_values
     jnc .values_ready
-    call ask_agent_setup
+.setup_agent:
+    call run_agent_setup_phase
 .values_ready:
     call prepare_agent_endpoint_path
     jc .failed
@@ -70,7 +68,7 @@ prepare_agent_endpoint_path:
     pop es
     call wd_enable_shared_ram
     call wd_select_dp8390_base
-    call agent_api_prepare_request
+    call run_agent_request_phase
     jc .restore
     call tcp_connect_target
     jc .restore
@@ -85,16 +83,9 @@ prepare_agent_endpoint_path:
 
 selected_nic_has_packet_path:
     mov al, [handoff_addr + handoff_nic_family]
-    cmp al, family_3c501
-    je .yes
-    cmp al, family_3c503
-    je .yes
-    cmp al, family_ne1000
-    je .yes
-    cmp al, family_ne2000
-    je .yes
-    cmp al, family_wd8003
-    je .yes
+    dec al
+    cmp al, family_wd8003 - 1
+    jbe .yes
     stc
     ret
 .yes:
@@ -103,7 +94,7 @@ selected_nic_has_packet_path:
 
 set_default_internet_target:
     call set_example_dns_target
-    call load_net_probe_cfg
+    call run_net_probe_cfg_phase
     jnc .done
     call set_example_dns_target
 .done:

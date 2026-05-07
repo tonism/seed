@@ -31,8 +31,6 @@ handoff_dns_addr equ 36
 handoff_subnet_addr equ 40
 handoff_ram_top equ 44
 handoff_size_bytes equ 46
-phase_service_table equ handoff_addr + handoff_size_bytes
-phase_svc_probe_ok equ phase_service_table
 handoff_struct_version equ 3
 basic_boot_magic_bx equ 0x5345
 basic_boot_magic_cx equ 0x4544

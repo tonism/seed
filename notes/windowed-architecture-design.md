@@ -1,10 +1,10 @@
-# 24KB Windowed Design
+# Windowed Architecture Design
 
 Branch: `work/24kb-windowed`
 
-This note is the architectural reference for the 24 KiB work. The branch's
-first releasable target is 24 KiB, but the design must keep the later 16 KiB
-target in view.
+This note is the architectural reference for Seed's windowed low-memory
+runtime. The branch's first releasable target is 24 KiB, but the design must
+keep the later 16 KiB target in view.
 
 ## Core Constraints
 

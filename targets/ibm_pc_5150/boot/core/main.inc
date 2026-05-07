@@ -16,14 +16,9 @@ start:
     cld
 
     call init_handoff
-    call init_phase_services
     call detect_display
     call clear_screen
     call hide_cursor
-    call load_noop_phase
-    jc network_setup_error
-    cmp byte [phase_probe], 0x5a
-    jne network_setup_error
 
 hal_start:
     call clear_question_area
@@ -51,23 +46,7 @@ hal_start:
     call prepare_agent_path
     jc agent_setup_error
     mov byte [handoff_addr + handoff_status], handoff_status_ready
-    mov cx, load_ticks
-    call wait_ticks
-
-    call set_seed_cursor
-    mov si, seed_text
-    mov bl, [seed_attr]
-    call type_z
-
-    mov al, ' '
-    mov bl, [build_attr]
-    call type_char
-
-    mov si, build_text
-    call type_z
-
-    mov cx, done_ticks
-    call wait_ticks
+    call run_splash_phase
 
 halt:
     hlt
@@ -105,35 +84,57 @@ set_seed_cursor:
     mov [cursor_col], al
     ret
 
-load_noop_phase:
-    push ds
-    pop es
-    mov bx, low_scratch_start
-    mov ax, [core_header_resident_sectors]
-    add ax, fat_data_start_lba
-    call read_abs_sector
-    jc .done
-    call low_scratch_start
-.done:
-    ret
-
 run_save_user_cfg_phase:
+    mov ax, (core_save_phase_start - $$) / 512
+    mov cx, (core_save_phase_end - core_save_phase_start + 511) / 512
+    jmp run_core_phase
+
+run_net_probe_cfg_phase:
+    mov ax, (core_probe_cfg_phase_start - $$) / 512
+    mov cx, (core_probe_cfg_phase_end - core_probe_cfg_phase_start + 511) / 512
+    jmp run_core_phase
+
+run_agents_cfg_phase:
+    mov ax, (core_agents_cfg_phase_start - $$) / 512
+    mov cx, (core_agents_cfg_phase_end - core_agents_cfg_phase_start + 511) / 512
+    jmp run_core_phase
+
+run_user_cfg_phase:
+    mov ax, (core_user_cfg_phase_start - $$) / 512
+    mov cx, (core_user_cfg_phase_end - core_user_cfg_phase_start + 511) / 512
+    jmp run_core_phase
+
+run_agent_setup_phase:
+    mov ax, (core_agent_setup_phase_start - $$) / 512
+    mov cx, (core_agent_setup_phase_end - core_agent_setup_phase_start + 511) / 512
+    jmp run_core_phase
+
+run_agent_request_phase:
+    mov ax, (core_agent_request_phase_start - $$) / 512
+    mov cx, (core_agent_request_phase_end - core_agent_request_phase_start + 511) / 512
+    jmp run_core_phase
+
+run_agent_response_phase:
+    mov ax, (core_agent_response_phase_start - $$) / 512
+    mov cx, (core_agent_response_phase_end - core_agent_response_phase_start + 511) / 512
+    jmp run_core_phase
+
+run_splash_phase:
+    mov ax, (core_splash_phase_start - $$) / 512
+    mov cx, (core_splash_phase_end - core_splash_phase_start + 511) / 512
+    jmp run_core_phase
+
+run_core_phase:
     push ds
     pop es
     mov bx, low_scratch_start
-    mov ax, (core_save_phase_start - $$) / 512
     add ax, fat_data_start_lba
+.next_sector:
     call read_abs_sector
     jc .done
+    add bx, 512
+    inc ax
+    loop .next_sector
     call low_scratch_start
 .done:
-    clc
-    ret
-
-init_phase_services:
-    mov word [phase_svc_probe_ok], phase_probe_ok
-    ret
-
-phase_probe_ok:
-    mov byte [phase_probe], 0x5a
     ret

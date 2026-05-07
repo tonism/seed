@@ -4,7 +4,7 @@
 
 %macro phase_call_res 1
     db 0xe8
-    dw %1 - (low_scratch_start + ($ - PHASE_BASE) + 3)
+    dw %1 - (low_scratch_start + ($ - PHASE_BASE) + 2)
 %endmacro
 
 save_user_cfg_phase:
