@@ -46,7 +46,8 @@ and included only when `config/USER.CFG` exists.
   four-sector loader occupies sectors 2-5 and loads `CORE.SYS` as a normal
   FAT12 root file. Stage 1 loads the reserved loader one sector at a time with
   CHS rollover. Keep loader buffers outside the `CORE.SYS` load range; the
-  loader currently keeps its FAT buffer at `0x0e00` and uses a `0x9000` stack.
+  loader currently keeps its FAT buffer at `0x0e00` and uses a `0x8000` stack
+  top for 32 KiB machines.
 - Target 8088-compatible 16-bit real-mode code for `ibm_pc_5150`. Keep NASM
   sources locked to `cpu 8086` so unsupported opcodes are caught at build time.
 - Do not introduce protected mode or graphics mode unless explicitly scoped.
@@ -134,23 +135,20 @@ Run a NIC-present VM:
 tools/run-86box.sh vm-net-ne2k8
 ```
 
-Run the Build 6 optimization benchmark VM:
-
-```sh
-tools/run-86box.sh vm-net-ne2k8-8mhz
-```
-
 Useful expected screens:
 
 The Build 6 agent-prep checkpoint for these IBM PC 5150 profiles is expected
-to use saved `USER.CFG` when present. Use `vm-net-ne2k8-8mhz` for Build 6
-optimization timing and keep original 4.77 MHz `vm-net-ne2k8` as the
-compatibility gate. The earlier 16 MHz ad hoc profile is no longer part of the
-normal workflow. On 1 May 2026, all seven original-speed NIC profiles completed
-the minimal direct OpenAI Responses request/response proof and displayed the
-returned `ok`: `vm-net-3c501`, `vm-net-3c503`, `vm-net-ne1k`, `vm-net-ne2k8`,
-`vm-net-novell-ne1k`, `vm-net-wd8003e`, and `vm-net-wd8003eb`. Retest
-individual profiles when changing TLS timing/shared packet code.
+to use saved `USER.CFG` when present. Use original 4.77 MHz, 32 KiB
+`vm-net-ne2k8` as the compatibility gate. Faster ad hoc profiles are not part
+of the normal workflow. On 1 May 2026, all seven original-speed NIC profiles
+completed the minimal direct OpenAI Responses request/response proof and
+displayed the returned `ok`: `vm-net-3c501`, `vm-net-3c503`, `vm-net-ne1k`,
+`vm-net-ne2k8`, `vm-net-novell-ne1k`, `vm-net-wd8003e`, and
+`vm-net-wd8003eb`. On 7 May 2026, the 32 KiB slimming checkpoint passed
+representative family tests on `vm-net-ne2k8`, `vm-net-3c501`,
+`vm-net-3c503`, and `vm-net-wd8003e`, each displaying returned `ok` and
+`seed build 6`. Retest individual profiles when changing TLS timing/shared
+packet code.
 Build 6 currently adds FAT12 `AGENTS.CFG` and `NET.CFG` parsing, built-in
 fallback agent interfaces, optional `USER.CFG` persistence for selected
 agent/model/reasoning/key/endpoint values, with `server?` shown for LiteLLM's

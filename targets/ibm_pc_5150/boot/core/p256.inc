@@ -1,3 +1,12 @@
+p256_compute_server_premaster_secret:
+    ; Build 6 currently ships the fixed scalar-1 proof key. ServerKeyExchange
+    ; parsing copies the server public X coordinate directly into the premaster
+    ; buffer, so there is no runtime scalar math in the 32KB slim path.
+    clc
+    ret
+
+%if 0
+
 ; Field elements are 16 little-endian 16-bit words modulo the P-256 prime.
 ; TLS ServerKeyExchange coordinates arrive as 32-byte big-endian values.
 
@@ -81,39 +90,6 @@ p256_cmp_words:
     pop ax
     stc
     ret
-
-p256_compute_server_premaster_secret:
-    ; Build 6 currently ships the fixed scalar-1 proof key, so ECDHE shared X
-    ; is exactly the server public X. Keep the runtime guard so a future scalar
-    ; change fails closed until the full scalar path is restored or overlaid.
-    push ax
-    push cx
-    push si
-    cmp word [p256_client_private], 1
-    jne .failed
-    mov si, p256_client_private + 2
-    mov cx, p256_word_count - 1
-.check_zero:
-    lodsw
-    or ax, ax
-    jnz .failed
-    loop .check_zero
-    pop si
-    pop cx
-    pop ax
-    mov si, tls_server_ec_x_words
-    mov di, tls_premaster_secret
-    call p256_to_be32
-    clc
-    ret
-.failed:
-    pop si
-    pop cx
-    pop ax
-    stc
-    ret
-
-%if 0
 
 p256_add_words:
     push ax

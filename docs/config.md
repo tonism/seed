@@ -21,6 +21,8 @@ google
 ```
 
 When `AGENTS.CFG` parses successfully, it overrides the built-in list.
+Build 6 stores agent IDs in 12-byte slots, so IDs may use up to 11 visible
+characters plus the terminator. The shipped IDs fit this cap.
 
 `NET.CFG` holds generic network-readiness probe settings. It currently supports
 one line:
@@ -38,6 +40,16 @@ by the user and validated by Seed, such as selected agent interface, endpoint
 overrides, model choices, reasoning effort, and API credentials. NIC adapter
 family hints are intentionally not stored; the current probes are cheap enough
 to rerun each boot.
+
+Build 6 caps stored API credentials at 192 bytes. Anthropic and Google document
+how API keys are passed to their APIs, but do not publish a longer key-string
+maximum; this is Seed's runtime policy cap for the currently supported
+OpenAI/Anthropic/Google provider surface.
+
+Build 6 stores endpoint overrides in 80-byte slots, so endpoint values may use
+up to 79 visible characters plus the terminator. Reasoning effort values use an
+8-byte slot, which covers the current `low`, `medium`, `high`, and `xhigh`
+efforts.
 
 Seed can remember validated user answers to make later boots faster, but local
 stored user configuration is always optional.
@@ -150,6 +162,9 @@ profiles completed the direct OpenAI Responses request/response proof and
 displayed the returned `ok`. On 4 May 2026, the 64 KiB baseline was retested
 before memory-slimming work: all valid profiles except `vm-net-3c501` reached
 `seed build 6` and displayed `ok`; `vm-net-3c501` failed at agent setup and
-remains open.
+remained open until the 32 KiB slimming pass. On 7 May 2026, representative
+32 KiB NIC-family tests passed: `vm-net-ne2k8`, `vm-net-3c501`,
+`vm-net-3c503`, and `vm-net-wd8003e` each displayed `ok` and reached
+`seed build 6`.
 Capability fetches, model selection, reasoning selection, and environment
 handoff remain later Build 6 work.

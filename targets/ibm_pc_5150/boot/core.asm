@@ -24,3 +24,7 @@ org 0x1000
 %include "core/net_rx.inc"
 %include "core/ui.inc"
 %include "core/data.inc"
+
+%if ($ - $$) > (runtime_stack_top - runtime_stack_guard_len - 0x1000)
+%error "CORE.SYS exceeds 32KB runtime stack guard"
+%endif

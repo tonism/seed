@@ -133,7 +133,6 @@ tls_prf_output_len dw 0
 tls_prf_output_remaining dw 0
 tls_prf_chunk_len dw 0
 tls_prf_current_output_ptr dw 0
-tls_prf_prepared_hmac db 0
 chacha_key_ptr dw 0
 chacha_nonce_ptr dw 0
 chacha_counter_low dw 0
@@ -239,8 +238,6 @@ seed_key times seed_key_len db 0
 seed_endpoint times seed_endpoint_len db 0
 seed_reasoning times seed_reasoning_len db 0
 tls_server_random times tls_random_len db 0
-tls_server_ec_x_words times p256_word_len db 0
-tls_server_ec_y_words times p256_word_len db 0
 tls_master_secret times tls_master_secret_len db 0
 tls_client_write_key times tls_chacha_key_len db 0
 tls_server_write_key times tls_chacha_key_len db 0
@@ -265,10 +262,8 @@ p256_jac_z times p256_word_len db 0
 p256_s0 times p256_word_len db 0
 p256_s1 times p256_word_len db 0
 p256_s2 times p256_word_len db 0
-p256_s3 times p256_word_len db 0
-p256_s4 times p256_word_len db 0
-p256_s5 times p256_word_len db 0
-p256_s6 times p256_word_len db 0
+p256_s3 times poly1305_product_len db 0
+p256_s5 times poly1305_value_len db 0
 agent_ids equ p256_lhs
 tls_premaster_secret equ p256_lhs
 tls_key_block equ p256_lhs
@@ -373,17 +368,6 @@ chacha_constants dw 0x7865, 0x6170, 0x646e, 0x3320
 poly1305_prime db 0xfb
                times 15 db 0xff
                db 0x03
-p256_prime dw 0xffff, 0xffff, 0xffff, 0xffff
-           dw 0xffff, 0xffff, 0x0000, 0x0000
-           dw 0x0000, 0x0000, 0x0000, 0x0000
-           dw 0x0001, 0x0000, 0xffff, 0xffff
-; Insecure Build 6 scalar. Keeps the 5150 TLS proof under cloud handshake
-; timeouts. Replace with entropy-backed scalar math before sending secrets.
-p256_client_private dw 0x0001, 0x0000, 0x0000, 0x0000
-                    dw 0x0000, 0x0000, 0x0000, 0x0000
-                    dw 0x0000, 0x0000, 0x0000, 0x0000
-                    dw 0x0000, 0x0000, 0x0000, 0x0000
-                   db 0, 0, 0, -1, 0, -1, 0, -1, 0, 0, 0, 1, 0, 2, 0, 3
 sha256_initial_state dw 0xe667, 0x6a09, 0xae85, 0xbb67
                      dw 0xf372, 0x3c6e, 0xf53a, 0xa54f
                      dw 0x527f, 0x510e, 0x688c, 0x9b05

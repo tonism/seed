@@ -4,7 +4,8 @@
 
 build_number equ 6
 handoff_addr equ 0x0600
-runtime_stack_top equ 0xc000
+runtime_stack_top equ 0x8000
+runtime_stack_guard_len equ 1536
 low_scratch_start equ 0x0700
 low_scratch_end equ 0x1000
 handoff_magic equ 0
@@ -119,11 +120,12 @@ load_ticks equ 6
 type_ticks equ 1
 done_ticks equ 9
 agent_slot_count equ 5
-agent_id_len equ 16
+agent_id_len equ 12
 seed_model_len equ 64
-seed_key_len equ 240
-seed_endpoint_len equ 96
-seed_reasoning_len equ 16
+; Seed policy cap for supported OpenAI/Anthropic/Google key formats.
+seed_key_len equ 192
+seed_endpoint_len equ 80
+seed_reasoning_len equ 8
 seed_value_total_len equ agent_id_len + seed_model_len + seed_key_len + seed_endpoint_len + seed_reasoning_len
 config_auto equ 1
 config_user equ 2
@@ -236,7 +238,7 @@ arp_spa_offset equ arp_payload_offset + 14
 arp_tpa_offset equ arp_payload_offset + 24
 arp_wait_count equ 2
 dns_qname_default_len equ 13
-dns_qname_max_len equ 96
+dns_qname_max_len equ 80
 dns_payload_base_len equ 12 + 4
 dns_tx_frame_default_len equ eth_header_len + ipv4_header_len + udp_header_len + dns_payload_base_len + dns_qname_default_len
 dns_tx_frame_max_len equ eth_header_len + ipv4_header_len + udp_header_len + dns_payload_base_len + dns_qname_max_len
@@ -293,7 +295,7 @@ tls_master_secret_len equ 48
 tls_key_block_len equ 88
 tls_chacha_key_len equ 32
 tls_chacha_iv_len equ 12
-tls_prf_seed_max_len equ 80
+tls_prf_seed_max_len equ 77
 tls_client_key_exchange_handshake_len equ 1 + tls_ec_public_uncompressed_len
 tls_client_key_exchange_record_len equ 4 + tls_client_key_exchange_handshake_len
 tls_client_key_exchange_total_len equ 5 + tls_client_key_exchange_record_len
@@ -310,7 +312,7 @@ tls_server_record_seq_len equ tls_record_seq_len
 tls_record_header_len equ 5
 tls_aead_tag_len equ 16
 tls_app_max_plain_len equ tcp_payload_max_len - tls_record_header_len - tls_aead_tag_len
-api_request_plain_len equ 512
+api_request_plain_len equ 488
 tls_app_record_buffer_len equ api_request_plain_len + tls_record_header_len + tls_aead_tag_len
 chacha_word_count equ 16
 chacha_block_len equ 64

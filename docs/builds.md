@@ -126,12 +126,15 @@ fetch model and reasoning capabilities from the provider when available
 create the agent session and hand over to the environment path
 ```
 
-Build 6 optimization uses the original 4.77 MHz `vm-net-ne2k8` profile as the
-compatibility gate. The earlier faster ad hoc profiles are no longer part of
-the normal workflow. On 1 May 2026, all seven original-speed 4.77 MHz NIC
+Build 6 optimization uses the original 4.77 MHz, 32 KiB `vm-net-ne2k8` profile
+as the compatibility gate. The earlier faster ad hoc profiles are no longer
+part of the normal workflow. On 1 May 2026, all seven original-speed 4.77 MHz NIC
 profiles completed the first minimal direct OpenAI Responses request/response
 proof and displayed the returned `ok`. On 4 May 2026, the 64 KiB baseline was
 retested before memory-slimming work: `vm-net-3c503`, `vm-net-ne1k`,
 `vm-net-ne2k8`, `vm-net-novell-ne1k`, `vm-net-wd8003e`, and
 `vm-net-wd8003eb` reached `seed build 6` and displayed `ok`; `vm-net-3c501`
-failed at agent setup and remains the open valid-profile failure.
+failed at agent setup and became the open valid-profile failure. On
+7 May 2026, the 32 KiB slimming checkpoint passed representative NIC-family
+tests: `vm-net-ne2k8`, `vm-net-3c501`, `vm-net-3c503`, and
+`vm-net-wd8003e` each displayed `ok` and reached `seed build 6`.

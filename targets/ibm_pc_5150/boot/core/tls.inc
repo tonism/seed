@@ -729,11 +729,7 @@ tls_prepare_master_secret:
     mov word [tls_prf_seed_ptr], tls_prf_seed
     mov word [tls_prf_output_ptr], tls_master_secret
     mov word [tls_prf_output_len], tls_master_secret_len
-    mov byte [tls_prf_prepared_hmac], 1
     call tls_prf_sha256_expand
-    pushf
-    mov byte [tls_prf_prepared_hmac], 0
-    popf
     jc .failed
     mov word [hmac_key_ptr], tls_master_secret
     mov word [hmac_key_len], tls_master_secret_len
@@ -752,11 +748,7 @@ tls_prepare_key_block:
     mov word [tls_prf_seed_ptr], tls_prf_seed
     mov word [tls_prf_output_ptr], tls_key_block
     mov word [tls_prf_output_len], tls_key_block_len
-    mov byte [tls_prf_prepared_hmac], 1
     call tls_prf_sha256_expand
-    pushf
-    mov byte [tls_prf_prepared_hmac], 0
-    popf
     jc .failed
     call tls_split_key_block
     mov byte [tls_key_schedule_ready], 1
@@ -861,7 +853,7 @@ tls_prf_sha256_expand:
     mov word [hmac_data2_len], 0
     mov word [hmac_data3_len], 0
     mov word [hmac_output_ptr], tls_prf_a
-    call tls_prf_call_hmac
+    call hmac_sha256_prepared
     jc .failed
 .next_chunk:
     cmp word [tls_prf_output_remaining], 0
@@ -878,7 +870,7 @@ tls_prf_sha256_expand:
     mov [hmac_data2_len], ax
     mov word [hmac_data3_len], 0
     mov word [hmac_output_ptr], tls_prf_chunk
-    call tls_prf_call_hmac
+    call hmac_sha256_prepared
     jc .failed
 
     mov cx, [tls_prf_output_remaining]
@@ -907,7 +899,7 @@ tls_prf_sha256_expand:
     mov word [hmac_data2_len], 0
     mov word [hmac_data3_len], 0
     mov word [hmac_output_ptr], tls_prf_a
-    call tls_prf_call_hmac
+    call hmac_sha256_prepared
     jc .failed
     jmp .next_chunk
 .done:
@@ -915,12 +907,6 @@ tls_prf_sha256_expand:
     ret
 .failed:
     stc
-    ret
-
-tls_prf_call_hmac:
-    cmp byte [tls_prf_prepared_hmac], 0
-    jne hmac_sha256_prepared
-    call hmac_sha256
     ret
 
 tls_split_key_block:
@@ -1639,11 +1625,7 @@ tls_build_server_finished_verify:
     mov word [tls_prf_seed_ptr], tls_prf_seed
     mov word [tls_prf_output_ptr], tls_verify_data
     mov word [tls_prf_output_len], tls_finished_verify_len
-    mov byte [tls_prf_prepared_hmac], 1
     call tls_prf_sha256_expand
-    pushf
-    mov byte [tls_prf_prepared_hmac], 0
-    popf
     ret
 
 tls_build_server_finished_seed:
@@ -1679,11 +1661,7 @@ tls_build_client_finished_plaintext:
     mov word [tls_prf_seed_ptr], tls_prf_seed
     mov word [tls_prf_output_ptr], tls_verify_data
     mov word [tls_prf_output_len], tls_finished_verify_len
-    mov byte [tls_prf_prepared_hmac], 1
     call tls_prf_sha256_expand
-    pushf
-    mov byte [tls_prf_prepared_hmac], 0
-    popf
     jc .failed
 
     push ds
@@ -2153,20 +2131,9 @@ tls_parse_server_key_exchange:
     jne .failed
     mov si, bx
     add si, 5
-    mov di, tls_server_ec_x_words
-    call p256_from_be32
-    mov si, bx
-    add si, 5 + tls_ec_coordinate_len
-    mov di, tls_server_ec_y_words
-    call p256_from_be32
-    mov si, tls_server_ec_x_words
-    mov di, p256_prime
-    call p256_cmp_words
-    jnc .failed
-    mov si, tls_server_ec_y_words
-    mov di, p256_prime
-    call p256_cmp_words
-    jnc .failed
+    mov di, tls_premaster_secret
+    mov cx, tls_ec_coordinate_len
+    rep movsb
     mov al, [tls_server_key_public_len]
     xor ah, ah
     mov bx, [tls_next_handshake_body_ptr]

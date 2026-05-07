@@ -36,14 +36,14 @@ Current CGA machine shape:
 ```text
 Machine: IBM PC 5150
 CPU:     8088, 4.77 MHz
-RAM:     64 KiB
+RAM:     32 KiB
 Video:   CGA
 FDC:     XT floppy controller
 Floppy:  5.25" single-sided drive as A:
 Disk A:  build/ibm_pc_5150/floppy-160k.img
 ```
 
-The original-speed 4.77 MHz, 64 KiB profiles are the compatibility gate. Faster
+The original-speed 4.77 MHz, 32 KiB profiles are the compatibility gate. Faster
 ad hoc profiles are not part of the normal workflow.
 
 The 86Box NIC inventory for this target is tracked in:
@@ -187,9 +187,13 @@ OpenAI Responses request/response proof and displayed the returned `ok`.
 On 4 May 2026, the 64 KiB baseline was retested before memory-slimming work:
 `vm-net-3c503`, `vm-net-ne1k`, `vm-net-ne2k8`, `vm-net-novell-ne1k`,
 `vm-net-wd8003e`, and `vm-net-wd8003eb` reached `seed build 6` and displayed
-`ok`; `vm-net-3c501` failed at agent setup and remains the open valid-profile
-failure. Retest individual profiles when changing TLS timing or shared packet
-code.
+`ok`; `vm-net-3c501` failed at agent setup and was carried as the open
+valid-profile failure for the next slimming pass. On 7 May 2026, after the
+32 KiB stack and resident-image reductions, representative family profiles
+`vm-net-ne2k8`, `vm-net-3c501`, `vm-net-3c503`, and `vm-net-wd8003e` all
+completed the direct OpenAI Responses request/response proof, displayed the
+returned `ok`, and reached `seed build 6`. Retest individual profiles when
+changing TLS timing or shared packet code.
 
 The WD8003 profiles use `ram_addr = D0000` and `ram_size = 8192`; 86Box expects
 the shared-memory address as a five-digit physical address and the EB RAM size

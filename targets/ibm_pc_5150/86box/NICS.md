@@ -43,8 +43,10 @@ completed that request/response proof and displayed the returned `ok`:
 the 64 KiB baseline was retested before memory-slimming work:
 `vm-net-3c503`, `vm-net-ne1k`, `vm-net-ne2k8`, `vm-net-novell-ne1k`,
 `vm-net-wd8003e`, and `vm-net-wd8003eb` reached `seed build 6` and displayed
-`ok`; `vm-net-3c501` failed at agent setup and remains the open valid-profile
-failure.
+`ok`; `vm-net-3c501` failed at agent setup and became the open valid-profile
+failure. On 7 May 2026, the 32 KiB slimming checkpoint retested representative
+families: `vm-net-ne2k8`, `vm-net-3c501`, `vm-net-3c503`, and
+`vm-net-wd8003e` each displayed `ok` and reached `seed build 6`.
 
 ## IBM PC 5150 Candidates
 
@@ -137,7 +139,10 @@ direct OpenAI Responses request/response proof and displayed the returned `ok`:
 `vm-net-novell-ne1k`, `vm-net-wd8003e`, and `vm-net-wd8003eb`.
 On 4 May 2026, the 64 KiB baseline was retested before memory-slimming work:
 all valid profiles except `vm-net-3c501` reached `seed build 6` and displayed
-`ok`; `vm-net-3c501` failed at agent setup and remains open.
+`ok`; `vm-net-3c501` failed at agent setup and remained open until the 32 KiB
+slimming pass. On 7 May 2026, representative 32 KiB family tests passed:
+`vm-net-ne2k8`, `vm-net-3c501`, `vm-net-3c503`, and `vm-net-wd8003e` each
+displayed `ok` and reached `seed build 6`.
 
 Also on 30 April 2026, the fixed shipped agent hosts were checked against
 Seed's single current TLS path: TLS 1.2, P-256,

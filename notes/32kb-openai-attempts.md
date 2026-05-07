@@ -283,3 +283,95 @@ Controlled reduction 11:
   displayed `ok` and `seed build 6`.
 - Current hard 32KB load gap: `0x8000 - (0x1000 + 27866) = 806` bytes. Still
   tight, but meaningfully better than reduction 10.
+
+Controlled reduction 12:
+- For the fixed scalar-1 proof path, ServerKeyExchange parsing now copies the
+  server public X coordinate directly into the TLS premaster buffer.
+- Compiled out the remaining active P-256 big-endian conversion and range-check
+  helpers, removed the runtime X/Y word buffers, removed the P-256 prime and
+  fixed private scalar data, and removed a leftover active reduction-table row.
+- Resulting `CORE.SYS` size: 27,534 bytes, saving 332 bytes from reduction 11
+  (8,418 bytes cumulative).
+- Local P-256, TLS PRF, and ChaCha20/Poly1305 checks passed.
+- 48KB validation passed so far:
+  `vm-net-ne2k8` and `vm-net-3c501` each displayed `ok` and `seed build 6`.
+- Current hard 32KB load gap: `0x8000 - (0x1000 + 27534) = 1138` bytes. That
+  clears a 1KB guard, but is still about 398 bytes short of a 1.5KB guard.
+
+Controlled reduction 13:
+- Checked the current Anthropic and Google API docs for a published hard API
+  key string maximum. The docs describe the authentication headers and Google's
+  `keyString`, but do not publish a longer maximum key length.
+- Set Seed's Build 6 runtime API credential cap to 192 bytes. This keeps the
+  supported OpenAI/Anthropic/Google provider surface, covers the current
+  OpenAI project-key shape with margin, and stops reserving space for
+  arbitrary longer credentials.
+- Reduced `api_request_plain_len` from 512 to 488 bytes. With the 192-byte key
+  cap, the current minimal OpenAI request still has slack.
+- Resulting `CORE.SYS` size: 27,462 bytes, saving 72 bytes from reduction 12
+  (8,490 bytes cumulative).
+- Local P-256, TLS PRF, and ChaCha20/Poly1305 checks passed.
+- 48KB representative family tests passed:
+  `vm-net-ne2k8`, `vm-net-3c501`, `vm-net-3c503`, and `vm-net-wd8003e` each
+  displayed `ok` and `seed build 6`.
+- Current hard 32KB load gap: `0x8000 - (0x1000 + 27462) = 1210` bytes. That
+  is about 326 bytes short of a 1.5KB guard.
+
+Controlled reduction 14:
+- Replaced the remaining old P-256 scratch tail with exact live scratch sizes.
+  The active fixed-scalar path no longer needs full `p256_s4`, `p256_s5`, or
+  `p256_s6` word slots; active users are the TLS/agent/ChaCha aliases plus a
+  36-byte Poly1305 product and a 24-byte Poly1305 value.
+- Resulting `CORE.SYS` size: 27,394 bytes, saving 68 bytes from reduction 13
+  (8,558 bytes cumulative).
+- Local P-256, TLS PRF, and ChaCha20/Poly1305 checks passed.
+- 48KB NE2K smoke test passed: displayed `ok` and `seed build 6`.
+- Current hard 32KB load gap: `0x8000 - (0x1000 + 27394) = 1278` bytes. That
+  is about 258 bytes short of a 1.5KB guard.
+
+Controlled reduction 15:
+- Removed the dormant unprepared HMAC-SHA256 runtime path. The TLS PRF callers
+  already prepare the fixed key pads, so the active path can use
+  `hmac_sha256_prepared` directly and the old runtime selector/state can stay
+  compiled out.
+- Resulting `CORE.SYS` size: 27,156 bytes, saving 238 bytes from reduction 14
+  (8,796 bytes cumulative).
+- Local P-256, TLS PRF, and ChaCha20/Poly1305 checks passed.
+- 48KB NE2K smoke test passed: displayed `ok` and `seed build 6`.
+- Current hard 32KB load gap: `0x8000 - (0x1000 + 27156) = 1516` bytes. That
+  is 20 bytes short of a 1.5KB guard.
+
+Controlled reduction 16:
+- Reduced the stored agent-id slot from 16 bytes to 12 bytes. The shipped
+  provider IDs fit within 11 visible characters plus a terminator.
+- Reduced the TLS PRF seed workspace from 80 bytes to 77 bytes, matching the
+  largest current label-plus-seed construction.
+- Replaced the remaining PRF HMAC wrapper calls with direct prepared-HMAC
+  calls and removed the wrapper.
+- Resulting `CORE.SYS` size: 27,134 bytes, saving 22 bytes from reduction 15
+  (8,818 bytes cumulative).
+- Local P-256, TLS PRF, and ChaCha20/Poly1305 checks passed.
+- 48KB representative family tests passed:
+  `vm-net-ne2k8`, `vm-net-3c501`, `vm-net-3c503`, and `vm-net-wd8003e` each
+  displayed `ok` and `seed build 6`.
+- Current hard 32KB load gap: `0x8000 - (0x1000 + 27134) = 1538` bytes. This
+  clears the provisional 1.5KB guard by 2 bytes, but the margin is too narrow
+  to call the 32KB target stable without another cut and a real 32KB VM pass.
+
+Controlled reduction 17:
+- Reduced endpoint storage from 96 bytes to 80 bytes, reasoning storage from
+  16 bytes to 8 bytes, and the DNS qname workspace from 96 bytes to 80 bytes.
+  The current shipped endpoint, reasoning, and DNS values fit those caps.
+- Resulting `CORE.SYS` size: 27,094 bytes, saving 40 bytes from reduction 16
+  (8,858 bytes cumulative).
+- Moved the loader and runtime stack tops to `0x8000` for 32 KiB machines and
+  added an assembly-time 1.5 KiB runtime stack guard.
+- Set all nine 86Box profiles to 32 KiB RAM and normalized the host CPU label
+  to Apple M5 Pro.
+- Address check: `CORE.SYS` loads at `0x1000`, ends at `0x79d5`, the 32 KiB
+  stack top is `0x8000`, and the guarded stack range starts at `0x7a00`. That
+  leaves 42 bytes before the 1.5 KiB stack guard.
+- Local `make`, `make inspect`, and `make test` checks passed.
+- 32 KiB representative family tests passed:
+  `vm-net-ne2k8`, `vm-net-3c501`, `vm-net-3c503`, and `vm-net-wd8003e` each
+  displayed `ok` and `seed build 6`.

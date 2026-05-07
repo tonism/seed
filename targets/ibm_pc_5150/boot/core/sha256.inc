@@ -194,6 +194,7 @@ sha256_restore_context:
     pop ax
     ret
 
+%if 0
 hmac_sha256:
     ; Uses hmac_* globals. Key length must be <= 64 bytes.
     push ax
@@ -277,6 +278,8 @@ hmac_sha256:
     pop bx
     pop ax
     ret
+
+%endif
 
 hmac_prepare_current_key_context:
     ; Pre-hashes HMAC ipad/opad blocks for repeated calls with hmac_key_*.

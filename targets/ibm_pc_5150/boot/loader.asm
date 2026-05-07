@@ -7,7 +7,7 @@ org 0x0600
 %endif
 
 core_offset equ 0x1000
-loader_stack_top equ 0xc000
+loader_stack_top equ 0x8000
 sector_size equ 512
 floppy_sectors_per_track equ 8
 fat_count equ 2
