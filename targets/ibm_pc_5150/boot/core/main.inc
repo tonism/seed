@@ -94,6 +94,18 @@ run_failure_phase:
     mov cx, (core_failure_phase_end - core_failure_phase_start + 511) / 512
     jmp run_core_phase
 
+run_dhcp_setup_phase:
+    mov ax, (core_dhcp_setup_phase_start - $$) / 512
+    mov cx, (core_dhcp_setup_phase_end - core_dhcp_setup_phase_start + 511) / 512
+    mov bx, net_setup_phase_start
+    jmp run_core_phase_at
+
+run_tcp_connect_phase:
+    mov ax, (core_tcp_connect_phase_start - $$) / 512
+    mov cx, (core_tcp_connect_phase_end - core_tcp_connect_phase_start + 511) / 512
+    mov bx, net_setup_phase_start
+    jmp run_core_phase_at
+
 run_net_probe_cfg_phase:
     mov ax, (core_probe_cfg_phase_start - $$) / 512
     mov cx, (core_probe_cfg_phase_end - core_probe_cfg_phase_start + 511) / 512
@@ -135,16 +147,25 @@ run_splash_phase:
     jmp run_core_phase
 
 run_core_phase:
+    mov bx, low_scratch_start
+
+run_core_phase_at:
+    push bx
     push ds
     pop es
-    mov bx, low_scratch_start
     add ax, fat_data_start_lba
 .next_sector:
     call read_abs_sector
-    jc .done
+    jc .read_failed
     add bx, 512
     inc ax
     loop .next_sector
-    call low_scratch_start
+    push ds
+    pop es
+    pop bx
+    call bx
 .done:
+    ret
+.read_failed:
+    pop bx
     ret

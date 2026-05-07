@@ -586,7 +586,12 @@ build_tcp_segment_frame:
 
     mov di, ne_tx_frame
     xor al, al
-    mov cx, net_frame_buffer_len
+    mov cx, [tcp_tx_payload_len]
+    add cx, tcp_payload_offset
+    cmp cx, tcp_tx_frame_len
+    jae .clear_len_ready
+    mov cx, tcp_tx_frame_len
+.clear_len_ready:
     rep stosb
 
     mov di, ne_tx_frame

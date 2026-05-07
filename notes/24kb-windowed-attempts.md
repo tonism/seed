@@ -144,6 +144,48 @@ Verification:
 - Saved `USER.CFG` `vm-net-3c503` canary reaches `seed build 6` with `ok`.
 - Saved `USER.CFG` `vm-net-wd8003e` canary reaches `seed build 6` with `ok`.
 
+## 2026-05-07 - Move pre-TLS DHCP/DNS/TCP setup into phases
+
+Change:
+- Moved DHCP offer/ACK waiting and parsing into nonresident `D`.
+- Moved pre-TLS DNS ARP, DNS response parsing, next-hop ARP, TCP SYN/ACK
+  waiting, and TCP connect parsing into nonresident `C`.
+- Kept established TCP payload receive, TLS, crypto, request send, and response
+  handling resident.
+- Loaded `D` and `C` at `0x0900` instead of `0x0700`, reserving the first
+  512 bytes of low scratch for the pre-TLS packet frame they must build/read.
+- Changed TCP segment construction to clear only the actual frame length rather
+  than the full 1600-byte packet arena, so SYN/ACK setup does not overwrite a
+  phase executing above the packet scratch.
+
+Measurements:
+- Resident sectors dropped from 43 to 40.
+- Resident bytes when sector-rounded dropped from 22,016 to 20,480.
+- Saved 1,536 resident bytes.
+- `CORE.SYS` total size is 31,232 bytes / 61 sectors because the new `D` and
+  `C` setup phases each occupy two nonresident sectors.
+- Phase entries:
+  - `D`: sector offset 44, two sectors, load address `0x0900`.
+  - `C`: sector offset 46, two sectors, load address `0x0900`.
+- Gap to the guarded 24 KiB BASIC target is now 3 resident sectors, or 1,536
+  sector-rounded bytes.
+
+Important finding:
+- The first version loaded `D`/`C` at `0x0700`, which is also `ne_tx_frame`.
+  DHCP transmit then overwrote the currently executing phase.
+- Moving the phases to `0x0900` fixed the DHCP self-overwrite but exposed the
+  TCP builder clearing the full packet arena. Limiting that clear to the actual
+  TCP frame length made the cut runtime-safe in the tested families.
+
+Verification:
+- `make inspect` passes.
+- `make test` passes.
+- `git diff --check` passes.
+- Saved `USER.CFG` `vm-net-ne2k8` canary reaches `seed build 6` with `ok`.
+- Saved `USER.CFG` `vm-net-3c501` canary reaches `seed build 6` with `ok`.
+- Saved `USER.CFG` `vm-net-3c503` canary reaches `seed build 6` with `ok`.
+- Saved `USER.CFG` `vm-net-wd8003e` canary reaches `seed build 6` with `ok`.
+
 ## 2026-05-07 - Low-memory BASIC entry path
 
 Change:

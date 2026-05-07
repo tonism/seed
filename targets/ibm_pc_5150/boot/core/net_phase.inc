@@ -8,18 +8,10 @@ prepare_internet_path:
     pop es
     call wd_enable_shared_ram
     call wd_select_dp8390_base
-    call ne_transmit_dhcp_discover
-    jc .done
-    call ne_wait_for_dhcp_offer
-    cmp byte [handoff_addr + handoff_net_status], net_status_dhcp_offer_received
-    jne .failed
-    call ne_transmit_dhcp_request
-    jc .done
-    call ne_wait_for_dhcp_ack
-    cmp byte [handoff_addr + handoff_net_status], net_status_dhcp_ack_received
-    jne .failed
+    call run_dhcp_setup_phase
+    jc .failed
     call set_default_internet_target
-    call tcp_connect_target
+    call run_tcp_connect_phase
     jc .failed
     clc
 .done:
@@ -70,7 +62,7 @@ prepare_agent_endpoint_path:
     call wd_select_dp8390_base
     call run_agent_request_phase
     jc .restore
-    call tcp_connect_target
+    call run_tcp_connect_phase
     jc .restore
     call tls_probe_server
     jc .restore

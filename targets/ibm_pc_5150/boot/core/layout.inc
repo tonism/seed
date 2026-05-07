@@ -8,6 +8,8 @@ runtime_stack_top equ 0x8000
 runtime_stack_guard_len equ 1536
 low_scratch_start equ 0x0700
 low_scratch_end equ 0x1000
+net_setup_frame_scratch_len equ 512
+net_setup_phase_start equ low_scratch_start + net_setup_frame_scratch_len
 handoff_magic equ 0
 handoff_version equ 4
 handoff_size equ 5
