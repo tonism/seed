@@ -34,20 +34,14 @@ resolve_network_config:
 .detect_io_280:
     call autodetect_io_280
     jnc store_auto_network_config
-    mov word [menu_option_a], adapter_3c501_text
-    mov word [menu_option_b], adapter_wd8003_text
-    mov byte [menu_value_a], family_3c501
-    mov byte [menu_value_b], family_wd8003
-    call ask_adapter
+    mov byte [menu_value_a], adapter_select_io_280
+    call run_adapter_select_phase
     ret
 .detect_ne:
     call autodetect_ne
     jnc store_auto_network_config
-    mov word [menu_option_a], adapter_ne2000_text
-    mov word [menu_option_b], adapter_ne1000_text
-    mov byte [menu_value_a], family_ne2000
-    mov byte [menu_value_b], family_ne1000
-    call ask_adapter
+    mov byte [menu_value_a], adapter_select_ne
+    call run_adapter_select_phase
     ret
 
 store_auto_network_config:

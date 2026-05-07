@@ -46,29 +46,29 @@ agent_request_phase:
     pop es
     mov di, api_request_plain + tls_record_header_len
     mov si, low_scratch_start + (http_post_text - PHASE_BASE)
-    phase_call_res append_z_to_buffer
+    call agent_request_phase_append_z_to_buffer
     mov si, low_scratch_start + (http_openai_path_text - PHASE_BASE)
-    phase_call_res append_z_to_buffer
+    call agent_request_phase_append_z_to_buffer
     mov si, low_scratch_start + (http_version_text - PHASE_BASE)
-    phase_call_res append_z_to_buffer
+    call agent_request_phase_append_z_to_buffer
     mov si, low_scratch_start + (http_host_text - PHASE_BASE)
-    phase_call_res append_z_to_buffer
-    mov si, host_openai_text
-    phase_call_res append_z_to_buffer
-    phase_call_res append_crlf_to_buffer
+    call agent_request_phase_append_z_to_buffer
+    mov si, low_scratch_start + (agent_request_host_openai_text - PHASE_BASE)
+    call agent_request_phase_append_z_to_buffer
+    call agent_request_phase_append_crlf_to_buffer
     mov si, low_scratch_start + (http_auth_bearer_text - PHASE_BASE)
-    phase_call_res append_z_to_buffer
+    call agent_request_phase_append_z_to_buffer
     mov si, seed_key
-    phase_call_res append_z_to_buffer
-    phase_call_res append_crlf_to_buffer
+    call agent_request_phase_append_z_to_buffer
+    call agent_request_phase_append_crlf_to_buffer
     mov si, low_scratch_start + (http_content_type_text - PHASE_BASE)
-    phase_call_res append_z_to_buffer
+    call agent_request_phase_append_z_to_buffer
     mov si, low_scratch_start + (http_content_length_text - PHASE_BASE)
-    phase_call_res append_z_to_buffer
+    call agent_request_phase_append_z_to_buffer
     mov ax, [api_body_len]
     call .append_u16_decimal
-    phase_call_res append_crlf_to_buffer
-    phase_call_res append_crlf_to_buffer
+    call agent_request_phase_append_crlf_to_buffer
+    call agent_request_phase_append_crlf_to_buffer
     mov si, fs_sector_buffer
     mov cx, [api_body_len]
     rep movsb
@@ -89,13 +89,13 @@ agent_request_phase:
     pop es
     mov di, fs_sector_buffer
     mov si, low_scratch_start + (api_json_model_text - PHASE_BASE)
-    phase_call_res append_z_to_buffer
+    call agent_request_phase_append_z_to_buffer
     mov si, seed_model
-    phase_call_res append_z_to_buffer
+    call agent_request_phase_append_z_to_buffer
     mov si, low_scratch_start + (api_json_input_text - PHASE_BASE)
-    phase_call_res append_z_to_buffer
+    call agent_request_phase_append_z_to_buffer
     mov si, low_scratch_start + (api_json_plain_close_text - PHASE_BASE)
-    phase_call_res append_z_to_buffer
+    call agent_request_phase_append_z_to_buffer
     mov ax, di
     sub ax, fs_sector_buffer
     mov [api_body_len], ax
@@ -142,8 +142,25 @@ http_host_text db 'Host: ', 0
 http_auth_bearer_text db 'Authorization: Bearer ', 0
 http_content_type_text db 'Content-Type: application/json', 13, 10, 0
 http_content_length_text db 'Content-Length: ', 0
+agent_request_host_openai_text db 'api.openai.com', 0
 api_json_model_text db '{"model":"', 0
 api_json_input_text db '","input":"Reply exactly: ok","store":false', 0
 api_json_plain_close_text db '}', 0
+
+agent_request_phase_append_z_to_buffer:
+    lodsb
+    or al, al
+    jz .done
+    stosb
+    jmp agent_request_phase_append_z_to_buffer
+.done:
+    ret
+
+agent_request_phase_append_crlf_to_buffer:
+    mov al, 13
+    stosb
+    mov al, 10
+    stosb
+    ret
 
 %unmacro phase_call_res 1

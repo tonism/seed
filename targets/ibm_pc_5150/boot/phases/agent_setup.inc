@@ -9,12 +9,12 @@
 
 agent_setup_phase:
 .select:
-    phase_call_res clear_seed_values
+    call agent_setup_phase_clear_seed_values
     call .ask_agent
 .values:
     call .ask_agent_values
     jnc .setup_done
-    phase_call_res clear_seed_values
+    call agent_setup_phase_clear_seed_values
     call .ask_agent_resume
     jmp .values
 .setup_done:
@@ -55,7 +55,7 @@ agent_setup_phase:
     jmp .input
 .previous:
 .next:
-    phase_call_res selected_agent_needs_endpoint
+    call agent_setup_phase_selected_agent_needs_endpoint
     jc .input
     xor byte [menu_value_a], 1
     call .draw_agent_form_fields
@@ -79,7 +79,7 @@ agent_setup_phase:
     ret
 
 .validate_agent_values:
-    phase_call_res selected_agent_needs_endpoint
+    call agent_setup_phase_selected_agent_needs_endpoint
     jc .check_key
     cmp byte [seed_endpoint], 0
     jne .check_key
@@ -89,7 +89,7 @@ agent_setup_phase:
 .check_key:
     cmp byte [seed_key], 0
     jne .valid
-    phase_call_res selected_agent_needs_endpoint
+    call agent_setup_phase_selected_agent_needs_endpoint
     jc .key_focus
     mov byte [menu_value_a], 1
     jmp .invalid
@@ -100,7 +100,7 @@ agent_setup_phase:
     ret
 .valid:
     or byte [seed_config_flags], seed_flag_key
-    phase_call_res selected_agent_needs_endpoint
+    call agent_setup_phase_selected_agent_needs_endpoint
     jc .validated
     or byte [seed_config_flags], seed_flag_endpoint
 .validated:
@@ -109,7 +109,7 @@ agent_setup_phase:
     ret
 
 .set_active_form_input:
-    phase_call_res selected_agent_needs_endpoint
+    call agent_setup_phase_selected_agent_needs_endpoint
     jc .key
     cmp byte [menu_value_a], 0
     jne .key
@@ -123,7 +123,7 @@ agent_setup_phase:
     mov al, seed_key_len
     mov dl, question_row
     add dl, [menu_index]
-    phase_call_res selected_agent_needs_endpoint
+    call agent_setup_phase_selected_agent_needs_endpoint
     jc .set
     inc dl
 .set:
@@ -277,7 +277,7 @@ agent_setup_phase:
     add al, 2
     mov [cursor_col], al
     mov bl, [question_attr]
-    mov si, agent_prompt_text
+    mov si, low_scratch_start + (agent_prompt_text - PHASE_BASE)
     phase_call_res print_z
     call .draw_agent_options_at_col
     mov al, [input_start_col]
@@ -289,7 +289,7 @@ agent_setup_phase:
     add al, 2
     mov [cursor_col], al
     mov bl, [question_attr]
-    mov si, agent_prompt_text
+    mov si, low_scratch_start + (agent_prompt_text - PHASE_BASE)
     phase_call_res type_z
 
     call .type_agent_options
@@ -305,7 +305,7 @@ agent_setup_phase:
     add al, 2
     mov [cursor_col], al
     mov bl, [question_attr]
-    mov si, agent_prompt_text
+    mov si, low_scratch_start + (agent_prompt_text - PHASE_BASE)
     phase_call_res type_z
 
     mov al, [form_left_col]
@@ -313,19 +313,19 @@ agent_setup_phase:
     call .draw_agent_options_at_col
 
 .draw_agent_form_fields:
-    phase_call_res selected_agent_needs_endpoint
+    call agent_setup_phase_selected_agent_needs_endpoint
     jc .form_key_only
     mov al, question_row
     add al, [menu_index]
     mov [cursor_row], al
-    mov si, endpoint_prompt_text
+    mov si, low_scratch_start + (endpoint_prompt_text - PHASE_BASE)
     mov di, seed_endpoint
     mov al, 0
     call .draw_form_field
     mov al, question_row + 1
     add al, [menu_index]
     mov [cursor_row], al
-    mov si, key_prompt_text
+    mov si, low_scratch_start + (key_prompt_text - PHASE_BASE)
     mov di, seed_key
     mov al, 1
     call .draw_form_field
@@ -334,7 +334,7 @@ agent_setup_phase:
     mov al, question_row
     add al, [menu_index]
     mov [cursor_row], al
-    mov si, key_prompt_text
+    mov si, low_scratch_start + (key_prompt_text - PHASE_BASE)
     mov di, seed_key
     mov al, 0
     call .draw_form_field
@@ -499,6 +499,32 @@ agent_setup_phase:
     mov dl, [screen_cols]
     dec dl
     int 0x10
+    ret
+
+agent_prompt_text db 'agent?', 0
+key_prompt_text db 'key?', 0
+endpoint_prompt_text db 'server?', 0
+
+agent_setup_phase_clear_seed_values:
+    push es
+    push ds
+    pop es
+    xor ax, ax
+    mov di, seed_agent_id
+    mov cx, seed_value_total_len / 2
+    rep stosw
+    mov byte [seed_config_flags], 0
+    mov byte [user_cfg_dirty], 0
+    pop es
+    ret
+
+agent_setup_phase_selected_agent_needs_endpoint:
+    cmp byte [seed_agent_id], 'l'
+    jne .no
+    clc
+    ret
+.no:
+    stc
     ret
 
 %unmacro phase_call_res 1

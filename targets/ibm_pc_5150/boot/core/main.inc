@@ -26,11 +26,9 @@ hal_start:
     mov bl, [load_attr]
     mov al, '.'
     call show_load_marker
-    call probe_network_card
+    call run_hardware_setup_phase
     jc network_error
 
-    call resolve_network_config
-    call read_network_address
     call prepare_hal_path
     jc network_setup_error
 
@@ -54,17 +52,14 @@ halt:
 
 network_error:
     mov al, handoff_status_no_nic
-    mov si, network_error_text
     jmp show_failure
 
 network_setup_error:
     mov al, handoff_status_network_failed
-    mov si, network_setup_error_text
     jmp show_failure
 
 agent_setup_error:
     mov al, handoff_status_agent_failed
-    mov si, agent_setup_error_text
 
 show_failure:
     mov [handoff_addr + handoff_status], al
@@ -72,11 +67,11 @@ show_failure:
     mov al, [load_marker_char]
     call show_load_marker
 
-    inc byte [cursor_col]
-    call notify_failure
-    call type_z
-    call ask_failure_action
-    jmp halt
+    call run_failure_phase
+    or al, al
+    jz hal_start
+    mov word [0x0472], 0x1234
+    jmp 0xffff:0x0000
 
 set_seed_cursor:
     mov byte [cursor_row], seed_row
@@ -87,6 +82,16 @@ set_seed_cursor:
 run_save_user_cfg_phase:
     mov ax, (core_save_phase_start - $$) / 512
     mov cx, (core_save_phase_end - core_save_phase_start + 511) / 512
+    jmp run_core_phase
+
+run_hardware_setup_phase:
+    mov ax, (core_hardware_setup_phase_start - $$) / 512
+    mov cx, (core_hardware_setup_phase_end - core_hardware_setup_phase_start + 511) / 512
+    jmp run_core_phase
+
+run_failure_phase:
+    mov ax, (core_failure_phase_start - $$) / 512
+    mov cx, (core_failure_phase_end - core_failure_phase_start + 511) / 512
     jmp run_core_phase
 
 run_net_probe_cfg_phase:
@@ -112,6 +117,11 @@ run_agent_setup_phase:
 run_agent_request_phase:
     mov ax, (core_agent_request_phase_start - $$) / 512
     mov cx, (core_agent_request_phase_end - core_agent_request_phase_start + 511) / 512
+    jmp run_core_phase
+
+run_agent_endpoint_phase:
+    mov ax, (core_agent_endpoint_phase_start - $$) / 512
+    mov cx, (core_agent_endpoint_phase_end - core_agent_endpoint_phase_start + 511) / 512
     jmp run_core_phase
 
 run_agent_response_phase:

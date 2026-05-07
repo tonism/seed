@@ -25,7 +25,7 @@ agents_cfg_phase:
 agents_cfg_phase_load_builtin:
     push ds
     pop es
-    mov si, builtin_agent_ids
+    mov si, low_scratch_start + (agents_cfg_phase_builtin_ids - PHASE_BASE)
     mov di, agent_ids
     mov bx, 3
 .next_builtin:
@@ -41,7 +41,7 @@ agents_cfg_phase_load_builtin:
     ret
 
 agents_cfg_phase_find:
-    mov di, agents_cfg_name
+    mov di, low_scratch_start + (agents_cfg_phase_name - PHASE_BASE)
     phase_call_res find_root_file
     jc .not_found
     mov ax, [fs_file_cluster]
@@ -73,7 +73,7 @@ agents_cfg_phase_parse:
     cmp word [fs_bytes_left], 0
     je .done
     mov ax, [fs_current_cluster]
-    phase_call_res read_cluster_to_buffer
+    call agents_cfg_phase_read_cluster_to_buffer
     jc .failed
     mov ax, [fs_bytes_left]
     cmp ax, 512
@@ -173,6 +173,28 @@ agents_cfg_phase_copy_id:
     inc byte [agent_count]
     pop cx
     pop si
+    ret
+
+agents_cfg_phase_name db 'AGENTS  CFG'
+agents_cfg_phase_builtin_ids db 'openai', 0
+                            times agent_id_len - 7 db 0
+                            db 'anthropic', 0
+                            times agent_id_len - 10 db 0
+                            db 'google', 0
+                            times agent_id_len - 7 db 0
+
+agents_cfg_phase_read_cluster_to_buffer:
+    cmp ax, fat_first_data_cluster
+    jb .failed
+    sub ax, fat_first_data_cluster
+    add ax, fat_data_start_lba
+    push ds
+    pop es
+    mov bx, fs_sector_buffer
+    phase_call_res read_abs_sector
+    ret
+.failed:
+    stc
     ret
 
 %unmacro phase_call_res 1

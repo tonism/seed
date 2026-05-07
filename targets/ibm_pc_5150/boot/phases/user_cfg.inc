@@ -8,8 +8,8 @@
 %endmacro
 
 user_cfg_phase:
-    phase_call_res clear_seed_values
-    mov di, user_cfg_name
+    call user_cfg_phase_clear_seed_values
+    mov di, low_scratch_start + (user_cfg_phase_name - PHASE_BASE)
     phase_call_res find_root_file
     jc .failed
     mov ax, [fs_file_cluster]
@@ -23,7 +23,7 @@ user_cfg_phase:
     cmp word [seed_size_low], 6
     jb .failed
     mov ax, [seed_cluster]
-    phase_call_res read_cluster_to_buffer
+    call user_cfg_phase_read_cluster_to_buffer
     jc .failed
     call .parse
     jc .failed
@@ -91,7 +91,7 @@ user_cfg_phase:
     sub cx, 6
     mov di, seed_agent_id
     mov dl, agent_id_len
-    phase_call_res copy_line_value
+    call user_cfg_phase_copy_line_value
     pop cx
     pop si
     cmp byte [seed_agent_id], 0
@@ -119,7 +119,7 @@ user_cfg_phase:
     sub cx, 6
     mov di, seed_model
     mov dl, seed_model_len
-    phase_call_res copy_line_value
+    call user_cfg_phase_copy_line_value
     pop cx
     pop si
     cmp byte [seed_model], 0
@@ -155,7 +155,7 @@ user_cfg_phase:
     sub cx, 10
     mov di, seed_reasoning
     mov dl, seed_reasoning_len
-    phase_call_res copy_line_value
+    call user_cfg_phase_copy_line_value
     pop cx
     pop si
     cmp byte [seed_reasoning], 0
@@ -179,7 +179,7 @@ user_cfg_phase:
     sub cx, 4
     mov di, seed_key
     mov dl, seed_key_len
-    phase_call_res copy_line_value
+    call user_cfg_phase_copy_line_value
     pop cx
     pop si
     cmp byte [seed_key], 0
@@ -213,7 +213,7 @@ user_cfg_phase:
     sub cx, 9
     mov di, seed_endpoint
     mov dl, seed_endpoint_len
-    phase_call_res copy_line_value
+    call user_cfg_phase_copy_line_value
     pop cx
     pop si
     cmp byte [seed_endpoint], 0
@@ -267,6 +267,69 @@ user_cfg_phase:
     ret
 .not_equal:
     stc
+    ret
+
+user_cfg_phase_name db 'USER    CFG'
+
+user_cfg_phase_clear_seed_values:
+    push es
+    push ds
+    pop es
+    xor ax, ax
+    mov di, seed_agent_id
+    mov cx, seed_value_total_len / 2
+    rep stosw
+    mov byte [seed_config_flags], 0
+    mov byte [user_cfg_dirty], 0
+    pop es
+    ret
+
+user_cfg_phase_read_cluster_to_buffer:
+    cmp ax, fat_first_data_cluster
+    jb .failed
+    sub ax, fat_first_data_cluster
+    add ax, fat_data_start_lba
+    push ds
+    pop es
+    mov bx, fs_sector_buffer
+    phase_call_res read_abs_sector
+    ret
+.failed:
+    stc
+    ret
+
+user_cfg_phase_copy_line_value:
+    push ax
+    push cx
+    push dx
+    push si
+    push di
+    dec dl
+.copy:
+    cmp cx, 0
+    je .terminate
+    cmp dl, 0
+    je .terminate
+    mov al, [si]
+    cmp al, 13
+    je .terminate
+    cmp al, 10
+    je .terminate
+    or al, al
+    jz .terminate
+    mov [di], al
+    inc si
+    inc di
+    dec cx
+    dec dl
+    jmp .copy
+.terminate:
+    mov byte [di], 0
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop ax
     ret
 
 %unmacro phase_call_res 1

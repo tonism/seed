@@ -123,6 +123,8 @@ load_ticks equ 6
 type_ticks equ 1
 done_ticks equ 9
 agent_slot_count equ 5
+adapter_select_io_280 equ 0
+adapter_select_ne equ 1
 agent_id_len equ 12
 seed_model_len equ 64
 ; Seed policy cap for supported OpenAI/Anthropic/Google key formats.

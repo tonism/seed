@@ -13,10 +13,7 @@ menu_selected_attr db menu_selected_attr_cga
 menu_idle_attr db menu_idle_attr_cga
 load_marker_char db ' '
 load_marker_attr db load_attr_cga
-menu_option_a dw 0
-menu_option_b dw 0
 menu_value_a db 0
-menu_value_b db 0
 menu_index db 0
 input_target dw 0
 input_max db 0
@@ -269,40 +266,14 @@ poly_acc equ p256_s1
 poly_block equ p256_s2
 poly_product equ p256_s3
 poly_value equ p256_s5
-builtin_agent_ids db 'openai', 0
-                  times agent_id_len - 7 db 0
-                  db 'anthropic', 0
-                  times agent_id_len - 10 db 0
-                  db 'google', 0
-                  times agent_id_len - 7 db 0
 dns_default_qname db 7, 'example', 3, 'com', 0
 dns_qname db 7, 'example', 3, 'com', 0
            times dns_qname_max_len - dns_qname_default_len db 0
-network_error_text db 'no network card', 0
-network_setup_error_text db 'network setup failed', 0
-agent_setup_error_text db 'agent setup failed', 0
-retry_text db 'retry', 0
-restart_text db 'restart', 0
-adapter_prompt_text db 'adapter?', 0
-adapter_ne2000_text db 'ne2000', 0
-adapter_ne1000_text db 'ne1000', 0
-adapter_3c501_text db '3c501', 0
-adapter_wd8003_text db 'wd8003', 0
-agents_cfg_name db 'AGENTS  CFG'
-net_cfg_name db 'NET     CFG'
-user_cfg_name db 'USER    CFG'
 agent_prefix_text db 'agent ', 0
 model_prefix_text db 'model ', 0
 reasoning_prefix_text db 'reasoning ', 0
 key_prefix_text db 'key ', 0
 endpoint_prefix_text db 'endpoint ', 0
-agent_prompt_text db 'agent?', 0
-key_prompt_text db 'key?', 0
-endpoint_prompt_text db 'server?', 0
-host_openrouter_text db 'openrouter.ai', 0
-host_openai_text db 'api.openai.com', 0
-host_anthropic_text db 'api.anthropic.com', 0
-host_google_text db 'generativelanguage.googleapis.com', 0
 tls_random db 'SEEDBUILD6TLSCLIENTHELLO00000000'
 tls_after_random db 0
                  db 0, 2
@@ -380,7 +351,3 @@ sha256_k dw 0x2f98, 0x428a, 0x4491, 0x7137
          dw 0xfffa, 0x90be, 0x6ceb, 0xa450
          dw 0xa3f7, 0xbef9, 0x78f2, 0xc671
 disk_sectors_per_track db 8
-nic_ports dw 0x250, 0x280, 0x2a0, 0x2c0, 0x2e0
-          dw 0x300, 0x310, 0x320, 0x330, 0x340
-          dw 0x350, 0x360, 0x380, 0x3a0
-          dw 0

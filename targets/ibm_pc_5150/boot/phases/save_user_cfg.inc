@@ -43,7 +43,7 @@ save_user_cfg_phase:
     jnz .advance
     push si
     push cx
-    mov di, user_cfg_name
+    mov di, low_scratch_start + (save_user_cfg_name - PHASE_BASE)
     mov cx, 11
 .compare:
     mov al, [si]
@@ -82,41 +82,41 @@ save_user_cfg_phase:
     pop es
     mov di, fs_sector_buffer
     mov si, agent_prefix_text
-    phase_call_res append_z_to_buffer
+    call save_user_cfg_phase_append_z_to_buffer
     mov si, seed_agent_id
-    phase_call_res append_z_to_buffer
-    phase_call_res append_crlf_to_buffer
+    call save_user_cfg_phase_append_z_to_buffer
+    call save_user_cfg_phase_append_crlf_to_buffer
     test byte [seed_config_flags], seed_flag_model
     jz .reasoning
     mov si, model_prefix_text
-    phase_call_res append_z_to_buffer
+    call save_user_cfg_phase_append_z_to_buffer
     mov si, seed_model
-    phase_call_res append_z_to_buffer
-    phase_call_res append_crlf_to_buffer
+    call save_user_cfg_phase_append_z_to_buffer
+    call save_user_cfg_phase_append_crlf_to_buffer
 .reasoning:
     test byte [seed_config_flags], seed_flag_reasoning
     jz .key
     mov si, reasoning_prefix_text
-    phase_call_res append_z_to_buffer
+    call save_user_cfg_phase_append_z_to_buffer
     mov si, seed_reasoning
-    phase_call_res append_z_to_buffer
-    phase_call_res append_crlf_to_buffer
+    call save_user_cfg_phase_append_z_to_buffer
+    call save_user_cfg_phase_append_crlf_to_buffer
 .key:
     test byte [seed_config_flags], seed_flag_key
     jz .endpoint
     mov si, key_prefix_text
-    phase_call_res append_z_to_buffer
+    call save_user_cfg_phase_append_z_to_buffer
     mov si, seed_key
-    phase_call_res append_z_to_buffer
-    phase_call_res append_crlf_to_buffer
+    call save_user_cfg_phase_append_z_to_buffer
+    call save_user_cfg_phase_append_crlf_to_buffer
 .endpoint:
     test byte [seed_config_flags], seed_flag_endpoint
     jz .finish
     mov si, endpoint_prefix_text
-    phase_call_res append_z_to_buffer
+    call save_user_cfg_phase_append_z_to_buffer
     mov si, seed_endpoint
-    phase_call_res append_z_to_buffer
-    phase_call_res append_crlf_to_buffer
+    call save_user_cfg_phase_append_z_to_buffer
+    call save_user_cfg_phase_append_crlf_to_buffer
 .finish:
     mov ax, di
     sub ax, fs_sector_buffer
@@ -190,6 +190,24 @@ save_user_cfg_phase:
     pop dx
     pop cx
     pop ax
+    ret
+
+save_user_cfg_name db 'USER    CFG'
+
+save_user_cfg_phase_append_z_to_buffer:
+    lodsb
+    or al, al
+    jz .done
+    stosb
+    jmp save_user_cfg_phase_append_z_to_buffer
+.done:
+    ret
+
+save_user_cfg_phase_append_crlf_to_buffer:
+    mov al, 13
+    stosb
+    mov al, 10
+    stosb
     ret
 
 %unmacro phase_call_res 1

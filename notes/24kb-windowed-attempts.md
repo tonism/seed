@@ -44,6 +44,106 @@ Implication for 24 KiB:
 - Compared with the 32 KiB release image, roughly 6.6 KiB must move out of the
   permanent resident image before adding any useful stack guard.
 
+## 2026-05-07 - Move cold failure and adapter UI into phases
+
+Change:
+- Moved the fatal retry/restart UI into nonresident `F`.
+- Moved the ambiguous-adapter fallback menu into nonresident `H`.
+- Moved phase-only root filenames and interactive prompt strings out of
+  resident data and into their owning phases.
+- Reused the existing pre-agent menu scratch byte for the adapter-select mode
+  instead of keeping a dedicated resident byte.
+- Left the normal auto-detected NIC path and TLS/OpenAI fast path unchanged.
+
+Measurements:
+- Resident sectors dropped from 46 to 45.
+- Resident bytes when sector-rounded dropped from 23,552 to 23,040.
+- `CORE.SYS` total size remains 29,696 bytes / 58 sectors after adding `F`
+  and `H` phase sectors and removing enough resident data/code to cross the
+  resident sector boundary.
+- Phase entries:
+  - `F`: sector offset 45, one sector, load address `0x0700`.
+  - `H`: sector offset 46, one sector, load address `0x0700`.
+  - `P`: sector offset 47, one sector, load address `0x0700`.
+  - `A`: sector offset 48, one sector, load address `0x0700`.
+  - `U`: sector offset 49, two sectors, load address `0x0700`.
+  - `Q`: sector offset 51, three sectors, load address `0x0700`.
+  - `R`: sector offset 54, one sector, load address `0x0700`.
+  - `T`: sector offset 55, one sector, load address `0x0700`.
+  - `B`: sector offset 56, one sector, load address `0x0700`.
+  - `S`: sector offset 57, one sector, load address `0x0700`.
+- Gap to the guarded 24 KiB BASIC target is now 8 resident sectors / 4,096
+  bytes.
+
+Verification:
+- `make inspect` passes.
+
+## 2026-05-07 - Phase-only helper cleanup reaches 44 resident sectors
+
+Change:
+- Moved selected-agent DNS target preparation into a nonresident `E` phase.
+  This runs before TCP/TLS and remains outside the OpenAI response timing
+  window.
+- Moved phase-only helper state out of the resident image:
+  - built-in agent IDs now live in the `A`/`AGENTS.CFG` phase.
+  - single-cluster config file reads are duplicated locally in the `A`, `P`,
+    and `U` phases.
+  - config line value copying is duplicated locally in the `P` and `U` phases.
+  - seed value clearing and the LiteLLM endpoint predicate are duplicated in
+    the setup phases that need them.
+  - request/save buffer append helpers are duplicated in the `R` and `S`
+    phases.
+- Kept `find_root_file` resident because duplicating it would overflow the
+  one-sector config phases.
+
+Measurements:
+- Resident sectors dropped from 45 to 44.
+- Resident bytes when sector-rounded dropped from 23,040 to 22,528.
+- `CORE.SYS` total size dropped from 30,208 to 29,696 bytes.
+- `core_resident_end` is at image offset `0x57fc`, leaving 4 bytes before the
+  44-sector resident boundary.
+- Gap to the guarded 24 KiB BASIC target is now 7 resident sectors, or 3,584
+  sector-rounded bytes.
+
+Verification:
+- `make inspect` passes.
+- `make test` passes.
+- `git diff --check` passes.
+- `vm-net-ne2k8` reaches `seed build 6` and displays returned `ok`.
+
+## 2026-05-07 - Hardware setup phase reaches 43 resident sectors
+
+Change:
+- Moved hardware setup into the nonresident `H` phase:
+  - I/O port scan.
+  - ambiguous adapter selection UI.
+  - 3c501, 3c503, NE1000/NE2000, and WD8003 MAC/PROM reads.
+  - MAC validation and handoff MAC finalization.
+- Kept resident packet setup and all network/TLS/application paths resident.
+  The `H` phase only runs before the packet/TLS window and leaves the handoff
+  block populated for later resident paths.
+
+Measurements:
+- Resident sectors dropped from 44 to 43.
+- Resident bytes when sector-rounded dropped from 22,528 to 22,016.
+- `CORE.SYS` total size is 30,208 bytes because the `H` phase now spans three
+  sectors.
+- `core_resident_end` is at image offset `0x5541`, leaving 191 bytes before
+  the 43-sector resident boundary.
+- Gap to the guarded 24 KiB BASIC target is now 6 resident sectors, or 3,072
+  sector-rounded bytes.
+
+Verification:
+- `make inspect` passes.
+- `make test` passes.
+- `git diff --check` passes.
+- No-card BIOS boot smoke reaches the expected phased red
+  `. no network card` screen with `retry` and `restart`.
+- Saved `USER.CFG` `vm-net-ne2k8` canary reaches `seed build 6` with `ok`.
+- Saved `USER.CFG` `vm-net-3c501` canary reaches `seed build 6` with `ok`.
+- Saved `USER.CFG` `vm-net-3c503` canary reaches `seed build 6` with `ok`.
+- Saved `USER.CFG` `vm-net-wd8003e` canary reaches `seed build 6` with `ok`.
+
 ## 2026-05-07 - Low-memory BASIC entry path
 
 Change:

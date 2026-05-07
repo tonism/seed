@@ -56,7 +56,7 @@ prepare_agent_path:
     ret
 
 prepare_agent_endpoint_path:
-    call set_agent_endpoint_target
+    call run_agent_endpoint_phase
     jc .failed
     call selected_nic_has_packet_path
     jnc .packet
@@ -108,5 +108,5 @@ set_example_dns_target:
     mov cx, dns_qname_default_len
     rep movsb
     mov byte [dns_qname_len], dns_qname_default_len
-    call update_dns_tx_len
+    mov word [dns_tx_len], dns_tx_frame_default_len
     ret

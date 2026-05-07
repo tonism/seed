@@ -23,7 +23,6 @@ core_header_end:
 %include "core/main.inc"
 %include "core/hal_display.inc"
 %include "core/ui_core.inc"
-%include "core/hal_detect.inc"
 %include "core/ui_menu.inc"
 %include "core/hal_nic.inc"
 %include "core/net_phase.inc"
@@ -49,6 +48,42 @@ core_resident_end:
 %endif
 
 align 512, db 0
+
+core_failure_phase_start:
+%define PHASE_BASE core_failure_phase_start
+%include "phases/failure_action.inc"
+%undef PHASE_BASE
+core_failure_phase_end:
+
+%if (core_failure_phase_end - core_failure_phase_start) > 512
+%error "failure action phase exceeds one sector"
+%endif
+
+times 512 - (core_failure_phase_end - core_failure_phase_start) db 0
+
+core_hardware_setup_phase_start:
+%define PHASE_BASE core_hardware_setup_phase_start
+%include "phases/hardware_setup.inc"
+%undef PHASE_BASE
+core_hardware_setup_phase_end:
+
+%if (core_hardware_setup_phase_end - core_hardware_setup_phase_start) > 2048
+%error "hardware setup phase exceeds low scratch window"
+%endif
+
+align 512, db 0
+
+core_agent_endpoint_phase_start:
+%define PHASE_BASE core_agent_endpoint_phase_start
+%include "phases/agent_endpoint.inc"
+%undef PHASE_BASE
+core_agent_endpoint_phase_end:
+
+%if (core_agent_endpoint_phase_end - core_agent_endpoint_phase_start) > 512
+%error "agent endpoint phase exceeds one sector"
+%endif
+
+times 512 - (core_agent_endpoint_phase_end - core_agent_endpoint_phase_start) db 0
 
 core_probe_cfg_phase_start:
 %define PHASE_BASE core_probe_cfg_phase_start
@@ -141,6 +176,21 @@ core_save_phase_start:
 core_save_phase_end:
 
 core_phase_table:
+    db 'F', 0
+    dw (core_failure_phase_start - $$) / 512
+    dw (core_failure_phase_end - core_failure_phase_start + 511) / 512
+    dw low_scratch_start
+    dw 0
+    db 'H', 0
+    dw (core_hardware_setup_phase_start - $$) / 512
+    dw (core_hardware_setup_phase_end - core_hardware_setup_phase_start + 511) / 512
+    dw low_scratch_start
+    dw 0
+    db 'E', 0
+    dw (core_agent_endpoint_phase_start - $$) / 512
+    dw (core_agent_endpoint_phase_end - core_agent_endpoint_phase_start + 511) / 512
+    dw low_scratch_start
+    dw 0
     db 'P', 0
     dw (core_probe_cfg_phase_start - $$) / 512
     dw (core_probe_cfg_phase_end - core_probe_cfg_phase_start + 511) / 512

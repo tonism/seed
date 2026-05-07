@@ -1,0 +1,109 @@
+%ifndef PHASE_BASE
+%error "PHASE_BASE must name the containing phase start label"
+%endif
+
+%macro phase_call_res 1
+    db 0xe8
+    dw %1 - (low_scratch_start + ($ - PHASE_BASE) + 2)
+%endmacro
+
+failure_action_phase:
+    inc byte [cursor_col]
+    phase_call_res notify_failure
+    mov bl, [error_attr]
+    call .message_ptr
+    phase_call_res type_z
+    mov byte [menu_index], 0
+    call .type_failure_options
+.input:
+    hlt
+    mov ah, 0x01
+    int 0x16
+    jz .input
+    xor ah, ah
+    int 0x16
+    cmp al, 0x0d
+    je .accept
+    cmp ah, 0x48
+    je .toggle
+    cmp ah, 0x50
+    jne .input
+.toggle:
+    xor byte [menu_index], 1
+    call .draw_failure_options
+    jmp .input
+.accept:
+    mov al, [menu_index]
+    ret
+
+.message_ptr:
+    mov si, low_scratch_start + (agent_setup_error_text - PHASE_BASE)
+    cmp byte [handoff_addr + handoff_status], handoff_status_agent_failed
+    je .message_done
+    mov si, low_scratch_start + (network_setup_error_text - PHASE_BASE)
+    cmp byte [handoff_addr + handoff_status], handoff_status_network_failed
+    je .message_done
+    mov si, low_scratch_start + (network_error_text - PHASE_BASE)
+.message_done:
+    ret
+
+.type_failure_options:
+    mov byte [cursor_row], question_row
+    mov al, [seed_col]
+    add al, 2
+    mov [cursor_col], al
+    mov bl, [menu_selected_attr]
+    mov si, low_scratch_start + (retry_text - PHASE_BASE)
+    phase_call_res type_z
+
+    mov byte [cursor_row], question_row + 1
+    mov al, [seed_col]
+    add al, 2
+    mov [cursor_col], al
+    mov bl, [menu_idle_attr]
+    mov si, low_scratch_start + (restart_text - PHASE_BASE)
+    phase_call_res type_z
+    ret
+
+.draw_failure_options:
+    mov byte [cursor_row], question_row
+    mov al, [seed_col]
+    add al, 2
+    mov [cursor_col], al
+    mov bl, [menu_idle_attr]
+    cmp byte [menu_index], 0
+    jne .draw_retry
+    mov bl, [menu_selected_attr]
+.draw_retry:
+    mov si, low_scratch_start + (retry_text - PHASE_BASE)
+    call .print_z
+
+    mov byte [cursor_row], question_row + 1
+    mov al, [seed_col]
+    add al, 2
+    mov [cursor_col], al
+    mov bl, [menu_idle_attr]
+    cmp byte [menu_index], 1
+    jne .draw_restart
+    mov bl, [menu_selected_attr]
+.draw_restart:
+    mov si, low_scratch_start + (restart_text - PHASE_BASE)
+    call .print_z
+    ret
+
+.print_z:
+    lodsb
+    or al, al
+    jz .print_done
+    phase_call_res print_char
+    jmp .print_z
+.print_done:
+    ret
+
+network_error_text db 'no network card', 0
+network_setup_error_text db 'network setup failed', 0
+agent_setup_error_text db 'agent setup failed', 0
+retry_text db 'retry', 0
+restart_text db 'restart', 0
+
+%unmacro phase_call_res 1

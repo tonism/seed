@@ -1,33 +1,3 @@
-append_z_to_buffer:
-    lodsb
-    or al, al
-    jz .done
-    stosb
-    jmp append_z_to_buffer
-.done:
-    ret
-
-append_crlf_to_buffer:
-    mov al, 13
-    stosb
-    mov al, 10
-    stosb
-    ret
-
-read_cluster_to_buffer:
-    cmp ax, fat_first_data_cluster
-    jb .failed
-    sub ax, fat_first_data_cluster
-    add ax, fat_data_start_lba
-    push ds
-    pop es
-    mov bx, fs_sector_buffer
-    call read_abs_sector
-    ret
-.failed:
-    stc
-    ret
-
 read_abs_sector:
     push ax
     push cx
