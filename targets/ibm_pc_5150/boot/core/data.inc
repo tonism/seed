@@ -30,6 +30,7 @@ agent_count db 0
 agent_draw_index db 0
 agent_scan_index db 0
 blink_state db 0
+phase_probe db 0
 ne_tx_start db 0
 ne_rx_start db 0
 ne_rx_stop db 0
@@ -176,17 +177,10 @@ fs_root_left dw 0
 fs_file_cluster dw 0
 fs_file_size_low dw 0
 fs_file_size_high dw 0
-fs_file_root_lba dw 0
-fs_file_root_offset dw 0
-fs_free_root_found db 0
-fs_free_root_lba dw 0
-fs_free_root_offset dw 0
 fs_current_cluster dw 0
 fs_bytes_left dw 0
 fs_bytes_this dw 0
 fs_line_start db 0
-fs_scan_cluster dw 0
-fs_free_cluster dw 0
 agents_cluster dw 0
 agents_size_low dw 0
 agents_size_high dw 0

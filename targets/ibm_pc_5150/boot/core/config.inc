@@ -248,10 +248,6 @@ find_user_cfg:
     mov [seed_size_low], ax
     mov ax, [fs_file_size_high]
     mov [seed_size_high], ax
-    mov ax, [fs_file_root_lba]
-    mov [seed_root_lba], ax
-    mov ax, [fs_file_root_offset]
-    mov [seed_root_offset], ax
     clc
     ret
 .not_found:
@@ -261,7 +257,6 @@ find_user_cfg:
 find_root_file:
     mov word [fs_lba], fat_root_start_lba
     mov word [fs_root_left], fat_root_sectors
-    mov byte [fs_free_root_found], 0
 .next_sector:
     cmp word [fs_root_left], 0
     je .not_found
@@ -278,7 +273,7 @@ find_root_file:
     or al, al
     jz .end_marker
     cmp al, 0xe5
-    je .free_entry
+    je .advance
     test byte [si + 11], 0x18
     jnz .advance
     push si
@@ -301,11 +296,6 @@ find_root_file:
     mov [fs_file_size_low], ax
     mov ax, [si + 30]
     mov [fs_file_size_high], ax
-    mov ax, [fs_lba]
-    mov [fs_file_root_lba], ax
-    mov ax, si
-    sub ax, fs_sector_buffer
-    mov [fs_file_root_offset], ax
     clc
     ret
 .mismatch:
@@ -313,8 +303,6 @@ find_root_file:
     pop cx
     pop si
     jmp .advance
-.free_entry:
-    call record_free_root_entry
 .advance:
     add si, fat_dir_entry_size
     loop .next_entry
@@ -322,21 +310,8 @@ find_root_file:
     dec word [fs_root_left]
     jmp .next_sector
 .end_marker:
-    call record_free_root_entry
 .not_found:
     stc
-    ret
-
-record_free_root_entry:
-    cmp byte [fs_free_root_found], 0
-    jne .done
-    mov byte [fs_free_root_found], 1
-    mov ax, [fs_lba]
-    mov [fs_free_root_lba], ax
-    mov ax, si
-    sub ax, fs_sector_buffer
-    mov [fs_free_root_offset], ax
-.done:
     ret
 
 parse_agents_cfg:

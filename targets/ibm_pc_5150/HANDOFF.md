@@ -23,7 +23,7 @@ All multi-byte values are little-endian.
 offset  size  value
 0x00    4     magic: "SEED"
 0x04    1     structure version: 3
-0x05    1     structure size: 44
+0x05    1     structure size: 46
 0x06    2     build number
 0x08    2     flags
 0x0a    1     BIOS boot drive
@@ -42,6 +42,7 @@ offset  size  value
 0x20    4     IPv4 router, zero until configured
 0x24    4     IPv4 DNS server, zero until configured
 0x28    4     IPv4 subnet mask, zero until configured
+0x2c    2     runtime RAM top used for the initial stack
 ```
 
 ## Flags

@@ -29,8 +29,13 @@ handoff_ip_addr equ 28
 handoff_router_addr equ 32
 handoff_dns_addr equ 36
 handoff_subnet_addr equ 40
-handoff_size_bytes equ 44
+handoff_ram_top equ 44
+handoff_size_bytes equ 46
+phase_service_table equ handoff_addr + handoff_size_bytes
+phase_svc_probe_ok equ phase_service_table
 handoff_struct_version equ 3
+basic_boot_magic_bx equ 0x5345
+basic_boot_magic_cx equ 0x4544
 handoff_flag_mda equ 0x0001
 handoff_flag_nic_present equ 0x0002
 handoff_flag_config_resolved equ 0x0004

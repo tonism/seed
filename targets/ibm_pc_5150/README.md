@@ -58,7 +58,9 @@ BIOS loads boot sector
 ```
 
 The floppy image is a minimal FAT12 filesystem with a stable reserved loader
-and a visible file-backed runtime:
+and a visible file-backed runtime. On machines with at least 32 KiB of RAM,
+the normal BIOS boot path starts at `0000:7c00` and reaches Seed
+automatically:
 
 ```text
 sector 1       boot sector with FAT12 BPB
@@ -73,9 +75,27 @@ runtime. Normal runtime updates can replace that file without rewriting the
 boot sector or reserved loader.
 
 The reserved loader keeps its FAT buffer below the `CORE.SYS` load address and
-uses a `0x9000` stack so larger core builds can be read through the FAT12
-cluster chain without overwriting loader state. `CORE.SYS` also switches to a
-`0x9000` runtime stack after entry.
+uses a `0x8000` stack top for 32 KiB machines so core builds can be read
+through the FAT12 cluster chain without overwriting loader state. `CORE.SYS`
+also switches to a `0x8000` runtime stack after entry.
+
+Machines below 32 KiB cannot enter through the BIOS boot sector because the PC
+BIOS loads that sector at `0000:7c00`, above the installed RAM ceiling of a
+24 KiB or 16 KiB machine. The same floppy therefore also carries a ROM
+BASIC-style low-memory entry helper:
+
+```text
+SEED24A.BAS   load the Seed floppy from drive A:
+SEED24B.BAS   load the Seed floppy from drive B:
+```
+
+Those BASIC programs poke a tiny 8086 loader at `0x3a00`, use BIOS INT 13h to
+read `CORE.SYS` from the same Seed floppy, and jump to `0000:1000`. `CORE.SYS`
+stays first in the FAT data area so this helper can use the stable first-data
+LBA while the normal boot loader continues to read `CORE.SYS` through FAT12.
+The current 24 KiB helper uses `0x6000` as its RAM ceiling and fails with a
+single red `X` if the current `CORE.SYS` would collide with its stack guard.
+That is expected until the windowed resident core is reduced enough for 24 KiB.
 
 Future artifacts may also ship host-specific loaders that jump into `CORE.SYS`
 from an already-running OS. DOS `.COM`, Windows, macOS/OSX, Linux, and other

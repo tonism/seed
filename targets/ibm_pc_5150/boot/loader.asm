@@ -21,6 +21,10 @@ root_start_lba equ fat_start_lba + fat_count
 data_start_lba equ root_start_lba + root_sectors
 root_buffer equ 0x7000
 fat_buffer equ 0x0e00
+core_header_magic_off equ 3
+core_header_version_off equ 11
+core_header_resident_sectors_off equ 15
+core_header_magic_len equ 8
 
 start:
     cli
@@ -39,6 +43,9 @@ start:
     jc load_failed
 
     mov dl, [boot_drive]
+    xor ax, ax
+    xor bx, bx
+    xor cx, cx
     jmp 0x0000:core_offset
 
 missing_core:
@@ -128,6 +135,7 @@ load_core:
     call read_abs_sector
     jc .failed
     mov word [core_dest], core_offset
+    mov byte [core_need_header], 1
 .next_cluster:
     mov ax, [core_cluster]
     cmp ax, first_data_cluster
@@ -141,9 +149,14 @@ load_core:
     mov bx, [core_dest]
     call read_abs_sector
     jc .failed
-    cmp word [core_bytes_left], sector_size
-    jbe .done
-    sub word [core_bytes_left], sector_size
+    cmp byte [core_need_header], 0
+    je .sector_loaded
+    mov byte [core_need_header], 0
+    call read_core_header
+    jc .failed
+.sector_loaded:
+    dec word [core_sectors_left]
+    jz .done
     add word [core_dest], sector_size
     mov ax, [core_cluster]
     call get_fat_entry
@@ -155,6 +168,47 @@ load_core:
     clc
     ret
 .failed:
+    stc
+    ret
+
+read_core_header:
+    push si
+    push di
+    push cx
+    mov si, core_offset + core_header_magic_off
+    mov di, core_header_magic
+    mov cx, core_header_magic_len
+.compare_magic:
+    mov al, [si]
+    cmp al, [di]
+    jne .failed
+    inc si
+    inc di
+    loop .compare_magic
+
+    cmp byte [core_offset + core_header_version_off], 1
+    jne .failed
+    mov ax, [core_offset + core_header_resident_sectors_off]
+    or ax, ax
+    jz .failed
+    mov [core_sectors_left], ax
+
+    mov ax, [core_bytes_left]
+    add ax, sector_size - 1
+    mov cl, 9
+    shr ax, cl
+    cmp [core_sectors_left], ax
+    ja .failed
+
+    pop cx
+    pop di
+    pop si
+    clc
+    ret
+.failed:
+    pop cx
+    pop di
+    pop si
     stc
     ret
 
@@ -219,8 +273,11 @@ root_left db 0
 core_cluster dw 0
 core_bytes_left dw 0
 core_dest dw 0
+core_sectors_left dw 0
+core_need_header db 0
 sectors_per_track db floppy_sectors_per_track
 core_name db 'CORE    SYS'
+core_header_magic db 'SEEDCORE'
 missing_core_text db 'core missing', 0
 load_failed_text db 'core load error', 0
 

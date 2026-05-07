@@ -36,7 +36,10 @@ and jumps to it at `0000:1000`. The tracked `AGENTS.CFG` and `NET.CFG` files
 are shipped in the root directory when present. `AGENTS.CFG` overrides built-in
 `openai`, `anthropic`, and `google` agent interfaces; `NET.CFG` overrides the
 built-in `example.com` probe. Optional `USER.CFG` user-local state is ignored
-and included only when `config/USER.CFG` exists.
+and included only when `config/USER.CFG` exists. Low-memory branches may also
+ship BASIC bootstrap helpers in the root directory; keep `CORE.SYS` as the
+first FAT data file so both the boot loader and the BASIC loader can find the
+same runtime image.
 
 ## Constraints
 
@@ -48,6 +51,10 @@ and included only when `config/USER.CFG` exists.
   CHS rollover. Keep loader buffers outside the `CORE.SYS` load range; the
   loader currently keeps its FAT buffer at `0x0e00` and uses a `0x8000` stack
   top for 32 KiB machines.
+- For sub-32 KiB work, keep the normal boot path available for larger
+  machines and add low-memory entry through BASIC helpers instead. The BIOS
+  boot sector at `0000:7c00` is above the installed RAM ceiling on 24 KiB and
+  16 KiB machines.
 - Target 8088-compatible 16-bit real-mode code for `ibm_pc_5150`. Keep NASM
   sources locked to `cpu 8086` so unsupported opcodes are caught at build time.
 - Do not introduce protected mode or graphics mode unless explicitly scoped.

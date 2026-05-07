@@ -13,6 +13,7 @@ init_handoff:
     mov byte [handoff_addr + handoff_size], handoff_size_bytes
     mov word [handoff_addr + handoff_build], build_number
     mov byte [handoff_addr + handoff_boot_drive], dl
+    mov word [handoff_addr + handoff_ram_top], bp
     mov byte [handoff_addr + handoff_status], handoff_status_booting
     ret
 

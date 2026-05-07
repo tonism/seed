@@ -49,7 +49,7 @@ prepare_agent_path:
     call show_load_marker
     cmp byte [user_cfg_dirty], 0
     je .ready
-    call save_user_cfg
+    call run_save_user_cfg_phase
 .ready:
     clc
     ret
