@@ -24,6 +24,8 @@ cpu 8086
 org BASIC_BOOTSTRAP_ADDR
 
 core_offset equ 0x1000
+seed_len equ 4
+seed_row equ 12
 basic_boot_magic_bx equ 0x5345
 basic_boot_magic_cx equ 0x4544
 loader_stack_top equ SEED_RAM_TOP
@@ -82,18 +84,18 @@ start:
     jnz .have_columns
     mov dl, 80
 .have_columns:
-    dec dl
     push dx
     mov ax, 0x0600
     mov bh, 0x07
     xor cx, cx
     mov dh, 24
+    dec dl
     int 0x10
     pop dx
-    sub dl, 3
+    sub dl, seed_len
     shr dl, 1
     mov ah, 0x02
-    mov dh, 12
+    mov dh, seed_row
     xor bh, bh
     int 0x10
     mov ax, 0x0958

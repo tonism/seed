@@ -21,7 +21,7 @@ DEFAULT_LOADER_FLOPPY = ROOT / "build/ibm_pc_5150/floppy-160k-lowmem-loader.img"
 DEFAULT_SCREENSHOT = ROOT / "build/ibm_pc_5150/86box-seed24-basic.png"
 BASIC_BOOTSTRAP_ADDR = 0x5A00
 BASIC_BOOTSTRAP_CLEAR_TOP = 23039
-BASIC_DATA_BYTES_PER_LINE = 12
+BASIC_HEX_CHUNK_SIZE = 32
 
 
 KEY_CODES = {
@@ -34,6 +34,10 @@ KEY_CODES = {
     "=": (24, False),
     "(": (25, True),
     ")": (29, True),
+    '"': (39, True),
+    "&": (26, True),
+    "$": (21, True),
+    "+": (24, True),
     "0": (29, False),
     "1": (18, False),
     "2": (19, False),
@@ -321,21 +325,26 @@ def patch_loader_debug_stop(loader_bytes: bytes, debug_stop: str) -> bytes:
     return bytes(patched)
 
 
+def hex_pairs(data: bytes) -> str:
+    return data.hex().upper()
+
+
 def basic_text_from_loader(loader_bytes: bytes) -> str:
-    lines = [
-        f"10 CLEAR ,{BASIC_BOOTSTRAP_CLEAR_TOP}",
-        "20 DEF SEG=0",
-        f"30 FOR A={BASIC_BOOTSTRAP_ADDR} TO {BASIC_BOOTSTRAP_ADDR + len(loader_bytes) - 1}",
-        "40 READ B",
-        "50 POKE A,B",
-        "60 NEXT A",
-        f"70 DEF USR0={BASIC_BOOTSTRAP_ADDR}",
-        "80 A=USR0(0)",
+    chunks = [
+        loader_bytes[offset : offset + BASIC_HEX_CHUNK_SIZE]
+        for offset in range(0, len(loader_bytes), BASIC_HEX_CHUNK_SIZE)
     ]
-    line_no = 100
-    for offset in range(0, len(loader_bytes), BASIC_DATA_BYTES_PER_LINE):
-        chunk = loader_bytes[offset : offset + BASIC_DATA_BYTES_PER_LINE]
-        lines.append(f"{line_no} DATA {','.join(str(byte) for byte in chunk)}")
+    lines = [
+        f"10 CLEAR ,{BASIC_BOOTSTRAP_CLEAR_TOP}:DEF SEG=0:P={BASIC_BOOTSTRAP_ADDR}",
+        f"20 FOR K=0 TO {len(chunks) - 1}:READ A$,N",
+        "30 FOR I=0 TO N-1:J=I*2+1",
+        '40 POKE P+I,VAL("&H"+MID$(A$,J,2))',
+        "50 NEXT I:P=P+N:NEXT K",
+        f"60 DEF USR0={BASIC_BOOTSTRAP_ADDR}:A=USR0(0)",
+    ]
+    line_no = 70
+    for chunk in chunks:
+        lines.append(f"{line_no} DATA {hex_pairs(chunk)},{len(chunk)}")
         line_no += 10
     return "\n".join(lines) + "\n"
 

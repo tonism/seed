@@ -732,3 +732,31 @@ Verification:
 - BASIC after-read marker was reached after relocating the loader.
 - 24 KiB BASIC sidecar path reached `seed build 6` and `ok` on:
   `vm-net-ne2k8`, `vm-net-3c501`, `vm-net-3c503`, and `vm-net-wd8003e`.
+
+## 2026-05-07 - BASIC helper manual-entry reduction
+
+Change:
+- Replaced the generated decimal-byte BASIC helper with short hexadecimal
+  `DATA` rows decoded by ROM BASIC using `VAL("&H"+MID$(...))`.
+- Kept the helper as sidecar text only; no `.BAS` files are packaged into the
+  release floppy FAT root.
+- Made BASIC-loader fatal errors draw a red `X` at the same screen position as
+  Seed's normal loading glyph.
+
+Measurements:
+- Original decimal helper: 663 bytes, 19 lines.
+- Compact decimal trial: 577 bytes, 7 lines, longest line 92 characters.
+- A-P nibble trial: 557 bytes, 12 lines, longest line 76 characters.
+- Released hex helper: 504 bytes, 11 lines, longest line 76 characters.
+- The BASIC sidecar machine-code loader remains 130 bytes.
+- `CORE.SYS` remains 29,696 bytes / 58 sectors.
+- Resident sectors remain 37 and resident bytes remain 18,944.
+
+Verification:
+- ROM BASIC accepted the hex helper syntax and the loader-stop test reached
+  the patched after-read marker.
+- Full 24 KiB BASIC sidecar path reached `seed build 6` and `ok` on
+  `vm-net-ne2k8`.
+- `make inspect`, `make test`, `python3 -m py_compile
+  tools/build-basic-bootstrap.py tools/run-basic-bootstrap-86box.py`, and
+  `git diff --check` pass.
