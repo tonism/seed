@@ -195,8 +195,36 @@ low_file_scratch_end equ fs_sector_buffer + 512
 %error "low packet scratch arena overflow"
 %endif
 tls_rx_copy times tls_stream_buffer_len db 0
-api_request_plain times tls_app_record_buffer_len db 0
+
+; The second receive-buffer payload is only needed after the request has been
+; sent. Until then it can hold setup/request scratch without reducing the
+; two-payload response receive window.
+tls_pre_response_scratch equ tls_rx_copy + tcp_payload_read_len
+api_request_plain equ tls_pre_response_scratch
 tls_app_record_buffer equ api_request_plain
+sha256_saved_state equ api_request_plain + tls_app_record_buffer_len
+sha256_saved_block equ sha256_saved_state + (16 * 2)
+hmac_ipad equ sha256_saved_block + sha256_block_size
+hmac_opad equ hmac_ipad + sha256_block_size
+hmac_inner_digest equ hmac_opad + sha256_block_size
+hmac_prepared_inner_state equ hmac_inner_digest + sha256_digest_len
+hmac_prepared_outer_state equ hmac_prepared_inner_state + (16 * 2)
+tls_prf_seed equ hmac_prepared_outer_state + (16 * 2)
+tls_prf_a equ tls_prf_seed + tls_prf_seed_max_len
+tls_prf_chunk equ tls_prf_a + sha256_digest_len
+seed_agent_id equ tls_prf_chunk + sha256_digest_len
+seed_model equ seed_agent_id + agent_id_len
+seed_key equ seed_model + seed_model_len
+seed_endpoint equ seed_key + seed_key_len
+seed_reasoning equ seed_endpoint + seed_endpoint_len
+tls_server_random equ seed_reasoning + seed_reasoning_len
+tls_master_secret equ tls_server_random + tls_random_len
+tls_handshake_hash equ tls_master_secret + tls_master_secret_len
+tls_verify_data equ tls_handshake_hash + sha256_digest_len
+tls_pre_response_scratch_end equ tls_verify_data + tls_finished_verify_len
+%if tls_pre_response_scratch_end > (tls_rx_copy + tls_stream_buffer_len)
+%error "pre-response scratch exceeds TLS receive buffer tail"
+%endif
 sha256_state times 16 dw 0
 sha256_a dw 0, 0
 sha256_b dw 0, 0
@@ -211,24 +239,7 @@ sha256_t2 dw 0, 0
 sha256_new_e dw 0, 0
 sha256_tmp dw 0, 0
 sha256_block times 64 db 0
-sha256_saved_state times 16 dw 0
-sha256_saved_block times sha256_block_size db 0
 sha256_w times 128 dw 0
-hmac_ipad times sha256_block_size db 0
-hmac_opad times sha256_block_size db 0
-hmac_inner_digest times sha256_digest_len db 0
-hmac_prepared_inner_state times 16 dw 0
-hmac_prepared_outer_state times 16 dw 0
-tls_prf_seed times tls_prf_seed_max_len db 0
-tls_prf_a times sha256_digest_len db 0
-tls_prf_chunk times sha256_digest_len db 0
-seed_agent_id times agent_id_len db 0
-seed_model times seed_model_len db 0
-seed_key times seed_key_len db 0
-seed_endpoint times seed_endpoint_len db 0
-seed_reasoning times seed_reasoning_len db 0
-tls_server_random times tls_random_len db 0
-tls_master_secret times tls_master_secret_len db 0
 tls_client_write_key times tls_chacha_key_len db 0
 tls_server_write_key times tls_chacha_key_len db 0
 tls_client_write_iv times tls_chacha_iv_len db 0
@@ -237,8 +248,6 @@ tls_client_record_seq times tls_client_record_seq_len db 0
 tls_server_record_seq times tls_server_record_seq_len db 0
 tls_client_nonce times tls_chacha_iv_len db 0
 tls_aead_aad times tls_aead_aad_len db 0
-tls_handshake_hash times sha256_digest_len db 0
-tls_verify_data times tls_finished_verify_len db 0
 tls_finished_plain times tls_finished_plain_len db 0
 tls_finished_cipher times tls_finished_cipher_len db 0
 tls_finished_tag times 16 db 0

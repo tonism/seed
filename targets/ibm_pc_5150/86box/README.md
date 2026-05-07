@@ -43,8 +43,11 @@ Floppy:  5.25" single-sided drive as A:
 Disk A:  build/ibm_pc_5150/floppy-160k.img
 ```
 
-The original-speed 4.77 MHz, 32 KiB profiles are the compatibility gate. Faster
-ad hoc profiles are not part of the normal workflow.
+The original-speed 4.77 MHz, 32 KiB profiles are the BIOS-boot compatibility
+gate. The 24 KiB low-memory gate uses the ROM BASIC sidecar bootstrap with the
+same profiles and a runtime RAM ceiling of `0x6000`; literal 24 KiB IBM PC
+profiles in 86Box stop in POST with a memory-size error before ROM BASIC.
+Faster ad hoc profiles are not part of the normal workflow.
 
 The 86Box NIC inventory for this target is tracked in:
 

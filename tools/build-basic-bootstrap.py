@@ -28,8 +28,8 @@ def build_basic(args: argparse.Namespace) -> None:
         raise SystemExit("load address must be positive")
     if args.clear_top >= args.load_addr:
         raise SystemExit("CLEAR top must be below the bootstrap load address")
-    if args.load_addr + len(data) > 0x4000:
-        raise SystemExit("bootstrap must fit below 16 KiB")
+    if args.load_addr + len(data) > args.max_addr:
+        raise SystemExit("bootstrap must fit below the configured RAM ceiling")
 
     lines = [
         f"10 CLEAR ,{args.clear_top}",
@@ -51,6 +51,7 @@ def main() -> None:
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--load-addr", required=True, type=parse_int)
     parser.add_argument("--clear-top", required=True, type=parse_int)
+    parser.add_argument("--max-addr", type=parse_int, default=0x4000)
     parser.add_argument("--bytes-per-line", type=int, default=12)
     args = parser.parse_args()
     build_basic(args)

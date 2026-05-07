@@ -43,7 +43,7 @@ start:
     cld
 
     mov ax, core_end
-    cmp ax, loader_stack_top - loader_stack_guard
+    cmp ax, BASIC_BOOTSTRAP_ADDR
     ja .failed
 
     mov bx, core_offset

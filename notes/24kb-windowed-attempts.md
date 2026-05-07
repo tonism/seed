@@ -643,3 +643,92 @@ Measurements:
 
 Verification:
 - `make inspect` passes.
+
+## 2026-05-07 - Scratch-tail alias reaches guarded 24 KiB fit
+
+Change:
+- Reused the second TLS receive-buffer payload as pre-response scratch. The
+  request plaintext, HMAC/PRF work buffers, selected agent values, server
+  random, master secret, handshake hash, and verify-data scratch now alias the
+  tail of `tls_rx_copy` before the request is sent.
+- Added an assembly-time guard so this pre-response scratch cannot exceed the
+  TLS receive-copy buffer.
+- This preserves the two-payload receive window needed after the server starts
+  returning application data.
+
+Measurements:
+- `CORE.SYS` is 29,696 bytes / 58 sectors.
+- Resident sectors dropped to 37.
+- Resident bytes when sector-rounded are 18,944.
+- With load address `0x1000`, resident end is `0x5a00`, leaving the intended
+  1.5 KiB guard below the 24 KiB ceiling at `0x6000`.
+
+Verification:
+- `make inspect` passes.
+- `make test` passes.
+- 32 KiB BIOS-boot canaries for `vm-net-ne2k8` and `vm-net-3c501` reached
+  `seed build 6` with `ok`.
+
+## 2026-05-07 - BASIC helpers are sidecar text, not FAT files
+
+Change:
+- Removed `SEED24A.BAS` and `SEED24B.BAS` from the release floppy FAT root.
+- Kept `make basic-bootstrap` and `make inspect` generating the sidecar BASIC
+  text for manual entry and emulator automation.
+- Restored the 16 KiB branch's VM-typing harness as
+  `tools/run-basic-bootstrap-86box.py`, adapted for the 24 KiB sidecar path.
+  The harness launches a temporary profile with no bootable A: disk, the Seed
+  floppy mounted in B:, and types `SEED24B.BAS` into ROM BASIC.
+
+Reason:
+- ROM Cassette BASIC does not read FAT files, so shipping `.BAS` files in the
+  FAT root does not help low-memory users.
+- One release floppy remains bootable for 32 KiB+ machines. Below 32 KiB,
+  users type or paste the generated BASIC helper.
+
+Emulator note:
+- Literal `mem_size = 24` IBM PC 5150 profiles in 86Box stop in POST at
+  `044A 201` before ROM BASIC. A `mem_size = 16` no-floppy profile reaches ROM
+  BASIC, and the 24 KiB release gate should use a 32 KiB profile forced through
+  the BASIC helper, which passes `SEED_RAM_TOP=0x6000` to Seed.
+
+## 2026-05-07 - BASIC sidecar path reaches OpenAI ok under 24 KiB ceiling
+
+Root cause:
+- The first 24 KiB BASIC sidecar loaded its tiny machine-code loader at
+  `0x3a00`, but the current resident `CORE.SYS` load spans
+  `0x1000..0x5a00`.
+- After `RUN`, the loader did start and B: spun for a few seconds, but the
+  sector read overwrote the loader while it was still executing. That is why it
+  appeared to hang on the BASIC screen after drive activity.
+
+Change:
+- Moved the BASIC sidecar loader to `0x5a00`, immediately after the resident
+  CORE load range.
+- Kept `CLEAR` just below the loader at `0x59ff` and added a configurable
+  BASIC-builder max-address check so the sidecar loader must fit below the
+  selected RAM ceiling.
+- Tightened the BASIC loader guard so it fails visibly if resident CORE grows
+  into the BASIC loader address.
+- Updated the 86Box BASIC harness to avoid copied VM profiles. It now uses the
+  real profile with snapshot/restore around temporary config changes, preventing
+  the 86Box "I copied it" prompt.
+- Switched the harness default to the old key-code injection style, split
+  program entry from the final `RUN`, and shortened the default post-run
+  capture delay to 60 seconds after successful timing observations.
+
+Measurements:
+- `CORE.SYS` remains 29,696 bytes / 58 sectors.
+- Resident sectors remain 37.
+- Resident bytes remain 18,944.
+- Resident end remains `0x5a00` under the 24 KiB ceiling at `0x6000`.
+- The BASIC sidecar loader is 130 bytes and occupies `0x5a00..0x5a82`.
+
+Verification:
+- `make -B inspect` passes and the FAT root still contains only `CORE.SYS`,
+  `AGENTS.CFG`, `NET.CFG`, and `USER.CFG`; the BASIC helpers remain sidecar
+  text files.
+- BASIC loader entry marker was reached.
+- BASIC after-read marker was reached after relocating the loader.
+- 24 KiB BASIC sidecar path reached `seed build 6` and `ok` on:
+  `vm-net-ne2k8`, `vm-net-3c501`, `vm-net-3c503`, and `vm-net-wd8003e`.
