@@ -343,18 +343,20 @@ high_tls_finished_plain equ high_tls_aead_aad + tls_aead_aad_len + 1
 high_tls_finished_cipher equ high_tls_finished_plain + tls_finished_plain_len
 high_tls_finished_tag equ high_tls_finished_cipher + tls_finished_cipher_len
 high_tls_received_tag equ high_tls_finished_tag + tls_aead_tag_len
-high_p256_lhs equ high_tls_received_tag + tls_aead_tag_len
-high_p256_rhs equ high_p256_lhs + p256_word_len
-high_p256_tmp equ high_p256_rhs + p256_word_len
-high_p256_jac_x equ high_p256_tmp + p256_word_len
-high_p256_jac_y equ high_p256_jac_x + p256_word_len
-high_p256_jac_z equ high_p256_jac_y + p256_word_len
-high_p256_s0 equ high_p256_jac_z + p256_word_len
-high_p256_s1 equ high_p256_s0 + p256_word_len
-high_p256_s2 equ high_p256_s1 + p256_word_len
-high_p256_s3 equ high_p256_s2 + p256_word_len
-high_p256_s5 equ high_p256_s3 + poly1305_product_len
-high_tls_random equ high_p256_s5 + poly1305_value_len
+high_crypto_work equ high_tls_received_tag + tls_aead_tag_len
+high_chacha_state equ high_crypto_work
+high_chacha_work equ high_chacha_state + chacha_block_len
+high_chacha_block equ high_chacha_work + chacha_block_len
+high_poly_r equ high_chacha_block + chacha_block_len
+high_poly_s equ high_poly_r + poly1305_r_len
+high_poly_acc equ high_chacha_state
+high_poly_block equ high_poly_acc + poly1305_acc_len
+high_poly_product equ high_poly_block + 16
+high_poly_value equ high_poly_product + poly1305_product_len
+%if (high_poly_value + poly1305_value_len) > high_poly_r
+%error "poly1305 overlay collides with persistent Poly1305 key"
+%endif
+high_tls_random equ high_poly_s + poly1305_s_len
 high_tls_client_ec_public equ high_tls_random + tls_random_len
 high_crypto_scratch_end equ high_tls_client_ec_public + tls_ec_public_uncompressed_len
 wd_saprom equ 0x08

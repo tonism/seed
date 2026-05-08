@@ -125,6 +125,92 @@ Verification:
 - `make inspect` passes.
 - `make test` passes.
 
+## 2026-05-08 - Compact high crypto scratch overlay
+
+Change:
+
+- Replaced the disabled full-P-256 scratch reservation with active
+  ChaCha20/Poly1305 scratch lifetimes.
+- Kept persistent Poly1305 `r`/`s` separate while allowing the accumulator,
+  block, product, and reduced value scratch to overlay the ChaCha state/work
+  area after each ChaCha block is generated.
+- Added a build-time overlap check for the Poly1305 scratch overlay.
+
+Measurements:
+
+- Resident sectors: unchanged at 22.
+- Resident bytes: unchanged at 11264.
+- Resident nonzero payload: unchanged at 11220.
+- High crypto scratch: 959 -> 835 bytes.
+- Critical scratch: unchanged at 2964 bytes.
+- `16k-target packed critical guarded slack`: -3923 -> -3799.
+
+Result:
+
+- Kept. This saves 124 bytes from the ideal packed 16 KiB pressure without
+  changing TCP receive tolerance or provider request ordering.
+
+Verification:
+
+- `make inspect` passes.
+- `make test` passes.
+- 3c501 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- NE2K8 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- A later 3c501 run failed quickly at the dark `,` network setup phase, but
+  an immediate rerun of the same tree/profile reached `seed build 6` and
+  returned `ok`. Treat the `,` result as transient unless it repeats.
+
+## 2026-05-08 - Rejected seed config pre-ClientHello overlay
+
+Change tried:
+
+- Moved `seed_agent_id`, `seed_model`, `seed_key`, `seed_endpoint`, and
+  `seed_reasoning` from the pre-response scratch tail into the first TLS
+  receive-buffer area before DNS qname scratch.
+- Removed `seed_value_total_len` from the critical pre-response tail budget.
+
+Measurements:
+
+- Resident sectors: unchanged at 22.
+- Resident bytes: unchanged at 11264.
+- Resident nonzero payload: unchanged at 11220.
+- Critical scratch would have dropped 2964 -> 2608 bytes.
+- `16k-target packed critical guarded slack` would have improved -3799 -> -3443.
+
+Result:
+
+- Rejected and reverted.
+- `make inspect` and `make test` passed, but the 3c501 BASIC-sidecar canary
+  failed at red `o agent setup failed`.
+- The selected provider/config values are still live longer than this overlay
+  assumed, or the endpoint/request path depends on them across a receive-buffer
+  overwrite boundary. Keep them in the pre-response tail until that lifetime is
+  redesigned explicitly.
+
+## 2026-05-08 - Rejected 1024-byte TCP receive cap
+
+Change tried:
+
+- Reduced `tcp_payload_max_len` from 1460 to 1024 bytes.
+- Updated the inspected critical scratch budget from 2964 to 2528 bytes.
+
+Measurements:
+
+- Resident sectors: unchanged at 22.
+- Resident bytes: unchanged at 11264.
+- Resident nonzero payload: unchanged at 11220.
+- Critical scratch would have dropped 2964 -> 2528 bytes.
+- `16k-target packed critical guarded slack` would have improved -3923 -> -3487.
+
+Result:
+
+- Rejected and reverted.
+- `make inspect` and `make test` passed, but the 3c501 BASIC-sidecar canary
+  failed at red `o agent setup failed`.
+- This confirms the earlier 512-byte failure was not only an over-aggressive
+  lower bound; the current provider/NIC path still needs the full-size TCP
+  receive tolerance or deeper TCP/TLS receive redesign.
+
 ## 2026-05-08 - Keep low-risk TLS tail-call cleanup
 
 Change:
