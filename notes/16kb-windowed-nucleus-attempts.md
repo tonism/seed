@@ -187,6 +187,126 @@ Result:
   overwrite boundary. Keep them in the pre-response tail until that lifetime is
   redesigned explicitly.
 
+## 2026-05-08 - Rejected ClientKeyExchange public key config-arena reuse
+
+Change tried:
+
+- Removed the fixed ClientKeyExchange public key from high crypto scratch.
+- Reused the saved config value arena starting at `seed_agent_id` for that
+  65-byte public key after `agent_request_phase` has already built the HTTP
+  request.
+- Reduced the inspected high crypto scratch budget from 835 to 770 bytes.
+
+Measurements:
+
+- Resident sectors: unchanged at 22.
+- Resident bytes: unchanged at 11264.
+- Resident nonzero payload: unchanged at 11220.
+- High crypto scratch would have dropped 835 -> 770 bytes.
+- Critical scratch would have stayed at 2964 bytes.
+- `16k-target packed critical guarded slack` would have improved -3799 -> -3734.
+
+Result:
+
+- Rejected and reverted.
+- `make inspect` and `make test` passed.
+- 3c501 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- NE2K8 BASIC-sidecar canary on a 32 KiB host failed at red `o agent setup
+  failed`.
+- The config arena is not a valid long-lived home for the fixed public key
+  across the non-3c501 key-schedule/ClientKeyExchange send ordering. Keep the
+  public key in high scratch unless the non-3c501 ordering is redesigned.
+
+## 2026-05-08 - Rejected universal early ClientKeyExchange plus public-key reuse
+
+Change tried:
+
+- Changed the TLS path to send ClientKeyExchange immediately after adding it to
+  the transcript for every NIC family, matching the existing 3c501 early-send
+  ordering.
+- Kept the same fixed-public-key config-arena reuse as the previous attempt.
+
+Measurements:
+
+- Resident sectors: unchanged at 22.
+- Resident bytes: unchanged at 11264.
+- Resident nonzero payload would have dropped 11220 -> 11198 bytes.
+- High crypto scratch would have dropped 835 -> 770 bytes.
+- Critical scratch would have stayed at 2964 bytes.
+- `16k-target packed critical guarded slack` would have improved -3799 -> -3734.
+
+Result:
+
+- Rejected and reverted.
+- `make inspect` and `make test` passed, but the NE2K8 BASIC-sidecar canary on
+  a 32 KiB host failed at red `o agent setup failed`.
+- The proven non-3c501 ordering should stay as-is for now. The fixed
+  ClientKeyExchange public key remains in high scratch.
+
+## 2026-05-08 - Cut OpenAI request buffer to fixed proof bounds
+
+Change:
+
+- Reduced `api_request_plain_len` from 488 to 440 bytes.
+- The current fixed OpenAI Responses proof request fits in 440 bytes with the
+  supported maximum 192-byte API key and 64-byte model name.
+- Reduced the inspected critical scratch budget from 2964 to 2916 bytes.
+
+Measurements:
+
+- Resident sectors: unchanged at 22.
+- Resident bytes: unchanged at 11264.
+- Resident nonzero payload: unchanged at 11220.
+- High crypto scratch stayed at 835 bytes.
+- Critical scratch dropped 2964 -> 2916 bytes.
+- `16k-target packed critical guarded slack` improved -3799 -> -3751.
+
+Result:
+
+- Accepted.
+- This is a small critical scratch reduction, not a resident-sector cut.
+
+Verification:
+
+- `make inspect` passes.
+- `make test` passes.
+- NE2K8 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- 3c501 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+
+## 2026-05-08 - Overlay post-request TLS state on saved config arena
+
+Change:
+
+- Removed saved agent/model/key/endpoint/reasoning value storage from the
+  critical pre-response tail budget.
+- After `agent_request_phase` has built the HTTP request, the OpenAI proof path
+  no longer needs those saved config strings. Reused the same arena starting at
+  `seed_agent_id` for TLS server random, master secret, handshake hash, and
+  verify data.
+- Reduced the inspected critical scratch budget from 2916 to 2560 bytes.
+
+Measurements:
+
+- Resident sectors: unchanged at 22.
+- Resident bytes: unchanged at 11264.
+- Resident nonzero payload: unchanged at 11220.
+- High crypto scratch stayed at 835 bytes.
+- Critical scratch dropped 2916 -> 2560 bytes.
+- `16k-target packed critical guarded slack` improved -3751 -> -3395.
+
+Result:
+
+- Accepted.
+- This saves 356 bytes in the packed critical window without changing the
+  TLS/OpenAI packet ordering.
+
+Verification:
+
+- `make inspect` passes.
+- `make test` passes.
+- NE2K8 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- 3c501 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+
 ## 2026-05-08 - Rejected 1024-byte TCP receive cap
 
 Change tried:
@@ -276,6 +396,154 @@ Verification:
 - VM proof failed on 3c501, so the cut was not kept.
 - NE2K BASIC-sidecar canary on a 32 KiB host reached `seed build 6` and
   returned `ok`.
+
+## 2026-05-08 - Rejected packed phase wrapper immediates
+
+Change tried:
+
+- Replaced phase loader wrappers' separate `mov al, sector` and
+  `mov cl, sectors` immediates with a packed `mov ax, sector|sectors<<8`
+  plus `mov cl, ah`.
+
+Result:
+
+- Rejected and reverted.
+- On 8086 this encoding is larger, not smaller. Resident nonzero payload grew
+  by 15 bytes.
+
+## 2026-05-08 - Move TCP SYN construction into TCP-connect phase
+
+Change:
+
+- Moved `ne_transmit_tcp_syn` and `tcp_reset_state` out of resident
+  `net_tx.inc` and into the TCP-connect setup phase.
+- Kept TCP ACK, payload construction/transmit, checksums, and receive parsing
+  resident because the TLS/OpenAI critical path still needs them.
+
+Measurements:
+
+- Resident sectors: unchanged at 22.
+- Resident bytes: unchanged at 11264.
+- Resident nonzero payload: 11220 -> 11169 bytes.
+- High crypto scratch stayed at 835 bytes.
+- Critical scratch stayed at 2560 bytes.
+- `16k-target packed critical guarded slack` stayed at -3395.
+
+Result:
+
+- Accepted.
+- Saves 51 resident payload bytes without changing TLS/OpenAI packet ordering.
+- This does not move the release metric yet; another resident sector still
+  requires roughly 418 more resident payload bytes of reduction.
+
+Verification:
+
+- `make inspect` passes.
+- `make test` passes.
+- NE2K8 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- 3c501 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+
+## 2026-05-08 - Keep compact NIC transmit port setup
+
+Change:
+
+- Kept the NIC I/O base in `BX` inside DP8390 and 3c501 transmit paths.
+- Replaced repeated absolute `handoff_nic_base` loads plus `add dx, imm` with
+  shorter indexed `lea dx, [bx + imm]` setup.
+- This is a mechanical transmit-path size cut; packet ordering and TLS state
+  lifetimes are unchanged.
+
+Measurements:
+
+- Resident sectors: unchanged at 22.
+- Resident bytes: unchanged at 11264.
+- Resident nonzero payload: 11169 -> 11131 bytes.
+- High crypto scratch stayed at 835 bytes.
+- Critical scratch stayed at 2560 bytes.
+- `16k-target packed critical guarded slack` stayed at -3395.
+
+Result:
+
+- Accepted.
+- Saves 38 resident payload bytes.
+- Another resident sector still requires roughly 380 more resident payload
+  bytes of reduction.
+
+Verification:
+
+- `make inspect` passes.
+- `make test` passes.
+- NE2K8 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- 3c501 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+
+## 2026-05-08 - Keep compact NIC receive port setup
+
+Change:
+
+- Applied the same NIC-base reuse pattern to resident receive paths.
+- Used one loaded NIC I/O base for 3c501 receive/release and DP8390 remote DMA
+  receive setup.
+- Reused the base in 3c503 chip-memory receive/write loops.
+- Packet receive ordering and TLS state lifetimes are unchanged.
+
+Measurements:
+
+- Resident sectors: unchanged at 22.
+- Resident bytes: unchanged at 11264.
+- Resident nonzero payload: 11131 -> 11084 bytes.
+- High crypto scratch stayed at 835 bytes.
+- Critical scratch stayed at 2560 bytes.
+- `16k-target packed critical guarded slack` stayed at -3395.
+
+Result:
+
+- Accepted.
+- Saves 47 resident payload bytes.
+- Another resident sector still requires roughly 333 more resident payload
+  bytes of reduction.
+
+Verification:
+
+- `make inspect` passes.
+- `make test` passes.
+- NE2K8 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- 3c501 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- 3c503 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- WD8003e BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+
+## 2026-05-08 - Keep compact NIC pointer setup
+
+Change:
+
+- Reused the already loaded NIC I/O base in 3c501 general-pointer setup and
+  DP8390 ring-pointer reads.
+- This is a mechanical follow-up to the transmit/receive port setup cleanup;
+  packet ordering, TLS state lifetimes, and the OpenAI fast path are unchanged.
+
+Measurements:
+
+- Resident sectors: unchanged at 22.
+- Resident bytes: unchanged at 11264.
+- Resident nonzero payload: 11084 -> 11066 bytes.
+- High crypto scratch stayed at 835 bytes.
+- Critical scratch stayed at 2560 bytes.
+- `16k-target packed critical guarded slack` stayed at -3395.
+
+Result:
+
+- Accepted.
+- Saves 18 resident payload bytes.
+- Another resident sector still requires roughly 315 more resident payload
+  bytes of reduction.
+
+Verification:
+
+- `make inspect` passes.
+- `make test` passes.
+- NE2K8 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- 3c501 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- 3c503 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- WD8003e BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
 
 ## 2026-05-08 - Keep follow-up tail-position cleanup
 

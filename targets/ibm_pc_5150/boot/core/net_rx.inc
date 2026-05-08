@@ -77,8 +77,8 @@ ne_try_receive_frame:
 
 el1_try_receive_frame:
     mov word [ne_rx_sample_count], 0
-    mov dx, [handoff_addr + handoff_nic_base]
-    add dx, el1_rcvptr
+    mov bx, [handoff_addr + handoff_nic_base]
+    lea dx, [bx + el1_rcvptr]
     in ax, dx
     mov [ne_rx_count], ax
     or ax, ax
@@ -88,7 +88,7 @@ el1_try_receive_frame:
     ret
 
 .check_status:
-    mov dx, [handoff_addr + handoff_nic_base]
+    mov dx, bx
     in al, dx
     test al, el1_rx_status_good
     jz .release_empty
@@ -104,8 +104,7 @@ el1_try_receive_frame:
     xor ax, ax
     call el1_set_gp
     mov di, ne_tx_frame
-    mov dx, [handoff_addr + handoff_nic_base]
-    add dx, el1_data
+    lea dx, [bx + el1_data]
 .read4:
     cmp cx, 4
     jb .read_tail
@@ -130,12 +129,10 @@ el1_try_receive_frame:
     mov byte [handoff_addr + handoff_net_status], net_status_rx_frame_read
 
 .release_frame:
-    mov dx, [handoff_addr + handoff_nic_base]
-    add dx, el1_rcvptr
+    lea dx, [bx + el1_rcvptr]
     xor al, al
     out dx, al
-    mov dx, [handoff_addr + handoff_nic_base]
-    add dx, el1_aux
+    lea dx, [bx + el1_aux]
     mov al, el1_aux_system
     out dx, al
     mov al, el1_aux_receive
@@ -150,8 +147,7 @@ el1_try_receive_frame:
     jmp .release_frame
 
 el1_set_gp:
-    mov dx, [handoff_addr + handoff_nic_base]
-    add dx, el1_dataptr
+    lea dx, [bx + el1_dataptr]
     out dx, ax
     ret
 
@@ -252,23 +248,20 @@ parse_tcp_payload:
     ret
 
 ne_read_ring_pointers:
-    mov dx, [handoff_addr + handoff_nic_base]
-    add dx, ne_cr
+    mov bx, [handoff_addr + handoff_nic_base]
+    lea dx, [bx + ne_cr]
     mov al, ne_cmd_start_page1
     out dx, al
 
-    mov dx, [handoff_addr + handoff_nic_base]
-    add dx, ne_isr
+    lea dx, [bx + ne_isr]
     in al, dx
     mov [ne_current_page], al
 
-    mov dx, [handoff_addr + handoff_nic_base]
-    add dx, ne_cr
+    lea dx, [bx + ne_cr]
     mov al, ne_cmd_start_nodma
     out dx, al
 
-    mov dx, [handoff_addr + handoff_nic_base]
-    add dx, ne_bnry
+    lea dx, [bx + ne_bnry]
     in al, dx
     mov [ne_boundary_page], al
     ret
@@ -315,34 +308,30 @@ ne_remote_read_bytes:
     ret
 
 .remote_dma:
-    mov dx, [handoff_addr + handoff_nic_base]
-    add dx, ne_isr
+    mov bx, [handoff_addr + handoff_nic_base]
+    lea dx, [bx + ne_isr]
     mov al, ne_isr_rdc
     out dx, al
 
-    mov dx, [handoff_addr + handoff_nic_base]
-    add dx, ne_rbcr0
+    lea dx, [bx + ne_rbcr0]
     mov ax, [ne_dma_count]
     out dx, al
     inc dx
     mov al, ah
     out dx, al
 
-    mov dx, [handoff_addr + handoff_nic_base]
-    add dx, ne_rsar0
+    lea dx, [bx + ne_rsar0]
     mov ax, [ne_dma_addr]
     out dx, al
     inc dx
     mov al, ah
     out dx, al
 
-    mov dx, [handoff_addr + handoff_nic_base]
-    add dx, ne_cr
+    lea dx, [bx + ne_cr]
     mov al, ne_cmd_remote_read
     out dx, al
 
-    mov dx, [handoff_addr + handoff_nic_base]
-    add dx, ne_data
+    lea dx, [bx + ne_data]
     mov cx, [ne_dma_count]
 .read_byte:
     in al, dx
@@ -351,8 +340,7 @@ ne_remote_read_bytes:
 
     mov cx, ne_read_dma_wait_count
 .wait_dma:
-    mov dx, [handoff_addr + handoff_nic_base]
-    add dx, ne_isr
+    lea dx, [bx + ne_isr]
     in al, dx
     test al, ne_isr_rdc
     jnz .done
@@ -417,6 +405,7 @@ c503_write_chipmem_bytes:
     mov [ne_dma_addr], bx
     mov [ne_dma_count], cx
     call c503_begin_dma_write
+    mov bx, [handoff_addr + handoff_nic_base]
     mov cx, [ne_dma_count]
     inc cx
     shr cx, 1
@@ -424,8 +413,7 @@ c503_write_chipmem_bytes:
     push cx
     mov cx, 0x1000
 .wait_ready:
-    mov dx, [handoff_addr + handoff_nic_base]
-    add dx, el2_status
+    lea dx, [bx + el2_status]
     in al, dx
     test al, el2_status_dprdy
     jnz .ready
@@ -435,8 +423,7 @@ c503_write_chipmem_bytes:
 .ready:
     pop cx
     lodsw
-    mov dx, [handoff_addr + handoff_nic_base]
-    add dx, el2_data
+    lea dx, [bx + el2_data]
     out dx, ax
     loop .write
 .done:
@@ -460,8 +447,8 @@ c503_begin_dma_write:
 
 c503_read_chipmem_bytes:
     call c503_begin_dma
-    mov dx, [handoff_addr + handoff_nic_base]
-    add dx, el2_data
+    mov bx, [handoff_addr + handoff_nic_base]
+    lea dx, [bx + el2_data]
     mov cx, [ne_dma_count]
 .read:
     in al, dx
@@ -477,8 +464,7 @@ c503_read_chipmem_bytes:
     xchg al, ah
     mov [ne_dma_addr], ax
     call c503_begin_dma
-    mov dx, [handoff_addr + handoff_nic_base]
-    add dx, el2_data
+    lea dx, [bx + el2_data]
 .next:
     loop .read
     jmp c503_select_dp8390

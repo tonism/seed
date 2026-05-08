@@ -265,7 +265,7 @@ tcp_offset equ eth_header_len + ipv4_header_len
 tcp_payload_offset equ tcp_offset + 20
 tcp_payload_max_len equ 1460
 tcp_payload_read_len equ tcp_payload_offset + tcp_payload_max_len
-tls_pre_response_tail_len equ tls_app_record_buffer_len + (16 * 2) + sha256_block_size + (sha256_block_size * 2) + sha256_digest_len + (16 * 2) + (16 * 2) + tls_prf_seed_max_len + sha256_digest_len + sha256_digest_len + seed_value_total_len + tls_random_len + tls_master_secret_len + sha256_digest_len + tls_finished_verify_len
+tls_pre_response_tail_len equ tls_app_record_buffer_len + (16 * 2) + sha256_block_size + (sha256_block_size * 2) + sha256_digest_len + (16 * 2) + (16 * 2) + tls_prf_seed_max_len + sha256_digest_len + sha256_digest_len + tls_random_len + tls_master_secret_len + sha256_digest_len + tls_finished_verify_len
 tls_stream_buffer_len equ tcp_payload_read_len + tls_pre_response_tail_len
 critical_scratch_start equ 0x5000
 critical_scratch_len equ tls_stream_buffer_len
@@ -315,7 +315,8 @@ tls_server_record_seq_len equ tls_record_seq_len
 tls_record_header_len equ 5
 tls_aead_tag_len equ 16
 tls_app_max_plain_len equ tcp_payload_max_len - tls_record_header_len - tls_aead_tag_len
-api_request_plain_len equ 488
+; Fixed OpenAI proof request with max 192-byte key and max 64-byte model.
+api_request_plain_len equ 440
 tls_app_record_buffer_len equ api_request_plain_len + tls_record_header_len + tls_aead_tag_len
 chacha_word_count equ 16
 chacha_block_len equ 64

@@ -1,18 +1,3 @@
-ne_transmit_tcp_syn:
-    call tcp_reset_state
-    mov al, 0x02
-    xor cx, cx
-    mov si, tcp_remote_ack
-    call build_tcp_segment_frame
-
-    mov si, ne_tx_frame
-    mov cx, [tcp_tx_len]
-    call ne_transmit_frame
-    jc .done
-    mov byte [handoff_addr + handoff_net_status], net_status_tcp_syn_sent
-.done:
-    ret
-
 ne_transmit_tcp_ack:
     mov al, 0x10
     xor cx, cx
@@ -57,8 +42,8 @@ ne_transmit_frame:
     jmp el1_transmit_frame
 
 .dp8390:
-    mov dx, [handoff_addr + handoff_nic_base]
-    add dx, ne_isr
+    mov bx, [handoff_addr + handoff_nic_base]
+    lea dx, [bx + ne_isr]
     mov al, ne_isr_rdc | ne_isr_txe | ne_isr_ptx
     out dx, al
 
@@ -80,29 +65,26 @@ ne_transmit_frame:
     jmp .frame_loaded
 
 .remote_dma:
-    mov dx, [handoff_addr + handoff_nic_base]
-    add dx, ne_rbcr0
+    mov bx, [handoff_addr + handoff_nic_base]
+    lea dx, [bx + ne_rbcr0]
     mov ax, [ne_tx_len]
     out dx, al
     inc dx
     mov al, ah
     out dx, al
 
-    mov dx, [handoff_addr + handoff_nic_base]
-    add dx, ne_rsar0
+    lea dx, [bx + ne_rsar0]
     xor al, al
     out dx, al
     inc dx
     mov al, [ne_tx_start]
     out dx, al
 
-    mov dx, [handoff_addr + handoff_nic_base]
-    add dx, ne_cr
+    lea dx, [bx + ne_cr]
     mov al, ne_cmd_remote_write
     out dx, al
 
-    mov dx, [handoff_addr + handoff_nic_base]
-    add dx, ne_data
+    lea dx, [bx + ne_data]
     mov cx, [ne_tx_len]
 .write_frame:
     lodsb
@@ -111,8 +93,7 @@ ne_transmit_frame:
 
     mov cx, 0xffff
 .wait_dma:
-    mov dx, [handoff_addr + handoff_nic_base]
-    add dx, ne_isr
+    lea dx, [bx + ne_isr]
     in al, dx
     test al, ne_isr_rdc
     jnz .dma_done
@@ -123,28 +104,25 @@ ne_transmit_frame:
     out dx, al
 
 .frame_loaded:
-    mov dx, [handoff_addr + handoff_nic_base]
-    add dx, ne_tpsr
+    mov bx, [handoff_addr + handoff_nic_base]
+    lea dx, [bx + ne_tpsr]
     mov al, [ne_tx_start]
     out dx, al
 
-    mov dx, [handoff_addr + handoff_nic_base]
-    add dx, ne_tbcr0
+    lea dx, [bx + ne_tbcr0]
     mov ax, [ne_tx_len]
     out dx, al
     inc dx
     mov al, ah
     out dx, al
 
-    mov dx, [handoff_addr + handoff_nic_base]
-    add dx, ne_cr
+    lea dx, [bx + ne_cr]
     mov al, ne_cmd_transmit
     out dx, al
 
     mov cx, 0xffff
 .wait_tx:
-    mov dx, [handoff_addr + handoff_nic_base]
-    add dx, ne_isr
+    lea dx, [bx + ne_isr]
     in al, dx
     test al, ne_isr_ptx | ne_isr_txe
     jnz .tx_done
@@ -165,10 +143,10 @@ el1_transmit_frame:
     mov ax, 0x0800
     sub ax, [ne_tx_len]
     mov [el1_tx_ptr], ax
+    mov bx, [handoff_addr + handoff_nic_base]
     call el1_set_gp
 
-    mov dx, [handoff_addr + handoff_nic_base]
-    add dx, el1_aux
+    lea dx, [bx + el1_aux]
     mov al, el1_aux_system
     out dx, al
     inc dx
@@ -197,15 +175,13 @@ el1_transmit_frame:
 
     mov ax, [el1_tx_ptr]
     call el1_set_gp
-    mov dx, [handoff_addr + handoff_nic_base]
-    add dx, el1_aux
+    lea dx, [bx + el1_aux]
     mov al, el1_aux_xmit_recv
     out dx, al
 
     mov cx, 0xffff
 .wait:
-    mov dx, [handoff_addr + handoff_nic_base]
-    add dx, el1_tx_cmd
+    lea dx, [bx + el1_tx_cmd]
     in al, dx
     test al, el1_tx_status_ready
     jnz .done
@@ -214,23 +190,13 @@ el1_transmit_frame:
     stc
     ret
 .done:
-    mov dx, [handoff_addr + handoff_nic_base]
-    add dx, el1_aux
+    lea dx, [bx + el1_aux]
     mov al, el1_aux_system
     out dx, al
     mov al, el1_aux_receive
     out dx, al
     mov byte [handoff_addr + handoff_net_status], net_status_tx_ready
     clc
-    ret
-
-tcp_reset_state:
-    mov word [tcp_local_seq], 0x4553
-    mov word [tcp_local_seq + 2], 0x4445
-    mov di, tcp_remote_ack
-    xor ax, ax
-    stosw
-    stosw
     ret
 
 build_tcp_segment_frame:

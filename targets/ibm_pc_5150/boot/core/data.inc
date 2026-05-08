@@ -249,7 +249,10 @@ seed_model equ seed_agent_id + agent_id_len
 seed_key equ seed_model + seed_model_len
 seed_endpoint equ seed_key + seed_key_len
 seed_reasoning equ seed_endpoint + seed_endpoint_len
-tls_server_random equ seed_reasoning + seed_reasoning_len
+; After agent_request_phase has built the HTTP request, saved config values are
+; no longer needed on the OpenAI proof path. Reuse that arena for later TLS
+; state instead of extending the critical scratch tail.
+tls_server_random equ seed_agent_id
 tls_master_secret equ tls_server_random + tls_random_len
 tls_handshake_hash equ tls_master_secret + tls_master_secret_len
 tls_verify_data equ tls_handshake_hash + sha256_digest_len

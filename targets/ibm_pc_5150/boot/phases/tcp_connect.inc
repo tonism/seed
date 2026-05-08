@@ -73,7 +73,7 @@ tcp_open_resolved_target:
     jc .done
     cmp byte [handoff_addr + handoff_net_status], net_status_next_hop_arp_resolved
     jne .failed
-    phase_call_res ne_transmit_tcp_syn
+    call ne_transmit_tcp_syn
     jc .done
     call ne_wait_for_tcp_synack
     cmp byte [handoff_addr + handoff_net_status], net_status_tcp_synack_received
@@ -87,6 +87,30 @@ tcp_open_resolved_target:
 .failed:
     stc
 .done:
+    ret
+
+ne_transmit_tcp_syn:
+    call tcp_reset_state
+    mov al, 0x02
+    xor cx, cx
+    mov si, tcp_remote_ack
+    phase_call_res build_tcp_segment_frame
+
+    mov si, ne_tx_frame
+    mov cx, [tcp_tx_len]
+    phase_call_res ne_transmit_frame
+    jc .done
+    mov byte [handoff_addr + handoff_net_status], net_status_tcp_syn_sent
+.done:
+    ret
+
+tcp_reset_state:
+    mov word [tcp_local_seq], 0x4553
+    mov word [tcp_local_seq + 2], 0x4445
+    mov di, tcp_remote_ack
+    xor ax, ax
+    stosw
+    stosw
     ret
 
 ne_resolve_dns_arp:
