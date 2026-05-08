@@ -51,6 +51,221 @@ Initial implication:
 
 Attempt log:
 
+## 2026-05-08 - Add explicit scratch collision reporting
+
+Change:
+
+- Extended `tools/core-sys-info.py` with fixed `--range` reporting and ideal
+  `--packed-range` reporting.
+- Updated `make inspect` to show the current high-crypto scratch and TLS/API
+  critical scratch arenas against both the 24 KiB BASIC budget and the 16 KiB
+  target budget.
+
+Reasoning:
+
+- The previous `16k-target` budget only compared resident `CORE.SYS` against
+  the stack guard. That was useful for resident-sector cuts, but it did not
+  make the current above-16K scratch arenas visible.
+- The new packed ranges show the harder final question: if these scratch
+  lifetimes are eventually placed directly after the resident nucleus, how much
+  measured guard remains?
+
+Current measurement before any new resident cut:
+
+- Resident sectors: 26.
+- Resident bytes: 13312.
+- Resident load range: `0x1000..0x4400`.
+- Fixed high-crypto scratch range: `0x4c00..0x4f5e`.
+- Fixed critical TLS/API scratch range: `0x5000..0x5bd4`.
+- `16k-target` resident-only guarded slack remains -2048 bytes.
+- `16k-target` ideal packed high-crypto + critical scratch guarded slack is
+  -5938 bytes.
+
+Implication:
+
+- The old resident-only number still tells us how many resident sectors must
+  drop before the nucleus can fit below the 1 KiB stack guard.
+- The packed-scratch number is the real final 16 KiB pressure. It confirms that
+  we also need to pack or reduce scratch lifetimes once enough resident sectors
+  have been cut.
+
+## 2026-05-08 - Move boot/UI/config helpers into setup windows
+
+Change:
+
+- Moved boot-time display detection, screen clear, and initial cursor hide into
+  the hardware setup phase.
+- Moved the built-in `example.com` probe default into the `NET.CFG` phase.
+- Moved question/failure tones and marker blinking into the phases that use
+  them.
+- Localized `print_z` and cursor show/hide into the agent setup phase.
+- Moved cached `USER.CFG` completeness validation into the `USER.CFG` phase.
+- Merged the high-crypto and critical scratch startup clears into one
+  contiguous scratch-band clear.
+
+Measurements:
+
+- Resident sectors: 26 -> 25.
+- Resident bytes: 13312 -> 12800.
+- Resident nonzero payload: 13186 -> 12797.
+- Total `CORE.SYS` bytes: 26112 -> 25600.
+- Resident load range: `0x1000..0x4400` -> `0x1000..0x4200`.
+- `16k-target` resident-only guarded slack: -2048 -> -1536 bytes.
+- `16k-target` ideal packed high-crypto + critical scratch guarded slack:
+  -5938 -> -5426 bytes.
+
+Result:
+
+- One more resident sector removed without changing the TLS/OpenAI critical
+  ordering.
+- Remaining ideal packed guarded 16 KiB deficit is 5426 bytes.
+
+Verification:
+
+- `make inspect` passes.
+- `make test` passes.
+
+## 2026-05-08 - Small resident UI/startup cuts, keep DNS state resident
+
+Change:
+
+- Removed the reserved word from the `CORE.SYS` header. The parsed header fields
+  still end at the phase-count word and `tools/core-sys-info.py --check` accepts
+  the shorter 23-byte header.
+- Stopped preserving registers in one-shot startup scratch clearing and inlined
+  the one remaining seed-marker cursor helper.
+- Kept `dns_qname_len` and `dns_tx_len` resident after testing showed that
+  moving them into the low phase-state tail broke the 3c501 network setup path.
+
+Measurements:
+
+- Resident sectors: unchanged at 25.
+- Resident bytes: unchanged at 12800.
+- Resident nonzero payload: 12375 -> 12367 bytes after the accepted cuts.
+- Raw resident tail: about `0x3057` -> `0x304f`.
+- Remaining raw bytes before dropping to 24 resident sectors: about 79 bytes.
+- `16k-target` guarded slack: unchanged at -1536 bytes until the resident
+  sector count drops.
+
+Rejected/rolled back:
+
+- Returning carry-set for packet-capable NICs was logically equivalent in the
+  two local callers, but was rolled back together with the DNS-state move to
+  keep this checkpoint conservative after the failed canary.
+- Moving `dns_qname_len`/`dns_tx_len` into low scratch saved only 3 resident
+  bytes and caused `vm-net-3c501` to stop at red `, network setup failed`.
+
+Verification:
+
+- `make inspect` passes.
+- `make test` passes.
+- 3c501 BASIC-sidecar canary on a 32 KiB host reached `seed build 6` and
+  returned `ok` after the network-related micro-cuts were rolled back.
+
+## 2026-05-08 - Move phase-local setup state to low scratch tail
+
+Change:
+
+- Moved phase-local UI/config/DHCP/ARP/DNS scratch variables out of
+  file-backed resident data and into the low phase-state tail after
+  `user_cfg_size_current`.
+- Kept state resident when it is still consumed by later resident network/TLS
+  code, notably `dhcp_wait_count`, `arp_target_mac`, `dns_qname_len`, and
+  `dns_tx_len`.
+
+Measurements:
+
+- `CORE.SYS` total size: unchanged at 26624 bytes.
+- `CORE.SYS` total sectors: unchanged at 52.
+- Resident sectors: unchanged at 25.
+- Resident bytes: unchanged at 12800.
+- Resident nonzero payload: 12508 -> 12472 bytes.
+- Raw resident end moved from about `0x30dc` to `0x30b8`, leaving about
+  184 bytes before the next resident-sector boundary.
+- `16k-target` resident-only guarded slack: unchanged at -1536 bytes.
+- `16k-target` packed high-crypto + critical scratch guarded slack: unchanged
+  at -5426 bytes.
+
+Result:
+
+- Safe small resident-data cleanup. It does not change the loaded sector count
+  yet, but it makes the next sector drop closer without touching TLS/crypto or
+  OpenAI ordering.
+
+Verification:
+
+- `make inspect` passes.
+- `make test` passes.
+- 3c501 BASIC-sidecar canary on a 32 KiB host reached `seed build 6` and
+  returned `ok`.
+
+## 2026-05-08 - Move remaining setup wrappers out of the resident path
+
+Change:
+
+- Reduced resident handoff initialization to only the boot drive and RAM-top
+  values needed before the first phase load.
+- Moved full handoff clear/magic/status initialization into the hardware setup
+  phase.
+- Folded the resident packet-I/O prepare wrapper into the existing packet init
+  phase.
+- Localized BIOS cursor positioning into the agent setup phase.
+
+Measurements:
+
+- Resident sectors: unchanged at 25.
+- Resident bytes: unchanged at 12800.
+- Resident nonzero payload: 12797 -> 12658.
+- `16k-target` resident-only guarded slack: unchanged at -1536 bytes.
+- `16k-target` ideal packed high-crypto + critical scratch guarded slack:
+  unchanged at -5426 bytes.
+
+Result:
+
+- Saved 139 more resident bytes, but not enough to drop the next resident
+  sector.
+- The next sector boundary still needs roughly 370 more resident bytes.
+
+Verification:
+
+- `make inspect` passes.
+- `make test` passes.
+
+## 2026-05-08 - Move config FAT lookup/state into setup windows
+
+Change:
+
+- Moved FAT root lookup helpers out of the resident path and into the
+  `NET.CFG`, `AGENTS.CFG`, and `USER.CFG` phases that need them.
+- Moved config/FAT scratch temporaries into the unused low scratch tail after
+  the file-sector buffer.
+
+Measurements:
+
+- Resident sectors: unchanged at 25.
+- Resident bytes: unchanged at 12800.
+- Resident nonzero payload: 12658 -> 12508.
+- Total `CORE.SYS` bytes: 25600 -> 26624.
+- Total `CORE.SYS` sectors: 50 -> 52.
+- `NET.CFG` and `AGENTS.CFG` phases each grew from one sector to two sectors.
+- `16k-target` resident-only guarded slack: unchanged at -1536 bytes.
+- `16k-target` ideal packed high-crypto + critical scratch guarded slack:
+  unchanged at -5426 bytes.
+
+Result:
+
+- Saved 150 more resident bytes without touching the TLS/OpenAI critical path.
+- The next resident sector boundary needs roughly 220 more raw resident bytes.
+- This deliberately trades extra setup-window floppy bytes for a smaller
+  resident nucleus.
+
+Verification:
+
+- `make inspect` passes.
+- `make test` passes.
+- 32 KiB ROM BASIC sidecar smoke tests reached `seed build 6` and returned
+  `ok` on `vm-net-3c501`, `vm-net-ne2k8`, and `vm-net-wd8003e`.
+
 ## 2026-05-08 - Add explicit 16 KiB budget reporting
 
 Change:

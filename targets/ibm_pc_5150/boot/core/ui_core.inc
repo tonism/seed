@@ -1,18 +1,3 @@
-type_z:
-    lodsb
-    or al, al
-    jz .done
-    call type_char
-    jmp type_z
-.done:
-    ret
-
-type_char:
-    call print_char
-    mov cx, type_ticks
-    call wait_ticks
-    ret
-
 print_char:
     push ax
     push bx
@@ -34,14 +19,6 @@ print_char:
     pop bx
 
     inc byte [cursor_col]
-    ret
-
-set_bios_cursor:
-    mov ah, 0x02
-    mov bh, 0x00
-    mov dh, [cursor_row]
-    mov dl, [cursor_col]
-    int 0x10
     ret
 
 wait_ticks:

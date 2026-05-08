@@ -178,8 +178,8 @@ save_user_cfg_phase:
 .write_abs_sector:
     push ax
     push cx
-    push dx
-    div byte [disk_sectors_per_track]
+    mov cl, 8
+    div cl
     mov ch, al
     mov cl, ah
     inc cl
@@ -187,7 +187,6 @@ save_user_cfg_phase:
     mov dl, [handoff_addr + handoff_boot_drive]
     mov ax, 0x0301
     int 0x13
-    pop dx
     pop cx
     pop ax
     ret

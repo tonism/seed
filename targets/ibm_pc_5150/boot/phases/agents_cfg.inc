@@ -42,7 +42,7 @@ agents_cfg_phase_load_builtin:
 
 agents_cfg_phase_find:
     mov di, low_scratch_start + (agents_cfg_phase_name - PHASE_BASE)
-    phase_call_res find_root_file
+    call agents_cfg_phase_find_root_file
     jc .not_found
     mov ax, [fs_file_cluster]
     mov [agents_cluster], ax
@@ -182,6 +182,66 @@ agents_cfg_phase_builtin_ids db 'openai', 0
                             times agent_id_len - 10 db 0
                             db 'google', 0
                             times agent_id_len - 7 db 0
+
+agents_cfg_phase_find_root_file:
+    mov word [fs_lba], fat_root_start_lba
+    mov word [fs_root_left], fat_root_sectors
+.next_sector:
+    cmp word [fs_root_left], 0
+    je .not_found
+    push ds
+    pop es
+    mov bx, fs_sector_buffer
+    mov ax, [fs_lba]
+    phase_call_res read_abs_sector
+    jc .not_found
+    mov si, fs_sector_buffer
+    mov cx, fat_dir_entries_per_sector
+.next_entry:
+    mov al, [si]
+    or al, al
+    jz .end_marker
+    cmp al, 0xe5
+    je .advance
+    test byte [si + 11], 0x18
+    jnz .advance
+    push si
+    push cx
+    push di
+    mov cx, 11
+.compare:
+    mov al, [si]
+    cmp al, [di]
+    jne .mismatch
+    inc si
+    inc di
+    loop .compare
+    pop di
+    pop cx
+    pop si
+    mov ax, [si + 26]
+    mov [fs_file_cluster], ax
+    mov ax, [si + 28]
+    mov [fs_file_size_low], ax
+    mov ax, [si + 30]
+    mov [fs_file_size_high], ax
+    clc
+    ret
+.mismatch:
+    pop di
+    pop cx
+    pop si
+    jmp .advance
+.advance:
+    add si, fat_dir_entry_size
+    loop .next_entry
+    inc word [fs_lba]
+    dec word [fs_root_left]
+    jmp .next_sector
+.end_marker:
+.not_found:
+    stc
+    ret
 
 agents_cfg_phase_read_cluster_to_buffer:
     cmp ax, fat_first_data_cluster

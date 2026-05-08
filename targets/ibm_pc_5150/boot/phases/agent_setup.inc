@@ -27,7 +27,7 @@ agent_setup_phase:
     call .clear_agent_field_area
     call .render_agent_values_form
     call .set_active_form_input
-    phase_call_res show_cursor
+    call .show_cursor
 .input:
     call .input_wait_key
     cmp al, 0x0d
@@ -60,20 +60,20 @@ agent_setup_phase:
     xor byte [menu_value_a], 1
     call .draw_agent_form_fields
     call .set_active_form_input
-    phase_call_res show_cursor
+    call .show_cursor
     jmp .input
 .accept:
     call .validate_agent_values
     jc .render
-    phase_call_res hide_cursor
-    phase_call_res clear_question_area
+    call .hide_cursor
+    call agent_setup_phase_clear_question_area
     mov bl, [load_marker_attr]
     mov al, [load_marker_char]
     phase_call_res show_load_marker
     clc
     ret
 .cancel:
-    phase_call_res hide_cursor
+    call .hide_cursor
     call .slide_selected_agent_right
     stc
     ret
@@ -170,11 +170,11 @@ agent_setup_phase:
 .ask_agent:
     mov byte [menu_index], 0
     mov byte [blink_state], 0
-    phase_call_res notify_question
+    call agent_setup_phase_notify_question
     call .render_agent_question
 .ask_agent_resume:
 .agent_input:
-    phase_call_res blink_load_marker
+    call agent_setup_phase_blink_load_marker
     mov ah, 0x01
     int 0x16
     jz .agent_input
@@ -278,7 +278,7 @@ agent_setup_phase:
     mov [cursor_col], al
     mov bl, [question_attr]
     mov si, low_scratch_start + (agent_prompt_text - PHASE_BASE)
-    phase_call_res print_z
+    call .print_z
     call .draw_agent_options_at_col
     mov al, [input_start_col]
     ret
@@ -290,7 +290,7 @@ agent_setup_phase:
     mov [cursor_col], al
     mov bl, [question_attr]
     mov si, low_scratch_start + (agent_prompt_text - PHASE_BASE)
-    phase_call_res type_z
+    call agent_setup_phase_type_z
 
     call .type_agent_options
     ret
@@ -306,7 +306,7 @@ agent_setup_phase:
     mov [cursor_col], al
     mov bl, [question_attr]
     mov si, low_scratch_start + (agent_prompt_text - PHASE_BASE)
-    phase_call_res type_z
+    call agent_setup_phase_type_z
 
     mov al, [form_left_col]
     mov [input_start_col], al
@@ -351,7 +351,7 @@ agent_setup_phase:
     jne .field_label_ready
     mov bl, [question_attr]
 .field_label_ready:
-    phase_call_res print_z
+    call .print_z
     mov al, [form_field_col]
     add al, 8
     mov [input_start_col], al
@@ -379,7 +379,7 @@ agent_setup_phase:
 .type_agent_attr_ready:
     mov al, [agent_draw_index]
     call .agent_ptr_from_al
-    phase_call_res type_z
+    call agent_setup_phase_type_z
     inc byte [agent_draw_index]
     jmp .type_agent_next
 .type_agent_done:
@@ -408,7 +408,7 @@ agent_setup_phase:
 .draw_agent_attr_ready:
     mov al, [agent_draw_index]
     call .agent_ptr_from_al
-    phase_call_res print_z
+    call .print_z
     inc byte [agent_draw_index]
     jmp .draw_agent_next
 .draw_agent_done:
@@ -446,7 +446,7 @@ agent_setup_phase:
     phase_call_res print_char
     loop .render_text_next
 .render_text_done:
-    phase_call_res set_bios_cursor
+    call .set_bios_cursor
     ret
 
 .set_input_window:
@@ -501,6 +501,53 @@ agent_setup_phase:
     int 0x10
     ret
 
+.hide_cursor:
+    mov ah, 0x01
+    mov ch, 0x20
+    mov cl, 0x00
+    int 0x10
+    ret
+
+.show_cursor:
+    call .set_bios_cursor
+    mov ah, 0x01
+    mov ch, 0x06
+    mov cl, 0x07
+    int 0x10
+    ret
+
+.set_bios_cursor:
+    mov ah, 0x02
+    mov bh, 0x00
+    mov dh, [cursor_row]
+    mov dl, [cursor_col]
+    int 0x10
+    ret
+
+.print_z:
+    lodsb
+    or al, al
+    jz .print_done
+    phase_call_res print_char
+    jmp .print_z
+.print_done:
+    ret
+
+agent_setup_phase_type_z:
+    lodsb
+    or al, al
+    jz .type_done
+    call agent_setup_phase_type_char
+    jmp agent_setup_phase_type_z
+.type_done:
+    ret
+
+agent_setup_phase_type_char:
+    phase_call_res print_char
+    mov cx, type_ticks
+    phase_call_res wait_ticks
+    ret
+
 agent_prompt_text db 'agent?', 0
 key_prompt_text db 'key?', 0
 endpoint_prompt_text db 'server?', 0
@@ -525,6 +572,58 @@ agent_setup_phase_selected_agent_needs_endpoint:
     ret
 .no:
     stc
+    ret
+
+agent_setup_phase_clear_question_area:
+    mov ax, 0x0600
+    mov bh, 0x07
+    mov ch, seed_row
+    xor cl, cl
+    mov dh, question_row + agent_slot_count
+    mov dl, [screen_cols]
+    dec dl
+    int 0x10
+    ret
+
+agent_setup_phase_notify_question:
+    mov ax, 6087
+    call agent_setup_phase_speaker_tone
+    mov cx, 2
+    phase_call_res wait_ticks
+    jmp agent_setup_phase_speaker_off
+
+agent_setup_phase_blink_load_marker:
+    mov byte [cursor_row], seed_row
+    mov dl, [seed_col]
+    mov [cursor_col], dl
+    mov bl, [load_marker_attr]
+    mov al, [load_marker_char]
+    xor byte [blink_state], 1
+    jnz .show
+    mov al, ' '
+.show:
+    phase_call_res print_char
+    mov cx, 2
+    phase_call_res wait_ticks
+    ret
+
+agent_setup_phase_speaker_tone:
+    push ax
+    mov al, 0xb6
+    out 0x43, al
+    pop ax
+    out 0x42, al
+    mov al, ah
+    out 0x42, al
+    in al, 0x61
+    or al, 0x03
+    out 0x61, al
+    ret
+
+agent_setup_phase_speaker_off:
+    in al, 0x61
+    and al, 0xfc
+    out 0x61, al
     ret
 
 %unmacro phase_call_res 1

@@ -10,7 +10,9 @@ prepare_internet_path:
     call wd_select_dp8390_base
     call run_dhcp_setup_phase
     jc .failed
-    call set_default_internet_target
+    call run_net_probe_cfg_phase
+    jc .failed
+    mov word [tcp_dest_port_word], tcp_port_http_word
     call run_tcp_connect_phase
     jc .failed
     clc
@@ -26,10 +28,7 @@ prepare_internet_path:
 prepare_agent_path:
     call run_agents_cfg_phase
     call run_user_cfg_phase
-    jc .setup_agent
-    call ensure_seed_values
     jnc .values_ready
-.setup_agent:
     call run_agent_setup_phase
 .values_ready:
     call prepare_agent_endpoint_path
@@ -84,23 +83,4 @@ selected_nic_has_packet_path:
     ret
 .yes:
     clc
-    ret
-
-set_default_internet_target:
-    call set_example_dns_target
-    call run_net_probe_cfg_phase
-    jnc .done
-    call set_example_dns_target
-.done:
-    mov word [tcp_dest_port_word], tcp_port_http_word
-    clc
-    ret
-
-set_example_dns_target:
-    mov si, dns_default_qname
-    mov di, dns_qname
-    mov cx, dns_qname_default_len
-    rep movsb
-    mov byte [dns_qname_len], dns_qname_default_len
-    mov word [dns_tx_len], dns_tx_frame_default_len
     ret

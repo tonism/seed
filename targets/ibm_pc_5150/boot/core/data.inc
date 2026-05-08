@@ -1,32 +1,3 @@
-cursor_row db 0
-cursor_col db 0
-screen_cols db 80
-seed_col db (80 - seed_len) / 2
-seed_attr db seed_attr_cga
-build_attr db build_attr_cga
-load_attr db load_attr_cga
-crypto_attr db crypto_attr_cga
-ready_attr db ready_attr_cga
-question_attr db question_attr_cga
-error_attr db error_attr_cga
-menu_selected_attr db menu_selected_attr_cga
-menu_idle_attr db menu_idle_attr_cga
-load_marker_char db ' '
-load_marker_attr db load_attr_cga
-menu_value_a db 0
-menu_index db 0
-input_target dw 0
-input_max db 0
-input_len db 0
-input_start_col db 0
-form_left_col db 2
-form_field_col db 20
-seed_config_flags db 0
-user_cfg_dirty db 0
-agent_count db 0
-agent_draw_index db 0
-agent_scan_index db 0
-blink_state db 0
 ne_tx_start db 0
 ne_rx_start db 0
 ne_rx_stop db 0
@@ -42,16 +13,7 @@ el1_tx_ptr dw 0
 ne_dma_addr dw 0
 ne_dma_count dw 0
 dhcp_wait_count dw 0
-dhcp_options_left dw 0
-dhcp_option_len dw 0
-dhcp_option_code db 0
-dhcp_message_type db 0
-dhcp_server_addr times 4 db 0
-arp_target_ip times 4 db 0
 arp_target_mac times 6 db 0
-arp_status_sent db net_status_arp_request_sent
-arp_status_resolved db net_status_arp_resolved
-arp_error_code db net_error_arp
 tcp_target_ip times 4 db 0
 tcp_dest_port_word dw tcp_port_http_word
 tcp_local_seq times 4 db 0
@@ -149,35 +111,77 @@ sha256_schedule_count db 0
 sha256_round_count db 0
 tls_next_handshake_body_ptr dw 0
 dns_qname_len db dns_qname_default_len
-dns_label_len db 0
-dns_answer_remaining db 0
-dns_label_ptr dw 0
 dns_tx_len dw dns_tx_frame_default_len
-fs_lba dw 0
-fs_root_left dw 0
-fs_file_cluster dw 0
-fs_file_size_low dw 0
-fs_file_size_high dw 0
-fs_current_cluster dw 0
-fs_bytes_left dw 0
-fs_bytes_this dw 0
-fs_line_start db 0
-agents_cluster dw 0
-agents_size_low dw 0
-agents_size_high dw 0
-seed_cluster dw 0
-seed_size_low dw 0
-seed_size_high dw 0
-seed_root_lba dw 0
-seed_root_offset dw 0
-user_cfg_size_current dw 0
 ne_tx_frame equ low_scratch_start
 ne_prom equ ne_tx_frame + net_frame_buffer_len
 low_packet_scratch_end equ ne_prom + ne_prom_len
 fs_sector_buffer equ low_packet_scratch_end
 low_file_scratch_end equ fs_sector_buffer + 512
+fs_lba equ low_file_scratch_end
+fs_root_left equ fs_lba + 2
+fs_file_cluster equ fs_root_left + 2
+fs_file_size_low equ fs_file_cluster + 2
+fs_file_size_high equ fs_file_size_low + 2
+fs_current_cluster equ fs_file_size_high + 2
+fs_bytes_left equ fs_current_cluster + 2
+fs_bytes_this equ fs_bytes_left + 2
+fs_line_start equ fs_bytes_this + 2
+agents_cluster equ fs_line_start + 1
+agents_size_low equ agents_cluster + 2
+agents_size_high equ agents_size_low + 2
+seed_cluster equ agents_size_high + 2
+seed_size_low equ seed_cluster + 2
+seed_size_high equ seed_size_low + 2
+seed_root_lba equ seed_size_high + 2
+seed_root_offset equ seed_root_lba + 2
+user_cfg_size_current equ seed_root_offset + 2
+menu_value_a equ user_cfg_size_current + 2
+menu_index equ menu_value_a + 1
+input_target equ menu_index + 1
+input_max equ input_target + 2
+input_len equ input_max + 1
+input_start_col equ input_len + 1
+form_left_col equ input_start_col + 1
+form_field_col equ form_left_col + 1
+seed_config_flags equ form_field_col + 1
+user_cfg_dirty equ seed_config_flags + 1
+agent_count equ user_cfg_dirty + 1
+agent_draw_index equ agent_count + 1
+agent_scan_index equ agent_draw_index + 1
+blink_state equ agent_scan_index + 1
+dhcp_options_left equ blink_state + 1
+dhcp_option_len equ dhcp_options_left + 2
+dhcp_option_code equ dhcp_option_len + 2
+dhcp_message_type equ dhcp_option_code + 1
+dhcp_server_addr equ dhcp_message_type + 1
+arp_target_ip equ dhcp_server_addr + 4
+arp_status_sent equ arp_target_ip + 4
+arp_status_resolved equ arp_status_sent + 1
+arp_error_code equ arp_status_resolved + 1
+dns_label_len equ arp_error_code + 1
+dns_answer_remaining equ dns_label_len + 1
+dns_label_ptr equ dns_answer_remaining + 1
+cursor_row equ dns_label_ptr + 2
+cursor_col equ cursor_row + 1
+screen_cols equ cursor_col + 1
+seed_col equ screen_cols + 1
+seed_attr equ seed_col + 1
+build_attr equ seed_attr + 1
+load_attr equ build_attr + 1
+crypto_attr equ load_attr + 1
+ready_attr equ crypto_attr + 1
+question_attr equ ready_attr + 1
+error_attr equ question_attr + 1
+menu_selected_attr equ error_attr + 1
+menu_idle_attr equ menu_selected_attr + 1
+load_marker_char equ menu_idle_attr + 1
+load_marker_attr equ load_marker_char + 1
+low_phase_state_end equ load_marker_attr + 1
 %if low_file_scratch_end > low_scratch_end
 %error "low packet scratch arena overflow"
+%endif
+%if low_phase_state_end > low_scratch_end
+%error "low phase state arena overflow"
 %endif
 tls_rx_copy equ critical_scratch_start
 tls_client_hello_buffer equ tls_rx_copy
@@ -265,7 +269,6 @@ poly_acc equ p256_s1
 poly_block equ p256_s2
 poly_product equ p256_s3
 poly_value equ p256_s5
-dns_default_qname db 7, 'example', 3, 'com', 0
 tls_random db 'SEEDBUILD6TLSCLIENTHELLO00000000'
 tls_client_ec_public db 0x04
                      db 0x6b, 0x17, 0xd1, 0xf2, 0xe1, 0x2c, 0x42, 0x47
@@ -325,4 +328,3 @@ sha256_k dw 0x2f98, 0x428a, 0x4491, 0x7137
          dw 0x7814, 0x84c8, 0x0208, 0x8cc7
          dw 0xfffa, 0x90be, 0x6ceb, 0xa450
          dw 0xa3f7, 0xbef9, 0x78f2, 0xc671
-disk_sectors_per_track db 8

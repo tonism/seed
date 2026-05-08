@@ -8,6 +8,11 @@
 %endmacro
 
 hardware_setup_phase:
+    call hardware_setup_phase_init_handoff
+    call hardware_setup_phase_display
+    mov bl, [load_attr]
+    mov al, '.'
+    phase_call_res show_load_marker
     call probe_network_card
     jc .failed
     call resolve_network_config
@@ -16,6 +21,85 @@ hardware_setup_phase:
     ret
 .failed:
     stc
+    ret
+
+hardware_setup_phase_init_handoff:
+    mov dl, [handoff_addr + handoff_boot_drive]
+    mov bp, [handoff_addr + handoff_ram_top]
+    push ds
+    pop es
+    mov di, handoff_addr
+    xor ax, ax
+    mov cx, handoff_size_bytes / 2
+.clear:
+    stosw
+    loop .clear
+    mov word [handoff_addr + handoff_magic], 0x4553
+    mov word [handoff_addr + handoff_magic + 2], 0x4445
+    mov byte [handoff_addr + handoff_version], handoff_struct_version
+    mov byte [handoff_addr + handoff_size], handoff_size_bytes
+    mov word [handoff_addr + handoff_build], build_number
+    mov byte [handoff_addr + handoff_boot_drive], dl
+    mov word [handoff_addr + handoff_ram_top], bp
+    mov byte [handoff_addr + handoff_status], handoff_status_booting
+    mov byte [blink_state], 0
+    ret
+
+hardware_setup_phase_display:
+    mov ah, 0x0f
+    int 0x10
+    mov [handoff_addr + handoff_video_mode], al
+    mov [handoff_addr + handoff_video_cols], ah
+    mov [screen_cols], ah
+    sub ah, seed_len
+    shr ah, 1
+    mov [seed_col], ah
+    mov [handoff_addr + handoff_seed_col], ah
+    mov byte [form_left_col], 2
+    mov byte [form_field_col], 20
+    cmp byte [screen_cols], 80
+    jb .display_kind
+    mov al, [seed_col]
+    sub al, 14
+    mov [form_left_col], al
+    mov al, [seed_col]
+    add al, 10
+    mov [form_field_col], al
+.display_kind:
+    mov byte [seed_attr], seed_attr_cga
+    mov byte [build_attr], build_attr_cga
+    mov byte [load_attr], load_attr_cga
+    mov byte [crypto_attr], crypto_attr_cga
+    mov byte [ready_attr], ready_attr_cga
+    mov byte [question_attr], question_attr_cga
+    mov byte [error_attr], error_attr_cga
+    mov byte [menu_selected_attr], menu_selected_attr_cga
+    mov byte [menu_idle_attr], menu_idle_attr_cga
+    cmp byte [handoff_addr + handoff_video_mode], 0x07
+    jne .clear
+    or word [handoff_addr + handoff_flags], handoff_flag_mda
+    mov byte [seed_attr], seed_attr_mda
+    mov byte [build_attr], build_attr_mda
+    mov byte [load_attr], load_attr_mda
+    mov byte [crypto_attr], crypto_attr_mda
+    mov byte [ready_attr], ready_attr_mda
+    mov byte [question_attr], question_attr_mda
+    mov byte [error_attr], error_attr_mda
+    mov byte [menu_selected_attr], menu_selected_attr_mda
+    mov byte [menu_idle_attr], menu_idle_attr_mda
+.clear:
+    mov ax, 0x0600
+    mov bh, 0x07
+    xor cx, cx
+    mov dh, 0x18
+    mov dl, [screen_cols]
+    dec dl
+    int 0x10
+
+    mov ah, 0x01
+    mov ch, 0x20
+    mov cl, 0x00
+    int 0x10
     ret
 
 probe_network_card:
@@ -395,10 +479,10 @@ validate_handoff_mac:
 adapter_select_phase:
     mov byte [menu_index], 0
     mov byte [blink_state], 0
-    phase_call_res notify_question
+    call hardware_setup_phase_notify_question
     call .render_adapter_question
 .input:
-    phase_call_res blink_load_marker
+    call hardware_setup_phase_blink_load_marker
     mov ah, 0x01
     int 0x16
     jz .input
@@ -432,7 +516,7 @@ adapter_select_phase:
     mov byte [handoff_addr + handoff_config_source], config_user
     mov byte [handoff_addr + handoff_nic_irq], profile_irq
     or word [handoff_addr + handoff_flags], handoff_flag_config_resolved
-    phase_call_res clear_question_area
+    call hardware_setup_phase_clear_question_area
     mov bl, [load_marker_attr]
     mov al, [load_marker_char]
     phase_call_res show_load_marker
@@ -445,7 +529,7 @@ adapter_select_phase:
     mov [cursor_col], al
     mov bl, [question_attr]
     mov si, low_scratch_start + (adapter_prompt_text - PHASE_BASE)
-    phase_call_res type_z
+    call hardware_setup_phase_type_z
     call .type_adapter_options
     ret
 
@@ -456,7 +540,7 @@ adapter_select_phase:
     mov [cursor_col], al
     mov bl, [menu_selected_attr]
     call .option_a_ptr
-    phase_call_res type_z
+    call hardware_setup_phase_type_z
 
     mov byte [cursor_row], question_row + 1
     mov al, [seed_col]
@@ -464,7 +548,7 @@ adapter_select_phase:
     mov [cursor_col], al
     mov bl, [menu_idle_attr]
     call .option_b_ptr
-    phase_call_res type_z
+    call hardware_setup_phase_type_z
     ret
 
 .draw_adapter_options:
@@ -516,6 +600,21 @@ adapter_select_phase:
 .print_done:
     ret
 
+hardware_setup_phase_type_z:
+    lodsb
+    or al, al
+    jz .type_done
+    call hardware_setup_phase_type_char
+    jmp hardware_setup_phase_type_z
+.type_done:
+    ret
+
+hardware_setup_phase_type_char:
+    phase_call_res print_char
+    mov cx, type_ticks
+    phase_call_res wait_ticks
+    ret
+
 hardware_nic_ports dw 0x250, 0x280, 0x2a0, 0x2c0, 0x2e0
                    dw 0x300, 0x310, 0x320, 0x330, 0x340
                    dw 0x350, 0x360, 0x380, 0x3a0
@@ -525,5 +624,57 @@ adapter_ne2000_text db 'ne2000', 0
 adapter_ne1000_text db 'ne1000', 0
 adapter_3c501_text db '3c501', 0
 adapter_wd8003_text db 'wd8003', 0
+
+hardware_setup_phase_notify_question:
+    mov ax, 6087
+    call hardware_setup_phase_speaker_tone
+    mov cx, 2
+    phase_call_res wait_ticks
+    jmp hardware_setup_phase_speaker_off
+
+hardware_setup_phase_clear_question_area:
+    mov ax, 0x0600
+    mov bh, 0x07
+    mov ch, seed_row
+    xor cl, cl
+    mov dh, question_row + agent_slot_count
+    mov dl, [screen_cols]
+    dec dl
+    int 0x10
+    ret
+
+hardware_setup_phase_blink_load_marker:
+    mov byte [cursor_row], seed_row
+    mov dl, [seed_col]
+    mov [cursor_col], dl
+    mov bl, [load_marker_attr]
+    mov al, [load_marker_char]
+    xor byte [blink_state], 1
+    jnz .show
+    mov al, ' '
+.show:
+    phase_call_res print_char
+    mov cx, 2
+    phase_call_res wait_ticks
+    ret
+
+hardware_setup_phase_speaker_tone:
+    push ax
+    mov al, 0xb6
+    out 0x43, al
+    pop ax
+    out 0x42, al
+    mov al, ah
+    out 0x42, al
+    in al, 0x61
+    or al, 0x03
+    out 0x61, al
+    ret
+
+hardware_setup_phase_speaker_off:
+    in al, 0x61
+    and al, 0xfc
+    out 0x61, al
+    ret
 
 %unmacro phase_call_res 1

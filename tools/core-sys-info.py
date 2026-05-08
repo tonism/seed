@@ -44,6 +44,35 @@ def parse_budget(value: str) -> tuple[str, int, int]:
     return label, ram_top, stack_guard
 
 
+def parse_named_range(value: str) -> tuple[str, int, int]:
+    parts = value.split(":")
+    if len(parts) != 3:
+        raise argparse.ArgumentTypeError("range expects LABEL:START:LENGTH")
+    label = parts[0]
+    if not label:
+        raise argparse.ArgumentTypeError("range label must not be empty")
+    start = parse_int(parts[1])
+    length = parse_int(parts[2])
+    if start < 0:
+        raise argparse.ArgumentTypeError("range start must not be negative")
+    if length < 0:
+        raise argparse.ArgumentTypeError("range length must not be negative")
+    return label, start, length
+
+
+def parse_packed_range(value: str) -> tuple[str, int]:
+    parts = value.split(":")
+    if len(parts) != 2:
+        raise argparse.ArgumentTypeError("packed range expects LABEL:LENGTH")
+    label = parts[0]
+    if not label:
+        raise argparse.ArgumentTypeError("packed range label must not be empty")
+    length = parse_int(parts[1])
+    if length < 0:
+        raise argparse.ArgumentTypeError("packed range length must not be negative")
+    return label, length
+
+
 def u16le(data: bytes, offset: int) -> int:
     return data[offset] | (data[offset + 1] << 8)
 
@@ -150,6 +179,8 @@ def print_budget(
     load_addr: int,
     ram_top: int,
     stack_guard: int,
+    ranges: list[tuple[str, int, int]],
+    packed_ranges: list[tuple[str, int]],
 ) -> bool:
     resident_end = load_addr + info["resident-bytes"]
     raw_slack = ram_top - resident_end
@@ -170,7 +201,36 @@ def print_budget(
     print(f"  resident-guarded-slack: {guarded_slack}")
     print(f"  largest-phase-bytes: {max_phase_bytes}")
     print(f"  largest-phase-end: 0x{max_phase_end:04x}")
-    return guarded_slack >= 0
+
+    ok = guarded_slack >= 0
+    for range_label, start, length in ranges:
+        end = start + length
+        raw_range_slack = ram_top - end
+        guarded_range_slack = guarded_top - end
+        print(f"  range[{range_label}]:")
+        print(f"    start: 0x{start:04x}")
+        print(f"    end: 0x{end:04x}")
+        print(f"    bytes: {length}")
+        print(f"    raw-slack: {raw_range_slack}")
+        print(f"    guarded-slack: {guarded_range_slack}")
+        ok = ok and guarded_range_slack >= 0
+
+    packed_cursor = resident_end
+    for range_label, length in packed_ranges:
+        start = packed_cursor
+        end = start + length
+        packed_cursor = end
+        raw_range_slack = ram_top - end
+        guarded_range_slack = guarded_top - end
+        print(f"  packed-range[{range_label}]:")
+        print(f"    start: 0x{start:04x}")
+        print(f"    end: 0x{end:04x}")
+        print(f"    bytes: {length}")
+        print(f"    raw-slack: {raw_range_slack}")
+        print(f"    guarded-slack: {guarded_range_slack}")
+        ok = ok and guarded_range_slack >= 0
+
+    return ok
 
 
 def main() -> None:
@@ -183,6 +243,23 @@ def main() -> None:
         type=parse_budget,
         default=[],
         help="print a memory budget as LABEL:RAM_TOP[:STACK_GUARD]",
+    )
+    parser.add_argument(
+        "--range",
+        action="append",
+        type=parse_named_range,
+        default=[],
+        help="print a fixed memory range as LABEL:START:LENGTH in each budget",
+    )
+    parser.add_argument(
+        "--packed-range",
+        action="append",
+        type=parse_packed_range,
+        default=[],
+        help=(
+            "print an ideal packed range after resident CORE.SYS as LABEL:LENGTH "
+            "in each budget"
+        ),
     )
     parser.add_argument(
         "--fail-budget",
@@ -218,7 +295,16 @@ def main() -> None:
         budgets_ok = True
         for label, ram_top, stack_guard in args.budget:
             budgets_ok = (
-                print_budget(info, phases, label, args.load_addr, ram_top, stack_guard)
+                print_budget(
+                    info,
+                    phases,
+                    label,
+                    args.load_addr,
+                    ram_top,
+                    stack_guard,
+                    args.range,
+                    args.packed_range,
+                )
                 and budgets_ok
             )
         if args.fail_budget and not budgets_ok:

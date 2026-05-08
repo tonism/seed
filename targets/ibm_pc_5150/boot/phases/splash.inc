@@ -16,18 +16,33 @@ splash_phase:
     mov [cursor_col], al
     mov si, low_scratch_start + (seed_text - PHASE_BASE)
     mov bl, [seed_attr]
-    phase_call_res type_z
+    call splash_phase_type_z
 
     mov al, ' '
     mov bl, [build_attr]
-    phase_call_res type_char
+    call splash_phase_type_char
 
     mov si, low_scratch_start + (build_text - PHASE_BASE)
-    phase_call_res type_z
+    call splash_phase_type_z
 
     mov cx, done_ticks
     phase_call_res wait_ticks
     clc
+    ret
+
+splash_phase_type_z:
+    lodsb
+    or al, al
+    jz .type_done
+    call splash_phase_type_char
+    jmp splash_phase_type_z
+.type_done:
+    ret
+
+splash_phase_type_char:
+    phase_call_res print_char
+    mov cx, type_ticks
+    phase_call_res wait_ticks
     ret
 
 seed_text db 'seed', 0

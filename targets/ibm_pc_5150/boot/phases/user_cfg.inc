@@ -10,7 +10,7 @@
 user_cfg_phase:
     call user_cfg_phase_clear_seed_values
     mov di, low_scratch_start + (user_cfg_phase_name - PHASE_BASE)
-    phase_call_res find_root_file
+    call user_cfg_phase_find_root_file
     jc .failed
     mov ax, [fs_file_cluster]
     mov [seed_cluster], ax
@@ -64,6 +64,13 @@ user_cfg_phase:
     jz .parse_failed
     call .match_agent
     jc .parse_failed
+    cmp byte [seed_agent_id], 'l'
+    jne .key_ready
+    test byte [seed_config_flags], seed_flag_endpoint
+    jz .parse_failed
+.key_ready:
+    test byte [seed_config_flags], seed_flag_key
+    jz .parse_failed
     clc
     ret
 .parse_failed:
@@ -270,6 +277,66 @@ user_cfg_phase:
     ret
 
 user_cfg_phase_name db 'USER    CFG'
+
+user_cfg_phase_find_root_file:
+    mov word [fs_lba], fat_root_start_lba
+    mov word [fs_root_left], fat_root_sectors
+.next_sector:
+    cmp word [fs_root_left], 0
+    je .not_found
+    push ds
+    pop es
+    mov bx, fs_sector_buffer
+    mov ax, [fs_lba]
+    phase_call_res read_abs_sector
+    jc .not_found
+    mov si, fs_sector_buffer
+    mov cx, fat_dir_entries_per_sector
+.next_entry:
+    mov al, [si]
+    or al, al
+    jz .end_marker
+    cmp al, 0xe5
+    je .advance
+    test byte [si + 11], 0x18
+    jnz .advance
+    push si
+    push cx
+    push di
+    mov cx, 11
+.compare:
+    mov al, [si]
+    cmp al, [di]
+    jne .mismatch
+    inc si
+    inc di
+    loop .compare
+    pop di
+    pop cx
+    pop si
+    mov ax, [si + 26]
+    mov [fs_file_cluster], ax
+    mov ax, [si + 28]
+    mov [fs_file_size_low], ax
+    mov ax, [si + 30]
+    mov [fs_file_size_high], ax
+    clc
+    ret
+.mismatch:
+    pop di
+    pop cx
+    pop si
+    jmp .advance
+.advance:
+    add si, fat_dir_entry_size
+    loop .next_entry
+    inc word [fs_lba]
+    dec word [fs_root_left]
+    jmp .next_sector
+.end_marker:
+.not_found:
+    stc
+    ret
 
 user_cfg_phase_clear_seed_values:
     push es

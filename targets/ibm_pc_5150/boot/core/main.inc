@@ -15,23 +15,15 @@ start:
     sti
     cld
 
-    call clear_high_crypto_scratch
-    call clear_critical_scratch
-    call init_handoff
-    call detect_display
-    call clear_screen
-    call hide_cursor
+    call clear_runtime_scratch
+    mov byte [handoff_addr + handoff_boot_drive], dl
+    mov word [handoff_addr + handoff_ram_top], bp
 
 hal_start:
-    call clear_question_area
-    call reset_hal_state
-    mov bl, [load_attr]
-    mov al, '.'
-    call show_load_marker
     call run_hardware_setup_phase
     jc network_error
 
-    call prepare_hal_path
+    call run_packet_io_init_phase
     jc network_setup_error
 
     mov bl, [load_attr]
@@ -65,21 +57,8 @@ agent_setup_error:
 
 show_failure:
     mov [handoff_addr + handoff_status], al
-    mov bl, [error_attr]
-    mov al, [load_marker_char]
-    call show_load_marker
-
     call run_failure_phase
-    or al, al
-    jz hal_start
-    mov word [0x0472], 0x1234
-    jmp 0xffff:0x0000
-
-set_seed_cursor:
-    mov byte [cursor_row], seed_row
-    mov al, [seed_col]
-    mov [cursor_col], al
-    ret
+    jmp hal_start
 
 run_save_user_cfg_phase:
     mov al, (core_save_phase_start - $$) / 512
@@ -184,36 +163,9 @@ run_core_phase_at:
     pop bx
     ret
 
-clear_critical_scratch:
-    push ax
-    push cx
-    push di
-    push es
-    push ds
-    pop es
-    xor ax, ax
-    mov di, critical_scratch_start
-    mov cx, critical_scratch_len / 2
-    rep stosw
-    pop es
-    pop di
-    pop cx
-    pop ax
-    ret
-
-clear_high_crypto_scratch:
-    push ax
-    push cx
-    push di
-    push es
-    push ds
-    pop es
+clear_runtime_scratch:
     xor ax, ax
     mov di, high_crypto_scratch_start
-    mov cx, (high_crypto_scratch_end - high_crypto_scratch_start) / 2
+    mov cx, (critical_scratch_end - high_crypto_scratch_start) / 2
     rep stosw
-    pop es
-    pop di
-    pop cx
-    pop ax
     ret

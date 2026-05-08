@@ -114,7 +114,7 @@ agent_response_phase:
     ret
 
 .api_type_answer:
-    phase_call_res clear_question_area
+    call agent_response_phase_clear_question_area
     mov byte [cursor_row], question_row
     mov al, [seed_col]
     mov [cursor_col], al
@@ -125,10 +125,27 @@ agent_response_phase:
     jcxz .type_done
     lodsb
     push cx
-    phase_call_res type_char
+    call agent_response_phase_type_char
     pop cx
     loop .type_next
 .type_done:
+    ret
+
+agent_response_phase_clear_question_area:
+    mov ax, 0x0600
+    mov bh, 0x07
+    mov ch, seed_row
+    xor cl, cl
+    mov dh, question_row + agent_slot_count
+    mov dl, [screen_cols]
+    dec dl
+    int 0x10
+    ret
+
+agent_response_phase_type_char:
+    phase_call_res print_char
+    mov cx, type_ticks
+    phase_call_res wait_ticks
     ret
 
 api_answer_output_pattern db '"output_text":"', 0

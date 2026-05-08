@@ -17,7 +17,6 @@ core_header_resident_sectors dw (core_resident_end - $$ + 511) / 512
 core_header_total_sectors dw (core_image_end - $$ + 511) / 512
 core_header_phase_table_off dw core_phase_table - $$
 core_header_phase_count dw (core_phase_table_end - core_phase_table) / core_phase_entry_len
-core_header_reserved dw 0
 core_header_end:
 
 %include "core/main.inc"
@@ -159,11 +158,11 @@ core_probe_cfg_phase_start:
 %undef PHASE_BASE
 core_probe_cfg_phase_end:
 
-%if (core_probe_cfg_phase_end - core_probe_cfg_phase_start) > 512
-%error "probe config phase exceeds one sector"
+%if (core_probe_cfg_phase_end - core_probe_cfg_phase_start) > (low_scratch_end - low_scratch_start)
+%error "probe config phase exceeds low scratch window"
 %endif
 
-times 512 - (core_probe_cfg_phase_end - core_probe_cfg_phase_start) db 0
+align 512, db 0
 
 core_agents_cfg_phase_start:
 %define PHASE_BASE core_agents_cfg_phase_start
@@ -171,11 +170,11 @@ core_agents_cfg_phase_start:
 %undef PHASE_BASE
 core_agents_cfg_phase_end:
 
-%if (core_agents_cfg_phase_end - core_agents_cfg_phase_start) > 512
-%error "agents config phase exceeds one sector"
+%if (core_agents_cfg_phase_end - core_agents_cfg_phase_start) > (low_scratch_end - low_scratch_start)
+%error "agents config phase exceeds low scratch window"
 %endif
 
-times 512 - (core_agents_cfg_phase_end - core_agents_cfg_phase_start) db 0
+align 512, db 0
 
 core_user_cfg_phase_start:
 %define PHASE_BASE core_user_cfg_phase_start
