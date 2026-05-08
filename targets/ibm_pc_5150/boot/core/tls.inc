@@ -104,10 +104,6 @@ tls_wait_for_server_hello:
     jb .failed
     cmp byte [si + 2], 0x04
     ja .failed
-    mov al, [si + 1]
-    mov [tls_record_major], al
-    mov al, [si + 2]
-    mov [tls_record_minor], al
     mov ah, [si + 3]
     mov al, [si + 4]
     or ax, ax
@@ -140,10 +136,6 @@ tls_wait_for_server_hello:
     jb .failed
     cmp byte [si + 10], 0x04
     ja .failed
-    mov al, [si + 9]
-    mov [tls_server_major], al
-    mov al, [si + 10]
-    mov [tls_server_minor], al
     push si
     push ds
     pop es
@@ -153,7 +145,6 @@ tls_wait_for_server_hello:
     rep movsb
     pop si
     mov al, [si + 43]
-    mov [tls_server_session_id_len], al
     xor ah, ah
     mov bx, ax
     add ax, 38
@@ -164,13 +155,10 @@ tls_wait_for_server_hello:
     add di, bx
     mov ah, [di]
     mov al, [di + 1]
-    mov [tls_server_cipher], ax
     call tls_classify_cipher_suite
     jc .failed
     cmp byte [di + 2], 0
     jne .failed
-    mov al, [di + 2]
-    mov [tls_server_compression], al
     mov ax, bx
     add ax, 38
     cmp ax, [tls_server_handshake_len]
@@ -180,7 +168,6 @@ tls_wait_for_server_hello:
     ja .failed
     mov ah, [di + 3]
     mov al, [di + 4]
-    mov [tls_server_extensions_len], ax
     mov cx, [tls_server_handshake_len]
     mov dx, bx
     add dx, 40
@@ -193,8 +180,6 @@ tls_wait_for_server_hello:
     jc .failed
     jmp .parsed
 .no_extensions:
-    mov word [tls_server_extensions_len], 0
-    mov byte [tls_server_extension_flags], 0
 .parsed:
     mov si, [tcp_rx_payload_ptr]
     add si, 5
@@ -237,12 +222,9 @@ tls_classify_cipher_suite:
     ret
 .ecdhe_chacha_sha256:
     mov byte [tls_server_key_exchange], tls_kx_ecdhe_rsa
-    mov byte [tls_server_bulk_cipher], tls_bulk_chacha20_poly1305
-    mov byte [tls_server_prf_hash], tls_prf_sha256
     clc
     ret
 tls_parse_server_extensions:
-    mov byte [tls_server_extension_flags], 0
 .next:
     or cx, cx
     jz .done
@@ -271,8 +253,6 @@ tls_parse_server_extensions:
 tls_note_server_extension:
     cmp ax, 0x000b
     je .ec_point_formats
-    cmp ax, 0x0017
-    je .extended_master_secret
     cmp ax, 0xff01
     je .renegotiation_info
     cmp ax, 0x0023
@@ -293,13 +273,6 @@ tls_note_server_extension:
     cmp dx, bx
     pop dx
     jne .failed
-    or byte [tls_server_extension_flags], tls_ext_ec_point_formats
-    clc
-    ret
-.extended_master_secret:
-    or bx, bx
-    jnz .failed
-    or byte [tls_server_extension_flags], tls_ext_extended_master_secret
     clc
     ret
 .renegotiation_info:
@@ -307,15 +280,12 @@ tls_note_server_extension:
     jne .failed
     cmp byte [si], 0
     jne .failed
-    or byte [tls_server_extension_flags], tls_ext_renegotiation_info
     clc
     ret
 .session_ticket:
-    or byte [tls_server_extension_flags], tls_ext_session_ticket
     clc
     ret
 .alpn:
-    or byte [tls_server_extension_flags], tls_ext_alpn
     clc
     ret
 .supported_versions:
@@ -325,7 +295,6 @@ tls_note_server_extension:
     jne .failed
     cmp byte [si + 1], 0x03
     jne .failed
-    or byte [tls_server_extension_flags], tls_ext_supported_versions
     clc
     ret
 .failed:
@@ -664,8 +633,6 @@ tls_wait_for_server_key_exchange_or_done:
 tls_prepare_early_key_schedule:
     cmp byte [handoff_addr + handoff_nic_family], family_3c501
     jne .done
-    test byte [tls_server_extension_flags], tls_ext_extended_master_secret
-    jnz .done
     call tls_prepare_premaster_secret
     jc .failed
     call tls_prepare_master_secret
@@ -761,8 +728,6 @@ tls_prepare_key_block:
     ret
 
 tls_build_master_secret_seed:
-    test byte [tls_server_extension_flags], tls_ext_extended_master_secret
-    jnz tls_build_extended_master_secret_seed
     push cx
     push si
     push di
@@ -780,32 +745,6 @@ tls_build_master_secret_seed:
     mov cx, tls_random_len
     rep movsb
     mov word [tls_prf_seed_len], tls_label_master_secret_len + tls_random_len + tls_random_len
-    pop es
-    pop di
-    pop si
-    pop cx
-    ret
-
-tls_build_extended_master_secret_seed:
-    call sha256_save_context
-    mov di, tls_handshake_hash
-    call sha256_finish
-    call sha256_restore_context
-
-    push cx
-    push si
-    push di
-    push es
-    push ds
-    pop es
-    mov di, tls_prf_seed
-    mov si, tls_label_extended_master_secret
-    mov cx, tls_label_extended_master_secret_len
-    rep movsb
-    mov si, tls_handshake_hash
-    mov cx, sha256_digest_len
-    rep movsb
-    mov word [tls_prf_seed_len], tls_label_extended_master_secret_len + sha256_digest_len
     pop es
     pop di
     pop si

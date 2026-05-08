@@ -41,7 +41,7 @@ tcp_resolve_target_name:
     cmp byte [handoff_addr + handoff_net_status], net_status_arp_resolved
     jne .failed
     call ne_flush_receive_frames
-    phase_call_res ne_transmit_dns_query
+    call ne_transmit_dns_query
     jc .done
     call ne_wait_for_dns_response
     cmp byte [handoff_addr + handoff_net_status], net_status_dns_response_received
@@ -159,7 +159,7 @@ ne_resolve_arp_target:
     clc
     ret
 .have_target:
-    phase_call_res ne_transmit_arp_request
+    call ne_transmit_arp_request
     jc .done
     call ne_wait_for_arp_reply
 .done:
@@ -255,6 +255,147 @@ ne_wait_for_tcp_synack:
     mov byte [handoff_addr + handoff_net_status], net_status_tcp_synack_received
     mov byte [handoff_addr + handoff_net_error], net_error_none
     clc
+    ret
+
+ne_transmit_arp_request:
+    call build_arp_request_frame
+
+    mov si, ne_tx_frame
+    mov cx, arp_tx_frame_len
+    phase_call_res ne_transmit_frame
+    jc .done
+    mov al, [arp_status_sent]
+    mov [handoff_addr + handoff_net_status], al
+.done:
+    ret
+
+ne_transmit_dns_query:
+    call build_dns_query_frame
+
+    mov si, ne_tx_frame
+    mov cx, [dns_tx_len]
+    phase_call_res ne_transmit_frame
+    jc .done
+    mov byte [handoff_addr + handoff_net_status], net_status_dns_query_sent
+.done:
+    ret
+
+build_arp_request_frame:
+    mov di, ne_tx_frame
+    xor al, al
+    mov cx, arp_tx_frame_len
+    rep stosb
+
+    mov di, ne_tx_frame
+    mov al, 0xff
+    mov cx, 6
+    rep stosb
+
+    mov si, handoff_addr + handoff_mac
+    mov cx, 6
+    rep movsb
+
+    mov ax, 0x0608
+    stosw
+    mov ax, 0x0100
+    stosw
+    mov ax, 0x0008
+    stosw
+    mov ax, 0x0406
+    stosw
+    mov ax, 0x0100
+    stosw
+
+    mov si, handoff_addr + handoff_mac
+    mov cx, 6
+    rep movsb
+
+    mov si, handoff_addr + handoff_ip_addr
+    mov cx, 4
+    rep movsb
+
+    xor al, al
+    mov cx, 6
+    rep stosb
+
+    mov si, arp_target_ip
+    mov cx, 4
+    rep movsb
+    ret
+
+build_dns_query_frame:
+    mov di, ne_tx_frame
+    xor al, al
+    mov cx, dns_tx_frame_max_len
+    rep stosb
+
+    mov di, ne_tx_frame
+    mov si, arp_target_mac
+    mov cx, 6
+    rep movsb
+
+    mov si, handoff_addr + handoff_mac
+    mov cx, 6
+    rep movsb
+
+    mov ax, 0x0008
+    stosw
+
+    mov ax, 0x0045
+    stosw
+    mov al, [dns_qname_len]
+    xor ah, ah
+    add ax, ipv4_header_len + udp_header_len + dns_payload_base_len
+    xchg al, ah
+    stosw
+    xor ax, ax
+    stosw
+    stosw
+    mov ax, 0x1140
+    stosw
+    xor ax, ax
+    stosw
+
+    mov si, handoff_addr + handoff_ip_addr
+    mov cx, 4
+    rep movsb
+
+    mov si, handoff_addr + handoff_dns_addr
+    mov cx, 4
+    rep movsb
+
+    mov ax, 0x01c0
+    stosw
+    mov ax, 0x3500
+    stosw
+    mov al, [dns_qname_len]
+    xor ah, ah
+    add ax, udp_header_len + dns_payload_base_len
+    xchg al, ah
+    stosw
+    xor ax, ax
+    stosw
+
+    mov ax, dns_query_id_word
+    stosw
+    mov ax, 0x0001
+    stosw
+    mov ax, 0x0100
+    stosw
+    xor ax, ax
+    stosw
+    stosw
+    stosw
+    mov si, dns_qname
+    mov cl, [dns_qname_len]
+    xor ch, ch
+    rep movsb
+    mov ax, 0x0100
+    stosw
+    mov ax, 0x0100
+    stosw
+
+    phase_call_res write_ipv4_checksum
     ret
 
 parse_arp_reply:

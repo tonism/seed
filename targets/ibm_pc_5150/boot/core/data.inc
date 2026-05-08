@@ -70,8 +70,6 @@ tls_buffered_payload_ptr dw 0
 tls_buffered_payload_len dw 0
 tls_server_record_len dw 0
 tls_server_handshake_len dw 0
-tls_server_extensions_len dw 0
-tls_server_cipher dw 0
 tls_server_certificate_record_len dw 0
 tls_server_certificate_total_len dw 0
 tls_server_next_record_len dw 0
@@ -92,10 +90,7 @@ tls_app_chunk_len dw 0
 tls_app_sent db 0
 tls_prepared_app_len dw 0
 api_body_len dw 0
-api_answer_ptr dw 0
-api_answer_len dw 0
 api_receive_tries db 0
-api_decimal_started db 0
 tls_app_content_type db 0
 tls_random_state dw 0
 tls_transcript_len_low dw 0
@@ -139,16 +134,7 @@ poly_i db 0
 poly_j db 0
 tls_server_certificate_len_low dw 0
 tls_server_certificate_list_len_low dw 0
-tls_record_major db 0
-tls_record_minor db 0
-tls_server_major db 0
-tls_server_minor db 0
-tls_server_session_id_len db 0
-tls_server_compression db 0
-tls_server_extension_flags db 0
 tls_server_key_exchange db 0
-tls_server_bulk_cipher db 0
-tls_server_prf_hash db 0
 tls_server_next_handshake_type db 0
 tls_server_next_handshake_len_high db 0
 tls_server_key_public_len db 0
@@ -194,7 +180,7 @@ low_file_scratch_end equ fs_sector_buffer + 512
 %if low_file_scratch_end > low_scratch_end
 %error "low packet scratch arena overflow"
 %endif
-tls_rx_copy times tls_stream_buffer_len db 0
+tls_rx_copy equ critical_scratch_start
 
 ; The second receive-buffer payload is only needed after the request has been
 ; sent. Until then it can hold setup/request scratch without reducing the
@@ -238,31 +224,31 @@ sha256_t1 dw 0, 0
 sha256_t2 dw 0, 0
 sha256_new_e dw 0, 0
 sha256_tmp dw 0, 0
-sha256_block times 64 db 0
-sha256_w times 128 dw 0
-tls_client_write_key times tls_chacha_key_len db 0
-tls_server_write_key times tls_chacha_key_len db 0
-tls_client_write_iv times tls_chacha_iv_len db 0
-tls_server_write_iv times tls_chacha_iv_len db 0
-tls_client_record_seq times tls_client_record_seq_len db 0
-tls_server_record_seq times tls_server_record_seq_len db 0
-tls_client_nonce times tls_chacha_iv_len db 0
-tls_aead_aad times tls_aead_aad_len db 0
-tls_finished_plain times tls_finished_plain_len db 0
-tls_finished_cipher times tls_finished_cipher_len db 0
-tls_finished_tag times 16 db 0
-tls_received_tag times 16 db 0
-p256_lhs times p256_word_len db 0
-p256_rhs times p256_word_len db 0
-p256_tmp times p256_word_len db 0
-p256_jac_x times p256_word_len db 0
-p256_jac_y times p256_word_len db 0
-p256_jac_z times p256_word_len db 0
-p256_s0 times p256_word_len db 0
-p256_s1 times p256_word_len db 0
-p256_s2 times p256_word_len db 0
-p256_s3 times poly1305_product_len db 0
-p256_s5 times poly1305_value_len db 0
+sha256_block equ high_sha256_block
+sha256_w equ high_sha256_w
+tls_client_write_key equ high_tls_client_write_key
+tls_server_write_key equ high_tls_server_write_key
+tls_client_write_iv equ high_tls_client_write_iv
+tls_server_write_iv equ high_tls_server_write_iv
+tls_client_record_seq equ high_tls_client_record_seq
+tls_server_record_seq equ high_tls_server_record_seq
+tls_client_nonce equ high_tls_client_nonce
+tls_aead_aad equ high_tls_aead_aad
+tls_finished_plain equ high_tls_finished_plain
+tls_finished_cipher equ high_tls_finished_cipher
+tls_finished_tag equ high_tls_finished_tag
+tls_received_tag equ high_tls_received_tag
+p256_lhs equ high_p256_lhs
+p256_rhs equ high_p256_rhs
+p256_tmp equ high_p256_tmp
+p256_jac_x equ high_p256_jac_x
+p256_jac_y equ high_p256_jac_y
+p256_jac_z equ high_p256_jac_z
+p256_s0 equ high_p256_s0
+p256_s1 equ high_p256_s1
+p256_s2 equ high_p256_s2
+p256_s3 equ high_p256_s3
+p256_s5 equ high_p256_s5
 agent_ids equ p256_lhs
 tls_premaster_secret equ p256_lhs
 tls_key_block equ p256_lhs
@@ -278,11 +264,6 @@ poly_value equ p256_s5
 dns_default_qname db 7, 'example', 3, 'com', 0
 dns_qname db 7, 'example', 3, 'com', 0
            times dns_qname_max_len - dns_qname_default_len db 0
-agent_prefix_text db 'agent ', 0
-model_prefix_text db 'model ', 0
-reasoning_prefix_text db 'reasoning ', 0
-key_prefix_text db 'key ', 0
-endpoint_prefix_text db 'endpoint ', 0
 tls_random db 'SEEDBUILD6TLSCLIENTHELLO00000000'
 tls_after_random db 0
                  db 0, 2
@@ -310,8 +291,6 @@ tls_client_ec_public db 0x04
                      db 0xcb, 0xb6, 0x40, 0x68, 0x37, 0xbf, 0x51, 0xf5
 tls_label_master_secret db 'master secret'
 tls_label_master_secret_len equ $ - tls_label_master_secret
-tls_label_extended_master_secret db 'extended master secret'
-tls_label_extended_master_secret_len equ $ - tls_label_extended_master_secret
 tls_label_key_expansion db 'key expansion'
 tls_label_key_expansion_len equ $ - tls_label_key_expansion
 tls_label_client_finished db 'client finished'

@@ -43,7 +43,23 @@ core_header_end:
 
 core_resident_end:
 
-%if (core_resident_end - $$) > (runtime_stack_top - runtime_stack_guard_len - 0x1000)
+%if (core_resident_end - $$) > (critical_scratch_start - core_load_addr)
+%error "resident nucleus overlaps critical scratch"
+%endif
+
+%if (core_resident_end - $$) > (high_crypto_scratch_start - core_load_addr)
+%error "resident nucleus overlaps high crypto scratch"
+%endif
+
+%if high_crypto_scratch_end > critical_scratch_start
+%error "high crypto scratch overlaps critical scratch"
+%endif
+
+%if critical_scratch_end > (basic_sidecar_stack_top_24k - basic_sidecar_stack_guard_len_24k)
+%error "critical scratch overlaps 24KB BASIC stack guard"
+%endif
+
+%if (core_resident_end - $$) > (runtime_stack_top - runtime_stack_guard_len - core_load_addr)
 %error "CORE.SYS exceeds 32KB runtime stack guard"
 %endif
 
@@ -72,6 +88,18 @@ core_hardware_setup_phase_end:
 %endif
 
 align 512, db 0
+
+core_packet_io_init_phase_start:
+%define PHASE_BASE core_packet_io_init_phase_start
+%include "phases/packet_io_init.inc"
+%undef PHASE_BASE
+core_packet_io_init_phase_end:
+
+%if (core_packet_io_init_phase_end - core_packet_io_init_phase_start) > 512
+%error "packet IO init phase exceeds one sector"
+%endif
+
+times 512 - (core_packet_io_init_phase_end - core_packet_io_init_phase_start) db 0
 
 core_dhcp_setup_phase_start:
 %define PHASE_BASE core_dhcp_setup_phase_start
@@ -212,6 +240,11 @@ core_phase_table:
     db 'H', 0
     dw (core_hardware_setup_phase_start - $$) / 512
     dw (core_hardware_setup_phase_end - core_hardware_setup_phase_start + 511) / 512
+    dw low_scratch_start
+    dw 0
+    db 'I', 0
+    dw (core_packet_io_init_phase_start - $$) / 512
+    dw (core_packet_io_init_phase_end - core_packet_io_init_phase_start + 511) / 512
     dw low_scratch_start
     dw 0
     db 'D', 0

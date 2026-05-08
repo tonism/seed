@@ -16,12 +16,12 @@
 %endif
 
 dhcp_setup_phase:
-    phase_call_res ne_transmit_dhcp_discover
+    call ne_transmit_dhcp_discover
     jc .failed
     call ne_wait_for_dhcp_offer
     cmp byte [handoff_addr + handoff_net_status], net_status_dhcp_offer_received
     jne .failed
-    phase_call_res ne_transmit_dhcp_request
+    call ne_transmit_dhcp_request
     jc .failed
     call ne_wait_for_dhcp_ack
     cmp byte [handoff_addr + handoff_net_status], net_status_dhcp_ack_received
@@ -90,10 +90,214 @@ ne_wait_for_dhcp_ack:
     clc
     ret
 
+ne_transmit_dhcp_discover:
+    call build_dhcp_discover_frame
+
+    mov si, ne_tx_frame
+    mov cx, dhcp_frame_len
+    phase_call_res ne_transmit_frame
+    jc .done
+    mov byte [handoff_addr + handoff_net_status], net_status_dhcp_discover_sent
+.done:
+    ret
+
+ne_transmit_dhcp_request:
+    call build_dhcp_request_frame
+
+    mov si, ne_tx_frame
+    mov cx, dhcp_frame_len
+    phase_call_res ne_transmit_frame
+    jc .done
+    mov byte [handoff_addr + handoff_net_status], net_status_dhcp_request_sent
+.done:
+    ret
+
+build_dhcp_discover_frame:
+    call build_dhcp_base_frame
+
+    mov al, 53
+    stosb
+    mov al, 1
+    stosb
+    stosb
+
+    mov al, 55
+    stosb
+    mov al, 3
+    stosb
+    mov al, 1
+    stosb
+    mov al, 3
+    stosb
+    mov al, 6
+    stosb
+
+    mov al, 61
+    stosb
+    mov al, 7
+    stosb
+    mov al, 1
+    stosb
+    mov si, handoff_addr + handoff_mac
+    mov cx, 6
+    rep movsb
+
+    mov al, 57
+    stosb
+    mov al, 2
+    stosb
+    stosb
+    mov al, 64
+    stosb
+
+    mov al, 255
+    stosb
+    ret
+
+build_dhcp_request_frame:
+    call build_dhcp_base_frame
+
+    mov al, 53
+    stosb
+    mov al, 1
+    stosb
+    mov al, 3
+    stosb
+
+    mov al, 50
+    stosb
+    mov al, 4
+    stosb
+    mov si, handoff_addr + handoff_ip_addr
+    mov cx, 4
+    rep movsb
+
+    mov al, 54
+    stosb
+    mov al, 4
+    stosb
+    mov si, dhcp_server_addr
+    mov cx, 4
+    rep movsb
+
+    mov al, 61
+    stosb
+    mov al, 7
+    stosb
+    mov al, 1
+    stosb
+    mov si, handoff_addr + handoff_mac
+    mov cx, 6
+    rep movsb
+
+    xor al, al
+    stosb
+    mov al, 255
+    stosb
+    ret
+
+build_dhcp_base_frame:
+    mov di, ne_tx_frame
+    xor al, al
+    mov cx, dhcp_frame_len
+    rep stosb
+
+    mov di, ne_tx_frame
+    mov al, 0xff
+    mov cx, 6
+    rep stosb
+
+    mov si, handoff_addr + handoff_mac
+    mov cx, 6
+    rep movsb
+
+    mov al, 0x08
+    stosb
+    xor al, al
+    stosb
+
+    mov al, 0x45
+    stosb
+    xor al, al
+    stosb
+    mov al, dhcp_ip_len >> 8
+    stosb
+    mov al, dhcp_ip_len & 0xff
+    stosb
+    xor ax, ax
+    stosw
+    stosw
+    mov al, 64
+    stosb
+    mov al, 17
+    stosb
+    mov al, dhcp_ip_checksum >> 8
+    stosb
+    mov al, dhcp_ip_checksum & 0xff
+    stosb
+    xor al, al
+    mov cx, 4
+    rep stosb
+    mov al, 0xff
+    mov cx, 4
+    rep stosb
+
+    xor al, al
+    stosb
+    mov al, 68
+    stosb
+    xor al, al
+    stosb
+    mov al, 67
+    stosb
+    mov al, dhcp_udp_len >> 8
+    stosb
+    mov al, dhcp_udp_len & 0xff
+    stosb
+    xor ax, ax
+    stosw
+
+    mov al, 1
+    stosb
+    stosb
+    mov al, 6
+    stosb
+    xor al, al
+    stosb
+    mov al, 'S'
+    stosb
+    mov al, 'E'
+    stosb
+    stosb
+    mov al, 'D'
+    stosb
+    xor ax, ax
+    stosw
+    mov al, 0x80
+    stosb
+    xor al, al
+    stosb
+    add di, 16
+
+    mov si, handoff_addr + handoff_mac
+    mov cx, 6
+    rep movsb
+    add di, 10 + 64 + 128
+
+    mov al, 99
+    stosb
+    mov al, 130
+    stosb
+    mov al, 83
+    stosb
+    mov al, 99
+    stosb
+    ret
+
 parse_dhcp_offer:
     cmp word [ne_rx_sample_count], dhcp_options_offset + 3
     jb .not_offer
-    phase_call_res dhcp_reply_prefix_matches
+    call dhcp_reply_prefix_matches
     jc .not_offer
 
     mov si, ne_tx_frame + dhcp_chaddr_offset
@@ -218,7 +422,7 @@ parse_dhcp_offer:
 parse_dhcp_ack:
     cmp word [ne_rx_sample_count], dhcp_options_offset + 3
     jb .not_ack
-    phase_call_res dhcp_reply_prefix_matches
+    call dhcp_reply_prefix_matches
     jc .not_ack
 
     mov si, ne_tx_frame + dhcp_chaddr_offset
@@ -286,6 +490,31 @@ parse_dhcp_ack:
     clc
     ret
 .not_ack:
+    stc
+    ret
+
+dhcp_reply_prefix_matches:
+    cmp word [ne_tx_frame + 12], 0x0008
+    jne .no
+    cmp byte [ne_tx_frame + eth_header_len + 9], 17
+    jne .no
+    cmp word [ne_tx_frame + eth_header_len + ipv4_header_len], 0x4300
+    jne .no
+    cmp word [ne_tx_frame + eth_header_len + ipv4_header_len + 2], 0x4400
+    jne .no
+    cmp byte [ne_tx_frame + dhcp_bootp_offset], 2
+    jne .no
+    cmp byte [ne_tx_frame + dhcp_bootp_offset + 1], 1
+    jne .no
+    cmp byte [ne_tx_frame + dhcp_bootp_offset + 2], 6
+    jne .no
+    cmp word [ne_tx_frame + dhcp_bootp_offset + 4], 0x4553
+    jne .no
+    cmp word [ne_tx_frame + dhcp_bootp_offset + 6], 0x4445
+    jne .no
+    clc
+    ret
+.no:
     stc
     ret
 

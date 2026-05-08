@@ -15,6 +15,8 @@ start:
     sti
     cld
 
+    call clear_high_crypto_scratch
+    call clear_critical_scratch
     call init_handoff
     call detect_display
     call clear_screen
@@ -87,6 +89,11 @@ run_save_user_cfg_phase:
 run_hardware_setup_phase:
     mov ax, (core_hardware_setup_phase_start - $$) / 512
     mov cx, (core_hardware_setup_phase_end - core_hardware_setup_phase_start + 511) / 512
+    jmp run_core_phase
+
+run_packet_io_init_phase:
+    mov ax, (core_packet_io_init_phase_start - $$) / 512
+    mov cx, (core_packet_io_init_phase_end - core_packet_io_init_phase_start + 511) / 512
     jmp run_core_phase
 
 run_failure_phase:
@@ -168,4 +175,38 @@ run_core_phase_at:
     ret
 .read_failed:
     pop bx
+    ret
+
+clear_critical_scratch:
+    push ax
+    push cx
+    push di
+    push es
+    push ds
+    pop es
+    xor ax, ax
+    mov di, critical_scratch_start
+    mov cx, critical_scratch_len / 2
+    rep stosw
+    pop es
+    pop di
+    pop cx
+    pop ax
+    ret
+
+clear_high_crypto_scratch:
+    push ax
+    push cx
+    push di
+    push es
+    push ds
+    pop es
+    xor ax, ax
+    mov di, high_crypto_scratch_start
+    mov cx, (high_crypto_scratch_end - high_crypto_scratch_start) / 2
+    rep stosw
+    pop es
+    pop di
+    pop cx
+    pop ax
     ret

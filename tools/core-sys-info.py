@@ -17,6 +17,31 @@ PHASE_TABLE_OFF_OFFSET = 19
 PHASE_COUNT_OFFSET = 21
 SECTOR_SIZE = 512
 PHASE_ENTRY_SIZE = 10
+DEFAULT_LOAD_ADDR = 0x1000
+
+
+def parse_int(value: str) -> int:
+    return int(value, 0)
+
+
+def parse_budget(value: str) -> tuple[str, int, int]:
+    parts = value.split(":")
+    if len(parts) not in (2, 3):
+        raise argparse.ArgumentTypeError(
+            "--budget expects LABEL:RAM_TOP or LABEL:RAM_TOP:STACK_GUARD"
+        )
+    label = parts[0]
+    if not label:
+        raise argparse.ArgumentTypeError("budget label must not be empty")
+    ram_top = parse_int(parts[1])
+    stack_guard = parse_int(parts[2]) if len(parts) == 3 else 0
+    if ram_top <= 0:
+        raise argparse.ArgumentTypeError("budget RAM top must be positive")
+    if stack_guard < 0:
+        raise argparse.ArgumentTypeError("budget stack guard must not be negative")
+    if stack_guard >= ram_top:
+        raise argparse.ArgumentTypeError("budget stack guard must be below RAM top")
+    return label, ram_top, stack_guard
 
 
 def u16le(data: bytes, offset: int) -> int:
@@ -43,6 +68,9 @@ def read_core(path: Path) -> dict[str, int]:
         "header-len": header_len,
         "resident-sectors": resident_sectors,
         "resident-bytes": resident_sectors * SECTOR_SIZE,
+        "resident-nonzero-bytes": len(
+            data[: resident_sectors * SECTOR_SIZE].rstrip(b"\x00")
+        ),
         "total-sectors": total_sectors,
         "actual-total-sectors": actual_total_sectors,
         "phase-table-off": u16le(data, PHASE_TABLE_OFF_OFFSET),
@@ -101,6 +129,7 @@ def print_info(path: Path, info: dict[str, int]) -> None:
         "header-len",
         "resident-sectors",
         "resident-bytes",
+        "resident-nonzero-bytes",
         "total-sectors",
         "phase-table-off",
         "phase-count",
@@ -114,9 +143,52 @@ def print_info(path: Path, info: dict[str, int]) -> None:
         )
 
 
+def print_budget(
+    info: dict[str, int],
+    phases: list[dict[str, int | str]],
+    label: str,
+    load_addr: int,
+    ram_top: int,
+    stack_guard: int,
+) -> bool:
+    resident_end = load_addr + info["resident-bytes"]
+    raw_slack = ram_top - resident_end
+    guarded_top = ram_top - stack_guard
+    guarded_slack = guarded_top - resident_end
+    max_phase_bytes = max((int(phase["sectors"]) * SECTOR_SIZE for phase in phases), default=0)
+    max_phase_end = max(
+        (int(phase["load-addr"]) + int(phase["sectors"]) * SECTOR_SIZE for phase in phases),
+        default=0,
+    )
+
+    print(f"budget[{label}]:")
+    print(f"  load-addr: 0x{load_addr:04x}")
+    print(f"  ram-top: 0x{ram_top:04x}")
+    print(f"  stack-guard: {stack_guard}")
+    print(f"  resident-end: 0x{resident_end:04x}")
+    print(f"  resident-raw-slack: {raw_slack}")
+    print(f"  resident-guarded-slack: {guarded_slack}")
+    print(f"  largest-phase-bytes: {max_phase_bytes}")
+    print(f"  largest-phase-end: 0x{max_phase_end:04x}")
+    return guarded_slack >= 0
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("core_sys", type=Path)
+    parser.add_argument("--load-addr", type=parse_int, default=DEFAULT_LOAD_ADDR)
+    parser.add_argument(
+        "--budget",
+        action="append",
+        type=parse_budget,
+        default=[],
+        help="print a memory budget as LABEL:RAM_TOP[:STACK_GUARD]",
+    )
+    parser.add_argument(
+        "--fail-budget",
+        action="store_true",
+        help="exit nonzero if any requested budget has negative guarded slack",
+    )
     parser.add_argument(
         "--field",
         choices=(
@@ -126,6 +198,7 @@ def main() -> None:
             "header-len",
             "resident-sectors",
             "resident-bytes",
+            "resident-nonzero-bytes",
             "total-sectors",
             "phase-table-off",
             "phase-count",
@@ -141,6 +214,15 @@ def main() -> None:
         print(info[args.field])
     else:
         print_info(args.core_sys, info)
+        phases = read_phases(args.core_sys, info)
+        budgets_ok = True
+        for label, ram_top, stack_guard in args.budget:
+            budgets_ok = (
+                print_budget(info, phases, label, args.load_addr, ram_top, stack_guard)
+                and budgets_ok
+            )
+        if args.fail_budget and not budgets_ok:
+            raise SystemExit(1)
 
 
 if __name__ == "__main__":

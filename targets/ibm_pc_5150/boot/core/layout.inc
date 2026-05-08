@@ -3,6 +3,7 @@
 %endif
 
 build_number equ 6
+core_load_addr equ 0x1000
 handoff_addr equ 0x0600
 runtime_stack_top equ 0x8000
 runtime_stack_guard_len equ 1536
@@ -10,6 +11,8 @@ low_scratch_start equ 0x0700
 low_scratch_end equ 0x1000
 net_setup_frame_scratch_len equ 512
 net_setup_phase_start equ low_scratch_start + net_setup_frame_scratch_len
+basic_sidecar_stack_top_24k equ 0x6000
+basic_sidecar_stack_guard_len_24k equ 0x0100
 handoff_magic equ 0
 handoff_version equ 4
 handoff_size equ 5
@@ -262,6 +265,9 @@ tcp_payload_offset equ tcp_offset + 20
 tcp_payload_max_len equ 1460
 tcp_payload_read_len equ tcp_payload_offset + tcp_payload_max_len
 tls_stream_buffer_len equ tcp_payload_read_len * 2
+critical_scratch_start equ 0x5000
+critical_scratch_len equ tls_stream_buffer_len
+critical_scratch_end equ critical_scratch_start + critical_scratch_len
 tcp_source_port_word equ 0x02c0
 tcp_port_http_word equ 0x5000
 tcp_port_https_word equ 0xbb01
@@ -275,12 +281,6 @@ tls_random_len equ 32
 tls_after_random_len equ 7
 tls_extensions_prefix_len equ 5
 tls_extensions_tail_len equ 68
-tls_ext_ec_point_formats equ 0x01
-tls_ext_extended_master_secret equ 0x02
-tls_ext_renegotiation_info equ 0x04
-tls_ext_session_ticket equ 0x08
-tls_ext_alpn equ 0x10
-tls_ext_supported_versions equ 0x20
 tls_transcript_clienthello equ 0x01
 tls_transcript_serverhello equ 0x02
 tls_transcript_certificate equ 0x04
@@ -332,6 +332,33 @@ p256_word_count equ 16
 p256_word_len equ p256_word_count * 2
 p256_product_word_count equ p256_word_count * 2
 p256_product_word_len equ p256_product_word_count * 2
+high_crypto_scratch_start equ 0x4c00
+high_sha256_block equ high_crypto_scratch_start
+high_sha256_w equ high_sha256_block + sha256_block_size
+high_tls_client_write_key equ high_sha256_w + 256
+high_tls_server_write_key equ high_tls_client_write_key + tls_chacha_key_len
+high_tls_client_write_iv equ high_tls_server_write_key + tls_chacha_key_len
+high_tls_server_write_iv equ high_tls_client_write_iv + tls_chacha_iv_len
+high_tls_client_record_seq equ high_tls_server_write_iv + tls_chacha_iv_len
+high_tls_server_record_seq equ high_tls_client_record_seq + tls_client_record_seq_len
+high_tls_client_nonce equ high_tls_server_record_seq + tls_server_record_seq_len
+high_tls_aead_aad equ high_tls_client_nonce + tls_chacha_iv_len
+high_tls_finished_plain equ high_tls_aead_aad + tls_aead_aad_len + 1
+high_tls_finished_cipher equ high_tls_finished_plain + tls_finished_plain_len
+high_tls_finished_tag equ high_tls_finished_cipher + tls_finished_cipher_len
+high_tls_received_tag equ high_tls_finished_tag + tls_aead_tag_len
+high_p256_lhs equ high_tls_received_tag + tls_aead_tag_len
+high_p256_rhs equ high_p256_lhs + p256_word_len
+high_p256_tmp equ high_p256_rhs + p256_word_len
+high_p256_jac_x equ high_p256_tmp + p256_word_len
+high_p256_jac_y equ high_p256_jac_x + p256_word_len
+high_p256_jac_z equ high_p256_jac_y + p256_word_len
+high_p256_s0 equ high_p256_jac_z + p256_word_len
+high_p256_s1 equ high_p256_s0 + p256_word_len
+high_p256_s2 equ high_p256_s1 + p256_word_len
+high_p256_s3 equ high_p256_s2 + p256_word_len
+high_p256_s5 equ high_p256_s3 + poly1305_product_len
+high_crypto_scratch_end equ high_p256_s5 + poly1305_value_len
 wd_saprom equ 0x08
 fat_root_start_lba equ LOADER_SECTORS + 3
 fat_fat_start_lba equ LOADER_SECTORS + 1

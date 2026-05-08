@@ -38,6 +38,7 @@ KEY_CODES = {
     "&": (26, True),
     "$": (21, True),
     "+": (24, True),
+    "*": (28, True),
     "0": (29, False),
     "1": (18, False),
     "2": (19, False),
@@ -233,12 +234,17 @@ def rewrite_vm_config(config: Path, ram_kib: int, floppy: Path, rom_basic: bool)
             continue
 
         if in_floppy_section:
+            if stripped.startswith("fdd_01_check_bpb ="):
+                if rom_basic:
+                    continue
+                out.append(line)
+                continue
             if stripped.startswith("fdd_01_fn ="):
                 if not rom_basic:
                     out.append(f"fdd_01_fn = {floppy}")
                 continue
             if stripped.startswith("fdd_01_type ="):
-                out.append("fdd_01_type = 525_1dd")
+                out.append("fdd_01_type = none" if rom_basic else "fdd_01_type = 525_1dd")
                 continue
             if stripped.startswith("fdd_02_check_bpb ="):
                 if not rom_basic:

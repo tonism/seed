@@ -108,7 +108,7 @@ agent_request_phase:
     ret
 
 .append_u16_decimal:
-    mov byte [api_decimal_started], 0
+    xor cx, cx
     mov bx, 100
     xor dx, dx
     div bx
@@ -116,13 +116,13 @@ agent_request_phase:
     jz .tens
     add al, '0'
     stosb
-    mov byte [api_decimal_started], 1
+    inc cx
 .tens:
     mov ax, dx
     mov bx, 10
     xor dx, dx
     div bx
-    cmp byte [api_decimal_started], 0
+    or cx, cx
     jne .write_tens
     or ax, ax
     jz .ones

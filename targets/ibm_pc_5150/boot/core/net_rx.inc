@@ -47,23 +47,6 @@ ne_try_receive_frame:
 .sample_count_ready:
     mov [ne_rx_sample_count], ax
 
-.filter_dhcp:
-    cmp word [ne_rx_read_limit], dhcp_rx_frame_len
-    jne .read_frame
-    cmp ax, dhcp_filter_len
-    jb .release_empty
-    push ax
-    mov bl, ne_rx_header_len
-    mov bh, [ne_next_page]
-    mov cx, dhcp_filter_len
-    mov di, ne_tx_frame
-    call ne_remote_read_bytes
-    jc .prefix_dma_failed
-    call dhcp_reply_prefix_matches
-    pop ax
-    jc .release_empty
-
-.read_frame:
     mov bl, ne_rx_header_len
     mov bh, [ne_next_page]
     mov cx, ax
@@ -78,16 +61,9 @@ ne_try_receive_frame:
     clc
     ret
 
-.release_empty:
-    mov word [ne_rx_sample_count], 0
-    jmp .release_frame
-
 .count_failed:
     mov byte [handoff_addr + handoff_net_error], net_error_ne_rx_count
     jmp .release_frame
-
-.prefix_dma_failed:
-    pop ax
 
 .dma_failed:
     mov byte [handoff_addr + handoff_net_error], net_error_ne_rx_dma
@@ -177,31 +153,6 @@ el1_set_gp:
     mov dx, [handoff_addr + handoff_nic_base]
     add dx, el1_dataptr
     out dx, ax
-    ret
-
-dhcp_reply_prefix_matches:
-    cmp word [ne_tx_frame + 12], 0x0008
-    jne .no
-    cmp byte [ne_tx_frame + eth_header_len + 9], 17
-    jne .no
-    cmp word [ne_tx_frame + eth_header_len + ipv4_header_len], 0x4300
-    jne .no
-    cmp word [ne_tx_frame + eth_header_len + ipv4_header_len + 2], 0x4400
-    jne .no
-    cmp byte [ne_tx_frame + dhcp_bootp_offset], 2
-    jne .no
-    cmp byte [ne_tx_frame + dhcp_bootp_offset + 1], 1
-    jne .no
-    cmp byte [ne_tx_frame + dhcp_bootp_offset + 2], 6
-    jne .no
-    cmp word [ne_tx_frame + dhcp_bootp_offset + 4], 0x4553
-    jne .no
-    cmp word [ne_tx_frame + dhcp_bootp_offset + 6], 0x4445
-    jne .no
-    clc
-    ret
-.no:
-    stc
     ret
 
 parse_tcp_payload:

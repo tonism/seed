@@ -81,14 +81,14 @@ save_user_cfg_phase:
     push ds
     pop es
     mov di, fs_sector_buffer
-    mov si, agent_prefix_text
+    mov si, low_scratch_start + (agent_prefix_text - PHASE_BASE)
     call save_user_cfg_phase_append_z_to_buffer
     mov si, seed_agent_id
     call save_user_cfg_phase_append_z_to_buffer
     call save_user_cfg_phase_append_crlf_to_buffer
     test byte [seed_config_flags], seed_flag_model
     jz .reasoning
-    mov si, model_prefix_text
+    mov si, low_scratch_start + (model_prefix_text - PHASE_BASE)
     call save_user_cfg_phase_append_z_to_buffer
     mov si, seed_model
     call save_user_cfg_phase_append_z_to_buffer
@@ -96,7 +96,7 @@ save_user_cfg_phase:
 .reasoning:
     test byte [seed_config_flags], seed_flag_reasoning
     jz .key
-    mov si, reasoning_prefix_text
+    mov si, low_scratch_start + (reasoning_prefix_text - PHASE_BASE)
     call save_user_cfg_phase_append_z_to_buffer
     mov si, seed_reasoning
     call save_user_cfg_phase_append_z_to_buffer
@@ -104,7 +104,7 @@ save_user_cfg_phase:
 .key:
     test byte [seed_config_flags], seed_flag_key
     jz .endpoint
-    mov si, key_prefix_text
+    mov si, low_scratch_start + (key_prefix_text - PHASE_BASE)
     call save_user_cfg_phase_append_z_to_buffer
     mov si, seed_key
     call save_user_cfg_phase_append_z_to_buffer
@@ -112,7 +112,7 @@ save_user_cfg_phase:
 .endpoint:
     test byte [seed_config_flags], seed_flag_endpoint
     jz .finish
-    mov si, endpoint_prefix_text
+    mov si, low_scratch_start + (endpoint_prefix_text - PHASE_BASE)
     call save_user_cfg_phase_append_z_to_buffer
     mov si, seed_endpoint
     call save_user_cfg_phase_append_z_to_buffer
@@ -193,6 +193,11 @@ save_user_cfg_phase:
     ret
 
 save_user_cfg_name db 'USER    CFG'
+agent_prefix_text db 'agent ', 0
+model_prefix_text db 'model ', 0
+reasoning_prefix_text db 'reasoning ', 0
+key_prefix_text db 'key ', 0
+endpoint_prefix_text db 'endpoint ', 0
 
 save_user_cfg_phase_append_z_to_buffer:
     lodsb

@@ -15,6 +15,7 @@ failure_action_phase:
     phase_call_res type_z
     mov byte [menu_index], 0
     call .type_failure_options
+    call .flush_keys
 .input:
     hlt
     mov ah, 0x01
@@ -34,6 +35,16 @@ failure_action_phase:
     jmp .input
 .accept:
     mov al, [menu_index]
+    ret
+
+.flush_keys:
+    mov ah, 0x01
+    int 0x16
+    jz .flush_done
+    xor ah, ah
+    int 0x16
+    jmp .flush_keys
+.flush_done:
     ret
 
 .message_ptr:
