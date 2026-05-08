@@ -25,24 +25,20 @@ resolve_network_config:
     cmp ax, 0x300
     je .detect_ne
     mov cx, load_ticks
-    call wait_ticks
-    ret
+    jmp wait_ticks
 .known_3c503:
     mov al, family_3c503
-    call store_auto_network_config
-    ret
+    jmp store_auto_network_config
 .detect_io_280:
     call autodetect_io_280
     jnc store_auto_network_config
     mov byte [menu_value_a], adapter_select_io_280
-    call run_adapter_select_phase
-    ret
+    jmp run_adapter_select_phase
 .detect_ne:
     call autodetect_ne
     jnc store_auto_network_config
     mov byte [menu_value_a], adapter_select_ne
-    call run_adapter_select_phase
-    ret
+    jmp run_adapter_select_phase
 
 store_auto_network_config:
     mov [handoff_addr + handoff_nic_family], al
@@ -50,8 +46,7 @@ store_auto_network_config:
     mov byte [handoff_addr + handoff_nic_irq], profile_irq
     or word [handoff_addr + handoff_flags], handoff_flag_config_resolved
     mov cx, load_ticks
-    call wait_ticks
-    ret
+    jmp wait_ticks
 
 autodetect_io_280:
     call probe_wd8003_mac
@@ -70,5 +65,4 @@ autodetect_io_280:
     ret
 
 autodetect_ne:
-    call probe_ne_family
-    ret
+    jmp probe_ne_family

@@ -125,6 +125,136 @@ Verification:
 - `make inspect` passes.
 - `make test` passes.
 
+## 2026-05-08 - Keep low-risk TLS tail-call cleanup
+
+Change:
+
+- Replaced several TLS helper wrappers of the form `call`, `jc .failed`,
+  `clc`, `ret` with direct tail jumps where the callee already returns the
+  carry status expected by the caller.
+- Deliberately avoided changing the ClientKeyExchange/key-schedule storage
+  ordering after the earlier failed scratch-reuse attempt.
+
+Measurements:
+
+- Resident sectors: unchanged at 22.
+- Resident bytes: unchanged at 11264.
+- Resident nonzero payload: 11248 -> 11224 bytes.
+- High crypto scratch: unchanged at 959 bytes.
+- Critical scratch: unchanged at 2964 bytes.
+- `16k-target` packed critical guarded slack: unchanged at -3923 bytes.
+
+Result:
+
+- Saves 24 bytes of resident payload without moving the fragile provider LINK
+  path state or timing order.
+- Does not move the release metric yet; another resident sector drop still
+  requires roughly 488 bytes of resident payload reduction.
+
+Verification:
+
+- `make inspect` passes.
+- `make test` passes.
+- 3c501 BASIC-sidecar canary on a 32 KiB host reached `seed build 6` and
+  returned `ok`.
+
+## 2026-05-08 - Failed TCP receive window shrink
+
+Change:
+
+- Tried reducing `tcp_payload_max_len` from 1460 to 512 so the critical
+  scratch window would no longer reserve a full-size Ethernet TCP payload.
+- First tried relying on a universal 512-byte advertised receive window.
+- Then tried adding a TCP MSS 512 option to SYN while keeping the 512-byte
+  payload cap.
+
+Measurements:
+
+- The window-only form built with resident sectors unchanged at 22.
+- Critical scratch would have dropped from 2964 to 2016 bytes.
+- `16k-target` packed critical guarded slack would have improved from -3923 to
+  -2975 bytes.
+
+Result:
+
+- Rejected and reverted.
+- 3c501 BASIC-sidecar canary failed at red `o agent setup failed` with the
+  512-byte cap, both without MSS and with MSS.
+- This suggests the current TCP receive logic/provider path still depends on
+  accepting a larger wire payload, or at least needs better diagnostics before
+  this cap can be lowered safely.
+
+Verification:
+
+- `make inspect` and `make test` passed for the attempted builds.
+- VM proof failed on 3c501, so the cut was not kept.
+- NE2K BASIC-sidecar canary on a 32 KiB host reached `seed build 6` and
+  returned `ok`.
+
+## 2026-05-08 - Keep follow-up tail-position cleanup
+
+Change:
+
+- Converted remaining simple hardware-detection `call`/`ret` tails into
+  jumps.
+- Converted the final server-Finished compare wrapper into a direct
+  `tls_compare_buffers` tail jump.
+- Left the wrappers that intentionally map lower-level failure into
+  `tls_fail_error`.
+
+Measurements:
+
+- Resident sectors: unchanged at 22.
+- Resident bytes: unchanged at 11264.
+- Resident nonzero payload: 11224 -> 11220 bytes.
+- High crypto scratch: unchanged at 959 bytes.
+- Critical scratch: unchanged at 2964 bytes.
+- `16k-target` packed critical guarded slack: unchanged at -3923 bytes.
+
+Result:
+
+- Saves 4 more resident bytes.
+- Does not move the release metric yet.
+
+Verification:
+
+- `make inspect` passes.
+- `make test` passes.
+- 3c501 BASIC-sidecar canary on a 32 KiB host reached `seed build 6` and
+  returned `ok`.
+
+## 2026-05-08 - Failed TLS bookkeeping and CKE scratch reuse cut
+
+Change tried:
+
+- Removed several TLS bookkeeping fields that looked write-only:
+  transcript byte counters, `tls_key_schedule_ready`, ServerKeyExchange curve,
+  public-length, signature hash/algorithm, and signature-length state.
+- Moved `tcp_tx_flags` and `api_receive_tries` from resident data into the low
+  runtime state area.
+- Also tried moving the fixed ClientKeyExchange public key out of high crypto
+  scratch by staging it in `tls_prf_seed` before PRF use and caching the built
+  CKE record in `fs_sector_buffer`.
+
+Measurements:
+
+- Full cut built and passed local crypto tests.
+- High crypto scratch would have dropped 959 -> 894 bytes.
+- `16k-target packed critical guarded slack` would have improved -3923 -> -3858.
+- After backing out only the CKE/public-key relocation, resident nonzero bytes
+  still dropped 11248 -> 11158, but resident sectors stayed at 22 and the
+  tracked 16 KiB guarded target stayed at -3923 bytes.
+
+Result:
+
+- Rejected. 3c501 BASIC-sidecar canary failed twice at red `o agent setup
+  failed` with the CKE/public-key relocation.
+- After backing out the CKE/public-key relocation but keeping the TLS
+  bookkeeping cleanup, 3c501 still failed at red `o agent setup failed`.
+- The branch was reverted to the prior green code state. Do not retry this
+  cleanup inside the TLS handshake state without adding better diagnostics or
+  splitting it into smaller canaries.
+
 ## 2026-05-08 - Drop one resident sector with TLS/runtime cleanup
 
 Change:

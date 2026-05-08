@@ -215,10 +215,7 @@ tls_wait_for_server_certificate:
     jc .failed
     call tls_parse_server_certificate
     jc .failed
-    call tls_drain_server_certificate
-    jc .failed
-    clc
-    ret
+    jmp tls_drain_server_certificate
 .failed:
     jmp tls_fail_error
 
@@ -511,10 +508,7 @@ tls_wait_for_server_key_exchange_or_done:
     jc .failed
     call tls_prepare_early_key_schedule
     jc .failed
-    call tls_wait_for_server_hello_done
-    jc .failed
-    clc
-    ret
+    jmp tls_wait_for_server_hello_done
 .failed:
     jmp tls_fail_error
 
@@ -525,8 +519,7 @@ tls_prepare_early_key_schedule:
     jc .failed
     call tls_prepare_master_secret
     jc .failed
-    call tls_prepare_key_block
-    jc .failed
+    jmp tls_prepare_key_block
 .done:
     clc
     ret
@@ -578,10 +571,7 @@ tls_prepare_master_secret:
     jc .failed
     mov word [hmac_key_ptr], tls_master_secret
     mov word [hmac_key_len], tls_master_secret_len
-    call hmac_prepare_current_key_context
-    jc .failed
-    clc
-    ret
+    jmp hmac_prepare_current_key_context
 .failed:
     stc
     ret
@@ -743,10 +733,7 @@ tls_prepare_client_key_exchange_transcript:
     add si, 5
     mov cx, [tls_tx_len]
     sub cx, 5
-    call tls_transcript_update
-    jc .failed
-    clc
-    ret
+    jmp tls_transcript_update
 .failed:
     stc
     ret
@@ -767,10 +754,7 @@ tls_send_client_key_exchange:
 tls_prepare_client_finished:
     call tls_build_client_finished_plaintext
     jc .failed
-    call tls_encrypt_client_finished
-    jc .failed
-    clc
-    ret
+    jmp tls_encrypt_client_finished
 .failed:
     stc
     ret
@@ -1359,10 +1343,7 @@ tls_verify_server_finished:
     mov si, tls_finished_plain + 4
     mov di, tls_verify_data
     mov cx, tls_finished_verify_len
-    call tls_compare_buffers
-    jc .failed
-    clc
-    ret
+    jmp tls_compare_buffers
 .failed:
     stc
     ret
