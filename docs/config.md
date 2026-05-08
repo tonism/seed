@@ -54,6 +54,11 @@ efforts.
 Seed can remember validated user answers to make later boots faster, but local
 stored user configuration is always optional.
 
+This follows the architecture contract in `docs/architecture.md`: the boot
+medium is the recovery boundary and may be write-protected. `USER.CFG` is a
+fast-boot convenience when storage is writable, not part of the trusted boot
+requirement.
+
 Core rule:
 
 ```text

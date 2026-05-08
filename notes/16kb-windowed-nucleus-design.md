@@ -4,6 +4,9 @@ This note is the design reference for the next low-memory step after the
 24 KiB BASIC sidecar release. It modifies the existing windowed architecture;
 it is not a new product shape.
 
+The stable product contract lives in `docs/architecture.md`. This note only
+describes the current 16 KiB implementation strategy for that contract.
+
 The external promise stays the same:
 
 - one Seed floppy
@@ -46,6 +49,10 @@ the handoff block, low scratch, disk buffers, and phase windows. The primary
 strategy is reducing what is resident.
 
 ## Design Principle
+
+Seed is a minimal bootstrapping control plane, not a protected operating
+system. On the 5150 target, memory ranges are published cooperation boundaries,
+not hardware-enforced protection. The boot floppy is the recovery boundary.
 
 The 16 KiB architecture is lifetime-based.
 
@@ -101,9 +108,11 @@ Hard target with the current `0x1000` load address:
 0x3c00..0x3fff  stack plus guard target, about 1 KiB
 ```
 
-These are target budgets, not promises. The first 16 KiB milestone may accept a
-smaller guard while proving fit, but a release should restore an explicit guard
-and fail the build when the map is exceeded.
+These are target budgets, not promises. The 16 KiB release target is a measured
+1 KiB execution guard. A 512-byte guard is acceptable as an intermediate
+milestone only if collision detection improves at the same time: visible loader
+failure for known collisions, explicit build-time bounds, and runtime canaries
+for the stack or scratch areas most likely to overlap.
 
 If the provider critical window cannot fit in about 8 KiB, the next design
 lever is not to make the resident nucleus larger. The next lever is to split
@@ -285,10 +294,20 @@ Raw 16 KiB fit:
   would collide.
 - At least one representative NIC reaches returned `ok`.
 
+Instrumented 16 KiB milestone:
+
+- BASIC sidecar entry works under a 16 KiB ceiling.
+- At least 512 bytes of measured execution guard remains.
+- Collision detection covers known loader, stack, scratch, and resident/window
+  bounds.
+- Representative NIC families reach returned `ok`.
+- 3c501 remains a canary and reaches returned `ok`.
+
 16 KiB release candidate:
 
 - BASIC sidecar entry works under a 16 KiB ceiling.
 - The build has explicit nucleus/window/scratch/stack bounds.
+- At least 1 KiB of measured execution guard remains.
 - Representative NIC families reach returned `ok`.
 - 3c501 remains a canary and reaches returned `ok`.
 - 32 KiB+ BIOS boot still works from the same floppy and same `CORE.SYS`.
@@ -305,3 +324,5 @@ Raw 16 KiB fit:
 - Whether the response parser can be reduced to answer/error scanning only
   inside LINK, with richer response handling delayed until after 16 KiB is
   proven.
+- How larger machines should expose optional extra RAM as caches, tool arenas,
+  or result buffers without changing the base 16 KiB contract.

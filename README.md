@@ -7,6 +7,11 @@ path toward a direct cloud-model connection, then hand control to an
 agent-built environment. The project starts with the smallest useful target and
 keeps later convenience features out until they are needed.
 
+The stable product contract is in `docs/architecture.md`: Seed is a minimal
+bootstrapping control plane, not a protected OS. It provides the trusted boot
+and agent API path, publishes the memory/hardware contract, and leaves the rest
+of the machine open for user and agent-built local tooling.
+
 ## Current Target
 
 The active target is an IBM PC 5150-class boot path:
@@ -136,6 +141,7 @@ tools/run-basic-bootstrap-86box.py --profile vm-net-ne2k8
 Makefile                         build FAT12 160 KiB floppy image
 config/AGENTS.CFG                optional shipped agent interface override
 config/NET.CFG                   optional shipped generic internet probe override
+docs/architecture.md             Seed product and hardware/tooling contract
 docs/config.md                   agent config and optional user state policy
 docs/builds.md                   loading phase and build scope map
 docs/ui.md                       text UI and fast-type rules
@@ -158,6 +164,12 @@ tools/run-basic-bootstrap-86box.py  launch 86Box and inject the BASIC sidecar
 
 Seed stays text-mode first. The current target does not switch video modes; it
 reads the active BIOS text column count and adapts clearing and centering to it.
+
+Seed is not a sandbox. On real-mode targets, reserved memory ranges are
+published cooperation boundaries, not hardware-enforced protection. Agent-built
+tools may use the machine directly outside Seed-owned ranges; if they violate
+the published contract, that tool owns the crash and the boot floppy remains
+the recovery boundary.
 
 User-visible messages use the fast-type path. Success text, errors, questions,
 menus, modals, field labels, and button labels should appear consistently.

@@ -223,6 +223,7 @@ Important docs:
 
 ```text
 README.md
+docs/architecture.md
 docs/builds.md
 docs/config.md
 docs/ui.md
