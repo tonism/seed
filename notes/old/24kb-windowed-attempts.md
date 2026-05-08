@@ -26,7 +26,7 @@ Design direction:
   current safe RAM size, then lower the VM ceiling only when the measured
   memory map justifies it.
 - Keep the detailed architecture reference in
-  `notes/windowed-architecture-design.md`.
+  `notes/old/windowed-architecture-design.md`.
 
 Initial hard numbers from the 32 KiB release:
 - `CORE.SYS` loads at `0x1000`.
