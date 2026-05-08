@@ -13,6 +13,14 @@ tls_client_hello_phase:
 
 build_tls_client_hello_phase:
     call tls_seed_client_random_phase
+    mov si, low_scratch_start + (sha256_k_constant - PHASE_BASE)
+    mov di, sha256_k
+    mov cx, sha256_k_len
+    rep movsb
+    mov si, low_scratch_start + (tls_low_constants_constant - PHASE_BASE)
+    mov di, low_static_constants_start
+    mov cx, low_static_constants_len
+    rep movsb
     mov si, low_scratch_start + (tls_client_ec_public_constant - PHASE_BASE)
     mov di, tls_client_ec_public
     mov cx, tls_ec_public_uncompressed_len
@@ -149,6 +157,24 @@ tls_client_hello_extensions_tail db 0, 11, 0, 2, 1, 0
                                  db 8, 4, 8, 5, 8, 6, 4, 1
                                  db 5, 1, 6, 1, 3, 3, 3, 1
                                  db 3, 2, 4, 2, 5, 2, 6, 2
+tls_low_constants_constant:
+tls_label_master_secret_constant db 'master secret'
+tls_label_client_finished_constant db 'client finished'
+tls_label_server_finished_constant db 'server finished'
+tls_label_key_expansion_constant db 'key expansion'
+chacha_constants_constant dw 0x7865, 0x6170, 0x646e, 0x3320
+                           dw 0x2d32, 0x7962, 0x6574, 0x6b20
+poly1305_prime_constant db 0xfb
+                           times 15 db 0xff
+                           db 0x03
+sha256_initial_state_constant dw 0xe667, 0x6a09, 0xae85, 0xbb67
+                           dw 0xf372, 0x3c6e, 0xf53a, 0xa54f
+                           dw 0x527f, 0x510e, 0x688c, 0x9b05
+                           dw 0xd9ab, 0x1f83, 0xcd19, 0x5be0
+tls_low_constants_constant_len equ $ - tls_low_constants_constant
+%if tls_low_constants_constant_len != low_static_constants_len
+%error "low static constants length mismatch"
+%endif
 tls_client_ec_public_constant db 0x04
                               db 0x6b, 0x17, 0xd1, 0xf2, 0xe1, 0x2c, 0x42, 0x47
                               db 0xf8, 0xbc, 0xe6, 0xe5, 0x63, 0xa4, 0x40, 0xf2
@@ -158,5 +184,41 @@ tls_client_ec_public_constant db 0x04
                               db 0x8e, 0xe7, 0xeb, 0x4a, 0x7c, 0x0f, 0x9e, 0x16
                               db 0x2b, 0xce, 0x33, 0x57, 0x6b, 0x31, 0x5e, 0xce
                               db 0xcb, 0xb6, 0x40, 0x68, 0x37, 0xbf, 0x51, 0xf5
+sha256_k_constant dw 0x2f98, 0x428a, 0x4491, 0x7137
+                  dw 0xfbcf, 0xb5c0, 0xdba5, 0xe9b5
+                  dw 0xc25b, 0x3956, 0x11f1, 0x59f1
+                  dw 0x82a4, 0x923f, 0x5ed5, 0xab1c
+                  dw 0xaa98, 0xd807, 0x5b01, 0x1283
+                  dw 0x85be, 0x2431, 0x7dc3, 0x550c
+                  dw 0x5d74, 0x72be, 0xb1fe, 0x80de
+                  dw 0x06a7, 0x9bdc, 0xf174, 0xc19b
+                  dw 0x69c1, 0xe49b, 0x4786, 0xefbe
+                  dw 0x9dc6, 0x0fc1, 0xa1cc, 0x240c
+                  dw 0x2c6f, 0x2de9, 0x84aa, 0x4a74
+                  dw 0xa9dc, 0x5cb0, 0x88da, 0x76f9
+                  dw 0x5152, 0x983e, 0xc66d, 0xa831
+                  dw 0x27c8, 0xb003, 0x7fc7, 0xbf59
+                  dw 0x0bf3, 0xc6e0, 0x9147, 0xd5a7
+                  dw 0x6351, 0x06ca, 0x2967, 0x1429
+                  dw 0x0a85, 0x27b7, 0x2138, 0x2e1b
+                  dw 0x6dfc, 0x4d2c, 0x0d13, 0x5338
+                  dw 0x7354, 0x650a, 0x0abb, 0x766a
+                  dw 0xc92e, 0x81c2, 0x2c85, 0x9272
+                  dw 0xe8a1, 0xa2bf, 0x664b, 0xa81a
+                  dw 0x8b70, 0xc24b, 0x51a3, 0xc76c
+                  dw 0xe819, 0xd192, 0x0624, 0xd699
+                  dw 0x3585, 0xf40e, 0xa070, 0x106a
+                  dw 0xc116, 0x19a4, 0x6c08, 0x1e37
+                  dw 0x774c, 0x2748, 0xbcb5, 0x34b0
+                  dw 0x0cb3, 0x391c, 0xaa4a, 0x4ed8
+                  dw 0xca4f, 0x5b9c, 0x6ff3, 0x682e
+                  dw 0x82ee, 0x748f, 0x636f, 0x78a5
+                  dw 0x7814, 0x84c8, 0x0208, 0x8cc7
+                  dw 0xfffa, 0x90be, 0x6ceb, 0xa450
+                  dw 0xa3f7, 0xbef9, 0x78f2, 0xc671
+sha256_k_constant_len equ $ - sha256_k_constant
+%if sha256_k_constant_len != sha256_k_len
+%error "sha256 k length mismatch"
+%endif
 
 %unmacro phase_call_res 1

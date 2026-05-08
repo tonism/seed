@@ -57,57 +57,6 @@ tls_app_content_type db 0
 tls_transcript_len_low dw 0
 tls_transcript_len_high dw 0
 tls_transcript_certificate_remaining dw 0
-sha256_w_ptr dw 0
-sha256_k_ptr dw 0
-sha256_len_low dw 0
-sha256_len_high dw 0
-sha256_saved_len_low dw 0
-sha256_saved_len_high dw 0
-sha256_bit_len0 dw 0
-sha256_bit_len1 dw 0
-sha256_bit_len2 dw 0
-sha256_bit_len3 dw 0
-sha256_digest_ptr dw 0
-hmac_key_ptr dw 0
-hmac_key_len dw 0
-hmac_data1_ptr dw 0
-hmac_data1_len dw 0
-hmac_data2_ptr dw 0
-hmac_data2_len dw 0
-hmac_data3_ptr dw 0
-hmac_data3_len dw 0
-hmac_output_ptr dw 0
-tls_prf_secret_ptr dw 0
-tls_prf_secret_len dw 0
-tls_prf_seed_ptr dw 0
-tls_prf_seed_len dw 0
-tls_prf_output_ptr dw 0
-tls_prf_output_len dw 0
-tls_prf_output_remaining dw 0
-tls_prf_chunk_len dw 0
-tls_prf_current_output_ptr dw 0
-chacha_key_ptr dw 0
-chacha_nonce_ptr dw 0
-chacha_counter_low dw 0
-chacha_counter_high dw 0
-poly_block_ptr dw 0
-poly_i db 0
-poly_j db 0
-tls_server_certificate_len_low dw 0
-tls_server_certificate_list_len_low dw 0
-tls_server_next_handshake_type db 0
-tls_server_next_handshake_len_high db 0
-tls_server_key_public_len db 0
-tls_server_signature_hash db 0
-tls_server_signature_alg db 0
-tls_server_certificate_len_high db 0
-tls_server_certificate_list_len_high db 0
-tls_key_schedule_ready db 0
-sha256_block_len db 0
-sha256_saved_block_len db 0
-sha256_schedule_count db 0
-sha256_round_count db 0
-tls_next_handshake_body_ptr dw 0
 dns_qname_len db dns_qname_default_len
 dns_tx_len dw dns_tx_frame_default_len
 ne_tx_frame equ low_scratch_start
@@ -175,11 +124,103 @@ menu_idle_attr equ menu_selected_attr + 1
 load_marker_char equ menu_idle_attr + 1
 load_marker_attr equ load_marker_char + 1
 low_phase_state_end equ load_marker_attr + 1
+low_runtime_state_start equ handoff_addr + handoff_size_bytes
+sha256_state equ low_runtime_state_start
+sha256_a equ sha256_state + 32
+sha256_b equ sha256_a + 4
+sha256_c equ sha256_b + 4
+sha256_d equ sha256_c + 4
+sha256_e equ sha256_d + 4
+sha256_f equ sha256_e + 4
+sha256_g equ sha256_f + 4
+sha256_h equ sha256_g + 4
+sha256_t1 equ sha256_h + 4
+sha256_t2 equ sha256_t1 + 4
+sha256_new_e equ sha256_t2 + 4
+sha256_tmp equ sha256_new_e + 4
+sha256_w_ptr equ sha256_tmp + 4
+sha256_k_ptr equ sha256_w_ptr + 2
+sha256_len_low equ sha256_k_ptr + 2
+sha256_len_high equ sha256_len_low + 2
+sha256_saved_len_low equ sha256_len_high + 2
+sha256_saved_len_high equ sha256_saved_len_low + 2
+sha256_bit_len0 equ sha256_saved_len_high + 2
+sha256_bit_len1 equ sha256_bit_len0 + 2
+sha256_bit_len2 equ sha256_bit_len1 + 2
+sha256_bit_len3 equ sha256_bit_len2 + 2
+sha256_digest_ptr equ sha256_bit_len3 + 2
+hmac_key_ptr equ sha256_digest_ptr + 2
+hmac_key_len equ hmac_key_ptr + 2
+hmac_data1_ptr equ hmac_key_len + 2
+hmac_data1_len equ hmac_data1_ptr + 2
+hmac_data2_ptr equ hmac_data1_len + 2
+hmac_data2_len equ hmac_data2_ptr + 2
+hmac_data3_ptr equ hmac_data2_len + 2
+hmac_data3_len equ hmac_data3_ptr + 2
+hmac_output_ptr equ hmac_data3_len + 2
+tls_prf_secret_ptr equ hmac_output_ptr + 2
+tls_prf_secret_len equ tls_prf_secret_ptr + 2
+tls_prf_seed_ptr equ tls_prf_secret_len + 2
+tls_prf_seed_len equ tls_prf_seed_ptr + 2
+tls_prf_output_ptr equ tls_prf_seed_len + 2
+tls_prf_output_len equ tls_prf_output_ptr + 2
+tls_prf_output_remaining equ tls_prf_output_len + 2
+tls_prf_chunk_len equ tls_prf_output_remaining + 2
+tls_prf_current_output_ptr equ tls_prf_chunk_len + 2
+chacha_key_ptr equ tls_prf_current_output_ptr + 2
+chacha_nonce_ptr equ chacha_key_ptr + 2
+chacha_counter_low equ chacha_nonce_ptr + 2
+chacha_counter_high equ chacha_counter_low + 2
+poly_block_ptr equ chacha_counter_high + 2
+poly_i equ poly_block_ptr + 2
+poly_j equ poly_i + 1
+tls_server_certificate_len_low equ poly_j + 1
+tls_server_certificate_list_len_low equ tls_server_certificate_len_low + 2
+tls_server_next_handshake_type equ tls_server_certificate_list_len_low + 2
+tls_server_next_handshake_len_high equ tls_server_next_handshake_type + 1
+tls_server_key_public_len equ tls_server_next_handshake_len_high + 1
+tls_server_signature_hash equ tls_server_key_public_len + 1
+tls_server_signature_alg equ tls_server_signature_hash + 1
+tls_server_certificate_len_high equ tls_server_signature_alg + 1
+tls_server_certificate_list_len_high equ tls_server_certificate_len_high + 1
+tls_key_schedule_ready equ tls_server_certificate_list_len_high + 1
+sha256_block_len equ tls_key_schedule_ready + 1
+sha256_saved_block_len equ sha256_block_len + 1
+sha256_schedule_count equ sha256_saved_block_len + 1
+sha256_round_count equ sha256_schedule_count + 1
+tls_next_handshake_body_ptr equ sha256_round_count + 1
+low_runtime_state_end equ tls_next_handshake_body_ptr + 2
+low_static_constants_start equ low_phase_state_end
+tls_label_master_secret equ low_static_constants_start
+tls_label_master_secret_len equ 13
+tls_label_client_finished equ tls_label_master_secret + tls_label_master_secret_len
+tls_label_client_finished_len equ 15
+tls_label_server_finished equ tls_label_client_finished + tls_label_client_finished_len
+tls_label_server_finished_len equ 15
+tls_label_key_expansion equ tls_label_server_finished + tls_label_server_finished_len
+tls_label_key_expansion_len equ 13
+chacha_constants equ tls_label_key_expansion + tls_label_key_expansion_len
+chacha_constants_len equ 16
+poly1305_prime equ chacha_constants + chacha_constants_len
+poly1305_prime_len equ 17
+sha256_initial_state equ poly1305_prime + poly1305_prime_len
+sha256_initial_state_len equ 32
+low_static_constants_end equ sha256_initial_state + sha256_initial_state_len
+low_static_constants_len equ low_static_constants_end - low_static_constants_start
 %if low_file_scratch_end > low_scratch_end
 %error "low packet scratch arena overflow"
 %endif
 %if low_phase_state_end > low_scratch_end
 %error "low phase state arena overflow"
+%endif
+%if low_static_constants_end > low_scratch_end
+%error "low static constants arena overflow"
+%endif
+%if low_runtime_state_end > low_scratch_start
+%error "low runtime state overlaps phase load window"
+%endif
+%if (low_sha256_k + sha256_k_len) > handoff_addr
+%error "low sha256 k table overlaps handoff block"
 %endif
 tls_rx_copy equ critical_scratch_start
 tls_client_hello_buffer equ tls_rx_copy
@@ -220,19 +261,6 @@ tls_pre_response_scratch_end equ tls_verify_data + tls_finished_verify_len
 %if tls_pre_response_scratch_end > (tls_rx_copy + tls_stream_buffer_len)
 %error "pre-response scratch exceeds TLS receive buffer tail"
 %endif
-sha256_state times 16 dw 0
-sha256_a dw 0, 0
-sha256_b dw 0, 0
-sha256_c dw 0, 0
-sha256_d dw 0, 0
-sha256_e dw 0, 0
-sha256_f dw 0, 0
-sha256_g dw 0, 0
-sha256_h dw 0, 0
-sha256_t1 dw 0, 0
-sha256_t2 dw 0, 0
-sha256_new_e dw 0, 0
-sha256_tmp dw 0, 0
 sha256_block equ high_sha256_block
 sha256_w equ high_sha256_w
 tls_client_write_key equ high_tls_client_write_key
@@ -272,52 +300,4 @@ poly_product equ p256_s3
 poly_value equ p256_s5
 tls_random equ high_tls_random
 tls_client_ec_public equ high_tls_client_ec_public
-tls_label_master_secret db 'master secret'
-tls_label_master_secret_len equ $ - tls_label_master_secret
-tls_label_key_expansion db 'key expansion'
-tls_label_key_expansion_len equ $ - tls_label_key_expansion
-tls_label_client_finished db 'client finished'
-tls_label_client_finished_len equ $ - tls_label_client_finished
-tls_label_server_finished db 'server finished'
-tls_label_server_finished_len equ $ - tls_label_server_finished
-chacha_constants dw 0x7865, 0x6170, 0x646e, 0x3320
-                 dw 0x2d32, 0x7962, 0x6574, 0x6b20
-poly1305_prime db 0xfb
-               times 15 db 0xff
-               db 0x03
-sha256_initial_state dw 0xe667, 0x6a09, 0xae85, 0xbb67
-                     dw 0xf372, 0x3c6e, 0xf53a, 0xa54f
-                     dw 0x527f, 0x510e, 0x688c, 0x9b05
-                     dw 0xd9ab, 0x1f83, 0xcd19, 0x5be0
-sha256_k dw 0x2f98, 0x428a, 0x4491, 0x7137
-         dw 0xfbcf, 0xb5c0, 0xdba5, 0xe9b5
-         dw 0xc25b, 0x3956, 0x11f1, 0x59f1
-         dw 0x82a4, 0x923f, 0x5ed5, 0xab1c
-         dw 0xaa98, 0xd807, 0x5b01, 0x1283
-         dw 0x85be, 0x2431, 0x7dc3, 0x550c
-         dw 0x5d74, 0x72be, 0xb1fe, 0x80de
-         dw 0x06a7, 0x9bdc, 0xf174, 0xc19b
-         dw 0x69c1, 0xe49b, 0x4786, 0xefbe
-         dw 0x9dc6, 0x0fc1, 0xa1cc, 0x240c
-         dw 0x2c6f, 0x2de9, 0x84aa, 0x4a74
-         dw 0xa9dc, 0x5cb0, 0x88da, 0x76f9
-         dw 0x5152, 0x983e, 0xc66d, 0xa831
-         dw 0x27c8, 0xb003, 0x7fc7, 0xbf59
-         dw 0x0bf3, 0xc6e0, 0x9147, 0xd5a7
-         dw 0x6351, 0x06ca, 0x2967, 0x1429
-         dw 0x0a85, 0x27b7, 0x2138, 0x2e1b
-         dw 0x6dfc, 0x4d2c, 0x0d13, 0x5338
-         dw 0x7354, 0x650a, 0x0abb, 0x766a
-         dw 0xc92e, 0x81c2, 0x2c85, 0x9272
-         dw 0xe8a1, 0xa2bf, 0x664b, 0xa81a
-         dw 0x8b70, 0xc24b, 0x51a3, 0xc76c
-         dw 0xe819, 0xd192, 0x0624, 0xd699
-         dw 0x3585, 0xf40e, 0xa070, 0x106a
-         dw 0xc116, 0x19a4, 0x6c08, 0x1e37
-         dw 0x774c, 0x2748, 0xbcb5, 0x34b0
-         dw 0x0cb3, 0x391c, 0xaa4a, 0x4ed8
-         dw 0xca4f, 0x5b9c, 0x6ff3, 0x682e
-         dw 0x82ee, 0x748f, 0x636f, 0x78a5
-         dw 0x7814, 0x84c8, 0x0208, 0x8cc7
-         dw 0xfffa, 0x90be, 0x6ceb, 0xa450
-         dw 0xa3f7, 0xbef9, 0x78f2, 0xc671
+sha256_k equ low_sha256_k

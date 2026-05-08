@@ -26,7 +26,9 @@ build 2   minimal boot presentation: centered marker and fast-type banner
 build 3   no-marker bootstrap: loader boundary, display baseline, handoff block, retry boundary
 build 4   "." dark phase: hardware setup, adapter autodetect/fallback questions, hardware handoff
 build 5   "," dark phase: internet prep, IP config, reachability proof
-build 6   "o" dark + normal + bright phases: secure connection, credentials, API, session, handover
+build 6   "o" dark + normal + bright phases: secure connection, credentials, minimal provider API proof
+build 7   ROM BASIC low-memory entry and 16 KiB windowed-nucleus release target
+build 8   user/agent environment, local tool ABI, and handoff loop
 ```
 
 Build 5 is intentionally broad. It should end when Seed can bring up a network
@@ -55,10 +57,11 @@ or an agent session.
 ## Build 6
 
 Build 6 owns the dark `"o"` secure-connection phase, the normal `"o"` local
-crypto phase, and the bright `"o"` agent/environment phase. It starts after
-internet readiness is proven and ends when Seed can connect to an agent and
-hand over to the first agent/user environment. On MDA, dark and normal `"o"`
-both render with the same non-bright attribute.
+crypto phase, and the bright `"o"` agent/API-prep phase. It starts after
+internet readiness is proven and ends when Seed can connect to a selected
+provider, complete the current TLS/API path, and display the minimal returned
+answer. On MDA, dark and normal `"o"` both render with the same non-bright
+attribute.
 
 Current build 6 checkpoint:
 
@@ -123,7 +126,6 @@ replace pseudo-random client random and fixed scalar with real entropy/scalar ha
 reduce the eventual full-random-scalar path below the current full double-and-add cost
 generalize ChaCha20-Poly1305 beyond the current Finished-record shapes
 fetch model and reasoning capabilities from the provider when available
-create the agent session and hand over to the environment path
 ```
 
 Build 6 optimization uses the original 4.77 MHz, 32 KiB `vm-net-ne2k8` profile
@@ -143,3 +145,68 @@ reached `seed build 6`. The later 24 KiB BASIC sidecar path reached returned
 `ok` on those same representative families before the compact helper release;
 the released hex helper was smoke-tested through returned `ok` on
 `vm-net-ne2k8`.
+
+## Build 7
+
+Build 7 owns the low-memory entry contract. The user-visible packaging change
+is that the same Seed floppy supports two entry modes:
+
+```text
+32 KiB and larger    BIOS boots the floppy directly into CORE.SYS
+below 32 KiB         user enters ROM BASIC and types the generated BASIC sidecar helper
+```
+
+The BASIC helper is a sidecar entry path for the same `CORE.SYS`, not a second
+runtime. The floppy must remain one product: one image, one visible `CORE.SYS`,
+one code path after entry. The helper may be generated for emulator testing and
+documentation, but the shippable low-memory promise is that a user can type the
+minimal helper in ROM BASIC when BIOS boot is unavailable.
+
+The first attempted low-memory release target was 24 KiB, but literal 24 KiB
+IBM PC 5150 profiles in 86Box stop during POST before ROM BASIC. That makes
+24 KiB useful as an internal budgeting shape, not a releasable entry target for
+this emulator/target combination. Build 7 should therefore not be called
+complete until the 16 KiB ROM BASIC sidecar path reaches the Build 6 OpenAI
+`ok` proof.
+
+Build 7 completion target:
+
+```text
+16 KiB RAM ceiling
+ROM BASIC sidecar entry
+same visible CORE.SYS as the BIOS-boot path
+minimal OpenAI Responses request returns ok
+representative NIC-family success, including 3c501 and NE2K
+1 KiB measured execution guard after Seed-owned resident state, scratch,
+window space, and stack needs are accounted for
+```
+
+The active implementation strategy is the windowed nucleus described in
+`notes/16kb-windowed-nucleus-design.md`: keep a tiny resident control plane,
+move cold setup and post-answer work into reloadable windows, and preserve one
+no-floppy provider-critical window from TLS/API start until the answer has
+been found. Current progress and failed cuts are tracked in
+`notes/16kb-windowed-nucleus-attempts.md`.
+
+## Build 8
+
+Build 8 owns the other end of Seed: the first usable user/agent environment
+after the provider API path is alive. It should start from the Build 7
+low-memory entry contract rather than assuming a larger machine.
+
+Build 8 should turn Seed from an API proof into an agent-operable runtime:
+
+```text
+publish the live memory and hardware contract to the agent
+define the first tiny local tool ABI
+reserve or discover a tool arena and result buffer
+load an agent-provided or built-in local tool payload
+call that tool locally at machine speed
+return status/result data through the provider API path
+provide a recovery path if the tool fails or corrupts volatile state
+```
+
+This is not a general OS milestone. Seed remains the bootstrapping control
+plane: it provides the trusted recovery boundary, working provider API path,
+and small handoff ABI, then leaves the rest of the machine open for user and
+agent-built tooling.

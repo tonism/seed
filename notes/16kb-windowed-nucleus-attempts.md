@@ -125,6 +125,131 @@ Verification:
 - `make inspect` passes.
 - `make test` passes.
 
+## 2026-05-08 - Move fixed TLS constants into low scratch
+
+Baseline:
+
+- Last pushed checkpoint was `88062dd` on `work/16kb-windowed-nucleus`.
+- Resident sectors: 24.
+- Resident nonzero payload: 12080 bytes.
+- `16k-target` packed critical guarded slack: -4947 bytes.
+- 3c501 and WD8003e BASIC-sidecar canaries on a 32 KiB host both reached
+  `seed build 6` and returned `ok` before this cut.
+
+Change:
+
+- Moved these fixed constants out of resident data and into a low static
+  constants area under `0x0700..0x0fff`, populated by the TLS ClientHello
+  phase:
+  - `master secret`
+  - `client finished`
+  - `server finished`
+  - ChaCha20 constants
+  - Poly1305 prime
+  - SHA-256 initial state
+- Left `key expansion` resident. Moving it too would have pushed the TLS
+  ClientHello phase over one sector before the next cut.
+- Updated local check scripts to validate the phase-local constant copies.
+
+Measurements:
+
+- Resident sectors: unchanged at 24.
+- Resident bytes: unchanged at 12288.
+- Resident nonzero payload: 12080 -> 11972 bytes.
+- `16k-target` packed critical guarded slack: unchanged at -4947 bytes.
+
+Result:
+
+- Saved 108 resident payload bytes, but not enough to remove a loaded resident
+  sector.
+- This is a low-risk lifetime cleanup because the constants are staged before
+  any TLS hash/PRF/AEAD use.
+
+Verification:
+
+- `make inspect` passes.
+- `make test` passes.
+
+## 2026-05-08 - Stage SHA-256 K table in bootstrap scratch
+
+Change:
+
+- Moved the 256-byte SHA-256 K round table out of resident data.
+- Stages it from the TLS ClientHello phase into `0x0500..0x05ff`, the
+  emergency/bootstrap scratch area below the handoff block.
+- Added a build-time guard so the staged table cannot overlap the handoff block
+  at `0x0600`.
+- Relaxed the TLS ClientHello phase from "must fit in one sector" to "must fit
+  in low scratch"; this phase is now two sectors, loaded before the network/TLS
+  fast path starts.
+
+Measurements:
+
+- Resident sectors: 24 -> 23.
+- Resident bytes: 12288 -> 11776.
+- Resident nonzero payload: 11972 -> 11716 bytes.
+- Resident load range: `0x1000..0x4000` -> `0x1000..0x3e00`.
+- `16k-target` resident guarded slack: -1024 -> -512 bytes under the 1 KiB
+  guard calculation, because the raw resident image now ends at `0x3e00`.
+- `16k-target` packed critical guarded slack: -4947 -> -4435 bytes.
+
+Result:
+
+- One resident sector removed.
+- The current single release-tracking value is now:
+  `budget[16k-target] packed-range[critical] guarded-slack = -4435`.
+- This cut is verified but should be watched because it uses the `0x0500`
+  bootstrap scratch window during the TLS/hash path.
+
+Verification:
+
+- `make inspect` passes.
+- `make test` passes.
+- NE2K BASIC-sidecar canary on a 32 KiB host reached `seed build 6` and
+  returned `ok`.
+- First 3c501 BASIC-sidecar run after the cut reached `agent setup failed`,
+  then an immediate 3c501 retry reached `seed build 6` and returned `ok`.
+  Treat the first result as transient unless it repeats.
+
+## 2026-05-08 - Move remaining TLS constants and crypto state to low memory
+
+Change:
+
+- Moved the remaining `key expansion` TLS PRF label into the low static
+  constants area staged by the TLS ClientHello phase.
+- Moved SHA-256, HMAC, TLS PRF, ChaCha20, Poly1305, and small TLS parser
+  working state out of resident file-backed data and into the unused part of
+  the handoff page after the published handoff structure.
+- Added a boot-time clear for this low runtime state.
+- Added build-time guards so the low runtime state cannot overlap later low
+  scratch windows.
+
+Measurements:
+
+- Resident sectors: unchanged at 23.
+- Resident bytes: unchanged at 11776.
+- Resident nonzero payload: 11716 -> 11542 bytes.
+- `16k-target` resident guarded slack: unchanged at -512 bytes.
+- `16k-target` packed critical guarded slack: unchanged at -4435 bytes.
+
+Result:
+
+- Saved 174 resident payload bytes since the previous logged state, but did
+  not yet cross another resident sector boundary.
+- Current single release-tracking value remains:
+  `budget[16k-target] packed-range[critical] guarded-slack = -4435`.
+- This cut deliberately reuses low memory that belongs to Seed before the
+  eventual agent handoff; the published handoff structure itself remains at
+  `0x0600`.
+
+Verification:
+
+- `make inspect` passes.
+- `make test` passes.
+- BASIC-sidecar family tests on a 32 KiB host reached `seed build 6` and
+  returned `ok` on `vm-net-ne2k8`, `vm-net-3c501`, `vm-net-3c503`, and
+  `vm-net-wd8003e`.
+
 ## 2026-05-08 - Stage TLS random and client public key in high scratch
 
 Change:

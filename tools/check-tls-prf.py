@@ -12,6 +12,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 LAYOUT_INC = ROOT / "targets" / "ibm_pc_5150" / "boot" / "core" / "layout.inc"
 DATA_INC = ROOT / "targets" / "ibm_pc_5150" / "boot" / "core" / "data.inc"
+TLS_CLIENT_HELLO_INC = (
+    ROOT / "targets" / "ibm_pc_5150" / "boot" / "phases" / "tls_client_hello.inc"
+)
 
 
 def p_sha256(secret: bytes, seed: bytes, output_len: int) -> bytes:
@@ -63,8 +66,8 @@ def check_seed_key_schedule_shape() -> None:
     chacha_key_len = parse_equ(LAYOUT_INC, "tls_chacha_key_len")
     chacha_iv_len = parse_equ(LAYOUT_INC, "tls_chacha_iv_len")
     seed_max_len = parse_equ(LAYOUT_INC, "tls_prf_seed_max_len")
-    master_label = parse_label_text(DATA_INC, "tls_label_master_secret")
-    key_label = parse_label_text(DATA_INC, "tls_label_key_expansion")
+    master_label = parse_label_text(TLS_CLIENT_HELLO_INC, "tls_label_master_secret_constant")
+    key_label = parse_label_text(TLS_CLIENT_HELLO_INC, "tls_label_key_expansion_constant")
 
     if random_len != 32 or master_len != 48:
         raise AssertionError("unexpected TLS random/master-secret length")

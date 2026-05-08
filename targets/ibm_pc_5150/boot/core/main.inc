@@ -165,6 +165,9 @@ run_core_phase_at:
 
 clear_runtime_scratch:
     xor ax, ax
+    mov di, low_runtime_state_start
+    mov cx, (low_runtime_state_end - low_runtime_state_start + 1) / 2
+    rep stosw
     mov di, high_crypto_scratch_start
     mov cx, (critical_scratch_end - high_crypto_scratch_start) / 2
     rep stosw

@@ -134,11 +134,11 @@ core_tls_client_hello_phase_start:
 %undef PHASE_BASE
 core_tls_client_hello_phase_end:
 
-%if (core_tls_client_hello_phase_end - core_tls_client_hello_phase_start) > 512
-%error "tls client hello phase exceeds one sector"
+%if (core_tls_client_hello_phase_end - core_tls_client_hello_phase_start) > (low_scratch_end - low_scratch_start)
+%error "tls client hello phase exceeds low scratch window"
 %endif
 
-times 512 - (core_tls_client_hello_phase_end - core_tls_client_hello_phase_start) db 0
+align 512, db 0
 
 core_agent_endpoint_phase_start:
 %define PHASE_BASE core_agent_endpoint_phase_start

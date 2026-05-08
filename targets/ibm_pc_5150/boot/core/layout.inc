@@ -5,6 +5,7 @@
 build_number equ 6
 core_load_addr equ 0x1000
 handoff_addr equ 0x0600
+low_sha256_k equ 0x0500
 runtime_stack_top equ 0x8000
 runtime_stack_guard_len equ 1536
 low_scratch_start equ 0x0700
@@ -292,6 +293,7 @@ tls_ec_coordinate_len equ 32
 tls_ec_public_uncompressed_len equ 65
 sha256_digest_len equ 32
 sha256_block_size equ 64
+sha256_k_len equ 256
 tls_master_secret_len equ 48
 tls_key_block_len equ 88
 tls_chacha_key_len equ 32

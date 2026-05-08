@@ -11,6 +11,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 LAYOUT_INC = ROOT / "targets" / "ibm_pc_5150" / "boot" / "core" / "layout.inc"
 DATA_INC = ROOT / "targets" / "ibm_pc_5150" / "boot" / "core" / "data.inc"
+TLS_CLIENT_HELLO_INC = (
+    ROOT / "targets" / "ibm_pc_5150" / "boot" / "phases" / "tls_client_hello.inc"
+)
 
 
 def parse_equ(name: str, seen: set[str] | None = None) -> int:
@@ -35,10 +38,10 @@ def parse_equ(name: str, seen: set[str] | None = None) -> int:
     raise AssertionError(f"{name} not found")
 
 
-def parse_db_values(name: str) -> list[int]:
+def parse_db_values(name: str, path: Path = DATA_INC) -> list[int]:
     values: list[int] = []
     active = False
-    for line in DATA_INC.read_text().splitlines():
+    for line in path.read_text().splitlines():
         if line.startswith(f"{name} "):
             active = True
         elif active and not line.lstrip().startswith(("db ", "times ")):
@@ -63,10 +66,10 @@ def parse_db_values(name: str) -> list[int]:
     return values
 
 
-def parse_dw_values(name: str) -> list[int]:
+def parse_dw_values(name: str, path: Path = DATA_INC) -> list[int]:
     values: list[int] = []
     active = False
-    for line in DATA_INC.read_text().splitlines():
+    for line in path.read_text().splitlines():
         if line.startswith(f"{name} "):
             active = True
         elif active and not line.lstrip().startswith("dw "):
@@ -168,10 +171,13 @@ def check_rfc_vectors() -> None:
 
 
 def check_seed_shape() -> None:
-    constants = b"".join(word.to_bytes(2, "little") for word in parse_dw_values("chacha_constants"))
+    constants = b"".join(
+        word.to_bytes(2, "little")
+        for word in parse_dw_values("chacha_constants_constant", TLS_CLIENT_HELLO_INC)
+    )
     if constants != b"expand 32-byte k":
         raise AssertionError("ChaCha constants mismatch")
-    prime = bytes(parse_db_values("poly1305_prime"))
+    prime = bytes(parse_db_values("poly1305_prime_constant", TLS_CLIENT_HELLO_INC))
     if int.from_bytes(prime, "little") != (1 << 130) - 5:
         raise AssertionError("Poly1305 prime mismatch")
     if parse_equ("tls_finished_plain_len") != 16:
