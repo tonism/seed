@@ -1,4 +1,4 @@
-# 16KB Nucleus Windowed Design
+# 16KB Windowed Nucleus Design
 
 This note is the design reference for the next low-memory step after the
 24 KiB BASIC sidecar release. It modifies the existing windowed architecture;
@@ -13,9 +13,9 @@ The external promise stays the same:
 - BIOS boot for machines with enough RAM
 - ROM BASIC sidecar entry for machines below the BIOS boot-sector ceiling
 
-The internal change is stricter: the resident part must become a tiny nucleus,
-and nearly everything else must run from explicit, reloadable windows inside
-`CORE.SYS`.
+The internal change is stricter: Seed becomes a windowed nucleus. The resident
+part must become a tiny nucleus, and nearly everything else must run from
+explicit, reloadable windows inside `CORE.SYS`.
 
 ## Current Baseline
 
