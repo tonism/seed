@@ -136,6 +136,151 @@ Verification:
 - `make inspect` passes.
 - `make test` passes.
 
+## 2026-05-08 - Prebuild TLS ClientHello before TCP connect
+
+Context:
+
+- A previous ClientHello phase experiment loaded the phase after TCP connect
+  and broke 3c501 during the first encrypted application-data receive.
+- A follow-up dummy-read test showed that even one extra floppy sector read
+  after `run_tcp_connect_phase` is enough to break the 3c501 path.
+
+Change:
+
+- Added a one-sector `L` phase that builds the TLS ClientHello before TCP
+  connect.
+- Wrote the finished ClientHello into `tls_client_hello_buffer`, currently
+  aliasing `tls_rx_copy` in critical scratch.
+- Changed `tls_probe_server` so the fast window only starts the transcript and
+  sends already-built ClientHello bytes. It no longer reads floppy or builds
+  ClientHello after TCP connect.
+- Moved the ClientHello-only builder, PRNG state, and small ClientHello
+  constants out of the resident nucleus.
+
+Measurements:
+
+- `CORE.SYS` total size: 26112 -> 26624 bytes, because of the new one-sector
+  nonresident phase.
+- Resident sectors: unchanged at 27.
+- Resident bytes: unchanged at 13824.
+- Resident nonzero payload: 13626 -> 13360 bytes.
+- `16k-target` guarded slack: unchanged at -2560 bytes.
+
+Result:
+
+- Saves 266 resident nonzero bytes but does not yet cross a resident-sector
+  boundary.
+- Confirms the safe ordering rule: load/build ClientHello before TCP connect;
+  keep the TCP-connected TLS/OpenAI fast window floppy-free.
+
+Verification:
+
+- `make test` passes.
+- `make inspect` passes.
+- 3c501 BASIC-sidecar canary on a 32 KiB host reached `seed build 6` and
+  returned `ok`.
+- NE2K BASIC-sidecar canary on a 32 KiB host reached `seed build 6` and
+  returned `ok`.
+
+## 2026-05-08 - Remove obsolete resident ClientHello extension tail
+
+Change:
+
+- Removed the old resident `tls_extensions_tail` bytes after the `L`
+  ClientHello phase gained its own phase-local copy.
+
+Measurements:
+
+- `CORE.SYS` total size: 26624 -> 26112 bytes.
+- Resident sectors: 27 -> 26.
+- Resident bytes: 13824 -> 13312.
+- Resident nonzero payload: 13360 -> 13292.
+- Resident load range: `0x1000..0x4600` -> `0x1000..0x4400`.
+- `16k-target` guarded slack: -2560 -> -2048 bytes.
+
+Result:
+
+- First full resident sector drop after the pre-connect ClientHello phase.
+- Remaining guarded 16 KiB deficit is 2048 bytes.
+
+Verification:
+
+- `make test` passes.
+- `make inspect` passes.
+- First 3c501 BASIC-sidecar canary on a 32 KiB host failed at agent setup,
+  then an immediate rerun reached `seed build 6` and returned `ok`.
+- NE2K BASIC-sidecar canary on a 32 KiB host reached `seed build 6` and
+  returned `ok`.
+
+## 2026-05-08 - Move DNS qname into pre-connect scratch
+
+Change:
+
+- Replaced the resident mutable `dns_qname` buffer with an alias inside the
+  first critical scratch receive buffer at `tls_rx_copy + 512`.
+- Kept the tiny resident `dns_default_qname` seed for the default internet
+  probe.
+- Added a build-time overlap check so the scratch DNS name cannot collide with
+  the pre-response TLS/API scratch window.
+
+Reasoning:
+
+- `dns_qname` is needed during internet setup and selected-agent DNS/TCP setup,
+  before the TLS receive buffer has to hold incoming TLS records.
+- Once the prebuilt ClientHello has been sent, the first TLS receive buffer can
+  overwrite this scratch space; DNS state is no longer needed in the connected
+  TLS/OpenAI fast window.
+
+Measurements:
+
+- Resident sectors: unchanged at 26.
+- Resident bytes: unchanged at 13312.
+- Resident nonzero payload: 13292 -> 13212 bytes.
+- `16k-target` guarded slack: unchanged at -2048 bytes.
+
+Result:
+
+- Saves 80 resident nonzero bytes, but not enough by itself to drop a resident
+  sector.
+- Remaining guarded 16 KiB deficit is still 2048 bytes.
+
+Verification:
+
+- `make test` passes.
+- `make inspect` passes.
+- 3c501 BASIC-sidecar canary on a 32 KiB host reached `seed build 6` and
+  returned `ok`.
+- NE2K BASIC-sidecar canary on a 32 KiB host reached `seed build 6` and
+  returned `ok`.
+
+## 2026-05-08 - Shrink phase runner stubs
+
+Change:
+
+- Changed cold phase runner stubs to load phase sector/count values with
+  8-bit immediates (`al`/`cl`) instead of 16-bit immediates (`ax`/`cx`).
+- Added zero-extension in the shared phase runner before converting the sector
+  offset to a FAT data LBA.
+
+Measurements:
+
+- Resident sectors: unchanged at 26.
+- Resident bytes: unchanged at 13312.
+- Resident nonzero payload: 13212 -> 13186 bytes.
+- `16k-target` guarded slack: unchanged at -2048 bytes.
+
+Result:
+
+- Saves 26 resident nonzero bytes.
+- The guarded 16 KiB deficit remains 2048 bytes.
+
+Verification:
+
+- `make test` passes.
+- `make inspect` passes.
+- 3c501 BASIC-sidecar canary on a 32 KiB host reached `seed build 6` and
+  returned `ok`.
+
 ## 2026-05-08 - Recover after unsafe ClientHello phase experiment
 
 Context:

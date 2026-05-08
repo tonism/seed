@@ -129,6 +129,18 @@ core_tcp_connect_phase_end:
 
 align 512, db 0
 
+core_tls_client_hello_phase_start:
+%define PHASE_BASE core_tls_client_hello_phase_start
+%include "phases/tls_client_hello.inc"
+%undef PHASE_BASE
+core_tls_client_hello_phase_end:
+
+%if (core_tls_client_hello_phase_end - core_tls_client_hello_phase_start) > 512
+%error "tls client hello phase exceeds one sector"
+%endif
+
+times 512 - (core_tls_client_hello_phase_end - core_tls_client_hello_phase_start) db 0
+
 core_agent_endpoint_phase_start:
 %define PHASE_BASE core_agent_endpoint_phase_start
 %include "phases/agent_endpoint.inc"
@@ -256,6 +268,11 @@ core_phase_table:
     dw (core_tcp_connect_phase_start - $$) / 512
     dw (core_tcp_connect_phase_end - core_tcp_connect_phase_start + 511) / 512
     dw net_setup_phase_start
+    dw 0
+    db 'L', 0
+    dw (core_tls_client_hello_phase_start - $$) / 512
+    dw (core_tls_client_hello_phase_end - core_tls_client_hello_phase_start + 511) / 512
+    dw low_scratch_start
     dw 0
     db 'E', 0
     dw (core_agent_endpoint_phase_start - $$) / 512

@@ -62,6 +62,8 @@ prepare_agent_endpoint_path:
     call wd_select_dp8390_base
     call run_agent_request_phase
     jc .restore
+    call run_tls_client_hello_phase
+    jc .restore
     call run_tcp_connect_phase
     jc .restore
     call tls_probe_server

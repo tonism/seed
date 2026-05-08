@@ -92,7 +92,6 @@ tls_prepared_app_len dw 0
 api_body_len dw 0
 api_receive_tries db 0
 tls_app_content_type db 0
-tls_random_state dw 0
 tls_transcript_len_low dw 0
 tls_transcript_len_high dw 0
 tls_transcript_certificate_remaining dw 0
@@ -181,11 +180,16 @@ low_file_scratch_end equ fs_sector_buffer + 512
 %error "low packet scratch arena overflow"
 %endif
 tls_rx_copy equ critical_scratch_start
+tls_client_hello_buffer equ tls_rx_copy
+dns_qname equ tls_rx_copy + 512
 
 ; The second receive-buffer payload is only needed after the request has been
 ; sent. Until then it can hold setup/request scratch without reducing the
 ; two-payload response receive window.
 tls_pre_response_scratch equ tls_rx_copy + tcp_payload_read_len
+%if (dns_qname + dns_qname_max_len) > tls_pre_response_scratch
+%error "dns_qname scratch overlaps pre-response scratch"
+%endif
 api_request_plain equ tls_pre_response_scratch
 tls_app_record_buffer equ api_request_plain
 sha256_saved_state equ api_request_plain + tls_app_record_buffer_len
@@ -262,24 +266,7 @@ poly_block equ p256_s2
 poly_product equ p256_s3
 poly_value equ p256_s5
 dns_default_qname db 7, 'example', 3, 'com', 0
-dns_qname db 7, 'example', 3, 'com', 0
-           times dns_qname_max_len - dns_qname_default_len db 0
 tls_random db 'SEEDBUILD6TLSCLIENTHELLO00000000'
-tls_after_random db 0
-                 db 0, 2
-                 db 0xcc, 0xa9
-                 db 1, 0
-tls_extensions_prefix db 0xff, 1, 0, 1, 0
-tls_extensions_tail db 0, 11, 0, 2, 1, 0
-                    db 0, 10, 0, 4, 0, 2, 0, 23
-                    db 0, 35, 0, 0
-                    db 0, 22, 0, 0
-                    db 0, 13, 0, 42, 0, 40
-                    db 4, 3, 5, 3, 6, 3, 8, 7
-                    db 8, 8, 8, 9, 8, 10, 8, 11
-                    db 8, 4, 8, 5, 8, 6, 4, 1
-                    db 5, 1, 6, 1, 3, 3, 3, 1
-                    db 3, 2, 4, 2, 5, 2, 6, 2
 tls_client_ec_public db 0x04
                      db 0x6b, 0x17, 0xd1, 0xf2, 0xe1, 0x2c, 0x42, 0x47
                      db 0xf8, 0xbc, 0xe6, 0xe5, 0x63, 0xa4, 0x40, 0xf2

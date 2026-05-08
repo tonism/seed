@@ -1,8 +1,6 @@
 tls_probe_server:
-    call build_tls_client_hello
-    jc .failed
     call tls_transcript_start
-    mov si, fs_sector_buffer
+    mov si, tls_client_hello_buffer
     add si, 5
     mov cx, [tls_tx_len]
     sub cx, 5
@@ -10,7 +8,7 @@ tls_probe_server:
     jc .failed
     or byte [tls_transcript_flags], tls_transcript_clienthello
     call tls_prepare_3c501_receive
-    mov si, fs_sector_buffer
+    mov si, tls_client_hello_buffer
     mov cx, [tls_tx_len]
     call tcp_send_payload
     jc .failed
@@ -2131,132 +2129,6 @@ tls_parse_server_hello_done:
     ret
 .failed:
     stc
-    ret
-
-build_tls_client_hello:
-    call tls_seed_client_random
-    mov al, [dns_qname_len]
-    cmp al, 3
-    jb .failed
-    sub al, 2
-    xor ah, ah
-    mov [tls_host_len], ax
-    add ax, tls_client_base_len
-    cmp ax, tcp_payload_max_len
-    ja .failed
-    mov [tls_tx_len], ax
-
-    mov di, fs_sector_buffer
-    mov al, 0x16
-    stosb
-    mov ax, 0x0103
-    stosw
-    mov ax, [tls_host_len]
-    add ax, tls_record_base_len
-    call tls_write_be16
-
-    mov al, 0x01
-    stosb
-    xor al, al
-    stosb
-    mov ax, [tls_host_len]
-    add ax, tls_body_base_len
-    call tls_write_be16
-    mov ax, 0x0303
-    stosw
-
-    mov si, tls_random
-    mov cx, tls_random_len
-    rep movsb
-    mov si, tls_after_random
-    mov cx, tls_after_random_len
-    rep movsb
-
-    mov ax, [tls_host_len]
-    add ax, tls_extensions_base_len
-    call tls_write_be16
-
-    mov si, tls_extensions_prefix
-    mov cx, tls_extensions_prefix_len
-    rep movsb
-
-    xor ax, ax
-    stosw
-    mov ax, [tls_host_len]
-    add ax, 5
-    call tls_write_be16
-    mov ax, [tls_host_len]
-    add ax, 3
-    call tls_write_be16
-    xor al, al
-    stosb
-    mov ax, [tls_host_len]
-    call tls_write_be16
-
-    mov si, dns_qname
-.label:
-    lodsb
-    or al, al
-    jz .host_done
-    mov cl, al
-    xor ch, ch
-    rep movsb
-    cmp byte [si], 0
-    je .label
-    mov al, '.'
-    stosb
-    jmp .label
-.host_done:
-    mov si, tls_extensions_tail
-    mov cx, tls_extensions_tail_len
-    rep movsb
-    clc
-    ret
-.failed:
-    stc
-    ret
-
-tls_seed_client_random:
-    push ax
-    push bx
-    push cx
-    push dx
-    push di
-    push es
-    push ds
-    pop es
-    mov ax, [0x046c]
-    xor ax, [0x046e]
-    xor ax, [tcp_local_seq]
-    xor ax, [tcp_local_seq + 2]
-    xor ax, [tcp_remote_ack]
-    xor ax, [tcp_remote_ack + 2]
-    xor al, [handoff_addr + handoff_mac]
-    xor ah, [handoff_addr + handoff_mac + 5]
-    or ax, ax
-    jnz .seed_ready
-    mov ax, 0x5eed
-.seed_ready:
-    mov [tls_random_state], ax
-    mov bx, 25173
-    mov di, tls_random
-    mov cx, tls_random_len / 2
-.next_word:
-    mov ax, [tls_random_state]
-    mul bx
-    add ax, 13849
-    adc dx, 0
-    xor ax, dx
-    add ax, cx
-    mov [tls_random_state], ax
-    stosw
-    loop .next_word
-    pop es
-    pop di
-    pop dx
-    pop cx
-    pop bx
-    pop ax
     ret
 
 build_tls_client_key_exchange:
