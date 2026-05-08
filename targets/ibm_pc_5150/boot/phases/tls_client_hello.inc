@@ -13,6 +13,10 @@ tls_client_hello_phase:
 
 build_tls_client_hello_phase:
     call tls_seed_client_random_phase
+    mov si, low_scratch_start + (tls_client_ec_public_constant - PHASE_BASE)
+    mov di, tls_client_ec_public
+    mov cx, tls_ec_public_uncompressed_len
+    rep movsb
     mov al, [dns_qname_len]
     cmp al, 3
     jb .failed
@@ -145,5 +149,14 @@ tls_client_hello_extensions_tail db 0, 11, 0, 2, 1, 0
                                  db 8, 4, 8, 5, 8, 6, 4, 1
                                  db 5, 1, 6, 1, 3, 3, 3, 1
                                  db 3, 2, 4, 2, 5, 2, 6, 2
+tls_client_ec_public_constant db 0x04
+                              db 0x6b, 0x17, 0xd1, 0xf2, 0xe1, 0x2c, 0x42, 0x47
+                              db 0xf8, 0xbc, 0xe6, 0xe5, 0x63, 0xa4, 0x40, 0xf2
+                              db 0x77, 0x03, 0x7d, 0x81, 0x2d, 0xeb, 0x33, 0xa0
+                              db 0xf4, 0xa1, 0x39, 0x45, 0xd8, 0x98, 0xc2, 0x96
+                              db 0x4f, 0xe3, 0x42, 0xe2, 0xfe, 0x1a, 0x7f, 0x9b
+                              db 0x8e, 0xe7, 0xeb, 0x4a, 0x7c, 0x0f, 0x9e, 0x16
+                              db 0x2b, 0xce, 0x33, 0x57, 0x6b, 0x31, 0x5e, 0xce
+                              db 0xcb, 0xb6, 0x40, 0x68, 0x37, 0xbf, 0x51, 0xf5
 
 %unmacro phase_call_res 1

@@ -35,6 +35,9 @@ WORD_COUNT = 16
 PRODUCT_WORD_COUNT = WORD_COUNT * 2
 ROOT = Path(__file__).resolve().parents[1]
 DATA_INC = ROOT / "targets" / "ibm_pc_5150" / "boot" / "core" / "data.inc"
+TLS_CLIENT_HELLO_INC = (
+    ROOT / "targets" / "ibm_pc_5150" / "boot" / "phases" / "tls_client_hello.inc"
+)
 
 
 def inv_mod(value: int) -> int:
@@ -114,10 +117,10 @@ def parse_dw_words(label: str) -> list[int]:
     return words
 
 
-def parse_db_values(label: str) -> list[int]:
+def parse_db_values(label: str, path: Path = DATA_INC) -> list[int]:
     values: list[int] = []
     active = False
-    for line in DATA_INC.read_text().splitlines():
+    for line in path.read_text().splitlines():
         if line.startswith(f"{label} "):
             active = True
         elif active and not line.lstrip().startswith("db "):
@@ -341,7 +344,7 @@ def scalar_mult_jacobian_words(scalar: int, point: tuple[int, int]) -> tuple[int
 
 
 def check_field_words() -> None:
-    assert bytes(parse_db_values("tls_client_ec_public")) == (
+    assert bytes(parse_db_values("tls_client_ec_public_constant", TLS_CLIENT_HELLO_INC)) == (
         b"\x04"
         + CLIENT_PUBLIC[0].to_bytes(32, "big")
         + CLIENT_PUBLIC[1].to_bytes(32, "big")

@@ -6,7 +6,6 @@ tls_probe_server:
     sub cx, 5
     call tls_transcript_update
     jc .failed
-    or byte [tls_transcript_flags], tls_transcript_clienthello
     call tls_prepare_3c501_receive
     mov si, tls_client_hello_buffer
     mov cx, [tls_tx_len]
@@ -172,10 +171,6 @@ tls_wait_for_server_hello:
     sub cx, dx
     cmp ax, cx
     jne .failed
-    mov si, di
-    add si, 5
-    call tls_parse_server_extensions
-    jc .failed
     jmp .parsed
 .no_extensions:
 .parsed:
@@ -185,7 +180,6 @@ tls_wait_for_server_hello:
     add cx, 4
     call tls_transcript_update
     jc .failed
-    or byte [tls_transcript_flags], tls_transcript_serverhello
     call tls_save_buffered_server_payload
     mov byte [handoff_addr + handoff_net_status], net_status_tls_serverhello_received
     mov byte [handoff_addr + handoff_net_error], net_error_none
@@ -219,86 +213,8 @@ tls_classify_cipher_suite:
     stc
     ret
 .ecdhe_chacha_sha256:
-    mov byte [tls_server_key_exchange], tls_kx_ecdhe_rsa
     clc
     ret
-tls_parse_server_extensions:
-.next:
-    or cx, cx
-    jz .done
-    cmp cx, 4
-    jb .failed
-    mov ah, [si]
-    mov al, [si + 1]
-    mov bh, [si + 2]
-    mov bl, [si + 3]
-    sub cx, 4
-    cmp bx, cx
-    ja .failed
-    add si, 4
-    call tls_note_server_extension
-    jc .failed
-    add si, bx
-    sub cx, bx
-    jmp .next
-.done:
-    clc
-    ret
-.failed:
-    stc
-    ret
-
-tls_note_server_extension:
-    cmp ax, 0x000b
-    je .ec_point_formats
-    cmp ax, 0xff01
-    je .renegotiation_info
-    cmp ax, 0x0023
-    je .session_ticket
-    cmp ax, 0x0010
-    je .alpn
-    cmp ax, 0x002b
-    je .supported_versions
-    clc
-    ret
-.ec_point_formats:
-    cmp bx, 2
-    jb .failed
-    push dx
-    mov dl, [si]
-    xor dh, dh
-    inc dx
-    cmp dx, bx
-    pop dx
-    jne .failed
-    clc
-    ret
-.renegotiation_info:
-    cmp bx, 1
-    jne .failed
-    cmp byte [si], 0
-    jne .failed
-    clc
-    ret
-.session_ticket:
-    clc
-    ret
-.alpn:
-    clc
-    ret
-.supported_versions:
-    cmp bx, 2
-    jne .failed
-    cmp byte [si], 0x03
-    jne .failed
-    cmp byte [si + 1], 0x03
-    jne .failed
-    clc
-    ret
-.failed:
-    stc
-    ret
-
 tls_wait_for_server_certificate:
     call tls_load_server_payload
     jc .failed
@@ -407,7 +323,6 @@ tls_drain_server_certificate:
 .done:
     cmp word [tls_transcript_certificate_remaining], 0
     jne .failed
-    or byte [tls_transcript_flags], tls_transcript_certificate
     mov byte [handoff_addr + handoff_net_status], net_status_tls_certificate_drained
     mov byte [handoff_addr + handoff_net_error], net_error_none
     clc
@@ -488,7 +403,6 @@ tls_transcript_start:
     mov word [tls_transcript_len_low], 0
     mov word [tls_transcript_len_high], 0
     mov word [tls_transcript_certificate_remaining], 0
-    mov byte [tls_transcript_flags], 0
     mov byte [tls_key_schedule_ready], 0
     mov word [tls_prepared_app_len], 0
     mov byte [tls_app_sent], 0
@@ -606,8 +520,6 @@ tls_parse_server_certificate:
     ret
 
 tls_wait_for_server_key_exchange_or_done:
-    cmp byte [tls_server_key_exchange], tls_kx_ecdhe_rsa
-    jne .wait_done
     call tls_load_server_payload
     jc .failed
     call tls_ensure_current_handshake_record_complete
@@ -618,7 +530,6 @@ tls_wait_for_server_key_exchange_or_done:
     jc .failed
     call tls_prepare_early_key_schedule
     jc .failed
-.wait_done:
     call tls_wait_for_server_hello_done
     jc .failed
     clc
@@ -654,7 +565,6 @@ tls_wait_for_server_hello_done:
     mov byte [handoff_addr + handoff_net_status], net_status_tls_serverhellodone_received
     call tls_transcript_update_next_handshake
     jc .failed
-    or byte [tls_transcript_flags], tls_transcript_serverhellodone
     call tls_clear_buffered_payload
     cmp byte [handoff_addr + handoff_nic_family], family_3c501
     je .ack_done
@@ -670,13 +580,10 @@ tls_wait_for_server_hello_done:
     ret
 
 tls_prepare_premaster_secret:
-    cmp byte [tls_server_key_exchange], tls_kx_ecdhe_rsa
-    jne .done
     call p256_compute_server_premaster_secret
     jc .failed
     mov byte [handoff_addr + handoff_net_status], net_status_tls_premaster_ready
     mov byte [handoff_addr + handoff_net_error], net_error_none
-.done:
     clc
     ret
 .failed:
@@ -2100,7 +2007,6 @@ tls_parse_server_key_exchange:
 tls_finish_server_key_exchange:
     call tls_transcript_update_next_handshake
     jc .failed
-    or byte [tls_transcript_flags], tls_transcript_serverkeyexchange
     mov ax, [tls_server_next_total_len]
     call tls_save_payload_after_current_offset
     cmp word [tls_buffered_payload_len], 0

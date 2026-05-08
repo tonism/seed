@@ -125,6 +125,104 @@ Verification:
 - `make inspect` passes.
 - `make test` passes.
 
+## 2026-05-08 - Stage TLS random and client public key in high scratch
+
+Change:
+
+- Moved the mutable TLS client random out of resident data and into high
+  scratch.
+- Moved the fixed P-256 client public key out of resident data. The existing
+  TLS ClientHello phase now copies it into high scratch before TCP connects to
+  the API endpoint, so it is available during the no-floppy TLS fast window.
+- Updated the P-256 checker to validate the staged phase constant rather than
+  requiring this key to live in resident data.
+
+Measurements:
+
+- Resident sectors: 25 -> 24.
+- Resident bytes: 12800 -> 12288.
+- Resident nonzero payload: 12367 -> 12270.
+- High crypto scratch: 862 -> 959 bytes.
+- Critical scratch: unchanged at 2964 bytes.
+- `16k-target` packed critical guarded slack: -5362 -> -4947 bytes.
+
+Result:
+
+- One loaded resident sector removed.
+- Net progress toward the guarded 16 KiB packed target: 415 bytes.
+
+Verification:
+
+- `make inspect` passes.
+- `make test` passes.
+- 3c501 BASIC-sidecar canary on a 32 KiB host reached `seed build 6` and
+  returned `ok`.
+- NE2K BASIC-sidecar canary on a 32 KiB host reached `seed build 6` and
+  returned `ok`.
+
+## 2026-05-08 - Trim critical scratch to actual pre-response tail
+
+Change:
+
+- Replaced the implicit `tcp_payload_read_len * 2` critical scratch sizing
+  with `tcp_payload_read_len + tls_pre_response_tail_len`.
+- Added an assembly check so the pre-response scratch-tail constant fails the
+  build if the scratch aliases drift.
+- Updated the inspection budget's critical range from 3028 bytes to 2964
+  bytes.
+
+Measurements:
+
+- Resident sectors: unchanged at 25.
+- Resident bytes: unchanged at 12800.
+- Resident nonzero payload: unchanged at 12367.
+- Critical scratch bytes: 3028 -> 2964.
+- `packed-range[critical]` guarded 16 KiB slack: -5426 -> -5362 bytes.
+
+Result:
+
+- Saved 64 bytes in the ideal packed 16 KiB memory budget.
+- This is a small but useful lifetime cleanup; it does not solve the larger
+  need to shrink or relocate the TLS/OpenAI critical window.
+
+Verification:
+
+- `make inspect` passes.
+- `make test` passes.
+- 3c501 BASIC-sidecar canary on a 32 KiB host reached `seed build 6` and
+  returned `ok`.
+
+## 2026-05-08 - Rejected OpenAI max-output request-shape cut
+
+Change tried:
+
+- Temporarily changed the minimal OpenAI Responses request body from
+  `{"model":"...","input":"Reply exactly: ok","store":false}` to include
+  `"max_output_tokens":16`.
+- The goal was to make the returned application-data records smaller before
+  attempting to shrink the TLS application receive window.
+
+Measurements:
+
+- Build layout was unchanged before VM testing:
+  - Resident sectors: 25.
+  - Resident bytes: 12800.
+  - Resident nonzero payload: 12367.
+  - `packed-range[critical]` guarded 16 KiB slack: -5426 bytes.
+
+Result:
+
+- Rejected and reverted immediately.
+- 3c501 BASIC-sidecar canary on a 32 KiB host reached the agent/TLS path but
+  failed with red `o agent setup failed`.
+- This matches the earlier 32 KiB experiment: changing the OpenAI request shape
+  is not currently a safe way to earn receive-buffer memory.
+
+Verification:
+
+- `make inspect` passed before VM testing.
+- `make test` passed before VM testing.
+
 ## 2026-05-08 - Small resident UI/startup cuts, keep DNS state resident
 
 Change:

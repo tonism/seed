@@ -204,7 +204,7 @@ ne_read_dma_wait_count equ 0x0800
 ne_prom_len equ 32
 ne_rx_header_len equ 4
 ne_rx_sample_len equ 64
-ne_rx_max_count equ 1600
+ne_rx_max_count equ 1518
 net_frame_buffer_len equ ne_rx_max_count
 dhcp_rx_frame_len equ 384
 ne_rcr_broadcast equ 0x04
@@ -264,7 +264,8 @@ tcp_offset equ eth_header_len + ipv4_header_len
 tcp_payload_offset equ tcp_offset + 20
 tcp_payload_max_len equ 1460
 tcp_payload_read_len equ tcp_payload_offset + tcp_payload_max_len
-tls_stream_buffer_len equ tcp_payload_read_len * 2
+tls_pre_response_tail_len equ tls_app_record_buffer_len + (16 * 2) + sha256_block_size + (sha256_block_size * 2) + sha256_digest_len + (16 * 2) + (16 * 2) + tls_prf_seed_max_len + sha256_digest_len + sha256_digest_len + seed_value_total_len + tls_random_len + tls_master_secret_len + sha256_digest_len + tls_finished_verify_len
+tls_stream_buffer_len equ tcp_payload_read_len + tls_pre_response_tail_len
 critical_scratch_start equ 0x5000
 critical_scratch_len equ tls_stream_buffer_len
 critical_scratch_end equ critical_scratch_start + critical_scratch_len
@@ -281,13 +282,6 @@ tls_random_len equ 32
 tls_after_random_len equ 7
 tls_extensions_prefix_len equ 5
 tls_extensions_tail_len equ 68
-tls_transcript_clienthello equ 0x01
-tls_transcript_serverhello equ 0x02
-tls_transcript_certificate equ 0x04
-tls_transcript_serverkeyexchange equ 0x08
-tls_transcript_serverhellodone equ 0x10
-tls_kx_ecdhe_rsa equ 1
-tls_kx_rsa equ 2
 tls_bulk_aes_128_gcm equ 1
 tls_bulk_aes_256_gcm equ 2
 tls_bulk_chacha20_poly1305 equ 3
@@ -358,7 +352,9 @@ high_p256_s1 equ high_p256_s0 + p256_word_len
 high_p256_s2 equ high_p256_s1 + p256_word_len
 high_p256_s3 equ high_p256_s2 + p256_word_len
 high_p256_s5 equ high_p256_s3 + poly1305_product_len
-high_crypto_scratch_end equ high_p256_s5 + poly1305_value_len
+high_tls_random equ high_p256_s5 + poly1305_value_len
+high_tls_client_ec_public equ high_tls_random + tls_random_len
+high_crypto_scratch_end equ high_tls_client_ec_public + tls_ec_public_uncompressed_len
 wd_saprom equ 0x08
 fat_root_start_lba equ LOADER_SECTORS + 3
 fat_fat_start_lba equ LOADER_SECTORS + 1

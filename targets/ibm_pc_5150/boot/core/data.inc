@@ -95,7 +95,6 @@ poly_i db 0
 poly_j db 0
 tls_server_certificate_len_low dw 0
 tls_server_certificate_list_len_low dw 0
-tls_server_key_exchange db 0
 tls_server_next_handshake_type db 0
 tls_server_next_handshake_len_high db 0
 tls_server_key_public_len db 0
@@ -103,7 +102,6 @@ tls_server_signature_hash db 0
 tls_server_signature_alg db 0
 tls_server_certificate_len_high db 0
 tls_server_certificate_list_len_high db 0
-tls_transcript_flags db 0
 tls_key_schedule_ready db 0
 sha256_block_len db 0
 sha256_saved_block_len db 0
@@ -216,6 +214,9 @@ tls_master_secret equ tls_server_random + tls_random_len
 tls_handshake_hash equ tls_master_secret + tls_master_secret_len
 tls_verify_data equ tls_handshake_hash + sha256_digest_len
 tls_pre_response_scratch_end equ tls_verify_data + tls_finished_verify_len
+%if (tls_pre_response_scratch_end - tls_pre_response_scratch) != tls_pre_response_tail_len
+%error "pre-response scratch size constant is stale"
+%endif
 %if tls_pre_response_scratch_end > (tls_rx_copy + tls_stream_buffer_len)
 %error "pre-response scratch exceeds TLS receive buffer tail"
 %endif
@@ -269,16 +270,8 @@ poly_acc equ p256_s1
 poly_block equ p256_s2
 poly_product equ p256_s3
 poly_value equ p256_s5
-tls_random db 'SEEDBUILD6TLSCLIENTHELLO00000000'
-tls_client_ec_public db 0x04
-                     db 0x6b, 0x17, 0xd1, 0xf2, 0xe1, 0x2c, 0x42, 0x47
-                     db 0xf8, 0xbc, 0xe6, 0xe5, 0x63, 0xa4, 0x40, 0xf2
-                     db 0x77, 0x03, 0x7d, 0x81, 0x2d, 0xeb, 0x33, 0xa0
-                     db 0xf4, 0xa1, 0x39, 0x45, 0xd8, 0x98, 0xc2, 0x96
-                     db 0x4f, 0xe3, 0x42, 0xe2, 0xfe, 0x1a, 0x7f, 0x9b
-                     db 0x8e, 0xe7, 0xeb, 0x4a, 0x7c, 0x0f, 0x9e, 0x16
-                     db 0x2b, 0xce, 0x33, 0x57, 0x6b, 0x31, 0x5e, 0xce
-                     db 0xcb, 0xb6, 0x40, 0x68, 0x37, 0xbf, 0x51, 0xf5
+tls_random equ high_tls_random
+tls_client_ec_public equ high_tls_client_ec_public
 tls_label_master_secret db 'master secret'
 tls_label_master_secret_len equ $ - tls_label_master_secret
 tls_label_key_expansion db 'key expansion'
