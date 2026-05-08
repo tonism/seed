@@ -192,11 +192,19 @@ On 4 May 2026, the 64 KiB baseline was retested before memory-slimming work:
 `vm-net-wd8003e`, and `vm-net-wd8003eb` reached `seed build 6` and displayed
 `ok`; `vm-net-3c501` failed at agent setup and was carried as the open
 valid-profile failure for the next slimming pass. On 7 May 2026, after the
-32 KiB stack and resident-image reductions, representative family profiles
+32 KiB stack and resident-image reductions, that failure was repaired and
+representative family profiles
 `vm-net-ne2k8`, `vm-net-3c501`, `vm-net-3c503`, and `vm-net-wd8003e` all
 completed the direct OpenAI Responses request/response proof, displayed the
 returned `ok`, and reached `seed build 6`. Retest individual profiles when
 changing TLS timing or shared packet code.
+
+The 24 KiB low-memory release path uses `tools/run-basic-bootstrap-86box.py`
+to force ROM BASIC entry, inject the generated sidecar helper, and keep Seed's
+runtime ceiling at `0x6000`. Before the compact helper release, that path
+reached returned `ok` on `vm-net-ne2k8`, `vm-net-3c501`, `vm-net-3c503`, and
+`vm-net-wd8003e`. The released short hex `DATA` helper was then smoke-tested
+through returned `ok` on `vm-net-ne2k8`.
 
 The WD8003 profiles use `ram_addr = D0000` and `ram_size = 8192`; 86Box expects
 the shared-memory address as a five-digit physical address and the EB RAM size

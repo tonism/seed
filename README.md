@@ -56,9 +56,11 @@ PRF using prepared HMAC states for repeated PRF calls, sends ClientKeyExchange,
 sends ChangeCipherSpec and encrypted client Finished together, verifies the
 encrypted server Finished, sends a minimal OpenAI Responses request asking for
 `ok`, displays the returned answer, then writes validated values back
-best-effort. Six original-speed 5150 NIC profiles currently reach that proof;
-3c501 still needs repair for the full API path. Capability fetches, session
-creation, and environment handover remain later build 6 work.
+best-effort. All seven original-speed 5150 NIC profiles, including 3c501,
+reach that proof in the 32 KiB BIOS-boot path. The current release also has a
+24 KiB ROM BASIC sidecar bootstrap path for machines that cannot enter through
+the BIOS boot sector. Capability fetches, session creation, and environment
+handover remain later build 6 work.
 
 Build 5 completed the internet-readiness milestone. It initializes
 NE1000/NE2000-family packet hardware after a valid MAC read, reads one pending
@@ -104,6 +106,12 @@ Inspect the generated image:
 make inspect
 ```
 
+Generate the ROM BASIC sidecar helpers for sub-32 KiB entry:
+
+```sh
+make basic-bootstrap
+```
+
 Run the default no-card 86Box profile:
 
 ```sh
@@ -114,6 +122,12 @@ Run a NIC-present profile:
 
 ```sh
 tools/run-86box.sh vm-net-ne2k8
+```
+
+Run the automated 24 KiB ROM BASIC sidecar harness:
+
+```sh
+tools/run-basic-bootstrap-86box.py --profile vm-net-ne2k8
 ```
 
 ## Repository Map
@@ -130,11 +144,14 @@ targets/ibm_pc_5150/HANDOFF.md   current low-memory runtime handoff block
 targets/ibm_pc_5150/boot/        8088 boot sector, loader, and core wrapper
 targets/ibm_pc_5150/boot/core/   boot core include files; emitted as CORE.SYS
 targets/ibm_pc_5150/86box/       86Box profiles and NIC inventory
+tools/build-basic-bootstrap.py    generated ROM BASIC sidecar helper builder
 tools/build-fat12-image.py       deterministic 160 KiB FAT12 image builder
+tools/core-sys-info.py            CORE.SYS header, resident, and phase inspector
 tools/check-p256.py              dependency-free P-256 vector and field checker
 tools/check-tls-prf.py           dependency-free TLS PRF and key schedule checker
 tools/check-chacha-poly1305.py   dependency-free record crypto shape checker
 tools/run-86box.sh               build and launch a 86Box profile
+tools/run-basic-bootstrap-86box.py  launch 86Box and inject the BASIC sidecar
 ```
 
 ## Project Rules

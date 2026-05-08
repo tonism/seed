@@ -162,9 +162,10 @@ profiles completed the direct OpenAI Responses request/response proof and
 displayed the returned `ok`. On 4 May 2026, the 64 KiB baseline was retested
 before memory-slimming work: all valid profiles except `vm-net-3c501` reached
 `seed build 6` and displayed `ok`; `vm-net-3c501` failed at agent setup and
-remained open until the 32 KiB slimming pass. On 7 May 2026, representative
-32 KiB NIC-family tests passed: `vm-net-ne2k8`, `vm-net-3c501`,
-`vm-net-3c503`, and `vm-net-wd8003e` each displayed `ok` and reached
-`seed build 6`.
+remained open until the 32 KiB slimming pass. On 7 May 2026, that failure was
+repaired in representative 32 KiB NIC-family tests: `vm-net-ne2k8`,
+`vm-net-3c501`, `vm-net-3c503`, and `vm-net-wd8003e` each displayed `ok` and
+reached `seed build 6`. The current 24 KiB ROM BASIC sidecar path preserves the
+same API proof under a `0x6000` runtime ceiling.
 Capability fetches, model selection, reasoning selection, and environment
 handoff remain later Build 6 work.

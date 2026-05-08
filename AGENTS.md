@@ -36,10 +36,11 @@ and jumps to it at `0000:1000`. The tracked `AGENTS.CFG` and `NET.CFG` files
 are shipped in the root directory when present. `AGENTS.CFG` overrides built-in
 `openai`, `anthropic`, and `google` agent interfaces; `NET.CFG` overrides the
 built-in `example.com` probe. Optional `USER.CFG` user-local state is ignored
-and included only when `config/USER.CFG` exists. Low-memory branches may also
-ship BASIC bootstrap helpers in the root directory; keep `CORE.SYS` as the
-first FAT data file so both the boot loader and the BASIC loader can find the
-same runtime image.
+and included only when `config/USER.CFG` exists. The build may also generate
+ROM BASIC bootstrap sidecar text under `build/ibm_pc_5150/` for sub-32 KiB
+entry. Do not package those BASIC helpers into the release floppy FAT root
+unless explicitly scoped; keep `CORE.SYS` as the first FAT data file so both
+the boot loader and the BASIC loader can find the same runtime image.
 
 ## Constraints
 
@@ -130,6 +131,12 @@ Inspect:
 make inspect
 ```
 
+Generate the ROM BASIC sidecar helpers:
+
+```sh
+make basic-bootstrap
+```
+
 Run default no-card VM:
 
 ```sh
@@ -140,6 +147,12 @@ Run a NIC-present VM:
 
 ```sh
 tools/run-86box.sh vm-net-ne2k8
+```
+
+Run the 24 KiB ROM BASIC sidecar harness:
+
+```sh
+tools/run-basic-bootstrap-86box.py --profile vm-net-ne2k8
 ```
 
 Useful expected screens:
@@ -154,8 +167,11 @@ displayed the returned `ok`: `vm-net-3c501`, `vm-net-3c503`, `vm-net-ne1k`,
 `vm-net-wd8003eb`. On 7 May 2026, the 32 KiB slimming checkpoint passed
 representative family tests on `vm-net-ne2k8`, `vm-net-3c501`,
 `vm-net-3c503`, and `vm-net-wd8003e`, each displaying returned `ok` and
-`seed build 6`. Retest individual profiles when changing TLS timing/shared
-packet code.
+`seed build 6`. The 24 KiB ROM BASIC sidecar path then reached returned `ok`
+on `vm-net-ne2k8`, `vm-net-3c501`, `vm-net-3c503`, and `vm-net-wd8003e`
+before the compact hex helper release; the released hex helper was smoke-tested
+through returned `ok` on `vm-net-ne2k8`. Retest individual profiles when
+changing TLS timing/shared packet code.
 Build 6 currently adds FAT12 `AGENTS.CFG` and `NET.CFG` parsing, built-in
 fallback agent interfaces, optional `USER.CFG` persistence for selected
 agent/model/reasoning/key/endpoint values, with `server?` shown for LiteLLM's
