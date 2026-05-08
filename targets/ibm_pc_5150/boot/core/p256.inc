@@ -375,8 +375,7 @@ p256_point_set_infinity:
     mov di, p256_jac_y
     call p256_clear_words
     mov di, p256_jac_z
-    call p256_clear_words
-    ret
+    jmp p256_clear_words
 
 p256_point_set_from_affine:
     mov si, [p256_affine_x_ptr]
@@ -386,8 +385,7 @@ p256_point_set_from_affine:
     mov di, p256_jac_y
     call p256_copy_words
     mov di, p256_jac_z
-    call p256_set_one
-    ret
+    jmp p256_set_one
 
 p256_point_double_jacobian:
     ; In-place Jacobian point doubling for the current p256_jac_* point.
@@ -705,8 +703,7 @@ p256_compute_server_premaster_secret:
 .full_scalar:
     call p256_client_private_is_two
     jnc .generic_scalar
-    call p256_compute_server_premaster_secret_scalar2
-    ret
+    jmp p256_compute_server_premaster_secret_scalar2
 .generic_scalar:
     call p256_compute_server_shared_jacobian
     mov si, p256_jac_z

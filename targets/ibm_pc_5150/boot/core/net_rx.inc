@@ -440,8 +440,7 @@ c503_write_chipmem_bytes:
     out dx, ax
     loop .write
 .done:
-    call c503_select_dp8390
-    ret
+    jmp c503_select_dp8390
 
 c503_begin_dma_write:
     mov dx, [handoff_addr + handoff_nic_base]
@@ -482,8 +481,7 @@ c503_read_chipmem_bytes:
     add dx, el2_data
 .next:
     loop .read
-    call c503_select_dp8390
-    ret
+    jmp c503_select_dp8390
 
 c503_begin_dma:
     mov dx, [handoff_addr + handoff_nic_base]

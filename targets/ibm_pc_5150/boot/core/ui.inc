@@ -4,5 +4,4 @@ show_load_marker:
     mov byte [cursor_row], seed_row
     mov dl, [seed_col]
     mov [cursor_col], dl
-    call print_char
-    ret
+    jmp print_char

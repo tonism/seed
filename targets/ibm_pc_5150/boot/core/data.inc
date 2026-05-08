@@ -1,23 +1,3 @@
-ne_tx_start db 0
-ne_rx_start db 0
-ne_rx_stop db 0
-ne_current_page db 0
-ne_boundary_page db 0
-ne_next_page db 0
-ne_rx_header times ne_rx_header_len db 0
-ne_rx_count dw 0
-ne_rx_sample_count dw 0
-ne_rx_read_limit dw ne_rx_sample_len
-ne_tx_len dw 0
-el1_tx_ptr dw 0
-ne_dma_addr dw 0
-ne_dma_count dw 0
-dhcp_wait_count dw 0
-arp_target_mac times 6 db 0
-tcp_target_ip times 4 db 0
-tcp_dest_port_word dw tcp_port_http_word
-tcp_local_seq times 4 db 0
-tcp_remote_ack times 4 db 0
 tcp_tx_flags db 0
 tcp_tx_len dw 0
 tcp_tx_payload_ptr dw 0
@@ -158,9 +138,7 @@ hmac_data2_len equ hmac_data2_ptr + 2
 hmac_data3_ptr equ hmac_data2_len + 2
 hmac_data3_len equ hmac_data3_ptr + 2
 hmac_output_ptr equ hmac_data3_len + 2
-tls_prf_secret_ptr equ hmac_output_ptr + 2
-tls_prf_secret_len equ tls_prf_secret_ptr + 2
-tls_prf_seed_ptr equ tls_prf_secret_len + 2
+tls_prf_seed_ptr equ hmac_output_ptr + 2
 tls_prf_seed_len equ tls_prf_seed_ptr + 2
 tls_prf_output_ptr equ tls_prf_seed_len + 2
 tls_prf_output_len equ tls_prf_output_ptr + 2
@@ -189,7 +167,28 @@ sha256_saved_block_len equ sha256_block_len + 1
 sha256_schedule_count equ sha256_saved_block_len + 1
 sha256_round_count equ sha256_schedule_count + 1
 tls_next_handshake_body_ptr equ sha256_round_count + 1
-low_runtime_state_end equ tls_next_handshake_body_ptr + 2
+low_persistent_state_start equ tls_next_handshake_body_ptr + 2
+ne_tx_start equ low_persistent_state_start
+ne_rx_start equ ne_tx_start + 1
+ne_rx_stop equ ne_rx_start + 1
+ne_current_page equ ne_rx_stop + 1
+ne_boundary_page equ ne_current_page + 1
+ne_next_page equ ne_boundary_page + 1
+ne_rx_header equ ne_next_page + 1
+ne_rx_count equ ne_rx_header + ne_rx_header_len
+ne_rx_sample_count equ ne_rx_count + 2
+ne_rx_read_limit equ ne_rx_sample_count + 2
+ne_tx_len equ ne_rx_read_limit + 2
+el1_tx_ptr equ ne_tx_len + 2
+ne_dma_addr equ el1_tx_ptr + 2
+ne_dma_count equ ne_dma_addr + 2
+dhcp_wait_count equ ne_dma_count + 2
+arp_target_mac equ dhcp_wait_count + 2
+tcp_target_ip equ arp_target_mac + 6
+tcp_dest_port_word equ tcp_target_ip + 4
+tcp_local_seq equ tcp_dest_port_word + 2
+tcp_remote_ack equ tcp_local_seq + 4
+low_runtime_state_end equ tcp_remote_ack + 4
 low_static_constants_start equ low_phase_state_end
 tls_label_master_secret equ low_static_constants_start
 tls_label_master_secret_len equ 13

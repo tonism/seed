@@ -96,8 +96,7 @@ poly1305_clear_block:
 poly1305_process_block:
     call poly1305_add_block
     call poly1305_mul_acc_r
-    call poly1305_reduce_product
-    ret
+    jmp poly1305_reduce_product
 
 poly1305_add_block:
     push ax
@@ -246,8 +245,7 @@ poly1305_fold_product_high:
     shr al, 1
     shr al, 1
     mov di, poly_value + 19
-    call poly1305_add_al_times5
-    ret
+    jmp poly1305_add_al_times5
 
 poly1305_fold_value_high:
     mov byte [poly_i], 0

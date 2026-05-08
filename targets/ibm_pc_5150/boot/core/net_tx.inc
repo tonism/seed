@@ -54,8 +54,7 @@ ne_transmit_frame:
     mov [ne_tx_len], cx
     cmp byte [handoff_addr + handoff_nic_family], family_3c501
     jne .dp8390
-    call el1_transmit_frame
-    ret
+    jmp el1_transmit_frame
 
 .dp8390:
     mov dx, [handoff_addr + handoff_nic_base]
@@ -324,8 +323,7 @@ build_tcp_segment_frame:
     mov [tcp_tx_len], ax
 
     call write_ipv4_checksum
-    call write_tcp_checksum
-    ret
+    jmp write_tcp_checksum
 
 write_ipv4_checksum:
     mov si, ne_tx_frame + eth_header_len

@@ -125,6 +125,103 @@ Verification:
 - `make inspect` passes.
 - `make test` passes.
 
+## 2026-05-08 - Drop one resident sector with TLS/runtime cleanup
+
+Change:
+
+- Removed redundant HMAC key reloads and now-unused PRF secret pointer/length
+  stores from the TLS PRF path.
+- Shared repeated TLS status/failure tails.
+- Moved 46 bytes of persistent packet/TCP runtime state from file-backed
+  resident data into the zeroed low runtime state below the phase load window.
+- Converted safe call/return wrappers into direct jumps.
+- Inlined the one-use TLS cipher-suite check.
+- Merged a duplicate TCP receive error exit.
+
+Measurements:
+
+- `CORE.SYS` total size: 26112 -> 25600 bytes.
+- `CORE.SYS` total sectors: 51 -> 50.
+- Resident sectors: 23 -> 22.
+- Resident bytes: 11776 -> 11264.
+- Resident nonzero payload: 11542 -> 11248.
+- Resident load range: `0x1000..0x3e00` -> `0x1000..0x3c00`.
+- `16k-target` packed critical guarded slack: -4435 -> -3923 bytes.
+
+Result:
+
+- One resident sector removed without changing TLS/OpenAI ordering or adding
+  floppy I/O to the fragile path.
+- Remaining guarded 16 KiB deficit is 3923 bytes.
+
+Verification:
+
+- `make inspect` passes.
+- `make test` passes.
+- BASIC-sidecar family sweep on 32 KiB host reached `seed build 6` and
+  returned `ok` on `vm-net-ne2k8`, `vm-net-3c501`, `vm-net-3c503`, and
+  `vm-net-wd8003e`.
+
+## 2026-05-08 - Rejected compact ChaCha double-round
+
+Change tried:
+
+- Replaced the fully unrolled ChaCha20 double-round with one shared quarter
+  round and a compact dispatcher.
+- First variant used a table-driven dispatcher; second variant hardcoded the
+  eight quarter-round offset sets to remove the table/loop overhead.
+
+Measurements:
+
+- Both compact variants reduced `CORE.SYS` from 26112 to 24576 bytes.
+- Resident sectors dropped from 23 to 20.
+- Resident load range moved from `0x1000..0x3e00` to `0x1000..0x3800`.
+- `16k-target` packed critical guarded slack improved from -4435 to -2899.
+
+Result:
+
+- Rejected and reverted.
+- `make test` passed, including ChaCha20/Poly1305 vectors, so the compact
+  implementation was mathematically equivalent for local coverage.
+- `vm-net-ne2k8` BASIC-sidecar canary reached `seed build 6` and returned
+  `ok`.
+- `vm-net-3c501` failed twice at red `o agent setup failed`, once with the
+  table-driven dispatcher and once with the hardcoded dispatcher.
+- Conclusion: the memory saving is real, but the extra ChaCha runtime cost is
+  not acceptable on the fragile 3c501/OpenAI timing path. Future work should
+  keep the fast unrolled ChaCha path and move/preload it into a window if we
+  want this class of resident-code saving.
+
+## 2026-05-08 - Rejected post-TCP crypto runtime preload
+
+Change tried:
+
+- Kept the fast unrolled ChaCha20 implementation, but moved it out of resident
+  code and into a new low-memory `X` runtime phase at `0x0700`.
+- Loaded the `X` phase after TCP connect and before sending ClientHello, so no
+  floppy access would happen during the TLS/OpenAI response window itself.
+
+Measurements:
+
+- Resident sectors dropped from 23 to 19.
+- Resident bytes dropped from 11776 to 9728.
+- Resident load range moved from `0x1000..0x3e00` to `0x1000..0x3600`.
+- `16k-target` packed critical guarded slack improved from -4435 to -2387.
+- The new `X` phase occupied 4 sectors at `0x0700..0x0f00`.
+
+Result:
+
+- Rejected and reverted.
+- `make inspect` and `make test` passed.
+- A 135-second 3c501 BASIC-sidecar canary was inconclusive: it remained at the
+  `o` agent/TLS phase.
+- A 220-second 3c501 retry still remained at `o` and never reached `ok` or a
+  fatal error.
+- Conclusion: loading four floppy sectors after TCP connect is not viable on
+  the fragile path. A future fast-crypto window must be resident before TCP
+  connect, or the TCP-connect phase must be reorganized so it does not clobber
+  a preloaded crypto window.
+
 ## 2026-05-08 - Move fixed TLS constants into low scratch
 
 Baseline:

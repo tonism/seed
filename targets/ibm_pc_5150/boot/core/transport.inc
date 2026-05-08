@@ -15,9 +15,6 @@ tcp_receive_payload:
     call tcp_payload_poll_delay
     dec word [dhcp_wait_count]
     jnz .poll
-    mov byte [handoff_addr + handoff_net_error], net_error_tcp
-    stc
-    ret
 .failed:
     mov byte [handoff_addr + handoff_net_error], net_error_tcp
     stc
