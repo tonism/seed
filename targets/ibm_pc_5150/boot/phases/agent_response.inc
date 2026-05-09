@@ -1,14 +1,18 @@
 %ifndef PHASE_BASE
 %error "PHASE_BASE must name the containing phase start label"
 %endif
+%ifndef PHASE_LOAD_ADDR
+%define PHASE_LOAD_ADDR low_scratch_start
+%define PHASE_LOAD_ADDR_DEFAULTED
+%endif
 
 %macro phase_call_res 1
     db 0xe8
-    dw %1 - (low_scratch_start + ($ - PHASE_BASE) + 2)
+    dw %1 - (PHASE_LOAD_ADDR + ($ - PHASE_BASE) + 2)
 %endmacro
 
-api_response_answer_ptr equ low_scratch_start + (api_response_answer_ptr_storage - PHASE_BASE)
-api_response_answer_len equ low_scratch_start + (api_response_answer_len_storage - PHASE_BASE)
+api_response_answer_ptr equ PHASE_LOAD_ADDR + (api_response_answer_ptr_storage - PHASE_BASE)
+api_response_answer_len equ PHASE_LOAD_ADDR + (api_response_answer_len_storage - PHASE_BASE)
 
 agent_response_phase:
     call .api_find_answer
@@ -21,22 +25,22 @@ agent_response_phase:
     ret
 
 .api_find_answer:
-    mov si, low_scratch_start + (api_answer_output_pattern - PHASE_BASE)
+    mov si, PHASE_LOAD_ADDR + (api_answer_output_pattern - PHASE_BASE)
     call .api_find_pattern
     jnc .api_measure_answer
-    mov si, low_scratch_start + (api_answer_output_spaced_pattern - PHASE_BASE)
+    mov si, PHASE_LOAD_ADDR + (api_answer_output_spaced_pattern - PHASE_BASE)
     call .api_find_pattern
     jnc .api_measure_answer
-    mov si, low_scratch_start + (api_answer_text_pattern - PHASE_BASE)
+    mov si, PHASE_LOAD_ADDR + (api_answer_text_pattern - PHASE_BASE)
     call .api_find_pattern
     jnc .api_measure_answer
-    mov si, low_scratch_start + (api_answer_text_spaced_pattern - PHASE_BASE)
+    mov si, PHASE_LOAD_ADDR + (api_answer_text_spaced_pattern - PHASE_BASE)
     call .api_find_pattern
     jnc .api_measure_answer
-    mov si, low_scratch_start + (api_error_message_pattern - PHASE_BASE)
+    mov si, PHASE_LOAD_ADDR + (api_error_message_pattern - PHASE_BASE)
     call .api_find_pattern
     jnc .api_measure_answer
-    mov si, low_scratch_start + (api_error_message_spaced_pattern - PHASE_BASE)
+    mov si, PHASE_LOAD_ADDR + (api_error_message_spaced_pattern - PHASE_BASE)
     call .api_find_pattern
     jnc .api_measure_answer
     stc
@@ -44,7 +48,7 @@ agent_response_phase:
 
 .api_find_pattern:
     mov [api_response_answer_ptr], si
-    mov bx, tls_rx_copy
+    mov bx, [tls_app_data_ptr]
     mov dx, [tls_app_len]
 .next_position:
     or dx, dx
@@ -83,7 +87,7 @@ agent_response_phase:
 .api_measure_answer:
     mov si, [api_response_answer_ptr]
     mov ax, si
-    sub ax, tls_rx_copy
+    sub ax, [tls_app_data_ptr]
     mov dx, [tls_app_len]
     cmp ax, dx
     jae .measure_failed
@@ -158,3 +162,8 @@ api_response_answer_ptr_storage dw 0
 api_response_answer_len_storage dw 0
 
 %unmacro phase_call_res 1
+
+%ifdef PHASE_LOAD_ADDR_DEFAULTED
+%undef PHASE_LOAD_ADDR_DEFAULTED
+%undef PHASE_LOAD_ADDR
+%endif

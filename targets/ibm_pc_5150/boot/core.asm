@@ -222,7 +222,9 @@ align 512, db 0
 
 core_agent_response_phase_start:
 %define PHASE_BASE core_agent_response_phase_start
+%define PHASE_LOAD_ADDR fs_sector_buffer
 %include "phases/agent_response.inc"
+%undef PHASE_LOAD_ADDR
 %undef PHASE_BASE
 core_agent_response_phase_end:
 
@@ -319,7 +321,7 @@ core_phase_table:
     db 'T', 0
     dw (core_agent_response_phase_start - $$) / 512
     dw (core_agent_response_phase_end - core_agent_response_phase_start + 511) / 512
-    dw low_scratch_start
+    dw fs_sector_buffer
     dw 0
     db 'B', 0
     dw (core_splash_phase_start - $$) / 512

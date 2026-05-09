@@ -378,8 +378,20 @@ tls_transcript_start:
     mov byte [tls_key_schedule_ready], 0
     mov word [tls_prepared_app_len], 0
     mov byte [tls_app_sent], 0
-    call tls_clear_client_record_seq
-    call tls_clear_server_record_seq
+    push ax
+    push cx
+    push di
+    push es
+    push ds
+    pop es
+    mov di, tls_client_record_seq
+    mov cx, tls_client_record_seq_len + tls_server_record_seq_len
+    xor al, al
+    rep stosb
+    pop es
+    pop di
+    pop cx
+    pop ax
     jmp sha256_init
 
 tls_transcript_update:
@@ -1642,32 +1654,18 @@ build_tls_client_final_flight:
     pop cx
     ret
 
-tls_clear_client_record_seq:
-    mov di, tls_client_record_seq
-    jmp tls_clear_record_seq
-
-tls_clear_server_record_seq:
-    mov di, tls_server_record_seq
-
-tls_clear_record_seq:
-    push ax
-    push cx
-    push es
-    push ds
-    pop es
-    mov cx, tls_client_record_seq_len
-    xor al, al
-    rep stosb
-    pop es
-    pop cx
-    pop ax
-    ret
-
 tls_increment_client_record_seq:
-    push ax
-    push cx
     push si
     mov si, tls_client_record_seq + tls_client_record_seq_len - 1
+    jmp tls_increment_record_seq
+
+tls_increment_server_record_seq:
+    push si
+    mov si, tls_server_record_seq + tls_server_record_seq_len - 1
+
+tls_increment_record_seq:
+    push ax
+    push cx
     mov cx, tls_client_record_seq_len
     stc
 .next:
@@ -1678,29 +1676,9 @@ tls_increment_client_record_seq:
     dec si
     loop .next
 .done:
-    pop si
     pop cx
     pop ax
-    ret
-
-tls_increment_server_record_seq:
-    push ax
-    push cx
-    push si
-    mov si, tls_server_record_seq + tls_server_record_seq_len - 1
-    mov cx, tls_server_record_seq_len
-    stc
-.next:
-    mov al, [si]
-    adc al, 0
-    mov [si], al
-    jnc .done
-    dec si
-    loop .next
-.done:
     pop si
-    pop cx
-    pop ax
     ret
 
 tls_compare_buffers:

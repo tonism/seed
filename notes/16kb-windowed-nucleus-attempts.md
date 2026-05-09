@@ -2582,3 +2582,102 @@ Verification:
 - 3c501 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
 - 3c503 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
 - WD8003e BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+
+## 2026-05-09 - Reject 512-byte TLS copy arena
+
+Change tried:
+
+- Moved the response parser phase to the file-sector tail and made it consume
+  `[tls_app_data_ptr]` instead of assuming answers live at `tls_rx_copy`.
+- Changed application-data receive to parse/decrypt in place from the current
+  receive payload and ACK only after the response parser had inspected it.
+- Streamed Certificate draining directly from current TCP payloads.
+- Reduced the TLS copy arena from 1460 bytes to 512 bytes.
+
+Measurements:
+
+- `CORE.SYS` grew from 25088 bytes to 25600 bytes.
+- LINK window grew from 16 sectors to 17 sectors.
+- Critical scratch moved from 2097 bytes to 1149 bytes.
+- `16k-target packed critical guarded slack` improved from -1779 bytes to
+  -1343 bytes, because the critical scratch win was partly offset by the extra
+  LINK sector.
+
+Result:
+
+- Rejected. NE2K8 failed twice at `agent setup failed`.
+- The failed receive/certificate streaming pieces were reverted.
+- The response parser relocation/pointer cleanup remained local for further
+  experiments because it passed NE2K8 and 3c501 by itself and does not change
+  the release metric.
+
+Verification:
+
+- `make inspect` passed for the attempted cut.
+- `make test` passed for the attempted cut.
+- NE2K8 BASIC-sidecar canary on a 32 KiB host failed at `agent setup failed`
+  on two consecutive runs.
+- After reverting the receive/certificate streaming pieces, `make inspect`
+  and `make test` passed again with the metric back at -1779 bytes.
+
+## 2026-05-09 - Reject TLS tag alias into nonce scratch
+
+Change tried:
+
+- Aliased the computed TLS/Poly1305 tag buffer onto the high TLS nonce scratch.
+- Shortened the reported high-crypto scratch length from 194 bytes to 178
+  bytes.
+
+Measurements:
+
+- `CORE.SYS` stayed 25088 bytes.
+- LINK window stayed 16 sectors.
+- High-crypto scratch moved from 194 bytes to 178 bytes.
+- Critical scratch stayed 2097 bytes.
+- `16k-target packed critical guarded slack` improved from -1779 bytes to
+  -1763 bytes.
+
+Result:
+
+- Rejected. NE2K8 failed at `agent setup failed`.
+- The alias and measurement constant were reverted.
+
+Verification:
+
+- `make inspect` passed for the attempted cut.
+- `make test` passed for the attempted cut.
+- After reverting the alias, `make inspect` and `make test` passed again with
+  the metric back at -1779 bytes.
+
+## 2026-05-09 - Share TLS record-sequence helpers
+
+Change:
+
+- Replaced separate client/server record-sequence clear routines with one
+  inline contiguous clear in `tls_transcript_start`.
+- Replaced duplicated client/server record-sequence increment loops with one
+  shared helper that starts from the selected sequence tail.
+
+Measurements:
+
+- `CORE.SYS` stayed 25088 bytes.
+- LINK window stayed 16 sectors.
+- Actual LINK code end moved down by about 29 bytes.
+- High-crypto scratch stayed 194 bytes.
+- Critical scratch stayed 2097 bytes.
+- `16k-target packed critical guarded slack` stayed -1779 bytes because the
+  LINK window has not crossed another 512-byte sector boundary.
+
+Result:
+
+- Accepted small LINK-window cleanup. This does not change TLS ordering or
+  packet buffering; it only removes duplicated sequence counter code.
+
+Verification:
+
+- `make inspect` passed.
+- `make test` passed.
+- NE2K8 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- 3c501 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- 3c503 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- WD8003e BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
