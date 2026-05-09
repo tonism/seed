@@ -224,6 +224,66 @@ Verification:
 - WD8003e BASIC-sidecar canary on a 32 KiB host reached `seed build 6` and
   returned `ok`.
 
+## 2026-05-09 - Rejected low TCP receive cap
+
+Change:
+
+- Tried reducing `tcp_payload_max_len` from 1460 to 576 bytes, based on the
+  idea that Seed does not advertise an MSS option and peers should therefore
+  stay at the TCP default-MSS class.
+- Temporarily reduced the tracked `CRITICAL_SCRATCH_LEN` from 2560 to 1696
+  bytes to match the smaller receive arena.
+
+Measurements:
+
+- `16k-target packed critical guarded slack`: -3330 -> -2466 bytes.
+- This was an 864-byte improvement in the release-tracking metric.
+- A stricter 536-byte cap did not assemble because the DNS qname scratch would
+  overlap pre-response scratch.
+
+Result:
+
+- Rejected and reverted.
+- NE2K8 BASIC-sidecar canary on a 32 KiB host failed at agent setup. The
+  practical provider/TLS response path still needs the larger receive arena, or
+  a real streaming/segmented receive design rather than a simple cap.
+
+Recovery:
+
+- Restored `tcp_payload_max_len` to 1460 and `CRITICAL_SCRATCH_LEN` to 2560.
+- The release-tracking metric returned to -3330 bytes.
+- 3c503 restored-baseline BASIC-sidecar canary on a 32 KiB host reached
+  `seed build 6` and returned `ok`.
+
+## 2026-05-09 - Rejected TLS nonce/AAD helper dedupe
+
+Change:
+
+- Tried sharing the client/server nonce builders and the client/server AEAD AAD
+  builders across Finished and application-data records.
+
+Measurements:
+
+- LINK code shrank by about 69 bytes (`core_link_window_end` moved from
+  `0x2b6f` to `0x2b2a` in the listing).
+- `16k-target packed critical guarded slack`: unchanged at -3330 bytes,
+  because LINK still occupied 17 sectors.
+
+Result:
+
+- Rejected and reverted.
+- NE2K8 and 3c501 BASIC-sidecar canaries on 32 KiB hosts reached returned
+  `ok`, but 3c503 failed at agent setup. That makes the shared helper change
+  unsafe on the current timing/order-sensitive secure-link path.
+
+Recovery:
+
+- Restored the separate nonce and AAD builders.
+- `make inspect` returned to the pushed baseline metric:
+  `16k-target packed critical guarded slack` = -3330 bytes.
+- 3c503 restored-baseline BASIC-sidecar canary on a 32 KiB host reached
+  `seed build 6` and returned `ok`.
+
 ## 2026-05-09 - Add LINK-aware packed budget tracking
 
 Change:
