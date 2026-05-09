@@ -1,10 +1,6 @@
 wd_enter_packet_path:
     cmp byte [handoff_addr + handoff_nic_family], family_wd8003
     jne .done
-    mov dx, [handoff_addr + handoff_nic_base]
-    in al, dx
-    or al, wd_msr_enable_ram
-    out dx, al
     add word [handoff_addr + handoff_nic_base], wd_dp8390_offset
 .done:
     ret

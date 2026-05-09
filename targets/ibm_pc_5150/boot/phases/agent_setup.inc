@@ -443,7 +443,9 @@ agent_setup_phase:
 .render_text_next:
     jcxz .render_text_done
     lodsb
+    push cx
     phase_call_res print_char
+    pop cx
     loop .render_text_next
 .render_text_done:
     call .set_bios_cursor

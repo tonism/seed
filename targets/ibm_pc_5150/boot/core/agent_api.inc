@@ -7,10 +7,9 @@ agent_api_exchange:
     jnc .answer
     dec byte [api_receive_tries]
     jnz .receive
-    jmp .failed
-.answer:
-    clc
-    ret
 .failed:
     stc
+    ret
+.answer:
+    clc
     ret

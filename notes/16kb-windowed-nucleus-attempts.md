@@ -2681,3 +2681,211 @@ Verification:
 - 3c501 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
 - 3c503 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
 - WD8003e BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+
+## 2026-05-09 - Reject shared TLS app AAD helper
+
+Change tried:
+
+- Replaced separate client/server application-data AAD builders with a shared
+  helper selected by `SI` pointing to the client or server record sequence.
+
+Measurements:
+
+- `CORE.SYS` stayed 25088 bytes.
+- LINK window stayed 16 sectors.
+- High-crypto scratch stayed 194 bytes.
+- Critical scratch stayed 2097 bytes.
+- `16k-target packed critical guarded slack` stayed -1779 bytes.
+
+Result:
+
+- Rejected. NE2K8 reached returned `ok`, but 3c501 failed at agent setup.
+- The helper-sharing change was reverted exactly.
+
+Verification:
+
+- Attempted build: `make inspect` and `make test` passed.
+- NE2K8 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- 3c501 BASIC-sidecar canary on a 32 KiB host failed at agent setup.
+- After reverting, `make inspect` and `make test` passed again with the metric
+  back at -1779 bytes.
+
+## 2026-05-09 - Reject 1024-byte TLS payload arena
+
+Change tried:
+
+- Reduced `tcp_payload_max_len` from 1460 to 1024, matching the advertised TCP
+  receive window used by non-3c501 NICs.
+- Updated the inspection critical scratch constant from 2097 to 1661 bytes so
+  the 16 KiB packed budget reflected the smaller TLS receive arena.
+
+Measurements:
+
+- `CORE.SYS` stayed 25088 bytes.
+- LINK window stayed 16 sectors.
+- High-crypto scratch stayed 194 bytes.
+- Critical scratch moved from 2097 bytes to 1661 bytes.
+- `16k-target packed critical guarded slack` improved from -1779 bytes to
+  -1343 bytes.
+
+Result:
+
+- Rejected. NE2K8 failed at agent setup.
+- The payload cap and inspection constant were reverted.
+
+Verification:
+
+- Attempted build: `make inspect` and `make test` passed.
+- NE2K8 BASIC-sidecar canary on a 32 KiB host failed at agent setup.
+
+## 2026-05-09 - Reject resident-sector state move
+
+Change tried:
+
+- Moved 23 bytes of TLS/DNS runtime state out of the file-backed resident
+  nucleus and into the critical scratch tail.
+- Trimmed tiny resident helpers around marker storage, tick waiting, startup
+  stack handoff, and boot-time scratch clearing.
+
+Measurements:
+
+- `CORE.SYS` moved from 25088 bytes to 24576 bytes.
+- Resident nucleus moved from 5 sectors to 4 sectors.
+- LINK window stayed 16 sectors, but loaded at 0x1800 instead of 0x1a00.
+- Critical scratch moved from 2097 bytes to 2120 bytes.
+- `16k-target packed critical guarded slack` improved from -1779 bytes to
+  -1290 bytes.
+
+Result:
+
+- Rejected. NE2K8 failed at agent setup.
+- The resident-state move, helper trims, critical scratch increase, and
+  startup scratch-clear reduction were reverted.
+
+Verification:
+
+- Attempted build: `make inspect` and `make test` passed.
+- NE2K8 BASIC-sidecar canary on a 32 KiB host failed at agent setup.
+- After reverting, `make inspect` and `make test` passed again with the metric
+  back at -1779 bytes.
+
+## 2026-05-09 - Accept tiny resident and LINK cleanups
+
+Change:
+
+- Removed duplicate TLS application-data length check and the client/server
+  nonce jump wrappers.
+- Trimmed one `agent_api_exchange` retry branch.
+- Moved `dns_qname_len` from emitted resident data into low runtime state,
+  while keeping phase-local initialization before DNS use.
+- Trimmed `show_load_marker`, `wait_ticks`, and `print_char` register
+  preservation. Added the one required `CX` preservation at the text-input
+  render loop that still loops across `print_char`.
+
+Measurements:
+
+- `CORE.SYS` stayed 25088 bytes.
+- Resident nucleus stayed 5 sectors.
+- LINK window stayed 16 sectors.
+- High-crypto scratch stayed 194 bytes.
+- Critical scratch stayed 2097 bytes.
+- `16k-target packed critical guarded slack` stayed -1779 bytes.
+
+Result:
+
+- Accepted as a small cleanup checkpoint. It did not cross a sector boundary,
+  but it removed dead or redundant bytes without changing the TLS/OpenAI
+  ordering.
+
+Verification:
+
+- `make inspect` passed.
+- `make test` passed.
+- NE2K8 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- 3c501 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- 3c503 BASIC-sidecar canary on a 32 KiB host reached returned `ok` after the
+  rejected packet-path gate move below was reverted.
+- WD8003e BASIC-sidecar canary on a 32 KiB host reached returned `ok` after
+  the rejected packet-path gate move below was reverted.
+
+## 2026-05-09 - Reject packet-path resident gate move
+
+Change tried:
+
+- Moved the packet-path family predicate into `packet_io_init_phase`.
+- Removed repeated `selected_nic_has_packet_path` calls from the later network
+  entry points.
+- Tried preserving flags inside `wd_restore_dp8390_base` so callers could drop
+  explicit `pushf`/`popf`.
+
+Measurements:
+
+- `CORE.SYS` moved from 25088 bytes to 24576 bytes.
+- Resident nucleus moved from 5 sectors to 4 sectors.
+- LINK window stayed 16 sectors, but loaded at 0x1800 instead of 0x1a00.
+- High-crypto scratch stayed 194 bytes.
+- Critical scratch stayed 2097 bytes.
+- `16k-target packed critical guarded slack` improved from -1779 bytes to
+  -1267 bytes.
+
+Result:
+
+- Rejected. NE2K8 and 3c501 reached returned `ok`, but 3c503 failed at network
+  setup twice at the dark comma phase.
+- Reverting only this network-control cut restored 3c503 and WD8003e success.
+
+Verification:
+
+- Attempted build: `make inspect` and `make test` passed.
+- NE2K8 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- 3c501 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- 3c503 BASIC-sidecar canary on a 32 KiB host failed at network setup twice.
+- After reverting only the packet-path resident gate move, `make inspect` and
+  `make test` passed again with the metric back at -1779 bytes.
+- 3c503 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- WD8003e BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+
+## 2026-05-10 - Accept packet-family predicate removal
+
+Change:
+
+- Moved the WD8003 RAM-enable write out of resident `wd_enter_packet_path` and
+  into the floppy-loaded `packet_io_init_phase`.
+- Removed the resident `selected_nic_has_packet_path` predicate and its calls
+  from packet init, internet prep, and agent endpoint prep. Hardware setup
+  already rejects missing/unsupported NICs before these paths run.
+- Kept the established WD8003 `handoff_nic_base` enter/restore model intact.
+
+Measurements:
+
+- `CORE.SYS` moved from 25088 bytes to 24576 bytes.
+- Resident nucleus moved from 5 sectors to 4 sectors.
+- Resident nonzero bytes moved to 2042 bytes.
+- LINK window stayed 16 sectors, but loaded at 0x1800 instead of 0x1a00.
+- High-crypto scratch stayed 194 bytes.
+- Critical scratch stayed 2097 bytes.
+- `16k-target packed critical guarded slack` improved from -1779 bytes to
+  -1267 bytes.
+
+Rejected variant:
+
+- Tried permanently normalizing the WD8003 base to the DP8390 register block
+  during packet init, which deleted resident WD enter/restore wrappers and
+  their callers.
+- It measured well (`resident-nonzero-bytes` 2022), but WD8003e failed at
+  network setup. Reverted this part and kept only the RAM-enable move plus
+  packet-family predicate removal.
+
+Result:
+
+- Accepted. This gets the packed 16K model back across the resident-sector
+  boundary without touching the TLS/OpenAI fast path.
+
+Verification:
+
+- `make inspect` passed.
+- `make test` passed.
+- WD8003e BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- 3c503 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- NE2K8 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- 3c501 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.

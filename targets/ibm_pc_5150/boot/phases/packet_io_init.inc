@@ -9,13 +9,9 @@
 
 packet_io_init_phase:
     mov byte [handoff_addr + handoff_net_status], net_status_identity_ready
-    phase_call_res selected_nic_has_packet_path
-    jnc .packet
-    clc
-    ret
-.packet:
     push ds
     pop es
+    call packet_io_init_phase_enable_wd_ram
     phase_call_res wd_enter_packet_path
     call init_ne_packet_io_phase
     jc .done
@@ -27,6 +23,16 @@ packet_io_init_phase:
     pushf
     phase_call_res wd_restore_dp8390_base
     popf
+    ret
+
+packet_io_init_phase_enable_wd_ram:
+    cmp byte [handoff_addr + handoff_nic_family], family_wd8003
+    jne .done
+    mov dx, [handoff_addr + handoff_nic_base]
+    in al, dx
+    or al, wd_msr_enable_ram
+    out dx, al
+.done:
     ret
 
 init_ne_packet_io_phase:

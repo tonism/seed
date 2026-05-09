@@ -9,7 +9,6 @@ tls_prepared_app_len dw 0
 api_receive_tries db 0
 tls_app_content_type db 0
 tls_transcript_certificate_remaining dw 0
-dns_qname_len db dns_qname_default_len
 dns_tx_len dw dns_tx_frame_default_len
 ne_tx_frame equ low_scratch_start
 ne_prom equ ne_tx_frame + net_frame_buffer_len
@@ -154,7 +153,8 @@ tcp_local_seq equ tcp_dest_port_word + 2
 tcp_remote_ack equ tcp_local_seq + 4
 tls_stream_skip_remaining equ tcp_remote_ack + 4
 api_body_len equ tls_stream_skip_remaining + 2
-low_runtime_state_end equ api_body_len + 2
+dns_qname_len equ api_body_len + 2
+low_runtime_state_end equ dns_qname_len + 1
 low_static_constants_start equ low_phase_state_end
 tls_label_master_secret equ low_static_constants_start
 tls_label_master_secret_len equ 13

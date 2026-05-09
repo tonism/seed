@@ -838,10 +838,6 @@ tls_send_application_data_for_nic:
 
 tls_prepare_application_data_current_seq:
     cmp word [tls_app_len], 0
-    jne .request_ready
-    jmp .none
-.request_ready:
-    cmp word [tls_app_len], 0
     je .none
     mov word [tls_app_record_ptr], tls_app_record_buffer
     call tls_build_application_data_record
@@ -891,7 +887,7 @@ tls_build_application_data_record:
     mov ax, [tls_app_record_ptr]
     add ax, tls_record_header_len
     mov [tls_app_data_ptr], ax
-    call tls_build_client_app_nonce
+    call tls_build_client_nonce
     call tls_build_client_app_aad
     mov word [chacha_key_ptr], tls_client_write_key
     mov word [chacha_nonce_ptr], tls_client_nonce
@@ -978,7 +974,7 @@ tls_receive_application_data:
     rep movsb
     mov word [tls_app_data_ptr], tls_rx_copy
 
-    call tls_build_server_app_nonce
+    call tls_build_server_nonce
     call tls_build_server_app_aad
     mov word [chacha_key_ptr], tls_server_write_key
     mov word [chacha_nonce_ptr], tls_client_nonce
@@ -1157,12 +1153,6 @@ tls_poly1305_mac_app:
     call poly1305_emit_tag
     clc
     ret
-
-tls_build_client_app_nonce:
-    jmp tls_build_client_nonce
-
-tls_build_server_app_nonce:
-    jmp tls_build_server_nonce
 
 tls_build_client_app_aad:
     push ax

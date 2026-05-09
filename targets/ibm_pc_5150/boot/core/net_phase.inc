@@ -1,9 +1,4 @@
 prepare_internet_path:
-    call selected_nic_has_packet_path
-    jnc .packet
-    clc
-    ret
-.packet:
     push ds
     pop es
     call wd_enter_packet_path
@@ -13,16 +8,14 @@ prepare_internet_path:
     jc .failed
     mov word [tcp_dest_port_word], tcp_port_http_word
     call run_tcp_connect_phase
-    jc .failed
-    clc
+    jnc .done
+.failed:
+    stc
 .done:
     pushf
     call wd_restore_dp8390_base
     popf
     ret
-.failed:
-    stc
-    jmp .done
 
 prepare_agent_path:
     call_core_phase core_agents_cfg_phase_start, core_agents_cfg_phase_end
@@ -48,12 +41,6 @@ prepare_agent_path:
 prepare_agent_endpoint_path:
     call_core_phase core_agent_endpoint_phase_start, core_agent_endpoint_phase_end
     jc .failed
-    call selected_nic_has_packet_path
-    jnc .packet
-.failed:
-    stc
-    ret
-.packet:
     push ds
     pop es
     call wd_enter_packet_path
@@ -73,14 +60,6 @@ prepare_agent_endpoint_path:
     call wd_restore_dp8390_base
     popf
     ret
-
-selected_nic_has_packet_path:
-    mov al, [handoff_addr + handoff_nic_family]
-    dec al
-    cmp al, family_wd8003 - 1
-    jbe .yes
+.failed:
     stc
-    ret
-.yes:
-    clc
     ret

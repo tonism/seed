@@ -10,30 +10,22 @@ print_char:
     pop ax
 
     push bx
-    push cx
     mov ah, 0x09
     mov bh, 0x00
     mov cx, 0x0001
     int 0x10
-    pop cx
     pop bx
 
     inc byte [cursor_col]
     ret
 
 wait_ticks:
-    push ax
-    push bx
-    push cx
-    mov bx, [0x046c]
+    mov dx, [0x046c]
 .next_tick:
     hlt
     mov ax, [0x046c]
-    cmp ax, bx
+    cmp ax, dx
     je .next_tick
-    mov bx, ax
+    mov dx, ax
     loop .next_tick
-    pop cx
-    pop bx
-    pop ax
     ret
