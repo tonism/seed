@@ -1,46 +1,49 @@
-%macro CHACHA_ADD 2
-    mov ax, [bx + %1]
-    add ax, [bx + %2]
-    mov [bx + %1], ax
-    mov ax, [bx + %1 + 2]
-    adc ax, [bx + %2 + 2]
-    mov [bx + %1 + 2], ax
+%macro CHACHA_QR_CALL 4
+    mov ax, (%2 << 8) | %1
+    mov dx, (%4 << 8) | %3
+    call chacha_quarter_round
 %endmacro
 
-%macro CHACHA_XOR 2
-    mov ax, [bx + %1]
-    xor ax, [bx + %2]
-    mov [bx + %1], ax
-    mov ax, [bx + %1 + 2]
-    xor ax, [bx + %2 + 2]
-    mov [bx + %1 + 2], ax
+%macro CHACHA_PTR 2
+    mov al, [bp %1]
+    xor ah, ah
+    mov %2, bx
+    add %2, ax
 %endmacro
 
-%macro CHACHA_ROTL 2
-    mov ax, [bx + %1]
-    mov dx, [bx + %1 + 2]
+%macro CHACHA_QR_ADD 2
+    CHACHA_PTR %1, si
+    CHACHA_PTR %2, di
+    mov ax, [si]
+    add ax, [di]
+    mov [si], ax
+    mov ax, [si + 2]
+    adc ax, [di + 2]
+    mov [si + 2], ax
+%endmacro
+
+%macro CHACHA_QR_XOR 2
+    CHACHA_PTR %1, si
+    CHACHA_PTR %2, di
+    mov ax, [si]
+    xor ax, [di]
+    mov [si], ax
+    mov ax, [si + 2]
+    xor ax, [di + 2]
+    mov [si + 2], ax
+%endmacro
+
+%macro CHACHA_QR_ROTL 2
+    CHACHA_PTR %1, si
+    mov ax, [si]
+    mov dx, [si + 2]
 %if %2 = 16
     xchg ax, dx
 %else
     call chacha_rotl%2_axdx
 %endif
-    mov [bx + %1], ax
-    mov [bx + %1 + 2], dx
-%endmacro
-
-%macro CHACHA_QR 4
-    CHACHA_ADD %1, %2
-    CHACHA_XOR %4, %1
-    CHACHA_ROTL %4, 16
-    CHACHA_ADD %3, %4
-    CHACHA_XOR %2, %3
-    CHACHA_ROTL %2, 12
-    CHACHA_ADD %1, %2
-    CHACHA_XOR %4, %1
-    CHACHA_ROTL %4, 8
-    CHACHA_ADD %3, %4
-    CHACHA_XOR %2, %3
-    CHACHA_ROTL %2, 7
+    mov [si], ax
+    mov [si + 2], dx
 %endmacro
 
 chacha20_block:
@@ -111,14 +114,36 @@ chacha20_block:
     ret
 
 chacha_double_round:
-    CHACHA_QR 0, 16, 32, 48
-    CHACHA_QR 4, 20, 36, 52
-    CHACHA_QR 8, 24, 40, 56
-    CHACHA_QR 12, 28, 44, 60
-    CHACHA_QR 0, 20, 40, 60
-    CHACHA_QR 4, 24, 44, 48
-    CHACHA_QR 8, 28, 32, 52
-    CHACHA_QR 12, 16, 36, 56
+    CHACHA_QR_CALL 0, 16, 32, 48
+    CHACHA_QR_CALL 4, 20, 36, 52
+    CHACHA_QR_CALL 8, 24, 40, 56
+    CHACHA_QR_CALL 12, 28, 44, 60
+    CHACHA_QR_CALL 0, 20, 40, 60
+    CHACHA_QR_CALL 4, 24, 44, 48
+    CHACHA_QR_CALL 8, 28, 32, 52
+    CHACHA_QR_CALL 12, 16, 36, 56
+    ret
+
+chacha_quarter_round:
+    push bp
+    mov bp, sp
+    push ax
+    push dx
+    CHACHA_QR_ADD -2, -1
+    CHACHA_QR_XOR -3, -2
+    CHACHA_QR_ROTL -3, 16
+    CHACHA_QR_ADD -4, -3
+    CHACHA_QR_XOR -1, -4
+    CHACHA_QR_ROTL -1, 12
+    CHACHA_QR_ADD -2, -1
+    CHACHA_QR_XOR -3, -2
+    CHACHA_QR_ROTL -3, 8
+    CHACHA_QR_ADD -4, -3
+    CHACHA_QR_XOR -1, -4
+    CHACHA_QR_ROTL -1, 7
+    pop dx
+    pop ax
+    pop bp
     ret
 
 chacha_rotl12_axdx:

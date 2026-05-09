@@ -2889,3 +2889,76 @@ Verification:
 - 3c503 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
 - NE2K8 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
 - 3c501 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+
+## 2026-05-10 - Reject receive-buffer cut without segment-safe receive
+
+Change tried:
+
+- Lowered `tcp_payload_max_len` and `CRITICAL_SCRATCH_LEN`.
+- First tried direct receive caps of 1024, 1200, and 1360 bytes.
+- Then tried advertising a TCP SYN MSS option so the remote would send smaller
+  TCP segments:
+  - MSS 1200 with a 1200-byte receive buffer.
+  - MSS 1360 with a 1360-byte receive buffer.
+
+Measurements:
+
+- Direct 1024-byte cap would have moved `16k-target packed critical guarded
+  slack` to -831 bytes.
+- MSS/direct 1200-byte cap moved it to -1007 bytes.
+- MSS/direct 1360-byte cap moved it to -1167 bytes.
+- The pushed checkpoint without this cut is -1267 bytes.
+
+Result:
+
+- Rejected. The saving is real, but the current receive path releases the full
+  NIC frame after reading only the capped prefix. Without a segment-safe receive
+  path, lowering the buffer can discard unread TCP payload.
+- The MSS variant was not enough to make this reliable. MSS 1200 and MSS 1360
+  both reached agent setup failure on NE2K8 instead of returned `ok`.
+- A broken intermediate MSS packet also reached network setup failure because
+  the checksum recompute clobbered `CX`, the transmit length. Restoring
+  `CX=tcp_tx_frame_len` fixed TCP open but not the agent setup failure.
+
+Verification:
+
+- Each build passed `make inspect` and `make test`.
+- NE2K8 BASIC-sidecar canary on a 32 KiB host failed at agent setup for direct
+  1024, direct 1200, direct 1360, MSS 1200, and MSS 1360.
+- Target code was reverted to the known-good 1460-byte receive buffer and
+  2097-byte critical scratch measurement.
+
+## 2026-05-10 - Compact ChaCha quarter-round helper
+
+Change:
+
+- Replaced macro-expanded ChaCha quarter rounds with a shared
+  `chacha_quarter_round` helper.
+- Kept the same 20-round ChaCha20 structure and the same rotate helpers.
+- This intentionally touched the AEAD fast path, so it was tested with vectors
+  first and then with representative NIC families.
+
+Measurements:
+
+- `CORE.SYS` moved from 24576 bytes to 23552 bytes.
+- Total sectors moved from 48 to 46.
+- LINK/K window moved from 16 sectors to 14 sectors.
+- High-crypto scratch stayed 194 bytes.
+- Critical scratch stayed 2097 bytes.
+- `16k-target packed critical guarded slack` improved from -1267 bytes to
+  -243 bytes.
+
+Result:
+
+- Accepted. This is the largest 16K-windowed-nucleus cut so far and leaves the
+  1 KiB guarded target only 243 bytes short.
+
+Verification:
+
+- `make inspect` passed.
+- `make test` passed, including ChaCha20/Poly1305 vectors and TLS Finished
+  record shape.
+- NE2K8 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- 3c501 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- 3c503 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- WD8003e BASIC-sidecar canary on a 32 KiB host reached returned `ok`.

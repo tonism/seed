@@ -78,6 +78,25 @@ KEY_CODES = {
 }
 
 
+FOCUS_86BOX_SCRIPT = """
+set found86Box to false
+tell application "System Events"
+  repeat with i from 1 to 30
+    if exists process "86Box" then
+      tell process "86Box" to set frontmost to true
+      set found86Box to true
+      delay 0.5
+      exit repeat
+    end if
+    delay 0.5
+  end repeat
+end tell
+if found86Box is false then
+  error "86Box process not found"
+end if
+"""
+
+
 def run(args: list[str], **kwargs) -> subprocess.CompletedProcess[str]:
     return subprocess.run(args, check=True, text=True, **kwargs)
 
@@ -93,16 +112,14 @@ def emulator_path() -> str:
 
 
 def activate_86box() -> None:
-    run(["osascript", "-e", 'tell application "86Box" to activate'])
-    time.sleep(0.5)
+    run(["osascript", "-e", FOCUS_86BOX_SCRIPT])
 
 
 def paste_basic(basic: str) -> None:
     script = """
 on run argv
   set the clipboard to item 1 of argv
-  tell application "86Box" to activate
-  delay 0.5
+""" + FOCUS_86BOX_SCRIPT + """
   tell application "System Events"
     keystroke "v" using {command down}
   end tell
@@ -116,12 +133,8 @@ def type_basic_text(basic: str, line_delay: float) -> None:
 on run argv
   set lineDelay to (item 1 of argv) as real
   set basicText to item 2 of argv
-  tell application "System Events" to count processes
-  tell application "86Box" to activate
-  delay 1.0
+""" + FOCUS_86BOX_SCRIPT + """
   tell application "System Events"
-    tell process "86Box" to set frontmost to true
-    delay 0.5
     repeat with oneLine in paragraphs of basicText
       if length of oneLine is greater than 0 then
         keystroke oneLine
@@ -141,12 +154,8 @@ on run argv
   set keyDelay to (item 1 of argv) as real
   set lineDelay to (item 2 of argv) as real
   set basicText to item 3 of argv
-  tell application "System Events" to count processes
-  tell application "86Box" to activate
-  delay 1.0
+""" + FOCUS_86BOX_SCRIPT + """
   tell application "System Events"
-    tell process "86Box" to set frontmost to true
-    delay 0.5
     repeat with oneLine in paragraphs of basicText
       if length of oneLine is greater than 0 then
         repeat with i from 1 to length of oneLine
@@ -172,12 +181,8 @@ def type_basic_keycodes(basic: str, key_delay: float, line_delay: float) -> None
         )
 
     lines = [
-        'tell application "System Events" to count processes',
-        'tell application "86Box" to activate',
-        "delay 1.0",
+        FOCUS_86BOX_SCRIPT,
         'tell application "System Events"',
-        '  tell process "86Box" to set frontmost to true',
-        "  delay 0.5",
     ]
     for char in basic.lower():
         if char == "\r":
