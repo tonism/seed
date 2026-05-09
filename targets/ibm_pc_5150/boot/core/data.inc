@@ -128,10 +128,7 @@ tls_server_certificate_len_low equ poly_j + 1
 tls_server_certificate_list_len_low equ tls_server_certificate_len_low + 2
 tls_server_next_handshake_type equ tls_server_certificate_list_len_low + 2
 tls_server_next_handshake_len_high equ tls_server_next_handshake_type + 1
-tls_server_key_public_len equ tls_server_next_handshake_len_high + 1
-tls_server_signature_hash equ tls_server_key_public_len + 1
-tls_server_signature_alg equ tls_server_signature_hash + 1
-tls_server_certificate_len_high equ tls_server_signature_alg + 1
+tls_server_certificate_len_high equ tls_server_next_handshake_len_high + 1
 tls_server_certificate_list_len_high equ tls_server_certificate_len_high + 1
 tls_key_schedule_ready equ tls_server_certificate_list_len_high + 1
 sha256_block_len equ tls_key_schedule_ready + 1
@@ -191,9 +188,7 @@ tls_server_certificate_total_len equ tls_server_certificate_record_len + 2
 tls_server_next_record_len equ tls_server_certificate_total_len + 2
 tls_server_next_handshake_len_low equ tls_server_next_record_len + 2
 tls_server_next_total_len equ tls_server_next_handshake_len_low + 2
-tls_server_key_curve equ tls_server_next_total_len + 2
-tls_server_signature_len equ tls_server_key_curve + 2
-tls_current_payload_ptr equ tls_server_signature_len + 2
+tls_current_payload_ptr equ tls_server_next_total_len + 2
 tls_current_payload_len equ tls_current_payload_ptr + 2
 tls_app_sent equ tls_current_payload_len + 2
 low_tail_state_end equ tls_app_sent + 1

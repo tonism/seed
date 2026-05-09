@@ -1850,15 +1850,10 @@ tls_parse_server_key_exchange:
     mov al, [bx + 2]
     cmp ax, tls_curve_secp256r1
     jne .failed
-    mov [tls_server_key_curve], ax
-    mov al, [bx + 3]
-    or al, al
-    jz .failed
-    mov [tls_server_key_public_len], al
-    cmp al, tls_ec_public_uncompressed_len
+    cmp byte [bx + 3], tls_ec_public_uncompressed_len
     jne .failed
-    xor ah, ah
     mov dx, [tls_server_next_handshake_len_low]
+    mov ax, tls_ec_public_uncompressed_len
     add ax, 8
     cmp ax, dx
     ja .failed
@@ -1869,21 +1864,12 @@ tls_parse_server_key_exchange:
     mov di, tls_premaster_secret
     mov cx, tls_ec_coordinate_len
     rep movsb
-    mov al, [tls_server_key_public_len]
-    xor ah, ah
     mov bx, [tls_next_handshake_body_ptr]
-    add bx, ax
-    add bx, 4
-    mov al, [bx]
-    mov [tls_server_signature_hash], al
-    mov al, [bx + 1]
-    mov [tls_server_signature_alg], al
+    add bx, tls_ec_public_uncompressed_len + 4
     mov ah, [bx + 2]
     mov al, [bx + 3]
-    mov [tls_server_signature_len], ax
     mov dx, ax
-    mov al, [tls_server_key_public_len]
-    xor ah, ah
+    mov ax, tls_ec_public_uncompressed_len
     add ax, 8
     add ax, dx
     cmp ax, [tls_server_next_handshake_len_low]

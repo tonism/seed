@@ -2051,3 +2051,37 @@ Verification:
 - `make inspect` passed.
 - `make test` passed.
 - 3c503 BASIC-sidecar canary failed during agent setup.
+
+## 2026-05-09 - Trim unused ServerKeyExchange parse state
+
+Change:
+
+- Removed unused ServerKeyExchange scratch fields for the curve id,
+  public-key length, signature hash/algorithm, and signature length.
+- Simplified `tls_parse_server_key_exchange` to use the already-validated
+  fixed uncompressed P-256 public-key length directly.
+- Preserved the current fixed-scalar proof behavior: the server public X
+  coordinate is copied directly into `tls_premaster_secret`.
+
+Measurements:
+
+- `CORE.SYS` total size: unchanged at 25600 bytes.
+- LINK window remained 17 sectors.
+- Actual LINK end moved to `0x2b4f`.
+- 16-sector LINK threshold still needs about 335 more bytes of code removed.
+- `16k-target packed critical guarded slack` remained -2788 bytes.
+
+Result:
+
+- Accepted small LINK-window cleanup. It does not yet cross a sector boundary,
+  but it removes dead parse state and moves us closer to the first 512-byte
+  LINK-sector win.
+
+Verification:
+
+- `make inspect` passed.
+- `make test` passed.
+- NE2K8 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- 3c501 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- 3c503 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- WD8003e BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
