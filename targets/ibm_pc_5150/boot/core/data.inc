@@ -284,5 +284,4 @@ poly_block equ high_poly_block
 poly_product equ high_poly_product
 poly_value equ high_poly_value
 tls_random equ high_tls_random
-tls_client_ec_public equ high_tls_client_ec_public
 sha256_k equ low_sha256_k

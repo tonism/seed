@@ -38,6 +38,7 @@ DATA_INC = ROOT / "targets" / "ibm_pc_5150" / "boot" / "core" / "data.inc"
 TLS_CLIENT_HELLO_INC = (
     ROOT / "targets" / "ibm_pc_5150" / "boot" / "phases" / "tls_client_hello.inc"
 )
+TLS_INC = ROOT / "targets" / "ibm_pc_5150" / "boot" / "core" / "tls.inc"
 
 
 def inv_mod(value: int) -> int:
@@ -344,7 +345,7 @@ def scalar_mult_jacobian_words(scalar: int, point: tuple[int, int]) -> tuple[int
 
 
 def check_field_words() -> None:
-    assert bytes(parse_db_values("tls_client_ec_public_constant", TLS_CLIENT_HELLO_INC)) == (
+    assert bytes(parse_db_values("tls_client_ec_public_constant", TLS_INC)) == (
         b"\x04"
         + CLIENT_PUBLIC[0].to_bytes(32, "big")
         + CLIENT_PUBLIC[1].to_bytes(32, "big")

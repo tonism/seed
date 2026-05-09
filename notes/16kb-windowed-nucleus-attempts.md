@@ -190,6 +190,40 @@ Verification:
 - WD8003e BASIC-sidecar canary on a 32 KiB host reached `seed build 6` and
   returned `ok`.
 
+## 2026-05-09 - Move fixed TLS client public key out of high scratch
+
+Change:
+
+- Stopped reserving high-crypto scratch for the fixed P-256 client public key.
+- Moved the constant into the LINK window and made ClientKeyExchange copy it
+  directly from there.
+- Removed the ROM BASIC TLS ClientHello phase copy into high scratch.
+- Updated the P-256 checker to validate the constant in its new home.
+
+Measurements:
+
+- High crypto scratch: 835 -> 770 bytes.
+- `16k-target packed critical guarded slack`: -3395 -> -3330 bytes.
+- LINK window stayed at 17 sectors, so this is a direct 65-byte scratch win.
+
+Result:
+
+- Low-risk lifetime cleanup. The fixed public key is needed only as constant
+  input for ClientKeyExchange and does not need writable scratch.
+
+Verification:
+
+- `make inspect` passes.
+- `make test` passes.
+- NE2K8 BASIC-sidecar canary on a 32 KiB host reached `seed build 6` and
+  returned `ok`.
+- 3c501 BASIC-sidecar canary on a 32 KiB host reached `seed build 6` and
+  returned `ok`.
+- 3c503 BASIC-sidecar canary on a 32 KiB host reached `seed build 6` and
+  returned `ok`.
+- WD8003e BASIC-sidecar canary on a 32 KiB host reached `seed build 6` and
+  returned `ok`.
+
 ## 2026-05-09 - Add LINK-aware packed budget tracking
 
 Change:

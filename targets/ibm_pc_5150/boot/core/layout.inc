@@ -358,8 +358,7 @@ high_poly_value equ high_poly_product + poly1305_product_len
 %error "poly1305 overlay collides with persistent Poly1305 key"
 %endif
 high_tls_random equ high_poly_s + poly1305_s_len
-high_tls_client_ec_public equ high_tls_random + tls_random_len
-high_crypto_scratch_end equ high_tls_client_ec_public + tls_ec_public_uncompressed_len
+high_crypto_scratch_end equ high_tls_random + tls_random_len
 wd_saprom equ 0x08
 fat_root_start_lba equ LOADER_SECTORS + 3
 fat_fat_start_lba equ LOADER_SECTORS + 1
