@@ -1,19 +1,15 @@
 ne_try_receive_frame:
     cmp byte [handoff_addr + handoff_nic_family], family_3c501
-    jne .dp8390
-    jmp el1_try_receive_frame
-.dp8390:
+    je el1_try_receive_frame
     mov word [ne_rx_sample_count], 0
     call ne_read_ring_pointers
-    call ne_select_next_rx_page
-    mov al, [ne_next_page]
-    cmp al, [ne_current_page]
+    cmp al, ah
     jne .packet_waiting
-    mov byte [handoff_addr + handoff_net_status], net_status_rx_poll_ready
     clc
     ret
 
 .packet_waiting:
+    mov [ne_next_page], al
     xor bl, bl
     mov bh, [ne_next_page]
     mov cx, ne_rx_header_len
@@ -54,8 +50,6 @@ ne_try_receive_frame:
     call ne_remote_read_bytes
     jc .dma_failed
 
-    mov byte [handoff_addr + handoff_net_status], net_status_rx_frame_read
-
 .release_frame:
     call ne_release_rx_frame
     clc
@@ -66,14 +60,12 @@ ne_try_receive_frame:
     jmp .release_frame
 
 .dma_failed:
-    mov byte [handoff_addr + handoff_net_error], net_error_ne_rx_dma
-    stc
-    ret
+    mov al, net_error_ne_rx_dma
+    jmp net_fail_al
 
 .header_failed:
-    mov byte [handoff_addr + handoff_net_error], net_error_ne_rx_header
-    stc
-    ret
+    mov al, net_error_ne_rx_header
+    jmp net_fail_al
 
 el1_try_receive_frame:
     mov word [ne_rx_sample_count], 0
@@ -83,7 +75,6 @@ el1_try_receive_frame:
     mov [ne_rx_count], ax
     or ax, ax
     jnz .check_status
-    mov byte [handoff_addr + handoff_net_status], net_status_rx_poll_ready
     clc
     ret
 
@@ -105,29 +96,10 @@ el1_try_receive_frame:
     call el1_set_gp
     mov di, ne_tx_frame
     lea dx, [bx + el1_data]
-.read4:
-    cmp cx, 4
-    jb .read_tail
+.read:
     in al, dx
     stosb
-    in al, dx
-    stosb
-    in al, dx
-    stosb
-    in al, dx
-    stosb
-    sub cx, 4
-    jmp .read4
-.read_tail:
-    or cx, cx
-    jz .read_done
-.read1:
-    in al, dx
-    stosb
-    loop .read1
-.read_done:
-    mov byte [handoff_addr + handoff_net_status], net_status_rx_frame_read
-
+    loop .read
 .release_frame:
     lea dx, [bx + el1_rcvptr]
     xor al, al
@@ -153,70 +125,62 @@ el1_set_gp:
 
 parse_tcp_payload:
     cmp word [ne_rx_sample_count], tcp_offset + 20
-    jb .not_payload
+    jb .not_payload_early
     cmp word [ne_tx_frame + 12], 0x0008
-    jne .not_payload
+    jne .not_payload_early
     cmp byte [ne_tx_frame + eth_header_len], 0x45
-    jne .not_payload
+    jne .not_payload_early
     cmp byte [ne_tx_frame + eth_header_len + 9], 6
-    jne .not_payload
+    jne .not_payload_early
 
+    push ds
+    pop es
     mov si, ne_tx_frame + eth_header_len + 12
     mov di, tcp_target_ip
-    mov cx, 4
-.check_source_ip:
-    lodsb
-    cmp al, [di]
-    jne .not_payload
-    inc di
-    loop .check_source_ip
+    mov cx, 2
+    repe cmpsw
+    jne .not_payload_early
 
     mov si, ne_tx_frame + eth_header_len + 16
     mov di, handoff_addr + handoff_ip_addr
-    mov cx, 4
-.check_dest_ip:
-    lodsb
-    cmp al, [di]
-    jne .not_payload
-    inc di
-    loop .check_dest_ip
+    mov cx, 2
+    repe cmpsw
+    jne .not_payload_early
 
     mov ax, [tcp_dest_port_word]
     cmp word [ne_tx_frame + tcp_offset], ax
-    jne .not_payload
+    je .ports_ready
+.not_payload_early:
+    stc
+    ret
+.ports_ready:
     cmp word [ne_tx_frame + tcp_offset + 2], tcp_source_port_word
     jne .not_payload
     test byte [ne_tx_frame + tcp_offset + 13], 0x04
     jnz .not_payload
     mov si, ne_tx_frame + tcp_offset + 4
     mov di, tcp_remote_ack
-    mov cx, 4
-.check_sequence:
-    lodsb
-    cmp al, [di]
+    mov cx, 2
+    repe cmpsw
     jne .not_payload
-    inc di
-    loop .check_sequence
 
-    mov al, [ne_tx_frame + tcp_offset + 12]
-    and al, 0xf0
-    shr al, 1
-    shr al, 1
-    cmp al, 20
+    xor bx, bx
+    mov bl, [ne_tx_frame + tcp_offset + 12]
+    and bl, 0xf0
+    shr bl, 1
+    shr bl, 1
+    cmp bl, 20
     jb .not_payload
-    mov [tcp_rx_header_len], al
 
-    mov ah, [ne_tx_frame + eth_header_len + 2]
-    mov al, [ne_tx_frame + eth_header_len + 3]
+    mov ax, [ne_tx_frame + eth_header_len + 2]
+    xchg al, ah
     cmp ax, ipv4_header_len + 20
     jb .not_payload
     sub ax, ipv4_header_len
-    mov bl, [tcp_rx_header_len]
-    xor bh, bh
     cmp ax, bx
     jbe .not_payload
     sub ax, bx
-    mov [tcp_rx_wire_payload_len], ax
+    mov cx, ax
 
     add bx, tcp_offset
     mov dx, [ne_rx_sample_count]
@@ -239,7 +203,6 @@ parse_tcp_payload:
     movsw
     movsw
     mov di, tcp_remote_ack
-    mov cx, [tcp_rx_wire_payload_len]
     call tcp_add_cx_to_seq
     clc
     ret
@@ -255,7 +218,7 @@ ne_read_ring_pointers:
 
     lea dx, [bx + ne_isr]
     in al, dx
-    mov [ne_current_page], al
+    mov ah, al
 
     lea dx, [bx + ne_cr]
     mov al, ne_cmd_start_nodma
@@ -263,11 +226,6 @@ ne_read_ring_pointers:
 
     lea dx, [bx + ne_bnry]
     in al, dx
-    mov [ne_boundary_page], al
-    ret
-
-ne_select_next_rx_page:
-    mov al, [ne_boundary_page]
     inc al
     cmp al, [ne_rx_stop]
     jb .selected
@@ -284,7 +242,6 @@ ne_release_rx_frame:
     mov al, [ne_rx_stop]
     dec al
 .write_boundary:
-    mov [ne_boundary_page], al
     mov dx, [handoff_addr + handoff_nic_base]
     add dx, ne_bnry
     out dx, al
@@ -345,25 +302,18 @@ ne_remote_read_bytes:
     test al, ne_isr_rdc
     jnz .done
     loop .wait_dma
-    call ne_finish_remote_dma
+    lea dx, [bx + ne_cr]
+    mov al, ne_cmd_start_nodma
+    out dx, al
     stc
     ret
 .done:
     mov al, ne_isr_rdc
     out dx, al
-    call ne_finish_remote_dma
-    clc
-    ret
-
-ne_finish_remote_dma:
-    push ax
-    push dx
-    mov dx, [handoff_addr + handoff_nic_base]
-    add dx, ne_cr
+    lea dx, [bx + ne_cr]
     mov al, ne_cmd_start_nodma
     out dx, al
-    pop dx
-    pop ax
+    clc
     ret
 
 wd_write_sharedmem_bytes:
@@ -392,9 +342,8 @@ wd_read_sharedmem_bytes:
     jne .next
     or al, al
     jnz .next
-    mov al, dh
-    xor ah, ah
-    xchg al, ah
+    xor al, al
+    mov ah, dh
     mov si, ax
 .next:
     loop .read
@@ -405,7 +354,6 @@ c503_write_chipmem_bytes:
     mov [ne_dma_addr], bx
     mov [ne_dma_count], cx
     call c503_begin_dma_write
-    mov bx, [handoff_addr + handoff_nic_base]
     mov cx, [ne_dma_count]
     inc cx
     shr cx, 1
@@ -430,24 +378,28 @@ c503_write_chipmem_bytes:
     jmp c503_select_dp8390
 
 c503_begin_dma_write:
-    mov dx, [handoff_addr + handoff_nic_base]
-    add dx, el2_ctrl
     mov al, el2_ctrl_dma | el2_ctrl_download | el2_ctrl_thin
+    jmp c503_begin_dma_al
+
+c503_begin_dma:
+    mov al, el2_ctrl_dma | el2_ctrl_thin
+
+c503_begin_dma_al:
+    mov bx, [handoff_addr + handoff_nic_base]
+    lea dx, [bx + el2_ctrl]
     out dx, al
 
-    mov dx, [handoff_addr + handoff_nic_base]
-    add dx, el2_da_high
+    lea dx, [bx + el2_da_high]
     mov ax, [ne_dma_addr]
-    mov al, ah
+    xchg al, ah
     out dx, al
     inc dx
-    mov ax, [ne_dma_addr]
+    mov al, ah
     out dx, al
     ret
 
 c503_read_chipmem_bytes:
     call c503_begin_dma
-    mov bx, [handoff_addr + handoff_nic_base]
     lea dx, [bx + el2_data]
     mov cx, [ne_dma_count]
 .read:
@@ -459,28 +411,11 @@ c503_read_chipmem_bytes:
     jne .next
     or al, al
     jnz .next
-    mov al, [ne_rx_start]
-    xor ah, ah
-    xchg al, ah
+    xor al, al
+    mov ah, [ne_rx_start]
     mov [ne_dma_addr], ax
     call c503_begin_dma
     lea dx, [bx + el2_data]
 .next:
     loop .read
     jmp c503_select_dp8390
-
-c503_begin_dma:
-    mov dx, [handoff_addr + handoff_nic_base]
-    add dx, el2_ctrl
-    mov al, el2_ctrl_dma | el2_ctrl_thin
-    out dx, al
-
-    mov dx, [handoff_addr + handoff_nic_base]
-    add dx, el2_da_high
-    mov ax, [ne_dma_addr]
-    mov al, ah
-    out dx, al
-    inc dx
-    mov ax, [ne_dma_addr]
-    out dx, al
-    ret

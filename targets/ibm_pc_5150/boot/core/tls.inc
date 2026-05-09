@@ -5,9 +5,8 @@ tls_status_ok:
     ret
 
 tls_fail_error:
-    mov byte [handoff_addr + handoff_net_error], net_error_tls
-    stc
-    ret
+    mov al, net_error_tls
+    jmp net_fail_al
 
 tls_probe_server:
     call tls_transcript_start
@@ -85,11 +84,10 @@ tls_prepare_3c501_receive:
     ; 3c501 can drop the TLS record when a pure ACK latches receive first.
     ; Let consecutive good frames accumulate for the first TLS response.
     xor al, al
-    mov dx, [handoff_addr + handoff_nic_base]
-    add dx, el1_rcvptr
+    mov bx, [handoff_addr + handoff_nic_base]
+    lea dx, [bx + el1_rcvptr]
     out dx, al
-    mov dx, [handoff_addr + handoff_nic_base]
-    add dx, el1_rx_cmd
+    lea dx, [bx + el1_rx_cmd]
     mov al, el1_rx_cmd_bcast_good - 0x20
     out dx, al
 .done:

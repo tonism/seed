@@ -1,3 +1,14 @@
+%macro call_core_phase 2
+    mov ax, (((%2 - %1 + 511) / 512) << 8) | ((%1 - $$) / 512)
+    call run_core_phase
+%endmacro
+
+%macro call_core_phase_at 3
+    mov ax, (((%2 - %1 + 511) / 512) << 8) | ((%1 - $$) / 512)
+    mov bx, %3
+    call run_core_phase_at
+%endmacro
+
 start:
     cli
     mov bp, runtime_stack_top
@@ -20,10 +31,10 @@ start:
     mov word [handoff_addr + handoff_ram_top], bp
 
 hal_start:
-    call run_hardware_setup_phase
+    call_core_phase core_hardware_setup_phase_start, core_hardware_setup_phase_end
     jc network_error
 
-    call run_packet_io_init_phase
+    call_core_phase core_packet_io_init_phase_start, core_packet_io_init_phase_end
     jc network_setup_error
 
     mov bl, [load_attr]
@@ -38,7 +49,7 @@ hal_start:
     call prepare_agent_path
     jc agent_setup_error
     mov byte [handoff_addr + handoff_status], handoff_status_ready
-    call run_splash_phase
+    call_core_phase core_splash_phase_start, core_splash_phase_end
 
 halt:
     hlt
@@ -57,91 +68,20 @@ agent_setup_error:
 
 show_failure:
     mov [handoff_addr + handoff_status], al
-    call run_failure_phase
+    call_core_phase core_failure_phase_start, core_failure_phase_end
     jmp hal_start
 
-run_save_user_cfg_phase:
-    mov al, (core_save_phase_start - $$) / 512
-    mov cl, (core_save_phase_end - core_save_phase_start + 511) / 512
-    jmp run_core_phase
-
-run_hardware_setup_phase:
-    mov al, (core_hardware_setup_phase_start - $$) / 512
-    mov cl, (core_hardware_setup_phase_end - core_hardware_setup_phase_start + 511) / 512
-    jmp run_core_phase
-
-run_packet_io_init_phase:
-    mov al, (core_packet_io_init_phase_start - $$) / 512
-    mov cl, (core_packet_io_init_phase_end - core_packet_io_init_phase_start + 511) / 512
-    jmp run_core_phase
-
-run_failure_phase:
-    mov al, (core_failure_phase_start - $$) / 512
-    mov cl, (core_failure_phase_end - core_failure_phase_start + 511) / 512
-    jmp run_core_phase
-
-run_dhcp_setup_phase:
-    mov al, (core_dhcp_setup_phase_start - $$) / 512
-    mov cl, (core_dhcp_setup_phase_end - core_dhcp_setup_phase_start + 511) / 512
-    mov bx, net_setup_phase_start
-    jmp run_core_phase_at
-
 run_tcp_connect_phase:
-    mov al, (core_tcp_connect_phase_start - $$) / 512
-    mov cl, (core_tcp_connect_phase_end - core_tcp_connect_phase_start + 511) / 512
+    mov ax, (((core_tcp_connect_phase_end - core_tcp_connect_phase_start + 511) / 512) << 8) | ((core_tcp_connect_phase_start - $$) / 512)
     mov bx, net_setup_phase_start
     jmp run_core_phase_at
-
-run_tls_client_hello_phase:
-    mov al, (core_tls_client_hello_phase_start - $$) / 512
-    mov cl, (core_tls_client_hello_phase_end - core_tls_client_hello_phase_start + 511) / 512
-    jmp run_core_phase
-
-run_net_probe_cfg_phase:
-    mov al, (core_probe_cfg_phase_start - $$) / 512
-    mov cl, (core_probe_cfg_phase_end - core_probe_cfg_phase_start + 511) / 512
-    jmp run_core_phase
-
-run_agents_cfg_phase:
-    mov al, (core_agents_cfg_phase_start - $$) / 512
-    mov cl, (core_agents_cfg_phase_end - core_agents_cfg_phase_start + 511) / 512
-    jmp run_core_phase
-
-run_user_cfg_phase:
-    mov al, (core_user_cfg_phase_start - $$) / 512
-    mov cl, (core_user_cfg_phase_end - core_user_cfg_phase_start + 511) / 512
-    jmp run_core_phase
-
-run_agent_setup_phase:
-    mov al, (core_agent_setup_phase_start - $$) / 512
-    mov cl, (core_agent_setup_phase_end - core_agent_setup_phase_start + 511) / 512
-    jmp run_core_phase
-
-run_agent_request_phase:
-    mov al, (core_agent_request_phase_start - $$) / 512
-    mov cl, (core_agent_request_phase_end - core_agent_request_phase_start + 511) / 512
-    jmp run_core_phase
-
-run_agent_endpoint_phase:
-    mov al, (core_agent_endpoint_phase_start - $$) / 512
-    mov cl, (core_agent_endpoint_phase_end - core_agent_endpoint_phase_start + 511) / 512
-    jmp run_core_phase
-
-run_agent_response_phase:
-    mov al, (core_agent_response_phase_start - $$) / 512
-    mov cl, (core_agent_response_phase_end - core_agent_response_phase_start + 511) / 512
-    jmp run_core_phase
-
-run_splash_phase:
-    mov al, (core_splash_phase_start - $$) / 512
-    mov cl, (core_splash_phase_end - core_splash_phase_start + 511) / 512
-    jmp run_core_phase
 
 run_core_phase:
     mov bx, low_scratch_start
 
 run_core_phase_at:
     push bx
+    mov cl, ah
     xor ah, ah
     xor ch, ch
     push ds

@@ -16,8 +16,7 @@ packet_io_init_phase:
 .packet:
     push ds
     pop es
-    phase_call_res wd_enable_shared_ram
-    phase_call_res wd_select_dp8390_base
+    phase_call_res wd_enter_packet_path
     call init_ne_packet_io_phase
     jc .done
     mov word [ne_rx_read_limit], ne_rx_sample_len

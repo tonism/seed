@@ -1,27 +1,3 @@
-tcp_tx_flags db 0
-tcp_tx_len dw 0
-tcp_tx_payload_ptr dw 0
-tcp_tx_payload_len dw 0
-tcp_rx_payload_ptr dw 0
-tcp_rx_payload_len dw 0
-tcp_rx_wire_payload_len dw 0
-tcp_rx_header_len db 0
-tls_tx_len dw 0
-tls_host_len dw 0
-tls_buffered_payload_ptr dw 0
-tls_buffered_payload_len dw 0
-tls_server_record_len dw 0
-tls_server_handshake_len dw 0
-tls_server_certificate_record_len dw 0
-tls_server_certificate_total_len dw 0
-tls_server_next_record_len dw 0
-tls_server_next_handshake_len_low dw 0
-tls_server_next_total_len dw 0
-tls_server_key_curve dw 0
-tls_server_signature_len dw 0
-tls_current_payload_ptr dw 0
-tls_current_payload_len dw 0
-tls_stream_skip_remaining dw 0
 tls_app_data_ptr dw 0
 tls_app_plain_ptr dw 0
 tls_app_record_ptr dw 0
@@ -29,9 +5,7 @@ tls_app_len dw 0
 tls_app_record_len dw 0
 tls_app_total_len dw 0
 tls_app_chunk_len dw 0
-tls_app_sent db 0
 tls_prepared_app_len dw 0
-api_body_len dw 0
 api_receive_tries db 0
 tls_app_content_type db 0
 tls_transcript_len_low dw 0
@@ -171,15 +145,12 @@ low_persistent_state_start equ tls_next_handshake_body_ptr + 2
 ne_tx_start equ low_persistent_state_start
 ne_rx_start equ ne_tx_start + 1
 ne_rx_stop equ ne_rx_start + 1
-ne_current_page equ ne_rx_stop + 1
-ne_boundary_page equ ne_current_page + 1
-ne_next_page equ ne_boundary_page + 1
+ne_next_page equ ne_rx_stop + 1
 ne_rx_header equ ne_next_page + 1
 ne_rx_count equ ne_rx_header + ne_rx_header_len
 ne_rx_sample_count equ ne_rx_count + 2
 ne_rx_read_limit equ ne_rx_sample_count + 2
-ne_tx_len equ ne_rx_read_limit + 2
-el1_tx_ptr equ ne_tx_len + 2
+el1_tx_ptr equ ne_rx_read_limit + 2
 ne_dma_addr equ el1_tx_ptr + 2
 ne_dma_count equ ne_dma_addr + 2
 dhcp_wait_count equ ne_dma_count + 2
@@ -188,7 +159,9 @@ tcp_target_ip equ arp_target_mac + 6
 tcp_dest_port_word equ tcp_target_ip + 4
 tcp_local_seq equ tcp_dest_port_word + 2
 tcp_remote_ack equ tcp_local_seq + 4
-low_runtime_state_end equ tcp_remote_ack + 4
+tls_stream_skip_remaining equ tcp_remote_ack + 4
+api_body_len equ tls_stream_skip_remaining + 2
+low_runtime_state_end equ api_body_len + 2
 low_static_constants_start equ low_phase_state_end
 tls_label_master_secret equ low_static_constants_start
 tls_label_master_secret_len equ 13
@@ -206,6 +179,26 @@ sha256_initial_state equ poly1305_prime + poly1305_prime_len
 sha256_initial_state_len equ 32
 low_static_constants_end equ sha256_initial_state + sha256_initial_state_len
 low_static_constants_len equ low_static_constants_end - low_static_constants_start
+low_tail_state_start equ low_static_constants_end
+tcp_rx_payload_ptr equ low_tail_state_start
+tcp_rx_payload_len equ tcp_rx_payload_ptr + 2
+tls_tx_len equ tcp_rx_payload_len + 2
+tls_host_len equ tls_tx_len + 2
+tls_buffered_payload_ptr equ tls_host_len + 2
+tls_buffered_payload_len equ tls_buffered_payload_ptr + 2
+tls_server_record_len equ tls_buffered_payload_len + 2
+tls_server_handshake_len equ tls_server_record_len + 2
+tls_server_certificate_record_len equ tls_server_handshake_len + 2
+tls_server_certificate_total_len equ tls_server_certificate_record_len + 2
+tls_server_next_record_len equ tls_server_certificate_total_len + 2
+tls_server_next_handshake_len_low equ tls_server_next_record_len + 2
+tls_server_next_total_len equ tls_server_next_handshake_len_low + 2
+tls_server_key_curve equ tls_server_next_total_len + 2
+tls_server_signature_len equ tls_server_key_curve + 2
+tls_current_payload_ptr equ tls_server_signature_len + 2
+tls_current_payload_len equ tls_current_payload_ptr + 2
+tls_app_sent equ tls_current_payload_len + 2
+low_tail_state_end equ tls_app_sent + 1
 %if low_file_scratch_end > low_scratch_end
 %error "low packet scratch arena overflow"
 %endif
@@ -214,6 +207,9 @@ low_static_constants_len equ low_static_constants_end - low_static_constants_sta
 %endif
 %if low_static_constants_end > low_scratch_end
 %error "low static constants arena overflow"
+%endif
+%if low_tail_state_end > low_scratch_end
+%error "low tail state arena overflow"
 %endif
 %if low_runtime_state_end > low_scratch_start
 %error "low runtime state overlaps phase load window"

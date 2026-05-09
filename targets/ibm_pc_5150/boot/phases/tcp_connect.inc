@@ -97,7 +97,6 @@ ne_transmit_tcp_syn:
     phase_call_res build_tcp_segment_frame
 
     mov si, ne_tx_frame
-    mov cx, [tcp_tx_len]
     phase_call_res ne_transmit_frame
     jc .done
     mov byte [handoff_addr + handoff_net_status], net_status_tcp_syn_sent

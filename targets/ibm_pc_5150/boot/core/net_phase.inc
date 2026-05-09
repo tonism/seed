@@ -6,11 +6,10 @@ prepare_internet_path:
 .packet:
     push ds
     pop es
-    call wd_enable_shared_ram
-    call wd_select_dp8390_base
-    call run_dhcp_setup_phase
+    call wd_enter_packet_path
+    call_core_phase_at core_dhcp_setup_phase_start, core_dhcp_setup_phase_end, net_setup_phase_start
     jc .failed
-    call run_net_probe_cfg_phase
+    call_core_phase core_probe_cfg_phase_start, core_probe_cfg_phase_end
     jc .failed
     mov word [tcp_dest_port_word], tcp_port_http_word
     call run_tcp_connect_phase
@@ -26,10 +25,10 @@ prepare_internet_path:
     jmp .done
 
 prepare_agent_path:
-    call run_agents_cfg_phase
-    call run_user_cfg_phase
+    call_core_phase core_agents_cfg_phase_start, core_agents_cfg_phase_end
+    call_core_phase core_user_cfg_phase_start, core_user_cfg_phase_end
     jnc .values_ready
-    call run_agent_setup_phase
+    call_core_phase core_agent_setup_phase_start, core_agent_setup_phase_end
 .values_ready:
     call prepare_agent_endpoint_path
     jc .failed
@@ -38,7 +37,7 @@ prepare_agent_path:
     call show_load_marker
     cmp byte [user_cfg_dirty], 0
     je .ready
-    call run_save_user_cfg_phase
+    call_core_phase core_save_phase_start, core_save_phase_end
 .ready:
     clc
     ret
@@ -47,7 +46,7 @@ prepare_agent_path:
     ret
 
 prepare_agent_endpoint_path:
-    call run_agent_endpoint_phase
+    call_core_phase core_agent_endpoint_phase_start, core_agent_endpoint_phase_end
     jc .failed
     call selected_nic_has_packet_path
     jnc .packet
@@ -57,11 +56,10 @@ prepare_agent_endpoint_path:
 .packet:
     push ds
     pop es
-    call wd_enable_shared_ram
-    call wd_select_dp8390_base
-    call run_agent_request_phase
+    call wd_enter_packet_path
+    call_core_phase core_agent_request_phase_start, core_agent_request_phase_end
     jc .restore
-    call run_tls_client_hello_phase
+    call_core_phase core_tls_client_hello_phase_start, core_tls_client_hello_phase_end
     jc .restore
     call run_tcp_connect_phase
     jc .restore

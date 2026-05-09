@@ -5,7 +5,6 @@ ne_transmit_tcp_ack:
     call build_tcp_segment_frame
 
     mov si, ne_tx_frame
-    mov cx, [tcp_tx_len]
     call ne_transmit_frame
     jc .done
     mov byte [handoff_addr + handoff_net_status], net_status_tcp_connected
@@ -20,28 +19,22 @@ tcp_send_payload:
     call build_tcp_segment_frame
 
     mov si, ne_tx_frame
-    mov cx, [tcp_tx_len]
     call ne_transmit_frame
     pop cx
     jc .done
     mov di, tcp_local_seq
     call tcp_add_cx_to_seq
-    mov byte [handoff_addr + handoff_net_status], net_status_tcp_payload_sent
     clc
 .done:
     ret
 .failed:
-    mov byte [handoff_addr + handoff_net_error], net_error_tcp
-    stc
-    ret
+    mov al, net_error_tcp
+    jmp net_fail_al
 
 ne_transmit_frame:
-    mov [ne_tx_len], cx
+    mov bp, cx
     cmp byte [handoff_addr + handoff_nic_family], family_3c501
-    jne .dp8390
-    jmp el1_transmit_frame
-
-.dp8390:
+    je el1_transmit_frame
     mov bx, [handoff_addr + handoff_nic_base]
     lea dx, [bx + ne_isr]
     mov al, ne_isr_rdc | ne_isr_txe | ne_isr_ptx
@@ -51,7 +44,7 @@ ne_transmit_frame:
     jne .check_3c503
     xor bl, bl
     mov bh, [ne_tx_start]
-    mov cx, [ne_tx_len]
+    mov cx, bp
     call wd_write_sharedmem_bytes
     jmp .frame_loaded
 
@@ -60,14 +53,14 @@ ne_transmit_frame:
     jne .remote_dma
     xor bl, bl
     mov bh, [ne_tx_start]
-    mov cx, [ne_tx_len]
+    mov cx, bp
     call c503_write_chipmem_bytes
     jmp .frame_loaded
 
 .remote_dma:
     mov bx, [handoff_addr + handoff_nic_base]
     lea dx, [bx + ne_rbcr0]
-    mov ax, [ne_tx_len]
+    mov ax, bp
     out dx, al
     inc dx
     mov al, ah
@@ -85,7 +78,7 @@ ne_transmit_frame:
     out dx, al
 
     lea dx, [bx + ne_data]
-    mov cx, [ne_tx_len]
+    mov cx, bp
 .write_frame:
     lodsb
     out dx, al
@@ -110,7 +103,7 @@ ne_transmit_frame:
     out dx, al
 
     lea dx, [bx + ne_tbcr0]
-    mov ax, [ne_tx_len]
+    mov ax, bp
     out dx, al
     inc dx
     mov al, ah
@@ -131,17 +124,15 @@ ne_transmit_frame:
 .tx_done:
     mov al, ne_isr_ptx | ne_isr_txe
     out dx, al
-    mov byte [handoff_addr + handoff_net_status], net_status_tx_ready
     clc
     ret
 .failed:
-    mov byte [handoff_addr + handoff_net_error], net_error_ne_tx
-    stc
-    ret
+    mov al, net_error_ne_tx
+    jmp net_fail_al
 
 el1_transmit_frame:
     mov ax, 0x0800
-    sub ax, [ne_tx_len]
+    sub ax, bp
     mov [el1_tx_ptr], ax
     mov bx, [handoff_addr + handoff_nic_base]
     call el1_set_gp
@@ -150,28 +141,11 @@ el1_transmit_frame:
     mov al, el1_aux_system
     out dx, al
     inc dx
-    mov cx, [ne_tx_len]
-.write4:
-    cmp cx, 4
-    jb .write_tail
+    mov cx, bp
+.write:
     lodsb
     out dx, al
-    lodsb
-    out dx, al
-    lodsb
-    out dx, al
-    lodsb
-    out dx, al
-    sub cx, 4
-    jmp .write4
-.write_tail:
-    or cx, cx
-    jz .write_done
-.write1:
-    lodsb
-    out dx, al
-    loop .write1
-.write_done:
+    loop .write
 
     mov ax, [el1_tx_ptr]
     call el1_set_gp
@@ -186,49 +160,39 @@ el1_transmit_frame:
     test al, el1_tx_status_ready
     jnz .done
     loop .wait
-    mov byte [handoff_addr + handoff_net_error], net_error_ne_tx
-    stc
-    ret
+    mov al, net_error_ne_tx
+    jmp net_fail_al
 .done:
     lea dx, [bx + el1_aux]
     mov al, el1_aux_system
     out dx, al
     mov al, el1_aux_receive
     out dx, al
-    mov byte [handoff_addr + handoff_net_status], net_status_tx_ready
     clc
     ret
 
 build_tcp_segment_frame:
-    mov [tcp_tx_flags], al
-    mov [tcp_tx_payload_ptr], si
-    mov [tcp_tx_payload_len], cx
-
-    mov di, ne_tx_frame
-    xor al, al
-    mov cx, [tcp_tx_payload_len]
-    add cx, tcp_payload_offset
-    cmp cx, tcp_tx_frame_len
-    jae .clear_len_ready
-    mov cx, tcp_tx_frame_len
-.clear_len_ready:
-    rep stosb
+    mov dl, al
+    push si
+    mov bp, cx
 
     mov di, ne_tx_frame
     mov si, arp_target_mac
-    mov cx, 6
-    rep movsb
+    movsw
+    movsw
+    movsw
 
     mov si, handoff_addr + handoff_mac
-    mov cx, 6
-    rep movsb
+    movsw
+    movsw
+    movsw
 
     mov ax, 0x0008
     stosw
 
     mov ax, 0x0045
     stosw
-    mov ax, [tcp_tx_payload_len]
+    mov ax, bp
     add ax, tcp_ip_len
     xchg al, ah
     stosw
@@ -241,12 +205,12 @@ build_tcp_segment_frame:
     stosw
 
     mov si, handoff_addr + handoff_ip_addr
-    mov cx, 4
-    rep movsb
+    movsw
+    movsw
 
     mov si, tcp_target_ip
-    mov cx, 4
-    rep movsb
+    movsw
+    movsw
 
     mov ax, tcp_source_port_word
     stosw
@@ -258,38 +222,43 @@ build_tcp_segment_frame:
     mov si, tcp_remote_ack
     movsw
     movsw
-    mov ah, [tcp_tx_flags]
+    mov ah, dl
     mov al, 0x50
     stosw
-    cmp byte [handoff_addr + handoff_nic_family], family_3c501
-    jne .default_window
-    mov ax, 0x0002
-    jmp .write_window
-.default_window:
     mov ax, 0x0004
+    cmp byte [handoff_addr + handoff_nic_family], family_3c501
+    jne .write_window
+    shr ax, 1
 .write_window:
     stosw
     xor ax, ax
     stosw
     stosw
 
-    mov cx, [tcp_tx_payload_len]
+    mov cx, bp
+    pop si
     or cx, cx
     jz .payload_done
-    mov si, [tcp_tx_payload_ptr]
     rep movsb
 .payload_done:
+    mov cx, tcp_tx_frame_len - tcp_payload_offset
+    sub cx, bp
+    jbe .padding_done
+    xor al, al
+    rep stosb
+.padding_done:
 
-    mov ax, [tcp_tx_payload_len]
+    mov ax, bp
     add ax, tcp_payload_offset
     cmp ax, tcp_tx_frame_len
     jae .tx_len_ready
     mov ax, tcp_tx_frame_len
 .tx_len_ready:
-    mov [tcp_tx_len], ax
-
+    push ax
     call write_ipv4_checksum
-    jmp write_tcp_checksum
+    call write_tcp_checksum
+    pop cx
+    ret
 
 write_ipv4_checksum:
     mov si, ne_tx_frame + eth_header_len
@@ -310,30 +279,23 @@ write_ipv4_checksum:
 write_tcp_checksum:
     xor bx, bx
     xor dx, dx
-    mov si, handoff_addr + handoff_ip_addr
-    mov cx, 2
-.src_ip:
-    lodsw
-    add bx, ax
+    add bx, [handoff_addr + handoff_ip_addr]
     adc dx, 0
-    loop .src_ip
-    mov si, tcp_target_ip
-    mov cx, 2
-.dst_ip:
-    lodsw
-    add bx, ax
+    add bx, [handoff_addr + handoff_ip_addr + 2]
     adc dx, 0
-    loop .dst_ip
-    mov ax, 0x0600
-    add bx, ax
+    add bx, [tcp_target_ip]
     adc dx, 0
-    mov ax, [tcp_tx_payload_len]
+    add bx, [tcp_target_ip + 2]
+    adc dx, 0
+    add bh, 6
+    adc dx, 0
+    mov ax, bp
     add ax, 20
     xchg al, ah
     add bx, ax
     adc dx, 0
     mov si, ne_tx_frame + tcp_offset
-    mov cx, [tcp_tx_payload_len]
+    mov cx, bp
     add cx, 20
     push cx
     shr cx, 1
@@ -363,4 +325,9 @@ tcp_add_cx_to_seq:
     adc [di + 2], ch
     adc byte [di + 1], 0
     adc byte [di], 0
+    ret
+
+net_fail_al:
+    mov [handoff_addr + handoff_net_error], al
+    stc
     ret

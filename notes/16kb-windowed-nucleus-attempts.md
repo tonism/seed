@@ -125,6 +125,71 @@ Verification:
 - `make inspect` passes.
 - `make test` passes.
 
+## 2026-05-09 - Trim resident network/phase glue to 21 sectors
+
+Change:
+
+- Replaced one-use resident phase-runner wrappers with compact phase-call
+  macros while preserving the original `BX` phase-entry contract.
+- Removed TCP TX/RX temporary fields by carrying lengths and pointers in
+  registers through the TCP frame builder/parser.
+- Removed low-value packet TX/RX status writes and consolidated several network
+  failure exits through the shared `net_fail_al` tail.
+- Moved explicitly initialized TLS/TCP state into the 35-byte tail after the low
+  static constants at the top of the low scratch arena.
+- Replaced the 3c501 four-byte unrolled TX/RX copy loops with straight byte
+  loops. This trades a small amount of 3c501 copy-loop time for resident code
+  size.
+- Merged resident WD/3c503 packet helper tails, kept transmit frame length in
+  `BP` instead of low runtime memory, folded DP8390 next-page selection into
+  ring-pointer reads, and moved two zero-initialized words into the freed low
+  runtime bytes.
+- Removed a few one-use TCP/NIC branches and tails without changing packet
+  ordering.
+
+Rejected/reverted experiments:
+
+- Do not change `run_core_phase_at` to preserve the phase load address in `DI`.
+  Loaded phases rely on `BX` still naming their entry/load base.
+- Do not collapse `selected_nic_has_packet_path` into a direct-flags predicate
+  without preserving its carry contract; the attempted version broke NE2K8
+  network setup.
+- Do not move the TCP-connected status write out of the resident ACK transmit
+  path without reworking `tcp_connect` expectations; the attempted version
+  broke NE2K8 network setup.
+- `wait_ticks` remains fully preserving `AX/BX/CX`; the reduced-preservation
+  experiment was part of the broken batch and was reverted.
+
+Measurements:
+
+- `CORE.SYS` total size: 25600 -> 25088 bytes.
+- `CORE.SYS` total sectors: 50 -> 49.
+- Resident sectors: 22 -> 21.
+- Resident bytes: 11264 -> 10752.
+- Resident nonzero payload: 11066 -> 10670.
+- Resident load range: `0x1000..0x3c00` -> `0x1000..0x3a00`.
+- `16k-target` resident guarded slack: 0 -> 512 bytes.
+- `16k-target` packed critical guarded slack: -3395 -> -2883 bytes.
+
+Result:
+
+- One more resident sector removed.
+- Remaining guarded 16 KiB deficit is 2883 bytes, now dominated by the packed
+  high-crypto plus critical scratch windows rather than resident raw fit.
+
+Verification:
+
+- `make test` passes.
+- `make inspect` passes.
+- 3c501 BASIC-sidecar canary on a 32 KiB host reached `seed build 6` and
+  returned `ok`.
+- NE2K8 BASIC-sidecar canary on a 32 KiB host reached `seed build 6` and
+  returned `ok`.
+- 3c503 BASIC-sidecar canary on a 32 KiB host reached `seed build 6` and
+  returned `ok`.
+- WD8003e BASIC-sidecar canary on a 32 KiB host reached `seed build 6` and
+  returned `ok`.
+
 ## 2026-05-08 - Compact high crypto scratch overlay
 
 Change:
@@ -534,6 +599,45 @@ Result:
 - Accepted.
 - Saves 18 resident payload bytes.
 - Another resident sector still requires roughly 315 more resident payload
+  bytes of reduction.
+
+Verification:
+
+- `make inspect` passes.
+- `make test` passes.
+- NE2K8 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- 3c501 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- 3c503 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- WD8003e BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+
+## 2026-05-09 - Keep compact resident NIC helper tails
+
+Change:
+
+- Inlined the DP8390 remote-DMA finish step where the NIC I/O base was already
+  live in `BX`.
+- Made 3c503 DMA helpers leave the NIC I/O base live for their callers, then
+  reused it for chip-memory status/data ports.
+- Shortened 3c503/WD wrap-address setup and 3c501 TLS receive-prep port setup.
+- Shortened TCP window construction by deriving the 3c501 small window from the
+  normal DP8390 window value.
+- These are mechanical resident-code cuts; packet ordering and TLS/OpenAI
+  state lifetimes are unchanged.
+
+Measurements:
+
+- Resident sectors: unchanged at 22.
+- Resident bytes: unchanged at 11264.
+- Resident nonzero payload: 11066 -> 11027 bytes.
+- High crypto scratch stayed at 835 bytes.
+- Critical scratch stayed at 2560 bytes.
+- `16k-target packed critical guarded slack` stayed at -3395.
+
+Result:
+
+- Accepted.
+- Saves 39 resident payload bytes.
+- Another resident sector still requires roughly 279 more resident payload
   bytes of reduction.
 
 Verification:

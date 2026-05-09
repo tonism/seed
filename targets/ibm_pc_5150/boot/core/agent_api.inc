@@ -3,7 +3,7 @@ agent_api_exchange:
 .receive:
     call tls_receive_application_data
     jc .failed
-    call run_agent_response_phase
+    call_core_phase core_agent_response_phase_start, core_agent_response_phase_end
     jnc .answer
     dec byte [api_receive_tries]
     jnz .receive
