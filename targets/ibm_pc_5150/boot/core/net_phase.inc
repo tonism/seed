@@ -59,6 +59,8 @@ prepare_agent_endpoint_path:
     call wd_enter_packet_path
     call_core_phase core_agent_request_phase_start, core_agent_request_phase_end
     jc .restore
+    load_core_window core_link_window_start, core_link_window_end
+    jc .restore
     call_core_phase core_tls_client_hello_phase_start, core_tls_client_hello_phase_end
     jc .restore
     call run_tcp_connect_phase

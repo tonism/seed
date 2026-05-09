@@ -9,6 +9,12 @@
     call run_core_phase_at
 %endmacro
 
+%macro load_core_window 2
+    mov ax, (((%2 - %1 + 511) / 512) << 8) | ((%1 - $$) / 512)
+    mov bx, %1
+    call load_core_sectors_at
+%endmacro
+
 start:
     cli
     mov bp, runtime_stack_top
@@ -80,6 +86,13 @@ run_core_phase:
     mov bx, low_scratch_start
 
 run_core_phase_at:
+    call load_core_sectors_at
+    jc .done
+    call bx
+.done:
+    ret
+
+load_core_sectors_at:
     push bx
     mov cl, ah
     xor ah, ah
@@ -93,14 +106,12 @@ run_core_phase_at:
     add bx, 512
     inc ax
     loop .next_sector
-    push ds
-    pop es
     pop bx
-    call bx
-.done:
+    clc
     ret
 .read_failed:
     pop bx
+    stc
     ret
 
 clear_runtime_scratch:

@@ -30,12 +30,6 @@ core_header_end:
 %include "core/nic.inc"
 %include "core/net_tx.inc"
 %include "core/transport.inc"
-%include "core/sha256.inc"
-%include "core/p256.inc"
-%include "core/chacha20.inc"
-%include "core/poly1305.inc"
-%include "core/tls.inc"
-%include "core/agent_api.inc"
 %include "core/net_rx.inc"
 %include "core/ui.inc"
 %include "core/data.inc"
@@ -60,6 +54,21 @@ core_resident_end:
 
 %if (core_resident_end - $$) > (runtime_stack_top - runtime_stack_guard_len - core_load_addr)
 %error "CORE.SYS exceeds 32KB runtime stack guard"
+%endif
+
+align 512, db 0
+
+core_link_window_start:
+%include "core/sha256.inc"
+%include "core/p256.inc"
+%include "core/chacha20.inc"
+%include "core/poly1305.inc"
+%include "core/tls.inc"
+%include "core/agent_api.inc"
+core_link_window_end:
+
+%if (core_load_addr + (core_link_window_end - $$)) > high_crypto_scratch_start
+%error "LINK window overlaps high crypto scratch"
 %endif
 
 align 512, db 0
@@ -243,6 +252,11 @@ core_save_phase_start:
 core_save_phase_end:
 
 core_phase_table:
+    db 'K', 0
+    dw (core_link_window_start - $$) / 512
+    dw (core_link_window_end - core_link_window_start + 511) / 512
+    dw core_link_window_start
+    dw 0
     db 'F', 0
     dw (core_failure_phase_start - $$) / 512
     dw (core_failure_phase_end - core_failure_phase_start + 511) / 512

@@ -1661,3 +1661,49 @@ Verification:
   returned `ok`.
 - 3c501 BASIC-sidecar canary on a 32 KiB host reached `seed build 6` and
   returned `ok`.
+
+## 2026-05-09 - Move crypto/API implementation into natural LINK window
+
+Change:
+
+- Split the secure-link implementation (`sha256`, `p256`, `chacha20`,
+  `poly1305`, `tls`, and `agent_api`) out of the always-resident nucleus.
+- Added a `K` phase-table entry for the LINK window and a
+  `load_core_window` helper that loads that window at its natural runtime
+  address before the selected-agent TCP connection starts.
+- Preserved the proven provider timing rule: the floppy load happens before
+  TCP 443 connect, not inside the TLS/OpenAI fast path.
+
+Measurements:
+
+- `CORE.SYS` total size: 25088 -> 25600 bytes.
+- `CORE.SYS` total sectors: 49 -> 50.
+- Resident sectors: 21 -> 5.
+- Resident bytes: 10752 -> 2560.
+- Resident nonzero payload: 10576 -> 2092 bytes.
+- New LINK window: 17 sectors, loaded at `0x1a00..0x3c00`.
+- The old `16k-target packed critical guarded slack` number is no longer the
+  release-tracking number because it does not account for the natural LINK
+  window. Use `largest-phase-end`/explicit LINK-window accounting before
+  making the next 16 KiB fit claim.
+
+Result:
+
+- Major structural progress: the nucleus itself is now tiny, while the
+  time-sensitive secure-link path stays contiguous and preloaded before the
+  remote timing window.
+- Not a final 16 KiB map yet. High crypto scratch and critical scratch are
+  still above the 16 KiB ceiling and must be relocated or reduced next.
+
+Verification:
+
+- `make inspect` passes.
+- `make test` passes.
+- NE2K8 BASIC-sidecar canary on a 32 KiB host reached `seed build 6` and
+  returned `ok`.
+- 3c501 BASIC-sidecar canary on a 32 KiB host reached `seed build 6` and
+  returned `ok`.
+- 3c503 BASIC-sidecar canary on a 32 KiB host reached `seed build 6` and
+  returned `ok`.
+- WD8003e BASIC-sidecar canary on a 32 KiB host reached `seed build 6` and
+  returned `ok`.
