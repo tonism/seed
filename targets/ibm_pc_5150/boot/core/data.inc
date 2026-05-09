@@ -254,7 +254,6 @@ seed_reasoning equ seed_endpoint + seed_endpoint_len
 tls_server_random equ seed_agent_id
 tls_master_secret equ tls_server_random + tls_random_len
 tls_handshake_hash equ tls_master_secret + tls_master_secret_len
-tls_verify_data equ tls_handshake_hash + sha256_digest_len
 critical_chacha_state equ low_crypto_work
 critical_chacha_work equ critical_chacha_state + chacha_block_len
 critical_chacha_block equ critical_chacha_work + chacha_block_len
@@ -270,7 +269,7 @@ critical_poly_value equ critical_poly_product + poly1305_product_len
 %if (critical_poly_s + poly1305_s_len) > ne_prom
 %error "low AEAD work collides with NE PROM scratch"
 %endif
-tls_pre_response_scratch_end equ tls_verify_data + tls_finished_verify_len
+tls_pre_response_scratch_end equ tls_handshake_hash + sha256_digest_len
 %if (tls_pre_response_scratch_end - tls_pre_response_scratch) != tls_pre_response_tail_len
 %error "pre-response scratch size constant is stale"
 %endif
@@ -297,6 +296,7 @@ tls_client_nonce equ high_tls_client_nonce
 tls_aead_aad equ high_tls_aead_aad
 tls_finished_plain equ high_tls_finished_plain
 tls_finished_cipher equ high_tls_finished_cipher
+tls_verify_data equ high_tls_finished_cipher
 tls_finished_tag equ high_tls_finished_tag
 tls_received_tag equ high_tls_received_tag
 agent_ids equ high_crypto_work

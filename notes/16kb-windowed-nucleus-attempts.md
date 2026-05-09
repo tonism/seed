@@ -2550,3 +2550,35 @@ Verification:
 - NE2K8 BASIC-sidecar canary on a 32 KiB host failed at `agent setup failed`.
 - The code was reverted to the previous pushed green checkpoint before further
   work.
+
+## 2026-05-09 - Move Finished verify_data into high scratch
+
+Change:
+
+- Aliased the 12-byte TLS Finished `verify_data` buffer into the high
+  `tls_finished_cipher` scratch buffer.
+- Removed that 12-byte buffer from the critical pre-response scratch tail.
+
+Measurements:
+
+- `CORE.SYS` stayed 25088 bytes.
+- LINK window stayed 16 sectors.
+- High-crypto scratch stayed 194 bytes.
+- Critical scratch moved from 2109 bytes to 2097 bytes.
+- `16k-target packed critical guarded slack` improved from -1791 bytes to
+  -1779 bytes.
+
+Result:
+
+- Accepted. The client Finished verify bytes are produced before
+  `tls_finished_cipher` is needed as ciphertext, and the server Finished path
+  can reuse the same high scratch after decrypting the record.
+
+Verification:
+
+- `make inspect` passed.
+- `make test` passed.
+- NE2K8 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- 3c501 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- 3c503 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- WD8003e BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
