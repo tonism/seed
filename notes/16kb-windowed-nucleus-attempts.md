@@ -264,6 +264,38 @@ Implication:
   equivalent TLS control-flow/link-layout changes can perturb the fragile
   secure-link path.
 
+## 2026-05-09 - Reject request-record receive-buffer reuse
+
+Change tried:
+
+- Moved `api_request_plain` / `tls_app_record_buffer` out of the critical
+  pre-response scratch tail into the TLS receive payload arena.
+- First tried the front of `tls_rx_copy`.
+- Then tried the middle DNS qname area at `tls_rx_copy + 512`, to avoid the
+  likely buffered TLS data at the front.
+- Removed `tls_app_record_buffer_len` from `tls_pre_response_tail_len` and
+  reduced `CRITICAL_SCRATCH_LEN` from 2506 to 2045.
+
+Measurements:
+
+- Critical scratch: 2506 -> 2045 bytes.
+- Guarded 16 KiB packed deficit: -2788 -> -2327 bytes.
+- `CORE.SYS` stayed 25600 bytes and K stayed at 17 sectors.
+
+Result:
+
+- Rejected and reverted.
+- `make inspect` and `make test` passed for both placements.
+- NE2K8 BASIC-sidecar canary failed at agent setup for both the front-of-RX and
+  DNS-area placements.
+
+Implication:
+
+- Keep the prepared application request record outside the TLS receive payload
+  until the secure-link ordering is redesigned. The current path prepares and
+  sends application data around the server-Finished receive window, and the RX
+  arena is not a safe alias even when the static lifetimes look tempting.
+
 ## 2026-05-09 - Move SHA-256 block/schedule scratch into low sector buffer tail
 
 Change:
