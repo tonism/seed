@@ -1,28 +1,31 @@
 %macro CHACHA_ADD 2
-    mov ax, [chacha_work + %1]
-    add ax, [chacha_work + %2]
-    mov [chacha_work + %1], ax
-    mov ax, [chacha_work + %1 + 2]
-    adc ax, [chacha_work + %2 + 2]
-    mov [chacha_work + %1 + 2], ax
+    mov ax, [bx + %1]
+    add ax, [bx + %2]
+    mov [bx + %1], ax
+    mov ax, [bx + %1 + 2]
+    adc ax, [bx + %2 + 2]
+    mov [bx + %1 + 2], ax
 %endmacro
 
 %macro CHACHA_XOR 2
-    mov ax, [chacha_work + %1]
-    xor ax, [chacha_work + %2]
-    mov [chacha_work + %1], ax
-    mov ax, [chacha_work + %1 + 2]
-    xor ax, [chacha_work + %2 + 2]
-    mov [chacha_work + %1 + 2], ax
+    mov ax, [bx + %1]
+    xor ax, [bx + %2]
+    mov [bx + %1], ax
+    mov ax, [bx + %1 + 2]
+    xor ax, [bx + %2 + 2]
+    mov [bx + %1 + 2], ax
 %endmacro
 
 %macro CHACHA_ROTL 2
-    mov ax, [chacha_work + %1]
-    mov dx, [chacha_work + %1 + 2]
-    mov cl, %2
-    call chacha_rotl32_axdx
-    mov [chacha_work + %1], ax
-    mov [chacha_work + %1 + 2], dx
+    mov ax, [bx + %1]
+    mov dx, [bx + %1 + 2]
+%if %2 = 16
+    xchg ax, dx
+%else
+    call chacha_rotl%2_axdx
+%endif
+    mov [bx + %1], ax
+    mov [bx + %1 + 2], dx
 %endmacro
 
 %macro CHACHA_QR 4
@@ -73,6 +76,7 @@ chacha20_block:
     mov cx, chacha_block_len / 2
     rep movsw
 
+    mov bx, chacha_work
     mov bp, 10
 .round:
     call chacha_double_round
@@ -116,6 +120,17 @@ chacha_double_round:
     CHACHA_QR 8, 28, 32, 52
     CHACHA_QR 12, 16, 36, 56
     ret
+
+chacha_rotl12_axdx:
+    mov cl, 12
+    jmp chacha_rotl32_axdx
+
+chacha_rotl8_axdx:
+    mov cl, 8
+    jmp chacha_rotl32_axdx
+
+chacha_rotl7_axdx:
+    mov cl, 7
 
 chacha_rotl32_axdx:
     xor ch, ch

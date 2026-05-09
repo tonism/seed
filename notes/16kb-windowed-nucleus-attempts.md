@@ -2474,3 +2474,38 @@ Verification:
 - 3c501 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
 - 3c503 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
 - WD8003e BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+
+## 2026-05-09 - Compact ChaCha double-round code
+
+Change:
+
+- Kept `chacha_work` in `BX` while running the ChaCha double-round, letting the
+  unrolled quarter-round code use shorter `[bx+disp]` memory operands.
+- Special-cased rotate-left-by-16 as `xchg ax, dx`.
+- Routed rotate-left-by-7/8/12 through small constant wrappers instead of
+  loading `CL` at every unrolled rotate site.
+
+Measurements:
+
+- `CORE.SYS` moved from 25600 bytes to 25088 bytes.
+- LINK window moved from 17 sectors to 16 sectors.
+- Critical scratch stayed 2109 bytes.
+- High-crypto scratch stayed 194 bytes.
+- `16k-target packed critical guarded slack` improved from -2303 bytes to
+  -1791 bytes.
+
+Result:
+
+- Accepted K-window code-size cleanup. This does not move TLS state or reorder
+  the handshake; it only shrinks the unrolled ChaCha block transform enough to
+  drop the LINK window by one full sector.
+
+Verification:
+
+- `make inspect` passed.
+- `make test` passed.
+- NE2K8 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- 3c501 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- 3c503 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- WD8003e had one transient `agent setup failed` run, then the rerun reached
+  returned `ok`.
