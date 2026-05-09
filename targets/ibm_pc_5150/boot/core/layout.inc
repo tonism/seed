@@ -343,8 +343,15 @@ high_tls_finished_plain equ high_tls_aead_aad + tls_aead_aad_len + 1
 high_tls_finished_cipher equ high_tls_finished_plain + tls_finished_plain_len
 high_tls_finished_tag equ high_tls_finished_cipher + tls_finished_cipher_len
 high_tls_received_tag equ high_tls_finished_tag + tls_aead_tag_len
-high_crypto_work equ high_tls_received_tag + tls_aead_tag_len
-high_crypto_scratch_end equ high_crypto_work + tls_key_block_len
+high_tls_persistent_end equ high_tls_received_tag + tls_aead_tag_len
+high_crypto_work equ high_crypto_scratch_start
+%if (high_crypto_work + tls_key_block_len) > high_tls_persistent_end
+%error "high crypto work overlay exceeds persistent TLS key arena"
+%endif
+%if (high_crypto_work + (agent_slot_count * 16)) > high_tls_persistent_end
+%error "agent id overlay exceeds persistent TLS key arena"
+%endif
+high_crypto_scratch_end equ high_tls_persistent_end
 wd_saprom equ 0x08
 fat_root_start_lba equ LOADER_SECTORS + 3
 fat_fat_start_lba equ LOADER_SECTORS + 1

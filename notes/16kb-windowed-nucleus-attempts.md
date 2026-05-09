@@ -2405,3 +2405,37 @@ Verification:
 - 3c501 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
 - 3c503 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
 - WD8003e BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+
+## 2026-05-09 - Overlay transient high-crypto work
+
+Change:
+
+- Reused the start of the high-crypto TLS arena for transient `agent_ids`,
+  `tls_premaster_secret`, and `tls_key_block` storage.
+- Kept the persistent post-key-schedule TLS keys, IVs, record sequence numbers,
+  nonce, AAD, Finished buffers, and tag storage in the same order.
+- Updated the inspect metadata so high-crypto scratch reports the persistent
+  194-byte arena instead of including the transient 88-byte key-block tail.
+
+Measurements:
+
+- High-crypto scratch length moved from 282 bytes to 194 bytes.
+- `CORE.SYS` stayed 25600 bytes.
+- LINK window stayed 17 sectors.
+- `16k-target packed critical guarded slack` improved from -2788 bytes to
+  -2700 bytes.
+
+Result:
+
+- Accepted scratch-lifetime cleanup. The key-block PRF writes into the same
+  arena that later holds the split client/server keys and IVs, so the transient
+  key-block tail no longer extends the 16K packed budget.
+
+Verification:
+
+- `make inspect` passed.
+- `make test` passed.
+- NE2K8 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- 3c501 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- 3c503 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- WD8003e BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
