@@ -2439,3 +2439,38 @@ Verification:
 - 3c501 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
 - 3c503 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
 - WD8003e BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+
+## 2026-05-09 - Move transient crypto work to low packet arena
+
+Change:
+
+- Moved transient SHA saved context, HMAC pad/inner digest, TLS PRF seed/A/chunk,
+  and AEAD ChaCha/Poly work buffers into the low packet-frame arena.
+- Kept persistent TLS keys, IVs, record sequence numbers, prepared HMAC states,
+  server random, master secret, handshake hash, and verify data in the critical
+  and high-crypto arenas.
+- Added assembly-time collision checks so the low crypto work cannot run into
+  the NE PROM scratch area.
+
+Measurements:
+
+- Critical scratch length moved from 2506 bytes to 2109 bytes.
+- `CORE.SYS` stayed 25600 bytes.
+- LINK window stayed 17 sectors.
+- `16k-target packed critical guarded slack` improved from -2700 bytes to
+  -2303 bytes.
+
+Result:
+
+- Accepted scratch-lifetime cleanup. Pure crypto work now reuses the packet
+  frame arena during phases where that arena is not carrying NIC packet data,
+  while the persistent TLS state remains in its previous lifetime class.
+
+Verification:
+
+- `make inspect` passed.
+- `make test` passed.
+- NE2K8 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- 3c501 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- 3c503 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- WD8003e BASIC-sidecar canary on a 32 KiB host reached returned `ok`.

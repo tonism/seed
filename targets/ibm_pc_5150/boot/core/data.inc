@@ -216,6 +216,18 @@ low_sha256_w equ low_sha256_block + sha256_block_size
 %if (tls_client_key_exchange_total_len > 128) || ((tls_change_cipher_spec_total_len + tls_finished_total_len) > 128)
 %error "TLS transmit records collide with low SHA-256 scratch"
 %endif
+low_crypto_work equ ne_tx_frame
+low_sha256_saved_state equ low_crypto_work
+low_sha256_saved_block equ low_sha256_saved_state + (16 * 2)
+low_hmac_ipad equ low_sha256_saved_block + sha256_block_size
+low_hmac_opad equ low_hmac_ipad + sha256_block_size
+low_hmac_inner_digest equ low_hmac_opad + sha256_block_size
+low_tls_prf_seed equ low_hmac_inner_digest + sha256_digest_len
+low_tls_prf_a equ low_tls_prf_seed + tls_prf_seed_max_len
+low_tls_prf_chunk equ low_tls_prf_a + sha256_digest_len
+%if (low_tls_prf_chunk + sha256_digest_len) > ne_prom
+%error "low crypto work collides with NE PROM scratch"
+%endif
 tls_rx_copy equ critical_scratch_start
 tls_client_hello_buffer equ tls_rx_copy
 dns_qname equ tls_rx_copy + 512
@@ -229,17 +241,9 @@ tls_pre_response_scratch equ tls_rx_copy + tls_payload_buffer_len
 %endif
 api_request_plain equ tls_pre_response_scratch
 tls_app_record_buffer equ api_request_plain
-sha256_saved_state equ api_request_plain + tls_app_record_buffer_len
-sha256_saved_block equ sha256_saved_state + (16 * 2)
-hmac_ipad equ sha256_saved_block + sha256_block_size
-hmac_opad equ hmac_ipad + sha256_block_size
-hmac_inner_digest equ hmac_opad + sha256_block_size
-hmac_prepared_inner_state equ hmac_inner_digest + sha256_digest_len
+hmac_prepared_inner_state equ api_request_plain + tls_app_record_buffer_len
 hmac_prepared_outer_state equ hmac_prepared_inner_state + (16 * 2)
-tls_prf_seed equ hmac_prepared_outer_state + (16 * 2)
-tls_prf_a equ tls_prf_seed + tls_prf_seed_max_len
-tls_prf_chunk equ tls_prf_a + sha256_digest_len
-seed_agent_id equ tls_prf_chunk + sha256_digest_len
+seed_agent_id equ hmac_prepared_outer_state + (16 * 2)
 seed_model equ seed_agent_id + agent_id_len
 seed_key equ seed_model + seed_model_len
 seed_endpoint equ seed_key + seed_key_len
@@ -251,7 +255,7 @@ tls_server_random equ seed_agent_id
 tls_master_secret equ tls_server_random + tls_random_len
 tls_handshake_hash equ tls_master_secret + tls_master_secret_len
 tls_verify_data equ tls_handshake_hash + sha256_digest_len
-critical_chacha_state equ tls_prf_seed
+critical_chacha_state equ low_crypto_work
 critical_chacha_work equ critical_chacha_state + chacha_block_len
 critical_chacha_block equ critical_chacha_work + chacha_block_len
 critical_poly_r equ critical_chacha_block + chacha_block_len
@@ -263,10 +267,10 @@ critical_poly_value equ critical_poly_product + poly1305_product_len
 %if (critical_poly_value + poly1305_value_len) > critical_poly_r
 %error "critical Poly1305 overlay collides with persistent Poly1305 key"
 %endif
-tls_pre_response_scratch_end equ tls_verify_data + tls_finished_verify_len
-%if (critical_poly_s + poly1305_s_len) > tls_pre_response_scratch_end
-%error "critical AEAD scratch exceeds pre-response scratch tail"
+%if (critical_poly_s + poly1305_s_len) > ne_prom
+%error "low AEAD work collides with NE PROM scratch"
 %endif
+tls_pre_response_scratch_end equ tls_verify_data + tls_finished_verify_len
 %if (tls_pre_response_scratch_end - tls_pre_response_scratch) != tls_pre_response_tail_len
 %error "pre-response scratch size constant is stale"
 %endif
@@ -275,6 +279,14 @@ tls_pre_response_scratch_end equ tls_verify_data + tls_finished_verify_len
 %endif
 sha256_block equ low_sha256_block
 sha256_w equ low_sha256_w
+sha256_saved_state equ low_sha256_saved_state
+sha256_saved_block equ low_sha256_saved_block
+hmac_ipad equ low_hmac_ipad
+hmac_opad equ low_hmac_opad
+hmac_inner_digest equ low_hmac_inner_digest
+tls_prf_seed equ low_tls_prf_seed
+tls_prf_a equ low_tls_prf_a
+tls_prf_chunk equ low_tls_prf_chunk
 tls_client_write_key equ high_tls_client_write_key
 tls_server_write_key equ high_tls_server_write_key
 tls_client_write_iv equ high_tls_client_write_iv

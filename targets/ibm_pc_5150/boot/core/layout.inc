@@ -266,7 +266,7 @@ tcp_payload_offset equ tcp_offset + 20
 tcp_payload_max_len equ 1460
 tcp_payload_read_len equ tcp_payload_offset + tcp_payload_max_len
 tls_payload_buffer_len equ tcp_payload_max_len
-tls_pre_response_tail_len equ tls_app_record_buffer_len + (16 * 2) + sha256_block_size + (sha256_block_size * 2) + sha256_digest_len + (16 * 2) + (16 * 2) + tls_prf_seed_max_len + sha256_digest_len + sha256_digest_len + tls_random_len + tls_master_secret_len + sha256_digest_len + tls_finished_verify_len
+tls_pre_response_tail_len equ tls_app_record_buffer_len + (16 * 2) + (16 * 2) + tls_random_len + tls_master_secret_len + sha256_digest_len + tls_finished_verify_len
 tls_stream_buffer_len equ tls_payload_buffer_len + tls_pre_response_tail_len
 critical_scratch_start equ 0x5000
 critical_scratch_len equ tls_stream_buffer_len
