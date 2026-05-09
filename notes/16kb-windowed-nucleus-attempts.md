@@ -224,6 +224,33 @@ Verification:
 - WD8003e BASIC-sidecar canary on a 32 KiB host reached `seed build 6` and
   returned `ok`.
 
+## 2026-05-09 - Reject direct key-block write-key aliases
+
+Change tried:
+
+- Tried to point `tls_client_write_key`, `tls_server_write_key`,
+  `tls_client_write_iv`, and `tls_server_write_iv` directly into
+  `tls_key_block`.
+- Removed `tls_split_key_block`.
+
+Measurements:
+
+- High crypto scratch: 602 -> 514 bytes.
+- `16k-target packed critical guarded slack`: -3162 -> -3074 bytes.
+- Static build and unit tests passed.
+
+Result:
+
+- Rejected. NE2K8 BASIC-sidecar canary reached returned `ok`, but the 3c501
+  canary failed during agent setup.
+- Reverted the cut and kept the previous accepted AEAD scratch relocation.
+
+Implication:
+
+- Treat the key block as more fragile than it looks from static lifetime
+  inspection. If revisited, add targeted diagnostics around key schedule,
+  ClientKeyExchange, and first AEAD use before removing the split copy.
+
 ## 2026-05-09 - Move transient AEAD scratch into critical scratch
 
 Change:
