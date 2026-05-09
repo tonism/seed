@@ -1998,3 +1998,56 @@ Verification:
 
 - Attempted build: `make inspect` and `make test` passed.
 - Runtime canary: NE2K8 failed during agent setup.
+
+## 2026-05-09 - Rejected partial low HMAC scratch alias
+
+Change:
+
+- Tried a narrower version of the low HMAC alias: move only transient
+  `hmac_ipad`, `hmac_opad`, and `hmac_inner_digest` into the front of
+  `fs_sector_buffer`, while keeping the prepared HMAC state in the critical
+  scratch window.
+
+Measurements:
+
+- Attempted critical scratch: 2506 -> 2346 bytes.
+- Attempted `16k-target packed critical guarded slack`: -2788 -> -2628 bytes.
+
+Result:
+
+- Rejected and reverted. This was less invasive than the full HMAC alias and
+  passed the early canaries, but it still was not safe across NIC families.
+
+Verification:
+
+- `make inspect` passed.
+- `make test` passed.
+- NE2K8 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- 3c501 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- 3c503 BASIC-sidecar canary failed during agent setup.
+
+## 2026-05-09 - Rejected prepared-only TLS app send cleanup
+
+Change:
+
+- Tried to simplify the early application-data send path so it only checked and
+  sent `tls_prepared_app_len`, removing the fallback path through
+  `tls_send_application_data_for_nic`.
+
+Measurements:
+
+- LINK code shrank by 18 bytes.
+- LINK window remained 17 sectors.
+- `CORE.SYS` remained 25600 bytes.
+- `16k-target packed critical guarded slack` remained -2788 bytes.
+
+Result:
+
+- Rejected and reverted. The static savings were too small, and 3c503 failed
+  during agent setup.
+
+Verification:
+
+- `make inspect` passed.
+- `make test` passed.
+- 3c503 BASIC-sidecar canary failed during agent setup.
