@@ -230,6 +230,40 @@ Verification:
 - WD8003e BASIC-sidecar canary on a 32 KiB host reached `seed build 6` and
   returned `ok`.
 
+## 2026-05-09 - Reject TLS status-tail and fixed-scalar P-256 include cleanup
+
+Change tried:
+
+- Replaced the shared `tls_status_ok` jump tail with local `clc`/`ret`
+  success returns.
+- Simplified `tls_prepare_premaster_secret` to a direct `clc`/`ret`, relying on
+  ServerKeyExchange parsing already copying the fixed-scalar proof secret into
+  `tls_premaster_secret`.
+- Removed `core/p256.inc` from the runtime LINK window, leaving the source file
+  available for reference and vector tooling.
+
+Measurements:
+
+- LINK end moved from `0x2b4f` to `0x2b39`, saving 22 actual LINK bytes.
+- K still occupied 17 sectors, so `CORE.SYS` stayed 25600 bytes.
+- Guarded 16 KiB packed deficit stayed at -2788 bytes.
+- K would still need about 313 more bytes before dropping from 17 sectors to
+  16.
+
+Result:
+
+- Rejected and reverted.
+- `make inspect` and `make test` passed.
+- NE2K8 and 3c501 BASIC-sidecar canaries on 32 KiB hosts reached returned
+  `ok`, but 3c503 failed during agent setup.
+
+Implication:
+
+- Do not remove the P-256 fixed-scalar stub/include or the shared TLS success
+  tail as a blind size cut. The 3c503 failure suggests that even apparently
+  equivalent TLS control-flow/link-layout changes can perturb the fragile
+  secure-link path.
+
 ## 2026-05-09 - Move SHA-256 block/schedule scratch into low sector buffer tail
 
 Change:
