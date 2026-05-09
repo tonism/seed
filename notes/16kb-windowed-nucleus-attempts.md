@@ -2213,3 +2213,101 @@ Verification:
 - 3c501 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
 - 3c503 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
 - WD8003e BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+
+## 2026-05-09 - Rejected transient HMAC pad scratch
+
+Change tried:
+
+- Removed the persistent `hmac_ipad` and `hmac_opad` buffers from the critical
+  pre-response scratch tail.
+- Generated each HMAC pad directly in the existing `sha256_block` scratch,
+  then compressed that one block to capture the prepared inner and outer HMAC
+  states.
+- Reduced the inspected critical scratch budget from 2506 to 2378 bytes.
+
+Measurements:
+
+- Critical scratch would have dropped 2506 -> 2378 bytes.
+- `16k-target packed critical guarded slack` would have improved
+  -2788 -> -2660 bytes.
+- `CORE.SYS` stayed 25600 bytes and K stayed at 17 sectors.
+
+Result:
+
+- Rejected and reverted.
+- Static crypto vectors passed, and live BASIC-sidecar canaries reached
+  returned `ok` on NE2K8, 3c501, and 3c503.
+- WD8003e failed during agent setup, so this scratch alias is not safe across
+  all required families.
+
+Recovery:
+
+- Restored persistent `hmac_ipad` / `hmac_opad` scratch and
+  `CRITICAL_SCRATCH_LEN=2506`.
+
+## 2026-05-09 - Rejected TLS client public key phase relocation
+
+Change tried:
+
+- Moved the fixed 65-byte P-256 ClientKeyExchange public key constant from the
+  LINK window into the TLS ClientHello phase.
+- Pointed `build_tls_client_key_exchange` at the low-memory phase copy, with an
+  assembly guard that kept the constant in the first 512 bytes so the later
+  TCP-connect phase load would not overwrite it.
+
+Measurements:
+
+- LINK end moved from `0x2b35` to `0x2af4`.
+- K still stayed at 17 sectors, with roughly 244 more bytes needed to drop to
+  16 sectors.
+- `16k-target packed critical guarded slack` stayed at -2788 bytes because no
+  sector boundary moved.
+
+Result:
+
+- Rejected and reverted.
+- `make inspect` and `make test` passed after updating the host-side P-256
+  checker to read the relocated constant, but the NE2K8 BASIC-sidecar canary
+  failed at agent setup.
+- Cause: the low-memory TLS phase copy is not actually stable through the
+  handshake. NIC packet buffers use `low_scratch_start`, so network traffic can
+  overwrite that area before ClientKeyExchange is built.
+
+Recovery:
+
+- Restored the public key constant to the LINK window and restored the checker
+  expectation.
+
+## 2026-05-09 - Inline fixed P-256 premaster stub
+
+Change:
+
+- Removed the LINK-window include of `core/p256.inc`.
+- Inlined `tls_prepare_premaster_secret` as the current fixed-scalar proof
+  stub (`clc; ret`).
+- Preserved the Build 6 behavior where ServerKeyExchange parsing already copies
+  the server public X coordinate into `tls_premaster_secret`.
+
+Measurements:
+
+- Actual LINK end moved from `0x2b35` to `0x2b2b`.
+- LINK window remained 17 sectors, with roughly 299 bytes still needed to drop
+  it to 16 sectors.
+- `CORE.SYS` stayed 25600 bytes.
+- `16k-target packed critical guarded slack` stayed at -2788 bytes.
+
+Result:
+
+- Accepted small LINK-window cleanup. This removes an emitted no-op helper from
+  the fragile TLS path without changing packet timing, transcript state, or key
+  material placement.
+
+Verification:
+
+- `make inspect` passed.
+- `make test` passed.
+- NE2K8 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- 3c501 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- 3c503 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- WD8003e BASIC-sidecar canary on a 32 KiB host initially failed during agent
+  setup, then reached returned `ok` on clean rerun; treated as transient.

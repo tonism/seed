@@ -532,11 +532,7 @@ tls_wait_for_server_hello_done:
     ret
 
 tls_prepare_premaster_secret:
-    call p256_compute_server_premaster_secret
-    jc .failed
-    jmp tls_status_ok
-.failed:
-    stc
+    clc
     ret
 
 tls_prepare_master_secret:
