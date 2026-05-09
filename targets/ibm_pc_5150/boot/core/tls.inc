@@ -1,6 +1,4 @@
 tls_status_ok:
-    mov [handoff_addr + handoff_net_status], al
-    mov byte [handoff_addr + handoff_net_error], net_error_none
     clc
     ret
 
@@ -21,7 +19,6 @@ tls_probe_server:
     mov cx, [tls_tx_len]
     call tcp_send_payload
     jc .failed
-    mov byte [handoff_addr + handoff_net_status], net_status_tls_clienthello_sent
     cmp byte [handoff_addr + handoff_nic_family], family_3c501
     jne .wait_for_record
     mov cx, 4
@@ -33,7 +30,6 @@ tls_probe_server:
     jne .parse_certificate
     call ne_transmit_tcp_ack
     jc .failed
-    mov byte [handoff_addr + handoff_net_status], net_status_tls_serverhello_received
 .parse_certificate:
     call tls_wait_for_server_certificate
     jc .failed
@@ -120,7 +116,6 @@ tls_wait_for_server_hello:
     sub dx, 5
     cmp bx, dx
     ja .failed
-    mov byte [handoff_addr + handoff_net_status], net_status_tls_record_received
     cmp byte [si + 5], 0x02
     jne .failed
     cmp byte [si + 6], 0
@@ -186,7 +181,6 @@ tls_wait_for_server_hello:
     call tls_transcript_update
     jc .failed
     call tls_save_buffered_server_payload
-    mov al, net_status_tls_serverhello_received
     jmp tls_status_ok
 .failed:
     jmp tls_fail_error
@@ -311,7 +305,6 @@ tls_drain_server_certificate:
 .done:
     cmp word [tls_transcript_certificate_remaining], 0
     jne .failed
-    mov al, net_status_tls_certificate_drained
     jmp tls_status_ok
 
 .need_more:
@@ -490,7 +483,6 @@ tls_parse_server_certificate:
     mov [tls_server_certificate_total_len], ax
     sub ax, 5
     mov [tls_transcript_certificate_remaining], ax
-    mov al, net_status_tls_certificate_received
     jmp tls_status_ok
 .failed:
     jmp tls_fail_error
@@ -532,7 +524,6 @@ tls_wait_for_server_hello_done:
     jc .failed
     call tls_parse_server_hello_done
     jc .failed
-    mov byte [handoff_addr + handoff_net_status], net_status_tls_serverhellodone_received
     call tls_transcript_update_next_handshake
     jc .failed
     call tls_clear_buffered_payload
@@ -541,7 +532,6 @@ tls_wait_for_server_hello_done:
     call ne_transmit_tcp_ack
     jc .failed
 .ack_done:
-    mov al, net_status_tls_transcript_ready
     jmp tls_status_ok
 .failed:
     stc
@@ -550,7 +540,6 @@ tls_wait_for_server_hello_done:
 tls_prepare_premaster_secret:
     call p256_compute_server_premaster_secret
     jc .failed
-    mov al, net_status_tls_premaster_ready
     jmp tls_status_ok
 .failed:
     stc
@@ -583,7 +572,6 @@ tls_prepare_key_block:
     jc .failed
     call tls_split_key_block
     mov byte [tls_key_schedule_ready], 1
-    mov al, net_status_tls_keys_ready
     jmp tls_status_ok
 .failed:
     stc
@@ -648,7 +636,6 @@ tls_prf_sha256_expand:
     mov ax, [tls_prf_seed_len]
     mov [hmac_data1_len], ax
     mov word [hmac_data2_len], 0
-    mov word [hmac_data3_len], 0
     mov word [hmac_output_ptr], tls_prf_a
     call hmac_sha256_prepared
     jc .failed
@@ -661,7 +648,6 @@ tls_prf_sha256_expand:
     mov [hmac_data2_ptr], ax
     mov ax, [tls_prf_seed_len]
     mov [hmac_data2_len], ax
-    mov word [hmac_data3_len], 0
     mov word [hmac_output_ptr], tls_prf_chunk
     call hmac_sha256_prepared
     jc .failed
@@ -686,7 +672,6 @@ tls_prf_sha256_expand:
     mov word [hmac_data1_ptr], tls_prf_a
     mov word [hmac_data1_len], sha256_digest_len
     mov word [hmac_data2_len], 0
-    mov word [hmac_data3_len], 0
     mov word [hmac_output_ptr], tls_prf_a
     call hmac_sha256_prepared
     jc .failed
@@ -743,7 +728,6 @@ tls_send_client_key_exchange:
     mov cx, [tls_tx_len]
     call tcp_send_payload
     jc .failed
-    mov al, net_status_tls_clientkeyexchange_sent
     jmp tls_status_ok
 .failed:
     stc
@@ -768,7 +752,6 @@ tls_send_client_final_flight:
     call tls_transcript_update
     jc .failed
     call tls_increment_client_record_seq
-    mov al, net_status_tls_clientfinished_sent
     jmp tls_status_ok
 .failed:
     stc
@@ -783,7 +766,6 @@ tls_wait_for_server_finished:
     jc .failed
     call tls_parse_server_change_cipher_spec
     jc .failed
-    mov byte [handoff_addr + handoff_net_status], net_status_tls_serverccs_received
     cmp word [tls_buffered_payload_len], 0
     jne .load_finished
     call ne_transmit_tcp_ack
@@ -814,7 +796,6 @@ tls_wait_for_server_finished:
     call ne_transmit_tcp_ack
     jc .failed
 .finished_ack_done:
-    mov al, net_status_tls_serverfinished_verified
     jmp tls_status_ok
 .failed:
     jmp tls_fail_error
@@ -1907,7 +1888,6 @@ tls_parse_server_key_exchange:
     add ax, dx
     cmp ax, [tls_server_next_handshake_len_low]
     jne .failed
-    mov al, net_status_tls_serverkeyexchange_received
     jmp tls_status_ok
 .failed:
     stc
@@ -1923,7 +1903,6 @@ tls_finish_server_key_exchange:
     call ne_transmit_tcp_ack
     jc .failed
 .done:
-    mov al, net_status_tls_serverkeyexchange_received
     jmp tls_status_ok
 .failed:
     stc

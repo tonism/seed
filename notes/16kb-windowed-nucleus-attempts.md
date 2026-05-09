@@ -1630,3 +1630,34 @@ Verification:
 
 - `make inspect` passes.
 - `make test` passes.
+
+## 2026-05-09 - Trim unused HMAC third segment and successful TLS status writes
+
+Change:
+
+- Removed the unused third HMAC input segment from resident state and the HMAC
+  update path.
+- Removed successful TLS milestone writes to `handoff_net_status`. Fatal TLS
+  paths still report the TLS error class, and the visible phase marker remains
+  the user-facing progress/error state.
+
+Measurements:
+
+- Resident sectors: unchanged at 21.
+- Resident bytes: unchanged at 10752.
+- Resident nonzero payload: 10670 -> 10576 bytes.
+- `16k-target packed critical guarded slack`: unchanged at -2883 bytes.
+
+Result:
+
+- Safe cleanup that recovered 94 bytes inside the current resident sector
+  envelope, but did not yet cross the next 512-byte sector boundary.
+
+Verification:
+
+- `make inspect` passes.
+- `make test` passes.
+- NE2K8 BASIC-sidecar canary on a 32 KiB host reached `seed build 6` and
+  returned `ok`.
+- 3c501 BASIC-sidecar canary on a 32 KiB host reached `seed build 6` and
+  returned `ok`.

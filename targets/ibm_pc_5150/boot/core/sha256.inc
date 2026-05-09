@@ -248,9 +248,6 @@ hmac_sha256:
     mov si, [hmac_data2_ptr]
     mov cx, [hmac_data2_len]
     call sha256_update
-    mov si, [hmac_data3_ptr]
-    mov cx, [hmac_data3_len]
-    call sha256_update
     mov di, hmac_inner_digest
     call sha256_finish
 
@@ -370,9 +367,6 @@ hmac_sha256_prepared:
     call sha256_update
     mov si, [hmac_data2_ptr]
     mov cx, [hmac_data2_len]
-    call sha256_update
-    mov si, [hmac_data3_ptr]
-    mov cx, [hmac_data3_len]
     call sha256_update
     mov di, hmac_inner_digest
     call sha256_finish

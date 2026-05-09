@@ -109,9 +109,7 @@ hmac_data1_ptr equ hmac_key_len + 2
 hmac_data1_len equ hmac_data1_ptr + 2
 hmac_data2_ptr equ hmac_data1_len + 2
 hmac_data2_len equ hmac_data2_ptr + 2
-hmac_data3_ptr equ hmac_data2_len + 2
-hmac_data3_len equ hmac_data3_ptr + 2
-hmac_output_ptr equ hmac_data3_len + 2
+hmac_output_ptr equ hmac_data2_len + 2
 tls_prf_seed_ptr equ hmac_output_ptr + 2
 tls_prf_seed_len equ tls_prf_seed_ptr + 2
 tls_prf_output_ptr equ tls_prf_seed_len + 2
