@@ -230,7 +230,7 @@ dns_qname equ tls_rx_copy + 512
 ; The second receive-buffer payload is only needed after the request has been
 ; sent. Until then it can hold setup/request scratch without reducing the
 ; two-payload response receive window.
-tls_pre_response_scratch equ tls_rx_copy + tcp_payload_read_len
+tls_pre_response_scratch equ tls_rx_copy + tls_payload_buffer_len
 %if (dns_qname + dns_qname_max_len) > tls_pre_response_scratch
 %error "dns_qname scratch overlaps pre-response scratch"
 %endif

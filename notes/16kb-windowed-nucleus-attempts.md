@@ -190,6 +190,46 @@ Verification:
 - WD8003e BASIC-sidecar canary on a 32 KiB host reached `seed build 6` and
   returned `ok`.
 
+## 2026-05-09 - Size TLS reassembly to payload bytes instead of frame bytes
+
+Change:
+
+- Split the NIC read limit (`tcp_payload_read_len`, Ethernet/IP/TCP frame
+  bytes) from the TLS reassembly arena (`tls_payload_buffer_len`, TCP payload
+  bytes).
+- Kept NIC reads unchanged, but sized `tls_stream_buffer_len` and the
+  TLS reassembly safety checks from the actual payload bytes copied into
+  `tls_rx_copy`.
+
+Measurements:
+
+- `CORE.SYS` total size: unchanged at 25600 bytes.
+- `CORE.SYS` total sectors: unchanged at 50.
+- Resident sectors: unchanged at 5.
+- LINK window: unchanged at 17 sectors, `0x1a00..0x3c00`.
+- High crypto scratch: unchanged at 282 bytes.
+- Critical scratch: 2560 -> 2506 bytes.
+- Guarded 16 KiB deficit: -2842 -> -2788 bytes.
+
+Result:
+
+- Accepted 54-byte critical-scratch trim. This is small, but it corrects the
+  accounting model: TLS stores payload bytes, while the NIC read limit still
+  covers the full frame.
+
+Verification:
+
+- `make inspect` passes.
+- `make test` passes.
+- NE2K8 BASIC-sidecar canary on a 32 KiB host reached `seed build 6` and
+  returned `ok`.
+- 3c501 BASIC-sidecar canary on a 32 KiB host reached `seed build 6` and
+  returned `ok`.
+- 3c503 BASIC-sidecar canary on a 32 KiB host reached `seed build 6` and
+  returned `ok`.
+- WD8003e BASIC-sidecar canary on a 32 KiB host reached `seed build 6` and
+  returned `ok`.
+
 ## 2026-05-09 - Move SHA-256 block/schedule scratch into low sector buffer tail
 
 Change:

@@ -249,7 +249,7 @@ tls_ensure_current_handshake_record_complete:
     mov ah, [si + 3]
     mov al, [si + 4]
     add ax, 5
-    cmp ax, tcp_payload_read_len
+    cmp ax, tls_payload_buffer_len
     ja .failed
     mov [tls_stream_skip_remaining], ax
     cmp [tls_current_payload_len], ax
@@ -276,7 +276,7 @@ tls_ensure_current_handshake_record_complete:
     add di, ax
     mov cx, [tcp_rx_payload_len]
     add ax, cx
-    cmp ax, tcp_payload_read_len
+    cmp ax, tls_payload_buffer_len
     ja .append_failed
     push ds
     pop es
@@ -345,7 +345,7 @@ tls_drain_server_certificate:
 
 tls_copy_current_payload:
     mov cx, [tls_current_payload_len]
-    cmp cx, tcp_payload_read_len
+    cmp cx, tls_payload_buffer_len
     ja .failed
     push ds
     pop es
@@ -960,7 +960,7 @@ tls_receive_application_data:
     mov [tls_app_record_len], ax
     mov dx, ax
     sub dx, tls_aead_tag_len
-    cmp dx, tcp_payload_read_len
+    cmp dx, tls_payload_buffer_len
     ja .failed
     mov [tls_app_len], dx
     add ax, tls_record_header_len
