@@ -5,7 +5,6 @@ tls_app_len dw 0
 tls_app_record_len dw 0
 tls_app_total_len dw 0
 tls_app_chunk_len dw 0
-tls_prepared_app_len dw 0
 api_receive_tries db 0
 tls_app_content_type db 0
 tls_transcript_certificate_remaining dw 0
@@ -188,8 +187,7 @@ tls_server_next_handshake_len_low equ tls_server_next_record_len + 2
 tls_server_next_total_len equ tls_server_next_handshake_len_low + 2
 tls_current_payload_ptr equ tls_server_next_total_len + 2
 tls_current_payload_len equ tls_current_payload_ptr + 2
-tls_app_sent equ tls_current_payload_len + 2
-low_tail_state_end equ tls_app_sent + 1
+low_tail_state_end equ tls_current_payload_len + 2
 %if low_file_scratch_end > low_scratch_end
 %error "low packet scratch arena overflow"
 %endif

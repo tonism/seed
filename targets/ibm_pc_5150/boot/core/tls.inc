@@ -57,9 +57,7 @@ tls_probe_server:
 .send_final_flight:
     call tls_send_client_final_flight
     jc .failed
-    call tls_prepare_application_data_current_seq
-    jc .failed
-    call tls_send_pending_application_data_early
+    call tls_send_application_data_current_seq
     jc .failed
     call tls_wait_for_server_finished
     jc .failed
@@ -376,8 +374,6 @@ tls_clear_buffered_payload:
 tls_transcript_start:
     mov word [tls_transcript_certificate_remaining], 0
     mov byte [tls_key_schedule_ready], 0
-    mov word [tls_prepared_app_len], 0
-    mov byte [tls_app_sent], 0
     push ax
     push cx
     push di
@@ -780,30 +776,17 @@ tls_wait_for_server_finished:
     call tls_transcript_update
     jc .failed
     call tls_increment_server_record_seq
-    cmp byte [handoff_addr + handoff_nic_family], family_3c503
-    je .maybe_defer_finished_ack
-    cmp byte [handoff_addr + handoff_nic_family], family_wd8003
-    jne .send_finished_ack
-.maybe_defer_finished_ack:
-    cmp byte [tls_app_sent], 0
-    jne .send_finished_ack
-    cmp word [tls_prepared_app_len], 0
-    jne .finished_ack_done
-.send_finished_ack:
     call ne_transmit_tcp_ack
     jc .failed
-.finished_ack_done:
     clc
     ret
 .failed:
     jmp tls_fail_error
 
-tls_send_application_data:
+tls_send_application_data_current_seq:
+    cmp word [tls_app_len], 0
+    je .done
     mov word [tls_app_record_ptr], tls_app_record_buffer
-    cmp word [tls_app_plain_ptr], 0
-    jne .plain_ready
-    mov word [tls_app_plain_ptr], tls_rx_copy + tls_record_header_len
-.plain_ready:
     call tls_build_application_data_record
     jc .failed
     mov si, [tls_app_record_ptr]
@@ -811,63 +794,12 @@ tls_send_application_data:
     call tcp_send_payload
     jc .failed
     call tls_increment_client_record_seq
-    mov byte [tls_app_sent], 1
-    clc
-    ret
-.failed:
-    jmp tls_fail_error
-
-tls_send_pending_application_data_early:
-    cmp byte [tls_app_sent], 0
-    jne .done
-    cmp word [tls_app_len], 0
-    je .done
-    call tls_send_application_data_for_nic
-    jc .failed
 .done:
     clc
     ret
 .failed:
     stc
     ret
-
-tls_send_application_data_for_nic:
-    cmp word [tls_prepared_app_len], 0
-    jne tls_send_prepared_application_data
-    jmp tls_send_application_data
-
-tls_prepare_application_data_current_seq:
-    cmp word [tls_app_len], 0
-    je .none
-    mov word [tls_app_record_ptr], tls_app_record_buffer
-    call tls_build_application_data_record
-    jc .failed
-    mov ax, [tls_tx_len]
-    mov [tls_prepared_app_len], ax
-    clc
-    ret
-.none:
-    mov word [tls_prepared_app_len], 0
-    clc
-    ret
-.failed:
-    jmp tls_fail_error
-
-tls_send_prepared_application_data:
-    cmp word [tls_prepared_app_len], 0
-    je .done
-    mov si, [tls_app_record_ptr]
-    mov cx, [tls_prepared_app_len]
-    call tcp_send_payload
-    jc .failed
-    call tls_increment_client_record_seq
-    mov byte [tls_app_sent], 1
-    mov word [tls_prepared_app_len], 0
-.done:
-    clc
-    ret
-.failed:
-    jmp tls_fail_error
 
 tls_build_application_data_record:
     cmp word [tls_app_len], api_request_plain_len
@@ -1155,41 +1087,18 @@ tls_poly1305_mac_app:
     ret
 
 tls_build_client_app_aad:
-    push ax
-    push cx
-    push si
-    push di
-    push es
-    push ds
-    pop es
     mov si, tls_client_record_seq
-    mov di, tls_aead_aad
-    mov cx, tls_client_record_seq_len
-    rep movsb
-    mov al, [tls_app_content_type]
-    stosb
-    mov ax, 0x0303
-    stosw
-    mov ax, [tls_app_len]
-    call tls_write_be16
-    pop es
-    pop di
-    pop si
-    pop cx
-    pop ax
-    ret
+    jmp tls_build_app_aad_from_seq
 
 tls_build_server_app_aad:
-    push ax
-    push cx
-    push si
-    push di
+    mov si, tls_server_record_seq
+
+tls_build_app_aad_from_seq:
     push es
     push ds
     pop es
-    mov si, tls_server_record_seq
     mov di, tls_aead_aad
-    mov cx, tls_server_record_seq_len
+    mov cx, tls_record_seq_len
     rep movsb
     mov al, [tls_app_content_type]
     stosb
@@ -1198,10 +1107,6 @@ tls_build_server_app_aad:
     mov ax, [tls_app_len]
     call tls_write_be16
     pop es
-    pop di
-    pop si
-    pop cx
-    pop ax
     ret
 
 tls_maybe_consume_server_new_session_ticket:
@@ -1448,99 +1353,45 @@ tls_encrypt_client_finished:
     ret
 
 tls_build_client_nonce:
-    push ax
-    push bx
-    push cx
-    push si
-    push di
+    mov si, tls_client_write_iv
+    mov bx, tls_client_record_seq
+    jmp tls_build_nonce_from_ptrs
+
+tls_build_server_nonce:
+    mov si, tls_server_write_iv
+    mov bx, tls_server_record_seq
+
+tls_build_nonce_from_ptrs:
     push es
     push ds
     pop es
-    mov si, tls_client_write_iv
     mov di, tls_client_nonce
     mov cx, tls_chacha_iv_len
     rep movsb
-    mov si, tls_client_record_seq
+    mov si, bx
     mov di, tls_client_nonce + 4
-    mov cx, tls_client_record_seq_len
+    mov cx, tls_record_seq_len
 .xor_seq:
     lodsb
     xor [di], al
     inc di
     loop .xor_seq
     pop es
-    pop di
-    pop si
-    pop cx
-    pop bx
-    pop ax
     ret
 
 tls_build_finished_aad:
-    push ax
-    push cx
-    push si
-    push di
-    push es
-    push ds
-    pop es
     mov si, tls_client_record_seq
-    mov di, tls_aead_aad
-    mov cx, tls_client_record_seq_len
-    rep movsb
-    mov al, 0x16
-    stosb
-    mov ax, 0x0303
-    stosw
-    mov ax, tls_finished_plain_len
-    call tls_write_be16
-    pop es
-    pop di
-    pop si
-    pop cx
-    pop ax
-    ret
-
-tls_build_server_nonce:
-    push ax
-    push bx
-    push cx
-    push si
-    push di
-    push es
-    push ds
-    pop es
-    mov si, tls_server_write_iv
-    mov di, tls_client_nonce
-    mov cx, tls_chacha_iv_len
-    rep movsb
-    mov si, tls_server_record_seq
-    mov di, tls_client_nonce + 4
-    mov cx, tls_server_record_seq_len
-.xor_seq:
-    lodsb
-    xor [di], al
-    inc di
-    loop .xor_seq
-    pop es
-    pop di
-    pop si
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp tls_build_finished_aad_from_seq
 
 tls_build_server_finished_aad:
-    push ax
-    push cx
-    push si
-    push di
+    mov si, tls_server_record_seq
+
+tls_build_finished_aad_from_seq:
     push es
     push ds
     pop es
-    mov si, tls_server_record_seq
     mov di, tls_aead_aad
-    mov cx, tls_server_record_seq_len
+    mov cx, tls_record_seq_len
     rep movsb
     mov al, 0x16
     stosb
@@ -1549,52 +1400,24 @@ tls_build_server_finished_aad:
     mov ax, tls_finished_plain_len
     call tls_write_be16
     pop es
-    pop di
-    pop si
-    pop cx
-    pop ax
     ret
 
 tls_xor_finished_plaintext:
-    push ax
-    push bx
-    push cx
-    push si
-    push di
-    push es
-    push ds
-    pop es
     mov si, tls_finished_plain
     mov di, tls_finished_cipher
-    mov bx, chacha_block
     mov cx, tls_finished_plain_len
-.next:
-    lodsb
-    xor al, [bx]
-    stosb
-    inc bx
-    loop .next
-    pop es
-    pop di
-    pop si
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp tls_xor_finished_bytes
 
 tls_xor_finished_ciphertext:
-    push ax
-    push bx
-    push cx
-    push si
-    push di
+    mov si, tls_finished_cipher
+    mov di, tls_finished_plain
+    mov cx, tls_finished_cipher_len
+
+tls_xor_finished_bytes:
     push es
     push ds
     pop es
-    mov si, tls_finished_cipher
-    mov di, tls_finished_plain
     mov bx, chacha_block
-    mov cx, tls_finished_cipher_len
 .next:
     lodsb
     xor al, [bx]
@@ -1602,11 +1425,6 @@ tls_xor_finished_ciphertext:
     inc bx
     loop .next
     pop es
-    pop di
-    pop si
-    pop cx
-    pop bx
-    pop ax
     ret
 
 build_tls_client_final_flight:

@@ -2962,3 +2962,44 @@ Verification:
 - 3c501 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
 - 3c503 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
 - WD8003e BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+
+## 2026-05-10 - Reach full 1 KiB guarded Build 7 fit
+
+Change:
+
+- Marked the low-memory ROM BASIC path as Build 7 in a separate checkpoint.
+- Removed the prepared application-data send path and its low-tail state
+  bookkeeping.
+- Kept the same ordering: encrypted application data is still built and sent
+  before waiting for the server Finished path to complete.
+- Deduplicated client/server AEAD helper bodies for:
+  - application-data AAD construction,
+  - ChaCha nonce construction,
+  - Finished-record AAD construction,
+  - Finished plaintext/ciphertext XOR.
+
+Measurements:
+
+- `CORE.SYS` moved from 23552 bytes to 23040 bytes.
+- Total sectors moved from 46 to 45.
+- LINK/K window moved from 14 sectors to 13 sectors.
+- Resident nonzero bytes moved from 2042 to 2040.
+- High-crypto scratch stayed 194 bytes.
+- Critical scratch stayed 2097 bytes.
+- `16k-target packed critical raw slack` moved from 781 bytes to 1293 bytes.
+- `16k-target packed critical guarded slack` moved from -243 bytes to +269
+  bytes.
+
+Result:
+
+- Accepted. This reaches the full 1 KiB guarded 16K target on paper without
+  reducing the guard to 0.5 KiB.
+
+Verification:
+
+- `make inspect` passed.
+- `make test` passed.
+- NE2K8 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- 3c501 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- 3c503 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- WD8003e BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
