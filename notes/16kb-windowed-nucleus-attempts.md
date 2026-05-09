@@ -2373,3 +2373,35 @@ Verification:
 - 3c501 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
 - 3c503 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
 - WD8003e BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+
+## 2026-05-09 - Merge TLS record sequence clear helpers
+
+Change:
+
+- Merged the duplicated client/server TLS record sequence clear helpers through
+  a shared `tls_clear_record_seq` tail.
+- Kept the cleared sequence storage and call sites unchanged.
+- Did not move TLS packet buffers, key material, transcript state, or network
+  ordering.
+
+Measurements:
+
+- Actual LINK end moved from `0x2b13` to `0x2b01`.
+- LINK window remained 17 sectors, with roughly 257 bytes still needed to drop
+  it to 16 sectors.
+- `CORE.SYS` stayed 25600 bytes.
+- `16k-target packed critical guarded slack` stayed at -2788 bytes.
+
+Result:
+
+- Accepted small LINK-window cleanup. This removes one duplicated clear loop
+  without changing crypto state layout or TLS timing.
+
+Verification:
+
+- `make inspect` passed.
+- `make test` passed.
+- NE2K8 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- 3c501 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- 3c503 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- WD8003e BASIC-sidecar canary on a 32 KiB host reached returned `ok`.

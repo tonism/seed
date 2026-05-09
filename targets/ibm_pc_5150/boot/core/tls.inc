@@ -1643,35 +1643,22 @@ build_tls_client_final_flight:
     ret
 
 tls_clear_client_record_seq:
+    mov di, tls_client_record_seq
+    jmp tls_clear_record_seq
+
+tls_clear_server_record_seq:
+    mov di, tls_server_record_seq
+
+tls_clear_record_seq:
     push ax
     push cx
-    push di
     push es
     push ds
     pop es
-    mov di, tls_client_record_seq
     mov cx, tls_client_record_seq_len
     xor al, al
     rep stosb
     pop es
-    pop di
-    pop cx
-    pop ax
-    ret
-
-tls_clear_server_record_seq:
-    push ax
-    push cx
-    push di
-    push es
-    push ds
-    pop es
-    mov di, tls_server_record_seq
-    mov cx, tls_server_record_seq_len
-    xor al, al
-    rep stosb
-    pop es
-    pop di
     pop cx
     pop ax
     ret
