@@ -2,7 +2,7 @@
 %define LOADER_SECTORS 4
 %endif
 
-build_number equ 6
+build_number equ 7
 core_load_addr equ 0x1000
 handoff_addr equ 0x0600
 low_sha256_k equ 0x0500
@@ -17,7 +17,7 @@ basic_sidecar_stack_guard_len_24k equ 0x0100
 handoff_magic equ 0
 handoff_version equ 4
 handoff_size equ 5
-handoff_build equ 6
+handoff_build equ 7
 handoff_flags equ 8
 handoff_boot_drive equ 10
 handoff_video_mode equ 11

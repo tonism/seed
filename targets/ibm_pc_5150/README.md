@@ -52,7 +52,7 @@ BIOS loads boot sector
   -> uses a normal o marker during local crypto/key setup
   -> switches to a bright o marker for agent and environment prep
   -> writes validated agent config back best-effort
-  -> otherwise types seed build 6 rightward from that column
+  -> otherwise types seed build 7 rightward from that column
   -> waits about 500 ms
   -> halts
 ```
@@ -164,14 +164,15 @@ hop using the DHCP subnet/router data, ARPs that next hop, opens the probe TCP
 target on port 80 through the shared TCP connect path, and sends the final ACK
 after a matching SYN-ACK.
 
-Build 6 is the agent-prep milestone. The current checkpoint keeps the build 5
-internet path intact and adds the first filesystem-backed agent setup check:
-the boot core reads `AGENTS.CFG`, parses up to five `agent ` declarations, reads
-`USER.CFG` when present, validates a saved `agent <id>`, asks `agent?` when the
-saved choice is missing or invalid, asks `server?` and `key?` on one form when
-the selected agent needs both values, preserves saved model and reasoning
-values when present, resolves the selected agent host, proves TCP 443
-connection through the same TCP connect path, sends a minimal TLS 1.2
+Build 7 is the ROM BASIC low-memory milestone. The current checkpoint keeps the
+build 5 internet path and Build 6 agent-prep proof intact while slimming the
+same `CORE.SYS` toward a 16 KiB packed-memory layout. The boot core reads
+`AGENTS.CFG`, parses up to five `agent ` declarations, reads `USER.CFG` when
+present, validates a saved `agent <id>`, asks `agent?` when the saved choice is
+missing or invalid, asks `server?` and `key?` on one form when the selected
+agent needs both values, preserves saved model and reasoning values when
+present, resolves the selected agent host, proves TCP 443 connection through
+the same TCP connect path, sends a minimal TLS 1.2
 ClientHello with SNI offering only P-256 ECDHE-ECDSA-CHACHA20-POLY1305 without
 extended master secret for the current crypto path, parses and stores
 ServerHello version, random,
@@ -217,7 +218,7 @@ failure         current marker turns red, low descending PC speaker tone, fast-t
 question        phase-colored blinking marker, low PC speaker attention tone, bright fast-typed prompt ending with ?
 agent question  agent? with AGENTS.CFG entries or built-in big-three fallback when USER.CFG has no valid agent choice
 field question  server? and/or key? with cursor shown only while typing; Up/Down moves field focus
-success         dim "." -> dim "," -> dim "o" -> normal "o" -> bright "o" -> seed build 6
+success         dim "." -> dim "," -> dim "o" -> normal "o" -> bright "o" -> seed build 7
 ```
 
 The splash is only the ready handoff animation. No hardware setup, network
@@ -236,7 +237,7 @@ Default display attributes:
 
 ```text
 seed       CGA white / MDA bright
-build 6    CGA dark gray / MDA normal
+build 7    CGA dark gray / MDA normal
 loading    CGA dark gray / MDA normal
 crypto     CGA light gray / MDA normal
 ready      CGA white / MDA bright

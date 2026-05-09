@@ -44,10 +44,11 @@ Disk A:  build/ibm_pc_5150/floppy-160k.img
 ```
 
 The original-speed 4.77 MHz, 32 KiB profiles are the BIOS-boot compatibility
-gate. The 24 KiB low-memory gate uses the ROM BASIC sidecar bootstrap with the
-same profiles and a runtime RAM ceiling of `0x6000`; literal 24 KiB IBM PC
-profiles in 86Box stop in POST with a memory-size error before ROM BASIC.
-Faster ad hoc profiles are not part of the normal workflow.
+gate. The Build 7 low-memory gate uses the ROM BASIC sidecar bootstrap with
+the same profiles while `make inspect` enforces the 16 KiB packed-memory
+layout; literal 24 KiB IBM PC profiles in 86Box stop in POST with a memory-size
+error before ROM BASIC. Faster ad hoc profiles are not part of the normal
+workflow.
 
 The 86Box NIC inventory for this target is tracked in:
 
@@ -68,7 +69,7 @@ no card         current marker turns red, low descending PC speaker tone, fast-t
 question        phase-colored blinking marker, low PC speaker attention tone, bright fast-typed prompt ending with ?
 agent question  agent? with AGENTS.CFG entries or built-in big-three fallback when USER.CFG has no valid agent choice
 field question  server? and/or key? with cursor shown only while typing; Up/Down moves field focus
-success         dim "." -> dim "," -> dim "o" -> normal "o" -> bright "o" -> seed build 6
+success         dim "." -> dim "," -> dim "o" -> normal "o" -> bright "o" -> seed build 7
 ```
 
 The splash is only the ready handoff animation. No setup work happens during
@@ -100,7 +101,7 @@ Default CGA colors:
 
 ```text
 seed       white
-build 6    dark gray
+build 7    dark gray
 loading    dark gray
 crypto     light gray
 ready      white
@@ -199,9 +200,10 @@ completed the direct OpenAI Responses request/response proof, displayed the
 returned `ok`, and reached `seed build 6`. Retest individual profiles when
 changing TLS timing or shared packet code.
 
-The 24 KiB low-memory release path uses `tools/run-basic-bootstrap-86box.py`
-to force ROM BASIC entry, inject the generated sidecar helper, and keep Seed's
-runtime ceiling at `0x6000`. Before the compact helper release, that path
+The Build 7 low-memory release path uses `tools/run-basic-bootstrap-86box.py`
+to force ROM BASIC entry and inject the generated sidecar helper while
+`make inspect` enforces the 16 KiB packed-memory layout. Before the compact
+helper release, that path
 reached returned `ok` on `vm-net-ne2k8`, `vm-net-3c501`, `vm-net-3c503`, and
 `vm-net-wd8003e`. The released short hex `DATA` helper was then smoke-tested
 through returned `ok` on `vm-net-ne2k8`.

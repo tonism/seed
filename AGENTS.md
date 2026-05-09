@@ -59,10 +59,10 @@ the boot loader and the BASIC loader can find the same runtime image.
 - Target 8088-compatible 16-bit real-mode code for `ibm_pc_5150`. Keep NASM
   sources locked to `cpu 8086` so unsupported opcodes are caught at build time.
 - Do not introduce protected mode or graphics mode unless explicitly scoped.
-- Keep Build 6 focused on secure connection plus agent/environment prep. The
-  current explicitly scoped model API work is the minimal OpenAI Responses
-  proof; do not add agent sessions or environment handover unless explicitly
-  scoped.
+- Build 7 is the current low-memory release milestone. It keeps Build 6 secure
+  connection plus the minimal OpenAI Responses proof intact while fitting the
+  same `CORE.SYS` toward 16 KiB ROM BASIC entry; do not add agent sessions or
+  environment handover unless explicitly scoped.
 - OpenAI, Anthropic, and Google define the supported agent TLS compatibility
   surface. Extra default `AGENTS.CFG` entries may stay only if they fit the
   same path; do not add alternate crypto paths just to keep a gateway.
@@ -149,7 +149,7 @@ Run a NIC-present VM:
 tools/run-86box.sh vm-net-ne2k8
 ```
 
-Run the 24 KiB ROM BASIC sidecar harness:
+Run the ROM BASIC sidecar harness:
 
 ```sh
 tools/run-basic-bootstrap-86box.py --profile vm-net-ne2k8
@@ -157,7 +157,7 @@ tools/run-basic-bootstrap-86box.py --profile vm-net-ne2k8
 
 Useful expected screens:
 
-The Build 6 agent-prep checkpoint for these IBM PC 5150 profiles is expected
+The Build 7 low-memory checkpoint for these IBM PC 5150 profiles is expected
 to use saved `USER.CFG` when present. Use original 4.77 MHz, 32 KiB
 `vm-net-ne2k8` as the compatibility gate. Faster ad hoc profiles are not part
 of the normal workflow. On 1 May 2026, all seven original-speed NIC profiles
@@ -167,12 +167,11 @@ displayed the returned `ok`: `vm-net-3c501`, `vm-net-3c503`, `vm-net-ne1k`,
 `vm-net-wd8003eb`. On 7 May 2026, the 32 KiB slimming checkpoint passed
 representative family tests on `vm-net-ne2k8`, `vm-net-3c501`,
 `vm-net-3c503`, and `vm-net-wd8003e`, each displaying returned `ok` and
-`seed build 6`. The 24 KiB ROM BASIC sidecar path then reached returned `ok`
-on `vm-net-ne2k8`, `vm-net-3c501`, `vm-net-3c503`, and `vm-net-wd8003e`
-before the compact hex helper release; the released hex helper was smoke-tested
-through returned `ok` on `vm-net-ne2k8`. Retest individual profiles when
-changing TLS timing/shared packet code.
-Build 6 currently adds FAT12 `AGENTS.CFG` and `NET.CFG` parsing, built-in
+`seed build 6`. The later ROM BASIC sidecar path reached returned `ok` on
+`vm-net-ne2k8`, `vm-net-3c501`, `vm-net-3c503`, and `vm-net-wd8003e`, and
+Build 7 now uses the same harness while measuring the 16 KiB packed layout.
+Retest individual profiles when changing TLS timing/shared packet code.
+Build 7 inherits Build 6 FAT12 `AGENTS.CFG` and `NET.CFG` parsing, built-in
 fallback agent interfaces, optional `USER.CFG` persistence for selected
 agent/model/reasoning/key/endpoint values, with `server?` shown for LiteLLM's
 stored endpoint value on the same form panel as `key?`, selected-agent DNS/TCP

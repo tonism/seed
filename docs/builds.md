@@ -63,7 +63,7 @@ provider, complete the current TLS/API path, and display the minimal returned
 answer. On MDA, dark and normal `"o"` both render with the same non-bright
 attribute.
 
-Current build 6 checkpoint:
+Build 6 checkpoint:
 
 ```text
 FAT12 160 KiB boot floppy with small reserved loader and root CORE.SYS runtime
@@ -119,7 +119,7 @@ direct OpenAI Responses request/response proof on all seven original 4.77 MHz NI
 best-effort USER.CFG write of validated agent, model, reasoning, key, and endpoint values
 ```
 
-Still in build 6 scope:
+Still outside the Build 7 low-memory release scope:
 
 ```text
 replace pseudo-random client random and fixed scalar with real entropy/scalar handling before claiming secure TLS
@@ -128,11 +128,11 @@ generalize ChaCha20-Poly1305 beyond the current Finished-record shapes
 fetch model and reasoning capabilities from the provider when available
 ```
 
-Build 6 optimization uses the original 4.77 MHz, 32 KiB `vm-net-ne2k8` profile
-as the BIOS-boot compatibility gate. The 24 KiB gate uses the ROM BASIC
-sidecar helper with a runtime ceiling of `0x6000`; literal 24 KiB 86Box 5150
-profiles stop in POST before ROM BASIC. The earlier faster ad hoc profiles are
-no longer part of the normal workflow. On 1 May 2026, all seven original-speed
+Build 6 and Build 7 optimization use the original 4.77 MHz, 32 KiB
+`vm-net-ne2k8` profile as the compatibility gate. The Build 7 low-memory gate
+uses the ROM BASIC sidecar helper with an explicit 16 KiB packed-memory budget;
+literal 24 KiB 86Box 5150 profiles stop in POST before ROM BASIC. The earlier
+faster ad hoc profiles are no longer part of the normal workflow. On 1 May 2026, all seven original-speed
 4.77 MHz NIC profiles completed the first minimal direct OpenAI Responses
 request/response proof and displayed the returned `ok`. On 4 May 2026, the
 64 KiB baseline was retested before memory-slimming work: `vm-net-3c503`,
@@ -165,9 +165,9 @@ minimal helper in ROM BASIC when BIOS boot is unavailable.
 The first attempted low-memory release target was 24 KiB, but literal 24 KiB
 IBM PC 5150 profiles in 86Box stop during POST before ROM BASIC. That makes
 24 KiB useful as an internal budgeting shape, not a releasable entry target for
-this emulator/target combination. Build 7 should therefore not be called
-complete until the 16 KiB ROM BASIC sidecar path reaches the Build 6 OpenAI
-`ok` proof.
+this emulator/target combination. Build 7 therefore uses the 32 KiB ROM BASIC
+sidecar harness for emulator execution while enforcing the 16 KiB packed-memory
+layout in `make inspect`.
 
 Build 7 completion target:
 
@@ -177,8 +177,10 @@ ROM BASIC sidecar entry
 same visible CORE.SYS as the BIOS-boot path
 minimal OpenAI Responses request returns ok
 representative NIC-family success, including 3c501 and NE2K
-1 KiB measured execution guard after Seed-owned resident state, scratch,
-window space, and stack needs are accounted for
+preferred 1 KiB measured execution guard after Seed-owned resident state,
+scratch, window space, and stack needs are accounted for
+0.5 KiB measured execution guard is the fallback release floor if the final
+1 KiB cut would make the critical path brittle
 ```
 
 The active implementation strategy is the windowed nucleus described in
@@ -187,6 +189,21 @@ move cold setup and post-answer work into reloadable windows, and preserve one
 no-floppy provider-critical window from TLS/API start until the answer has
 been found. Current progress and failed cuts are tracked in
 `notes/16kb-windowed-nucleus-attempts.md`.
+
+Current Build 7 checkpoint:
+
+```text
+runtime splash number moved to seed build 7
+CORE.SYS 23552 bytes, 46 sectors
+resident nucleus 4 sectors, 2042 nonzero bytes
+LINK/K provider-critical window 14 sectors
+high-crypto scratch 194 bytes
+critical scratch 2097 bytes
+16 KiB packed critical raw slack 781 bytes
+16 KiB packed critical guarded slack -243 bytes against the preferred 1 KiB guard
+representative BASIC-sidecar NIC-family canaries reached returned ok on NE2K8,
+3c501, 3c503, and WD8003e
+```
 
 ## Build 8
 

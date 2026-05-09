@@ -97,16 +97,17 @@ no long filenames
 no dependency on writes succeeding
 ```
 
-The current build 6 checkpoint parses up to five `agent ` declarations from
-`AGENTS.CFG` when that file is available and valid; otherwise it uses the
-built-in direct-vendor fallback. It reads `USER.CFG` when present, accepts a
-saved `agent <id>` only if it matches the active agent list, asks `agent?`
-otherwise, then asks for any missing `server?` and `key?` values needed by the
-selected agent. When the selected agent needs both values, they are shown on
-one form panel with Up and Down moving between fields. Saved `model` and
-`reasoning` values are preserved when present, but Seed should not ask the user
-to type those by hand. Model and reasoning choices belong after the selected
-agent endpoint can be reached and its capabilities can be fetched. Seed proves
+The current Build 7 checkpoint inherits the Build 6 agent/API path: it parses
+up to five `agent ` declarations from `AGENTS.CFG` when that file is available
+and valid; otherwise it uses the built-in direct-vendor fallback. It reads
+`USER.CFG` when present, accepts a saved `agent <id>` only if it matches the
+active agent list, asks `agent?` otherwise, then asks for any missing `server?`
+and `key?` values needed by the selected agent. When the selected agent needs
+both values, they are shown on one form panel with Up and Down moving between
+fields. Saved `model` and `reasoning` values are preserved when present, but
+Seed should not ask the user to type those by hand. Model and reasoning choices
+belong after the selected agent endpoint can be reached and its capabilities
+can be fetched. Seed proves
 selected-agent TCP reachability by resolving the selected provider host,
 receiving a SYN-ACK on port 443, sending the final ACK, then sending a minimal
 TLS 1.2 ClientHello with SNI offering only P-256
@@ -152,7 +153,7 @@ supported only when the configured server negotiates the same path.
 `reasoning` is stored as a plain text effort value such as `xhigh`. The first
 OpenAI request path uses that saved value when present and sends a hardcoded
 Responses API request asking the model to reply exactly `ok`; dynamic model
-and reasoning capability fetches remain later Build 6 work. The `key` value is
+and reasoning capability fetches remain later work. The `key` value is
 plaintext on the boot medium. The current ECDHE scalar is a sparse fixed
 development value so emulator boot tests do not spend minutes in the `"o"`
 secure/crypto phases. A real entropy path and a faster full-scalar strategy
@@ -170,7 +171,7 @@ before memory-slimming work: all valid profiles except `vm-net-3c501` reached
 remained open until the 32 KiB slimming pass. On 7 May 2026, that failure was
 repaired in representative 32 KiB NIC-family tests: `vm-net-ne2k8`,
 `vm-net-3c501`, `vm-net-3c503`, and `vm-net-wd8003e` each displayed `ok` and
-reached `seed build 6`. The current 24 KiB ROM BASIC sidecar path preserves the
-same API proof under a `0x6000` runtime ceiling.
+reached `seed build 6`. The Build 7 ROM BASIC sidecar path preserves the same
+API proof while measuring the 16 KiB packed-memory layout.
 Capability fetches, model selection, reasoning selection, and environment
-handoff remain later Build 6 work.
+handoff remain later work.

@@ -21,7 +21,7 @@ CPU       8088, 4.77 MHz
 media     160 KiB 5.25-inch floppy image
 video     BIOS text mode, no mode switch
 emulator  86Box
-build     seed build 6
+build     seed build 7
 ```
 
 The current boot image is a minimal FAT12 floppy:
@@ -34,8 +34,9 @@ sectors 8-11   root directory
 sector 12+     file data, starting with CORE.SYS
 ```
 
-Build 6 is the agent-prep milestone. The current checkpoint keeps build 5's
-internet-readiness path, adds a FAT12 boot image, ships tracked agent interface
+Build 7 is the ROM BASIC low-memory milestone. The current checkpoint keeps
+build 6's agent/API proof, keeps build 5's internet-readiness path, ships
+tracked agent interface
 declarations in `AGENTS.CFG`, ships the generic internet probe host in
 `NET.CFG`, falls back to built-in `openai`, `anthropic`, and `google` agent
 interfaces when `AGENTS.CFG` is missing or bad, reads optional ignored local
@@ -63,9 +64,11 @@ encrypted server Finished, sends a minimal OpenAI Responses request asking for
 `ok`, displays the returned answer, then writes validated values back
 best-effort. All seven original-speed 5150 NIC profiles, including 3c501,
 reach that proof in the 32 KiB BIOS-boot path. The current release also has a
-24 KiB ROM BASIC sidecar bootstrap path for machines that cannot enter through
-the BIOS boot sector. Capability fetches, session creation, and environment
-handover remain later build 6 work.
+ROM BASIC sidecar bootstrap path for machines that cannot enter through the
+BIOS boot sector. The active 16 KiB release work is now down to choosing
+between the preferred 1 KiB measured guard and a smaller guarded release floor.
+Capability fetches, session creation, and environment handover remain later
+work.
 
 Build 5 completed the internet-readiness milestone. It initializes
 NE1000/NE2000-family packet hardware after a valid MAC read, reads one pending
@@ -129,7 +132,7 @@ Run a NIC-present profile:
 tools/run-86box.sh vm-net-ne2k8
 ```
 
-Run the automated 24 KiB ROM BASIC sidecar harness:
+Run the automated ROM BASIC sidecar harness:
 
 ```sh
 tools/run-basic-bootstrap-86box.py --profile vm-net-ne2k8

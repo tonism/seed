@@ -47,8 +47,9 @@ the 64 KiB baseline was retested before memory-slimming work:
 failure. On 7 May 2026, the 32 KiB slimming checkpoint repaired that failure
 in representative family tests: `vm-net-ne2k8`, `vm-net-3c501`,
 `vm-net-3c503`, and `vm-net-wd8003e` each displayed `ok` and reached
-`seed build 6`. The current 24 KiB low-memory path uses the same profiles
-through the ROM BASIC sidecar bootstrap rather than BIOS boot.
+`seed build 6`. The current Build 7 low-memory path uses the same profiles
+through the ROM BASIC sidecar bootstrap while `make inspect` enforces the
+16 KiB packed-memory layout.
 
 ## IBM PC 5150 Candidates
 
