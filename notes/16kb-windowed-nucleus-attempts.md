@@ -2118,6 +2118,68 @@ Verification:
 - `make test` passed.
 - 3c503 BASIC-sidecar canary failed during agent setup.
 
+## 2026-05-09 - Rejected TLS transcript/key-schedule bookkeeping trim
+
+Change:
+
+- Tried removing `tls_transcript_len_low/high`, which were maintained but not
+  consumed by the current SHA-256 transcript path.
+- Tried removing the `tls_key_schedule_ready` byte and branch because
+  `tls_probe_server` currently starts with a fresh transcript/key schedule.
+
+Measurements:
+
+- Resident nonzero bytes: 2092 -> 2088.
+- Actual LINK end moved from `0x2b4f` to `0x2b25`.
+- LINK window remained 17 sectors.
+- `16k-target packed critical guarded slack` remained -2788 bytes.
+
+Result:
+
+- Rejected and reverted. The static savings were real but small, and 3c501
+  failed during agent setup.
+- The failure was specific to removing `tls_key_schedule_ready`: 3c501 uses
+  `tls_prepare_early_key_schedule` before its early ClientKeyExchange send and
+  later needs the ready flag to avoid recomputing the keys in the final path.
+
+Verification:
+
+- `make inspect` passed.
+- `make test` passed.
+- NE2K8 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- 3c501 BASIC-sidecar canary failed during agent setup.
+
+## 2026-05-09 - Drop unused TLS transcript length counters
+
+Change:
+
+- Removed `tls_transcript_len_low/high` and their update/clear writes.
+- Kept `tls_key_schedule_ready` because 3c501 depends on the early key
+  schedule state across its split ClientKeyExchange path.
+
+Measurements:
+
+- Resident nonzero bytes: 2092 -> 2088.
+- Actual LINK end moved from `0x2b4f` to `0x2b35`.
+- LINK window remained 17 sectors, with roughly 309 bytes still needed to drop
+  it to 16 sectors.
+- `16k-target packed critical guarded slack` remained -2788 bytes.
+
+Result:
+
+- Accepted small TLS bookkeeping cleanup. It is not enough to move the tracked
+  release metric yet, but it removes 26 bytes from the LINK window without
+  changing packet ordering, key material placement, or ACK timing.
+
+Verification:
+
+- `make inspect` passed.
+- `make test` passed.
+- NE2K8 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- 3c501 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- 3c503 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- WD8003e BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+
 ## 2026-05-09 - Trim unused ServerKeyExchange parse state
 
 Change:

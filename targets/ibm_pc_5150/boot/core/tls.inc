@@ -378,8 +378,6 @@ tls_clear_buffered_payload:
     ret
 
 tls_transcript_start:
-    mov word [tls_transcript_len_low], 0
-    mov word [tls_transcript_len_high], 0
     mov word [tls_transcript_certificate_remaining], 0
     mov byte [tls_key_schedule_ready], 0
     mov word [tls_prepared_app_len], 0
@@ -389,10 +387,6 @@ tls_transcript_start:
     jmp sha256_init
 
 tls_transcript_update:
-    add [tls_transcript_len_low], cx
-    mov ax, [tls_transcript_len_high]
-    adc ax, 0
-    mov [tls_transcript_len_high], ax
     jmp sha256_update
 
 tls_transcript_update_certificate_current:

@@ -8,8 +8,6 @@ tls_app_chunk_len dw 0
 tls_prepared_app_len dw 0
 api_receive_tries db 0
 tls_app_content_type db 0
-tls_transcript_len_low dw 0
-tls_transcript_len_high dw 0
 tls_transcript_certificate_remaining dw 0
 dns_qname_len db dns_qname_default_len
 dns_tx_len dw dns_tx_frame_default_len
