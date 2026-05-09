@@ -345,20 +345,7 @@ high_tls_finished_cipher equ high_tls_finished_plain + tls_finished_plain_len
 high_tls_finished_tag equ high_tls_finished_cipher + tls_finished_cipher_len
 high_tls_received_tag equ high_tls_finished_tag + tls_aead_tag_len
 high_crypto_work equ high_tls_received_tag + tls_aead_tag_len
-high_chacha_state equ high_crypto_work
-high_chacha_work equ high_chacha_state + chacha_block_len
-high_chacha_block equ high_chacha_work + chacha_block_len
-high_poly_r equ high_chacha_block + chacha_block_len
-high_poly_s equ high_poly_r + poly1305_r_len
-high_poly_acc equ high_chacha_state
-high_poly_block equ high_poly_acc + poly1305_acc_len
-high_poly_product equ high_poly_block + 16
-high_poly_value equ high_poly_product + poly1305_product_len
-%if (high_poly_value + poly1305_value_len) > high_poly_r
-%error "poly1305 overlay collides with persistent Poly1305 key"
-%endif
-high_tls_random equ high_poly_s + poly1305_s_len
-high_crypto_scratch_end equ high_tls_random + tls_random_len
+high_crypto_scratch_end equ high_crypto_work + tls_key_block_len
 wd_saprom equ 0x08
 fat_root_start_lba equ LOADER_SECTORS + 3
 fat_fat_start_lba equ LOADER_SECTORS + 1

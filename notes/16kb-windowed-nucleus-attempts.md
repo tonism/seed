@@ -224,6 +224,46 @@ Verification:
 - WD8003e BASIC-sidecar canary on a 32 KiB host reached `seed build 6` and
   returned `ok`.
 
+## 2026-05-09 - Move transient AEAD scratch into critical scratch
+
+Change:
+
+- Stopped reserving high-crypto scratch for transient ChaCha20 and Poly1305
+  working state.
+- Aliased the AEAD working state into the pre-response critical scratch tail,
+  after the PRF/config/server-random/master-secret lifetimes are finished.
+- Aliased `tls_random` onto the handshake-hash slot, because the client random
+  is only needed before the Finished transcript hash is materialized there.
+- Added assembly-time collision checks for the critical AEAD overlays.
+
+Measurements:
+
+- High crypto scratch: 770 -> 602 bytes.
+- `16k-target packed critical guarded slack`: -3330 -> -3162 bytes.
+- LINK window stayed at 17 sectors.
+- Packed high-crypto range is now `0x3c00..0x3e5a`.
+- Packed critical range is now `0x3e5a..0x485a`.
+
+Result:
+
+- Accepted lifetime aliasing cut. This does not change the TLS/OpenAI ordering
+  or touch the remote fast path behavior; it only moves transient AEAD storage
+  into an already-reserved critical scratch gap.
+- Remaining guarded 16 KiB deficit is 3162 bytes.
+
+Verification:
+
+- `make inspect` passes.
+- `make test` passes.
+- NE2K8 BASIC-sidecar canary on a 32 KiB host reached `seed build 6` and
+  returned `ok`.
+- 3c501 BASIC-sidecar canary on a 32 KiB host reached `seed build 6` and
+  returned `ok`.
+- 3c503 BASIC-sidecar canary on a 32 KiB host reached `seed build 6` and
+  returned `ok`.
+- WD8003e BASIC-sidecar canary on a 32 KiB host reached `seed build 6` and
+  returned `ok`.
+
 ## 2026-05-09 - Rejected low TCP receive cap
 
 Change:

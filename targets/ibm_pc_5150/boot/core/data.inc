@@ -250,7 +250,22 @@ tls_server_random equ seed_agent_id
 tls_master_secret equ tls_server_random + tls_random_len
 tls_handshake_hash equ tls_master_secret + tls_master_secret_len
 tls_verify_data equ tls_handshake_hash + sha256_digest_len
+critical_chacha_state equ tls_prf_seed
+critical_chacha_work equ critical_chacha_state + chacha_block_len
+critical_chacha_block equ critical_chacha_work + chacha_block_len
+critical_poly_r equ critical_chacha_block + chacha_block_len
+critical_poly_s equ critical_poly_r + poly1305_r_len
+critical_poly_acc equ critical_chacha_state
+critical_poly_block equ critical_poly_acc + poly1305_acc_len
+critical_poly_product equ critical_poly_block + 16
+critical_poly_value equ critical_poly_product + poly1305_product_len
+%if (critical_poly_value + poly1305_value_len) > critical_poly_r
+%error "critical Poly1305 overlay collides with persistent Poly1305 key"
+%endif
 tls_pre_response_scratch_end equ tls_verify_data + tls_finished_verify_len
+%if (critical_poly_s + poly1305_s_len) > tls_pre_response_scratch_end
+%error "critical AEAD scratch exceeds pre-response scratch tail"
+%endif
 %if (tls_pre_response_scratch_end - tls_pre_response_scratch) != tls_pre_response_tail_len
 %error "pre-response scratch size constant is stale"
 %endif
@@ -274,14 +289,14 @@ tls_received_tag equ high_tls_received_tag
 agent_ids equ high_crypto_work
 tls_premaster_secret equ high_crypto_work
 tls_key_block equ high_crypto_work
-chacha_state equ high_chacha_state
-chacha_work equ high_chacha_work
-chacha_block equ high_chacha_block
-poly_r equ high_poly_r
-poly_s equ high_poly_s
-poly_acc equ high_poly_acc
-poly_block equ high_poly_block
-poly_product equ high_poly_product
-poly_value equ high_poly_value
-tls_random equ high_tls_random
+chacha_state equ critical_chacha_state
+chacha_work equ critical_chacha_work
+chacha_block equ critical_chacha_block
+poly_r equ critical_poly_r
+poly_s equ critical_poly_s
+poly_acc equ critical_poly_acc
+poly_block equ critical_poly_block
+poly_product equ critical_poly_product
+poly_value equ critical_poly_value
+tls_random equ tls_handshake_hash
 sha256_k equ low_sha256_k
