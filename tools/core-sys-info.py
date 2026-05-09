@@ -73,6 +73,12 @@ def parse_packed_range(value: str) -> tuple[str, int]:
     return label, length
 
 
+def parse_packed_phase(value: str) -> str:
+    if not value:
+        raise argparse.ArgumentTypeError("packed phase id must not be empty")
+    return value
+
+
 def u16le(data: bytes, offset: int) -> int:
     return data[offset] | (data[offset + 1] << 8)
 
@@ -180,6 +186,7 @@ def print_budget(
     ram_top: int,
     stack_guard: int,
     ranges: list[tuple[str, int, int]],
+    packed_phases: list[str],
     packed_ranges: list[tuple[str, int]],
 ) -> bool:
     resident_end = load_addr + info["resident-bytes"]
@@ -215,7 +222,26 @@ def print_budget(
         print(f"    guarded-slack: {guarded_range_slack}")
         ok = ok and guarded_range_slack >= 0
 
+    phase_by_id = {str(phase["id"]): phase for phase in phases}
     packed_cursor = resident_end
+    for phase_id in packed_phases:
+        phase = phase_by_id.get(phase_id)
+        if phase is None:
+            raise SystemExit(f"budget[{label}]: missing packed phase {phase_id!r}")
+        length = int(phase["sectors"]) * SECTOR_SIZE
+        start = packed_cursor
+        end = start + length
+        packed_cursor = end
+        raw_phase_slack = ram_top - end
+        guarded_phase_slack = guarded_top - end
+        print(f"  packed-phase[{phase_id}]:")
+        print(f"    start: 0x{start:04x}")
+        print(f"    end: 0x{end:04x}")
+        print(f"    bytes: {length}")
+        print(f"    raw-slack: {raw_phase_slack}")
+        print(f"    guarded-slack: {guarded_phase_slack}")
+        ok = ok and guarded_phase_slack >= 0
+
     for range_label, length in packed_ranges:
         start = packed_cursor
         end = start + length
@@ -250,6 +276,13 @@ def main() -> None:
         type=parse_named_range,
         default=[],
         help="print a fixed memory range as LABEL:START:LENGTH in each budget",
+    )
+    parser.add_argument(
+        "--packed-phase",
+        action="append",
+        type=parse_packed_phase,
+        default=[],
+        help="include an existing phase by id in the ideal packed budget",
     )
     parser.add_argument(
         "--packed-range",
@@ -303,6 +336,7 @@ def main() -> None:
                     ram_top,
                     stack_guard,
                     args.range,
+                    args.packed_phase,
                     args.packed_range,
                 )
                 and budgets_ok

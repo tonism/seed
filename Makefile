@@ -122,6 +122,7 @@ inspect: $(FLOPPY_IMG) $(BASIC_BOOT_A_BAS) $(BASIC_BOOT_B_BAS)
 		--load-addr $(CORE_LOAD_ADDR) \
 		--range high-crypto:$(HIGH_CRYPTO_SCRATCH_START):$(HIGH_CRYPTO_SCRATCH_LEN) \
 		--range critical:$(CRITICAL_SCRATCH_START):$(CRITICAL_SCRATCH_LEN) \
+		--packed-phase K \
 		--packed-range high-crypto:$(HIGH_CRYPTO_SCRATCH_LEN) \
 		--packed-range critical:$(CRITICAL_SCRATCH_LEN) \
 		--budget 24k-basic:$(BASIC_BOOTSTRAP_RAM_TOP):$(BASIC_BOOTSTRAP_STACK_GUARD) \

@@ -190,6 +190,30 @@ Verification:
 - WD8003e BASIC-sidecar canary on a 32 KiB host reached `seed build 6` and
   returned `ok`.
 
+## 2026-05-09 - Add LINK-aware packed budget tracking
+
+Change:
+
+- Updated `make inspect` so the 16 KiB packed budget includes the `K` LINK
+  window before high-crypto and critical scratch.
+
+Measurements:
+
+- Packed `K` LINK window: `0x1a00..0x3c00`, 8704 bytes.
+- Packed high-crypto scratch after LINK: `0x3c00..0x3f43`, 835 bytes.
+- Packed critical scratch after high-crypto: `0x3f43..0x4943`, 2560 bytes.
+- Corrected guarded 16 KiB packed deficit: -3395 bytes.
+
+Result:
+
+- The tracked release number is truthful again. The next runtime cuts must
+  recover about 3.4 KiB from LINK and/or scratch before the 1 KiB guard target
+  is met.
+
+Verification:
+
+- `make inspect` passes.
+
 ## 2026-05-08 - Compact high crypto scratch overlay
 
 Change:
