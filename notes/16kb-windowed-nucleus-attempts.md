@@ -2343,3 +2343,33 @@ Verification:
 - 3c501 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
 - 3c503 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
 - WD8003e BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+
+## 2026-05-09 - Inline TLS success helper
+
+Change:
+
+- Removed the shared `tls_status_ok` helper.
+- Replaced each `jmp tls_status_ok` success tail with local `clc; ret`.
+- Kept failure exits and TLS control flow otherwise unchanged.
+
+Measurements:
+
+- Actual LINK end moved from `0x2b1f` to `0x2b13`.
+- LINK window remained 17 sectors, with roughly 275 bytes still needed to drop
+  it to 16 sectors.
+- `CORE.SYS` stayed 25600 bytes.
+- `16k-target packed critical guarded slack` stayed at -2788 bytes.
+
+Result:
+
+- Accepted small LINK-window cleanup. It is a local tail-call shrink only; no
+  packet ordering, key schedule, transcript, or buffer placement changed.
+
+Verification:
+
+- `make inspect` passed.
+- `make test` passed.
+- NE2K8 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- 3c501 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- 3c503 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- WD8003e BASIC-sidecar canary on a 32 KiB host reached returned `ok`.

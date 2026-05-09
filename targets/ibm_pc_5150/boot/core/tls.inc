@@ -1,7 +1,3 @@
-tls_status_ok:
-    clc
-    ret
-
 tls_fail_error:
     mov al, net_error_tls
     jmp net_fail_al
@@ -179,7 +175,8 @@ tls_wait_for_server_hello:
     call tls_transcript_update
     jc .failed
     call tls_save_buffered_server_payload
-    jmp tls_status_ok
+    clc
+    ret
 .failed:
     jmp tls_fail_error
 
@@ -303,7 +300,8 @@ tls_drain_server_certificate:
 .done:
     cmp word [tls_transcript_certificate_remaining], 0
     jne .failed
-    jmp tls_status_ok
+    clc
+    ret
 
 .need_more:
     sub ax, cx
@@ -475,7 +473,8 @@ tls_parse_server_certificate:
     mov [tls_server_certificate_total_len], ax
     sub ax, 5
     mov [tls_transcript_certificate_remaining], ax
-    jmp tls_status_ok
+    clc
+    ret
 .failed:
     jmp tls_fail_error
 
@@ -522,7 +521,8 @@ tls_wait_for_server_hello_done:
     call ne_transmit_tcp_ack
     jc .failed
 .ack_done:
-    jmp tls_status_ok
+    clc
+    ret
 .failed:
     stc
     ret
@@ -554,7 +554,8 @@ tls_prepare_key_block:
     jc .failed
     call tls_split_key_block
     mov byte [tls_key_schedule_ready], 1
-    jmp tls_status_ok
+    clc
+    ret
 .failed:
     stc
     ret
@@ -710,7 +711,8 @@ tls_send_client_key_exchange:
     mov cx, [tls_tx_len]
     call tcp_send_payload
     jc .failed
-    jmp tls_status_ok
+    clc
+    ret
 .failed:
     stc
     ret
@@ -734,7 +736,8 @@ tls_send_client_final_flight:
     call tls_transcript_update
     jc .failed
     call tls_increment_client_record_seq
-    jmp tls_status_ok
+    clc
+    ret
 .failed:
     stc
     ret
@@ -778,7 +781,8 @@ tls_wait_for_server_finished:
     call ne_transmit_tcp_ack
     jc .failed
 .finished_ack_done:
-    jmp tls_status_ok
+    clc
+    ret
 .failed:
     jmp tls_fail_error
 
@@ -1856,7 +1860,8 @@ tls_parse_server_key_exchange:
     add ax, dx
     cmp ax, [tls_server_next_handshake_len_low]
     jne .failed
-    jmp tls_status_ok
+    clc
+    ret
 .failed:
     stc
     ret
@@ -1871,7 +1876,8 @@ tls_finish_server_key_exchange:
     call ne_transmit_tcp_ack
     jc .failed
 .done:
-    jmp tls_status_ok
+    clc
+    ret
 .failed:
     stc
     ret
