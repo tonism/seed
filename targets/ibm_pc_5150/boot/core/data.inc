@@ -215,6 +215,14 @@ low_tail_state_end equ tls_app_sent + 1
 %if (low_sha256_k + sha256_k_len) > handoff_addr
 %error "low sha256 k table overlaps handoff block"
 %endif
+low_sha256_block equ fs_sector_buffer + 128
+low_sha256_w equ low_sha256_block + sha256_block_size
+%if (low_sha256_w + sha256_k_len) > (fs_sector_buffer + 512)
+%error "low SHA-256 scratch exceeds fs sector buffer tail"
+%endif
+%if (tls_client_key_exchange_total_len > 128) || ((tls_change_cipher_spec_total_len + tls_finished_total_len) > 128)
+%error "TLS transmit records collide with low SHA-256 scratch"
+%endif
 tls_rx_copy equ critical_scratch_start
 tls_client_hello_buffer equ tls_rx_copy
 dns_qname equ tls_rx_copy + 512
@@ -272,8 +280,8 @@ tls_pre_response_scratch_end equ tls_verify_data + tls_finished_verify_len
 %if tls_pre_response_scratch_end > (tls_rx_copy + tls_stream_buffer_len)
 %error "pre-response scratch exceeds TLS receive buffer tail"
 %endif
-sha256_block equ high_sha256_block
-sha256_w equ high_sha256_w
+sha256_block equ low_sha256_block
+sha256_w equ low_sha256_w
 tls_client_write_key equ high_tls_client_write_key
 tls_server_write_key equ high_tls_server_write_key
 tls_client_write_iv equ high_tls_client_write_iv

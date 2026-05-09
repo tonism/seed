@@ -190,6 +190,47 @@ Verification:
 - WD8003e BASIC-sidecar canary on a 32 KiB host reached `seed build 6` and
   returned `ok`.
 
+## 2026-05-09 - Move SHA-256 block/schedule scratch into low sector buffer tail
+
+Change:
+
+- Reused the unused tail of `fs_sector_buffer` for transient SHA-256
+  block/schedule scratch during the secure-link window.
+- Kept the first 128 bytes of `fs_sector_buffer` reserved for TLS transmit
+  records and added assembly-time collision checks for the ClientKeyExchange,
+  ChangeCipherSpec, and Finished record sizes.
+- Moved the remaining high crypto scratch start directly to the TLS write key
+  block.
+
+Measurements:
+
+- `CORE.SYS` total size: unchanged at 25600 bytes.
+- `CORE.SYS` total sectors: unchanged at 50.
+- Resident sectors: unchanged at 5.
+- LINK window: unchanged at 17 sectors, `0x1a00..0x3c00`.
+- High crypto scratch: 602 -> 282 bytes.
+- Critical scratch: unchanged at 2560 bytes.
+- Guarded 16 KiB deficit: -3162 -> -2842 bytes.
+
+Result:
+
+- Accepted 320-byte scratch relocation. This does not cross a sector boundary,
+  but it removes high-memory pressure without touching packet timing or TLS
+  ordering.
+
+Verification:
+
+- `make inspect` passes.
+- `make test` passes.
+- NE2K8 BASIC-sidecar canary on a 32 KiB host reached `seed build 6` and
+  returned `ok`.
+- 3c501 BASIC-sidecar canary on a 32 KiB host reached `seed build 6` and
+  returned `ok`.
+- 3c503 BASIC-sidecar canary on a 32 KiB host reached `seed build 6` and
+  returned `ok`.
+- WD8003e BASIC-sidecar canary on a 32 KiB host reached `seed build 6` and
+  returned `ok`.
+
 ## 2026-05-09 - Move fixed TLS client public key out of high scratch
 
 Change:

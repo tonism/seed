@@ -330,9 +330,7 @@ p256_word_len equ p256_word_count * 2
 p256_product_word_count equ p256_word_count * 2
 p256_product_word_len equ p256_product_word_count * 2
 high_crypto_scratch_start equ 0x4c00
-high_sha256_block equ high_crypto_scratch_start
-high_sha256_w equ high_sha256_block + sha256_block_size
-high_tls_client_write_key equ high_sha256_w + 256
+high_tls_client_write_key equ high_crypto_scratch_start
 high_tls_server_write_key equ high_tls_client_write_key + tls_chacha_key_len
 high_tls_client_write_iv equ high_tls_server_write_key + tls_chacha_key_len
 high_tls_server_write_iv equ high_tls_client_write_iv + tls_chacha_iv_len
