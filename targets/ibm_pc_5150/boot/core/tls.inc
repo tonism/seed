@@ -47,8 +47,6 @@ tls_probe_server:
     call show_load_marker
     cmp byte [tls_key_schedule_ready], 1
     je .key_schedule_ready
-    call tls_prepare_premaster_secret
-    jc .failed
     call tls_prepare_master_secret
     jc .failed
     call tls_prepare_key_block
@@ -499,8 +497,6 @@ tls_wait_for_server_key_exchange_or_done:
 tls_prepare_early_key_schedule:
     cmp byte [handoff_addr + handoff_nic_family], family_3c501
     jne .done
-    call tls_prepare_premaster_secret
-    jc .failed
     call tls_prepare_master_secret
     jc .failed
     jmp tls_prepare_key_block
@@ -529,10 +525,6 @@ tls_wait_for_server_hello_done:
     jmp tls_status_ok
 .failed:
     stc
-    ret
-
-tls_prepare_premaster_secret:
-    clc
     ret
 
 tls_prepare_master_secret:

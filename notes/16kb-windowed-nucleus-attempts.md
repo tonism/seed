@@ -2311,3 +2311,35 @@ Verification:
 - 3c503 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
 - WD8003e BASIC-sidecar canary on a 32 KiB host initially failed during agent
   setup, then reached returned `ok` on clean rerun; treated as transient.
+
+## 2026-05-09 - Remove no-op premaster preparation calls
+
+Change:
+
+- Removed the two calls to `tls_prepare_premaster_secret`, which had become a
+  verified no-op after the fixed P-256 premaster stub cleanup.
+- Deleted the empty `tls_prepare_premaster_secret` helper.
+- Preserved the current fixed-scalar proof behavior where ServerKeyExchange
+  parsing has already populated `tls_premaster_secret`.
+
+Measurements:
+
+- Actual LINK end moved from `0x2b2b` to `0x2b1f`.
+- LINK window remained 17 sectors, with roughly 287 bytes still needed to drop
+  it to 16 sectors.
+- `CORE.SYS` stayed 25600 bytes.
+- `16k-target packed critical guarded slack` stayed at -2788 bytes.
+
+Result:
+
+- Accepted small LINK-window cleanup. It removes unnecessary calls without
+  changing key material placement, packet ordering, or HMAC/PRF behavior.
+
+Verification:
+
+- `make inspect` passed.
+- `make test` passed.
+- NE2K8 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- 3c501 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- 3c503 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
+- WD8003e BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
