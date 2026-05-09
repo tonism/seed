@@ -2509,3 +2509,44 @@ Verification:
 - 3c503 BASIC-sidecar canary on a 32 KiB host reached returned `ok`.
 - WD8003e had one transient `agent setup failed` run, then the rerun reached
   returned `ok`.
+
+## 2026-05-09 - Reject in-place TLS application response buffer
+
+Change tried:
+
+- Reduced the critical TLS receive buffer from the full TCP payload size to a
+  256-byte split-record buffer.
+- Parsed decrypted application data in place from the low packet-frame receive
+  arena instead of copying the response body into critical scratch.
+- Moved the agent response parser phase to `fs_sector_buffer` so parsing would
+  not overwrite the packet-frame response.
+- Moved AEAD ChaCha/Poly work to the front of critical scratch to avoid using
+  the packet-frame arena while response ciphertext was live.
+
+Measurements:
+
+- Critical scratch length moved from 2109 bytes to 905 bytes.
+- `CORE.SYS` moved from 25088 bytes to 25600 bytes.
+- LINK window moved from 16 sectors back to 17 sectors.
+- `16k-target packed critical guarded slack` improved from -1791 bytes to
+  -1099 bytes despite the larger LINK window.
+
+Result:
+
+- Rejected for now. The cut is attractive on memory, but it failed the NE2K8
+  BASIC-sidecar canary twice at `agent setup failed`.
+- Two concrete bugs were found and fixed during the attempt: small complete app
+  records were being copied into the same arena later used by AEAD scratch, and
+  the relocated response parser still used `low_scratch_start` for pattern
+  string addresses. After both fixes, NE2K8 still failed at agent setup.
+- The full rejected diff was saved outside the repo at
+  `/private/tmp/seed-response-buffer-cut-20260509.patch` for later
+  instrumentation-driven analysis.
+
+Verification:
+
+- `make inspect` passed for the attempted cut.
+- `make test` passed for the attempted cut.
+- NE2K8 BASIC-sidecar canary on a 32 KiB host failed at `agent setup failed`.
+- The code was reverted to the previous pushed green checkpoint before further
+  work.
