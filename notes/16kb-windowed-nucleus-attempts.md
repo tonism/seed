@@ -1973,3 +1973,28 @@ Verification:
   returned `ok`.
 - WD8003e BASIC-sidecar canary on a 32 KiB host reached `seed build 6` and
   returned `ok`.
+
+## 2026-05-09 - Rejected low HMAC scratch alias
+
+Change:
+
+- Tried to move HMAC ipad/opad/prepared-state scratch into the unused front of
+  `fs_sector_buffer`, ahead of the low SHA-256 scratch already stored there.
+
+Measurements:
+
+- Attempted critical scratch: 2506 -> 2282 bytes.
+- Attempted `16k-target packed critical guarded slack`: -2788 -> -2564 bytes.
+
+Result:
+
+- Rejected and reverted. The vector tests passed, but NE2K8 failed during
+  agent setup in the BASIC-sidecar VM run.
+- Likely cause: the agent request/setup path still depends on the front of
+  `fs_sector_buffer`, so this alias is not lifetime-safe without a deeper
+  request-buffer redesign.
+
+Verification:
+
+- Attempted build: `make inspect` and `make test` passed.
+- Runtime canary: NE2K8 failed during agent setup.
