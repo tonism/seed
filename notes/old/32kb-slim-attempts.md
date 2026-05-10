@@ -1,6 +1,6 @@
-# 32KB OpenAI Attempts
+# 32KB Slim Attempts
 
-## 2026-05-06 - Initial 32KB scratch-layout work
+## 2026-05-06 08:56:05 - Initial 32KB scratch-layout work
 
 Branch: `work/32kb-slim`
 
@@ -28,7 +28,7 @@ Observed results:
 - The 32KB NE2K path reaches TLS server Finished verification, then fails in
   the agent/application-response phase.
 
-## 2026-05-06 - Response-size and streaming probes
+## 2026-05-06 08:56:05 - Response-size and streaming probes
 
 Host-side OpenAI probes, using the same TLS 1.2
 `ECDHE-ECDSA-CHACHA20-POLY1305` cipher, showed:
@@ -89,7 +89,7 @@ Decision:
   current sequence, then wait for server Finished with the existing deferred
   ACK behavior.
 
-## 2026-05-06 - Restart from known-good baseline
+## 2026-05-06 08:56:05 - Restart from known-good baseline
 
 Baseline measurement:
 - Clean `work/32kb-slim` / `origin/work/32kb-slim` still uses 48KB profiles.

@@ -158,18 +158,20 @@ tools/run-basic-bootstrap-86box.py --profile vm-net-ne2k8
 Useful expected screens:
 
 The Build 7 low-memory checkpoint for these IBM PC 5150 profiles is expected
-to use saved `USER.CFG` when present. Use original 4.77 MHz, 32 KiB
-`vm-net-ne2k8` as the compatibility gate. Faster ad hoc profiles are not part
-of the normal workflow. On 1 May 2026, all seven original-speed NIC profiles
+to use saved `USER.CFG` when present. Use original 4.77 MHz, 16 KiB
+`vm-net-ne2k8` through the ROM BASIC sidecar harness as the compatibility gate.
+Faster ad hoc profiles are not part of the normal workflow. On 1 May 2026, all seven original-speed NIC profiles
 completed the minimal direct OpenAI Responses request/response proof and
 displayed the returned `ok`: `vm-net-3c501`, `vm-net-3c503`, `vm-net-ne1k`,
 `vm-net-ne2k8`, `vm-net-novell-ne1k`, `vm-net-wd8003e`, and
 `vm-net-wd8003eb`. On 7 May 2026, the 32 KiB slimming checkpoint passed
 representative family tests on `vm-net-ne2k8`, `vm-net-3c501`,
 `vm-net-3c503`, and `vm-net-wd8003e`, each displaying returned `ok` and
-`seed build 6`. The later ROM BASIC sidecar path reached returned `ok` on
-`vm-net-ne2k8`, `vm-net-3c501`, `vm-net-3c503`, and `vm-net-wd8003e`, and
-Build 7 now uses the same harness while measuring the 16 KiB packed layout.
+`seed build 6`. On 10 May 2026, the Build 7 ROM BASIC sidecar path reached
+returned `ok` on all seven 16 KiB NIC profiles: `vm-net-3c501`,
+`vm-net-3c503`, `vm-net-ne1k`, `vm-net-ne2k8`, `vm-net-novell-ne1k`,
+`vm-net-wd8003e`, and `vm-net-wd8003eb`; the no-card CGA and MDA profiles
+failed cleanly with no NIC.
 Retest individual profiles when changing TLS timing/shared packet code.
 Build 7 inherits Build 6 FAT12 `AGENTS.CFG` and `NET.CFG` parsing, built-in
 fallback agent interfaces, optional `USER.CFG` persistence for selected

@@ -28,7 +28,7 @@ build 4   "." dark phase: hardware setup, adapter autodetect/fallback questions,
 build 5   "," dark phase: internet prep, IP config, reachability proof
 build 6   "o" dark + normal + bright phases: secure connection, credentials, minimal provider API proof
 build 7   ROM BASIC low-memory entry and 16 KiB windowed-nucleus release target
-build 8   user/agent environment, local tool ABI, and handoff loop
+build 8   user/agent environment handoff and first environment-owned tool loop
 ```
 
 Build 5 is intentionally broad. It should end when Seed can bring up a network
@@ -128,11 +128,11 @@ generalize ChaCha20-Poly1305 beyond the current Finished-record shapes
 fetch model and reasoning capabilities from the provider when available
 ```
 
-Build 6 and Build 7 optimization use the original 4.77 MHz, 32 KiB
-`vm-net-ne2k8` profile as the compatibility gate. The Build 7 low-memory gate
-uses the ROM BASIC sidecar helper with an explicit 16 KiB packed-memory budget;
-literal 24 KiB 86Box 5150 profiles stop in POST before ROM BASIC. The earlier
-faster ad hoc profiles are no longer part of the normal workflow. On 1 May 2026, all seven original-speed
+Build 6 optimization used the original 4.77 MHz, 32 KiB `vm-net-ne2k8` profile
+as the compatibility gate. Build 7 now uses original 4.77 MHz, 16 KiB profiles
+through the ROM BASIC sidecar helper with an explicit 16 KiB packed-memory
+budget; literal 24 KiB 86Box 5150 profiles stop in POST before ROM BASIC. The
+earlier faster ad hoc profiles are no longer part of the normal workflow. On 1 May 2026, all seven original-speed
 4.77 MHz NIC profiles completed the first minimal direct OpenAI Responses
 request/response proof and displayed the returned `ok`. On 4 May 2026, the
 64 KiB baseline was retested before memory-slimming work: `vm-net-3c503`,
@@ -165,7 +165,7 @@ minimal helper in ROM BASIC when BIOS boot is unavailable.
 The first attempted low-memory release target was 24 KiB, but literal 24 KiB
 IBM PC 5150 profiles in 86Box stop during POST before ROM BASIC. That makes
 24 KiB useful as an internal budgeting shape, not a releasable entry target for
-this emulator/target combination. Build 7 therefore uses the 32 KiB ROM BASIC
+this emulator/target combination. Build 7 therefore uses the 16 KiB ROM BASIC
 sidecar harness for emulator execution while enforcing the 16 KiB packed-memory
 layout in `make inspect`.
 
@@ -194,15 +194,17 @@ Current Build 7 checkpoint:
 
 ```text
 runtime splash number moved to seed build 7
-CORE.SYS 23552 bytes, 46 sectors
-resident nucleus 4 sectors, 2042 nonzero bytes
-LINK/K provider-critical window 14 sectors
+CORE.SYS 23040 bytes, 45 sectors
+resident nucleus 4 sectors, 2040 nonzero bytes
+LINK/K provider-critical window 13 sectors
 high-crypto scratch 194 bytes
 critical scratch 2097 bytes
-16 KiB packed critical raw slack 781 bytes
-16 KiB packed critical guarded slack -243 bytes against the preferred 1 KiB guard
-representative BASIC-sidecar NIC-family canaries reached returned ok on NE2K8,
-3c501, 3c503, and WD8003e
+16 KiB packed critical raw slack 1293 bytes
+16 KiB packed critical guarded slack +269 bytes against the preferred 1 KiB guard
+all seven BASIC-sidecar 16 KiB NIC profiles reached returned ok: vm-net-3c501,
+vm-net-3c503, vm-net-ne1k, vm-net-ne2k8, vm-net-novell-ne1k,
+vm-net-wd8003e, and vm-net-wd8003eb
+no-card CGA and MDA profiles fail cleanly with no NIC
 ```
 
 ## Build 8
@@ -211,19 +213,19 @@ Build 8 owns the other end of Seed: the first usable user/agent environment
 after the provider API path is alive. It should start from the Build 7
 low-memory entry contract rather than assuming a larger machine.
 
-Build 8 should turn Seed from an API proof into an agent-operable runtime:
+Build 8 should turn Seed from an API proof into a bootstrapped user/agent
+environment:
 
 ```text
 publish the live memory and hardware contract to the agent
-define the first tiny local tool ABI
-reserve or discover a tool arena and result buffer
-load an agent-provided or built-in local tool payload
-call that tool locally at machine speed
-return status/result data through the provider API path
+handoff to the first user/agent environment
+let that environment define local tool formats, loading, calling, and results
+reserve or discover environment-owned arena/work buffers when available
+provide a narrow retained API service surface only where needed
 provide a recovery path if the tool fails or corrupts volatile state
 ```
 
 This is not a general OS milestone. Seed remains the bootstrapping control
 plane: it provides the trusted recovery boundary, working provider API path,
-and small handoff ABI, then leaves the rest of the machine open for user and
-agent-built tooling.
+published machine contract, and first environment handoff, then leaves local
+tooling to the user/agent environment.

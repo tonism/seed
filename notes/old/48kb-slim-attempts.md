@@ -1,6 +1,6 @@
-# 48KB OpenAI Attempts
+# 48KB Slim Attempts
 
-## 2026-05-04 - Initial 48KB profile sweep
+## 2026-05-04 22:46:52 - Initial 48KB profile sweep
 
 Branch: `work/48kb-slim`
 
@@ -35,7 +35,7 @@ Conclusion:
 - With stacks moved to `0xc000`, all valid non-3c501 NIC profiles completed the
   direct OpenAI proof at 4.77 MHz / 48KB.
 
-## 2026-05-05 - 3c501 OpenAI timing fix
+## 2026-05-05 07:19:45 - 3c501 OpenAI timing fix
 
 Branch: `work/48kb-slim`
 

@@ -91,13 +91,13 @@ build/ibm_pc_5150/SEED24A.BAS   typed helper for a Seed floppy in drive A:
 build/ibm_pc_5150/SEED24B.BAS   typed helper for a Seed floppy in drive B:
 ```
 
-Those BASIC programs poke a tiny 8086 loader at `0x5a00`, use BIOS INT 13h to
+Those BASIC programs poke a tiny 8086 loader at `0x3a00`, use BIOS INT 13h to
 read `CORE.SYS` from the same Seed floppy, and jump to `0000:1000`. `CORE.SYS`
 stays first in the FAT data area so this helper can use the stable first-data
 LBA while the normal boot loader continues to read `CORE.SYS` through FAT12. The
 generated sidecar text stores the loader as short hexadecimal `DATA` rows and
-decodes them with ROM BASIC's `VAL("&H...")` support. The current 24 KiB helper
-uses `0x6000` as its RAM ceiling and fails with a single red `X` at the normal
+decodes them with ROM BASIC's `VAL("&H...")` support. The current 16 KiB helper
+uses `0x4000` as its RAM ceiling and fails with a single red `X` at the normal
 loading-glyph position if `CORE.SYS` would collide with the BASIC loader or if
 BIOS sector reads fail.
 

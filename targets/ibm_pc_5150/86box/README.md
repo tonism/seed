@@ -36,19 +36,19 @@ Current CGA machine shape:
 ```text
 Machine: IBM PC 5150
 CPU:     8088, 4.77 MHz
-RAM:     32 KiB
+RAM:     16 KiB
 Video:   CGA
 FDC:     XT floppy controller
 Floppy:  5.25" single-sided drive as A:
 Disk A:  build/ibm_pc_5150/floppy-160k.img
 ```
 
-The original-speed 4.77 MHz, 32 KiB profiles are the BIOS-boot compatibility
-gate. The Build 7 low-memory gate uses the ROM BASIC sidecar bootstrap with
-the same profiles while `make inspect` enforces the 16 KiB packed-memory
-layout; literal 24 KiB IBM PC profiles in 86Box stop in POST with a memory-size
-error before ROM BASIC. Faster ad hoc profiles are not part of the normal
-workflow.
+The original-speed 4.77 MHz, 16 KiB profiles are the Build 7 low-memory
+compatibility gate through the ROM BASIC sidecar bootstrap. The normal BIOS
+boot path remains part of the same floppy for 32 KiB and larger machines, while
+the tracked emulator profiles exercise the sub-32 KiB entry path. Literal
+24 KiB IBM PC profiles in 86Box stop in POST with a memory-size error before
+ROM BASIC. Faster ad hoc profiles are not part of the normal workflow.
 
 The 86Box NIC inventory for this target is tracked in:
 

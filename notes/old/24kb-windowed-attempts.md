@@ -44,7 +44,465 @@ Implication for 24 KiB:
 - Compared with the 32 KiB release image, roughly 6.6 KiB must move out of the
   permanent resident image before adding any useful stack guard.
 
-## 2026-05-07 - Move cold failure and adapter UI into phases
+## 2026-05-07 07:44:11 - Low-memory BASIC entry path
+
+Change:
+- Added a ROM BASIC-style bootstrap generator and tiny 8086 loader.
+- The normal BIOS boot path stays intact: boot sector -> reserved loader ->
+  FAT12 root `CORE.SYS`.
+- The same floppy also ships `SEED24A.BAS` and `SEED24B.BAS`. These poke a
+  tiny loader at `0x3a00`, then use BIOS INT 13h to read the same `CORE.SYS`
+  sectors from drive A or drive B and jump to `0000:1000`.
+- `CORE.SYS` remains the first FAT data file, so the BASIC loader can use the
+  stable first-data LBA while the boot loader still reads through FAT12.
+- The BASIC loader uses a 24 KiB stack ceiling (`0x6000`) and refuses to load a
+  core that would collide with its 256-byte stack guard. The current 32 KiB
+  release `CORE.SYS` is still too large for this path, so running the BASIC
+  bootstrap now should show the red `X` failure marker until the resident core
+  is slimmed.
+
+Verification:
+- `make inspect` passes.
+
+## 2026-05-07 07:44:11 - CORE.SYS container header scaffold
+
+Change:
+- Added a tiny `CORE.SYS` header at `0x1000`.
+- The first instruction is still executable from the old loader entry point:
+  it jumps over the header into the existing `start` label and preserves `DL`.
+- Added `tools/core-sys-info.py` to parse and check the header.
+- `make inspect` now prints the parsed header fields.
+- The BASIC bootstrap build now reads `resident-sectors` from the `CORE.SYS`
+  header instead of estimating from file size directly.
+- For this scaffold checkpoint, `resident-sectors` still equals
+  `total-sectors`; no phase is split out yet.
+
+Measurements:
+- Previous `CORE.SYS` size: 27,094 bytes.
+- New `CORE.SYS` size: 27,119 bytes.
+- Header size: 25 bytes.
+- Resident sectors: 53.
+- Resident bytes when sector-rounded: 27,136.
+- Total sectors: 53.
+- At the current 32 KiB stack guard, the rounded resident load reaches
+  `0x7a00`, exactly the guard start. This is acceptable as a temporary bridge,
+  but the next useful step must reduce `resident-sectors`.
+
+Verification:
+- `make inspect` passes.
+- `make test` passes.
+- `git diff --check` passes.
+- No-card BIOS boot smoke reaches the expected red `. no network card` screen.
+
+## 2026-05-07 07:44:11 - Reserved loader uses resident-sector count
+
+Change:
+- Updated the reserved BIOS loader to read the first `CORE.SYS` sector,
+  validate the `SEEDCORE` header, and then load only `resident-sectors` through
+  the FAT12 cluster chain.
+- Because `resident-sectors` still equals `total-sectors`, current runtime
+  behavior remains a full-image load.
+- Once the core is split, BIOS boot and BASIC boot will both load the same
+  resident nucleus before jumping to `0000:1000`.
+
+Measurements:
+- Reserved loader still fits in the configured four-sector loader area.
+- `CORE.SYS` remains 27,119 bytes.
+- Resident sectors remain 53.
+
+Verification:
+- `make inspect` passes.
+- `git diff --check` passes.
+- No-card BIOS boot smoke reaches the expected red `. no network card` screen
+  through the header-validating loader.
+
+## 2026-05-07 07:44:11 - First runtime phase-load proof
+
+Change:
+- Factored the three fatal paths in `main.inc` through one shared
+  `show_failure` routine.
+- Added a one-sector no-op phase after the resident image inside `CORE.SYS`.
+- Startup reads that no-op phase from the `CORE.SYS` container into low scratch
+  and calls it.
+- The phase writes a resident probe byte before returning; startup checks that
+  byte before continuing.
+
+Measurements:
+- Failure-path factoring reduced the resident image by 52 bytes before adding
+  the phase-load proof.
+- `CORE.SYS` total size is now 27,648 bytes because it includes one extra
+  sector outside the resident load.
+- Resident sectors remain 53.
+- Total sectors are now 54.
+- This proves the container can hold a non-resident phase sector while both
+  BIOS boot and BASIC boot still load only the resident sector count.
+
+Verification:
+- `make inspect` passes.
+- `make test` passes.
+- `git diff --check` passes.
+- No-card BIOS boot smoke reaches the expected red `. no network card` screen
+  after the startup phase-load probe.
+
+## 2026-05-07 07:44:11 - Resident phase table
+
+Change:
+- Added the first resident phase-table entry.
+- The current table has one entry:
+  - id `N`
+  - sector offset 53
+  - sector count 1
+  - load address `0x0700`
+  - flags `0`
+- Extended `tools/core-sys-info.py` to validate and print phase-table entries.
+
+Measurements:
+- `CORE.SYS` total size remains 27,648 bytes.
+- Resident sectors remain 53.
+- Total sectors remain 54.
+- Phase table offset is 27,100 bytes into `CORE.SYS`.
+
+Verification:
+- `make inspect` passes and prints the `N` phase entry.
+- `make test` passes.
+- `git diff --check` passes.
+
+## 2026-05-07 07:44:11 - Separately assembled phase and service vector
+
+Change:
+- Moved the no-op proof code into
+  `targets/ibm_pc_5150/boot/phases/noop.asm`.
+- The no-op phase is assembled for its runtime address, `0x0700`, then
+  embedded as a sector-aligned nonresident `CORE.SYS` phase.
+- Added a fixed low-memory phase service vector immediately after the handoff
+  block at `0x062c`.
+- The phase calls the probe service through that vector instead of directly
+  calling resident labels. This validates the rule that phase code cannot rely
+  on normal near calls into the resident image.
+
+Measurements:
+- `CORE.SYS` total size remains 27,648 bytes.
+- Resident sectors remain 53.
+- Total sectors remain 54.
+- Phase table offset is 27,116 bytes into `CORE.SYS`.
+- `core_resident_end` is at image offset `0x69f6`, leaving 10 bytes before the
+  53-sector resident boundary.
+- Dropping to 52 resident sectors requires moving or cutting about 502 bytes
+  from the resident image.
+
+Verification:
+- `make inspect` passes and prints the `N` phase entry.
+- `make test` passes.
+- No-card BIOS boot smoke reaches the expected red `. no network card` screen
+  after the separately assembled phase calls back through the service vector.
+
+## 2026-05-07 07:44:11 - First resident sector cut and SAVE phase
+
+Change:
+- Removed the resident `USER.CFG` creation/write path and write-only FAT/root
+  bookkeeping from the permanent image.
+- Kept `USER.CFG`, `AGENTS.CFG`, and `NET.CFG` reads resident for now.
+- Added a nonresident `S` phase after the no-op phase. The resident code loads
+  it only after the provider response path has finished and only when
+  `user_cfg_dirty` is set.
+- The `S` phase updates an existing `USER.CFG` data cluster and root-directory
+  size. It intentionally does not create `USER.CFG` when missing yet; missing
+  persistence remains non-fatal and should be expanded later if product scope
+  requires writes on a floppy without a shipped `USER.CFG`.
+
+Measurements:
+- Resident sectors dropped from 53 to 52.
+- Resident bytes when sector-rounded dropped from 27,136 to 26,624.
+- `CORE.SYS` total size is 27,648 bytes because it now contains two
+  nonresident phase sectors.
+- Phase table entries:
+  - `N`: sector offset 52, one sector, load address `0x0700`.
+  - `S`: sector offset 53, one sector, load address `0x0700`.
+- `core_resident_end` is at image offset `0x67ad`, leaving 83 bytes before the
+  52-sector resident boundary.
+- The `S` phase code is 371 bytes and fits in one sector.
+
+Verification:
+- `make inspect` passes and prints both phase entries.
+- `make test` passes.
+- `git diff --check` passes.
+- No-card BIOS boot smoke reaches the expected red `. no network card` screen.
+
+Follow-up:
+- The inline `S` phase uses explicit resident-call relocation because it is
+  still assembled in the same NASM pass as the resident image. Before many
+  larger phases are added, this needs to become a stricter phase ABI or a
+  generated-symbol/link step so relocated calls cannot be used accidentally.
+
+## 2026-05-07 07:44:11 - BASIC entry passes RAM ceiling
+
+Change:
+- Added a tiny BASIC-entry convention: the BASIC bootstrap passes
+  `AX=SEED_RAM_TOP`, `BX=0x5345`, and `CX=0x4544` before jumping to
+  `CORE.SYS`.
+- The core checks that signature before setting its initial stack. BIOS boot
+  keeps the normal `0x8000` stack top, while the 24 KiB BASIC path can use
+  `0x6000`.
+- The reserved BIOS loader explicitly clears `AX/BX/CX` before jumping so it
+  cannot accidentally match the BASIC-entry signature.
+- Extended the handoff block to publish the runtime RAM top.
+
+Measurements:
+- Resident sectors remain 52.
+- `core_resident_end` is now at image offset `0x67c1`, leaving 63 bytes before
+  the 52-sector resident boundary.
+- BASIC loader programs grew from 635 bytes to 664 bytes.
+
+Verification:
+- `make inspect` passes.
+
+## 2026-05-07 11:01:10 - Move response parsing, splash, and phase metadata out of resident memory
+
+Change:
+- Moved decrypted application response parsing and answer typing into
+  nonresident `T`, loaded after TLS has already copied the decrypted record into
+  `tls_rx_copy`.
+- Moved the final `seed build 6` splash into nonresident `B`.
+- Moved the phase table out of the resident image and into the padded `S` phase
+  sector; `tools/core-sys-info.py` now validates phase table bounds against the
+  full `CORE.SYS` container instead of resident bytes.
+- Removed the unreachable post-TLS request resend fallback and compacted several
+  small resident branches.
+
+Measurements:
+- Resident sectors dropped from 47 to 46.
+- Resident bytes when sector-rounded dropped from 24,064 to 23,552.
+- `CORE.SYS` total size is 29,184 bytes / 57 sectors.
+- Phase entries:
+  - `P`: sector offset 46, one sector, load address `0x0700`.
+  - `A`: sector offset 47, one sector, load address `0x0700`.
+  - `U`: sector offset 48, two sectors, load address `0x0700`.
+  - `Q`: sector offset 50, three sectors, load address `0x0700`.
+  - `R`: sector offset 53, one sector, load address `0x0700`.
+  - `T`: sector offset 54, one sector, load address `0x0700`.
+  - `B`: sector offset 55, one sector, load address `0x0700`.
+  - `S`: sector offset 56, one sector, load address `0x0700`.
+- Gap to the guarded 24 KiB BASIC target is now 9 resident sectors / 4,608
+  bytes.
+
+Verification:
+- `make inspect` passes.
+- `make test` passes.
+- `git diff --check` passes.
+- Saved `USER.CFG` `vm-net-ne2k8` canary reaches `seed build 6` with `ok`.
+- Saved `USER.CFG` `vm-net-3c501` canary initially showed one `agent setup
+  failed` warning, then two immediate reruns reached `seed build 6` with `ok`.
+- Saved `USER.CFG` `vm-net-3c503` canary reaches `seed build 6` with `ok`.
+- Saved `USER.CFG` `vm-net-wd8003e` canary reaches `seed build 6` with `ok`.
+
+## 2026-05-07 11:01:10 - Move optional config readers into phases
+
+Change:
+- Moved optional `NET.CFG` probe parsing into nonresident `P`.
+- Moved `AGENTS.CFG` agent-list parsing and built-in fallback population into
+  nonresident `A`.
+- Added a generic one-sector phase runner; the existing `S` save phase now uses
+  the same path.
+- Left the resident TLS/OpenAI fast path unchanged.
+
+Measurements:
+- Resident sectors dropped from 52 to 51.
+- Resident bytes when sector-rounded dropped from 26,624 to 26,112.
+- `CORE.SYS` total size returned to 27,648 bytes because `P`, `A`, and `S`
+  each occupy one nonresident sector.
+- Phase table entries:
+  - `P`: sector offset 51, one sector, load address `0x0700`.
+  - `A`: sector offset 52, one sector, load address `0x0700`.
+  - `S`: sector offset 53, one sector, load address `0x0700`.
+- Phase table offset is 26,002 bytes into `CORE.SYS`.
+- Estimated `core_resident_end` is now image offset 26,032, leaving 80 bytes
+  before the 51-sector resident boundary.
+
+Verification:
+- `make inspect` passes.
+- `make test` passes.
+- `git diff --check` passes.
+- First `vm-net-ne2k8` canary reached the agent selection prompt instead of
+  saved `USER.CFG`; the menu showed the old built-in fallback stride bug
+  (`openai`, truncated `anthropic`, hidden `google`).
+- Root cause was the phase resident-call relocation macro targeting one byte
+  before the intended resident routine.
+- Fixed the phase-call displacement in all phase includes and made built-in
+  fallback agent IDs populate the same 16-byte slots used by the menu.
+- Re-run `vm-net-ne2k8` canary reaches `seed build 6` with `ok`.
+- `vm-net-ne2k8` canary reaches `seed build 6` with `ok`.
+
+## 2026-05-07 11:01:10 - Move USER.CFG read/parser into a phase
+
+Change:
+- Moved optional `USER.CFG` read, line parsing, and saved-agent matching into
+  nonresident `U`.
+- Generalized the resident phase runner to load multi-sector phase windows into
+  low scratch before jumping to them.
+- Kept the resident interactive prompt, validation, and save trigger in place.
+- Left the resident TLS/OpenAI fast path unchanged.
+
+Measurements:
+- Resident sectors dropped from 51 to 50.
+- Resident bytes when sector-rounded dropped from 26,112 to 25,600.
+- `CORE.SYS` total size grew from 27,648 to 28,160 bytes because `U` occupies
+  two nonresident sectors.
+- Phase table entries:
+  - `P`: sector offset 50, one sector, load address `0x0700`.
+  - `A`: sector offset 51, one sector, load address `0x0700`.
+  - `U`: sector offset 52, two sectors, load address `0x0700`.
+  - `S`: sector offset 54, one sector, load address `0x0700`.
+- Phase table offset is 25,422 bytes into `CORE.SYS`.
+- Estimated `core_resident_end` is now image offset 25,462, leaving 138 bytes
+  before the 50-sector resident boundary.
+- Gap to the guarded 24 KiB BASIC target is now roughly 6.7 KiB of resident
+  code/data.
+
+Verification:
+- `make inspect` passes.
+- `make test` passes.
+- `git diff --check` passes.
+- `make test` passes.
+- `git diff --check` passes.
+- `vm-net-ne2k8` canary reaches `seed build 6` with `ok`.
+
+## 2026-05-07 11:01:10 - Move missing-config agent setup into a phase
+
+Change:
+- Moved the interactive agent selector and key/endpoint entry path into a
+  nonresident `Q` phase.
+- Changed resident `ensure_seed_values` into a validation-only guard: saved
+  `USER.CFG` with required values skips `Q`; missing or invalid values load
+  `Q` from floppy.
+- Kept the resident TLS/OpenAI fast path unchanged.
+- Left the shared form drawing helpers resident for this cut to reduce UI
+  regression risk.
+
+Measurements:
+- Resident sectors dropped from 50 to 49.
+- Resident bytes when sector-rounded dropped from 25,600 to 25,088.
+- `CORE.SYS` total size grew from 28,160 to 28,672 bytes because `Q` occupies
+  two nonresident sectors.
+- Phase table entries:
+  - `P`: sector offset 49, one sector, load address `0x0700`.
+  - `A`: sector offset 50, one sector, load address `0x0700`.
+  - `U`: sector offset 51, two sectors, load address `0x0700`.
+  - `Q`: sector offset 53, two sectors, load address `0x0700`.
+  - `S`: sector offset 55, one sector, load address `0x0700`.
+- Phase table offset is 24,842 bytes into `CORE.SYS`.
+- Gap to the guarded 24 KiB BASIC target is now roughly 6.0 KiB of resident
+  code/data.
+
+Verification:
+- `make inspect` passes.
+- `make test` passes.
+- `git diff --check` passes.
+- Saved `USER.CFG` `vm-net-ne2k8` canary reaches `seed build 6` with `ok`.
+- `INCLUDE_USER_CFG=0` `vm-net-ne2k8` canary reaches the `agent?` selector and
+  shows all configured agents, including `anthropic` and `google`.
+
+## 2026-05-07 11:01:10 - Move agent-specific UI helpers into Q
+
+Change:
+- Moved the agent selector drawing, agent values form drawing, input line
+  rendering, and agent-specific panel clearing helpers into the nonresident
+  `Q` phase.
+- Kept generic text output, failure UI, tones, and hot network/TLS/OpenAI code
+  resident.
+
+Measurements:
+- Resident sectors dropped from 49 to 48.
+- Resident bytes when sector-rounded dropped from 25,088 to 24,576.
+- `CORE.SYS` total size remains 28,672 bytes.
+- `Q` grew from two phase sectors to three phase sectors.
+- Phase table entries:
+  - `P`: sector offset 48, one sector, load address `0x0700`.
+  - `A`: sector offset 49, one sector, load address `0x0700`.
+  - `U`: sector offset 50, two sectors, load address `0x0700`.
+  - `Q`: sector offset 52, three sectors, load address `0x0700`.
+  - `S`: sector offset 55, one sector, load address `0x0700`.
+- Phase table offset is 24,355 bytes into `CORE.SYS`.
+- Gap to the guarded 24 KiB BASIC target is now roughly 5.5 KiB of resident
+  code/data.
+
+Verification:
+- `make inspect` passes.
+- `make test` passes.
+- `git diff --check` passes.
+- Saved `USER.CFG` `vm-net-ne2k8` canary reaches `seed build 6` with `ok`.
+- `INCLUDE_USER_CFG=0` `vm-net-ne2k8` canary reaches the `agent?` selector and
+  shows all configured agents, including `anthropic` and `google`.
+
+## 2026-05-07 11:01:10 - Move OpenAI request build into R
+
+Change:
+- Moved the OpenAI HTTP/JSON request construction into a nonresident `R` phase.
+- The resident agent path now loads `R` before TCP connect and TLS handshake,
+  so the critical TLS/application-data window only consumes the already-built
+  `api_request_plain` buffer.
+- Removed the fallback that could build an application request from inside the
+  TLS send path. A missing prepared request now fails instead of touching
+  floppy during the fast window.
+- First NE2K canary failed because `R` used phase-local string labels without
+  rebasing them to the low-scratch load address. Fixed the phase-local string
+  references to use `low_scratch_start + (label - PHASE_BASE)`.
+
+Measurements:
+- Resident sectors dropped from 48 to 47.
+- Resident bytes when sector-rounded dropped from 24,576 to 24,064.
+- `CORE.SYS` total size remains 28,672 bytes.
+- Added one phase sector:
+  - `P`: sector offset 47, one sector, load address `0x0700`.
+  - `A`: sector offset 48, one sector, load address `0x0700`.
+  - `U`: sector offset 49, two sectors, load address `0x0700`.
+  - `Q`: sector offset 51, three sectors, load address `0x0700`.
+  - `R`: sector offset 54, one sector, load address `0x0700`.
+  - `S`: sector offset 55, one sector, load address `0x0700`.
+- Phase table offset is 23,906 bytes into `CORE.SYS`.
+- Gap to the guarded 24 KiB BASIC target is now roughly 5.0 KiB of resident
+  code/data.
+
+Verification:
+- `make inspect` passes.
+- `make test` passes.
+- `git diff --check` passes.
+- Saved `USER.CFG` `vm-net-ne2k8` canary reaches `seed build 6` with `ok`.
+- Saved `USER.CFG` `vm-net-3c501` canary reaches `seed build 6` with `ok`.
+
+## 2026-05-07 11:01:10 - Remove temporary no-op phase
+
+Change:
+- Removed the temporary `N` no-op phase that only proved nonresident phase
+  loading.
+- Removed the associated startup phase probe, probe byte, service-vector slot,
+  and `phase-noop.bin` build rule.
+- Kept the real nonresident `S` save phase as the only phase entry.
+
+Measurements:
+- `CORE.SYS` total size dropped from 27,648 bytes to 27,136 bytes.
+- Total sectors dropped from 54 to 53.
+- Resident sectors remain 52.
+- Resident bytes when sector-rounded remain 26,624.
+- Phase table now has one entry:
+  - `S`: sector offset 52, one sector, load address `0x0700`.
+- Phase table offset is 26,492 bytes into `CORE.SYS`.
+- Estimated `core_resident_end` is now image offset 26,502, leaving 122 bytes
+  before the 52-sector resident boundary.
+- This recovered about 59 resident bytes, so dropping to 51 resident sectors
+  still needs roughly 390 more resident bytes moved or cut.
+
+Verification:
+- `make inspect` passes.
+- `make test` passes.
+- `git diff --check` passes.
+- No-card BIOS boot smoke reaches the expected red `. no network card` screen
+  with the reserved loader clearing the BASIC-entry signature.
+- The FAT root order is `CORE.SYS`, config files, `SEED24A.BAS`,
+  `SEED24B.BAS`.
+- `SEED24A.BAS` and `SEED24B.BAS` are generated at 635 bytes each.
+- `make test` passes.
+
+## 2026-05-07 17:04:15 - Move cold failure and adapter UI into phases
 
 Change:
 - Moved the fatal retry/restart UI into nonresident `F`.
@@ -78,7 +536,7 @@ Measurements:
 Verification:
 - `make inspect` passes.
 
-## 2026-05-07 - Phase-only helper cleanup reaches 44 resident sectors
+## 2026-05-07 17:04:15 - Phase-only helper cleanup reaches 44 resident sectors
 
 Change:
 - Moved selected-agent DNS target preparation into a nonresident `E` phase.
@@ -111,7 +569,7 @@ Verification:
 - `git diff --check` passes.
 - `vm-net-ne2k8` reaches `seed build 6` and displays returned `ok`.
 
-## 2026-05-07 - Hardware setup phase reaches 43 resident sectors
+## 2026-05-07 17:04:15 - Hardware setup phase reaches 43 resident sectors
 
 Change:
 - Moved hardware setup into the nonresident `H` phase:
@@ -144,7 +602,7 @@ Verification:
 - Saved `USER.CFG` `vm-net-3c503` canary reaches `seed build 6` with `ok`.
 - Saved `USER.CFG` `vm-net-wd8003e` canary reaches `seed build 6` with `ok`.
 
-## 2026-05-07 - Move pre-TLS DHCP/DNS/TCP setup into phases
+## 2026-05-07 19:17:17 - Move pre-TLS DHCP/DNS/TCP setup into phases
 
 Change:
 - Moved DHCP offer/ACK waiting and parsing into nonresident `D`.
@@ -186,465 +644,7 @@ Verification:
 - Saved `USER.CFG` `vm-net-3c503` canary reaches `seed build 6` with `ok`.
 - Saved `USER.CFG` `vm-net-wd8003e` canary reaches `seed build 6` with `ok`.
 
-## 2026-05-07 - Low-memory BASIC entry path
-
-Change:
-- Added a ROM BASIC-style bootstrap generator and tiny 8086 loader.
-- The normal BIOS boot path stays intact: boot sector -> reserved loader ->
-  FAT12 root `CORE.SYS`.
-- The same floppy also ships `SEED24A.BAS` and `SEED24B.BAS`. These poke a
-  tiny loader at `0x3a00`, then use BIOS INT 13h to read the same `CORE.SYS`
-  sectors from drive A or drive B and jump to `0000:1000`.
-- `CORE.SYS` remains the first FAT data file, so the BASIC loader can use the
-  stable first-data LBA while the boot loader still reads through FAT12.
-- The BASIC loader uses a 24 KiB stack ceiling (`0x6000`) and refuses to load a
-  core that would collide with its 256-byte stack guard. The current 32 KiB
-  release `CORE.SYS` is still too large for this path, so running the BASIC
-  bootstrap now should show the red `X` failure marker until the resident core
-  is slimmed.
-
-Verification:
-- `make inspect` passes.
-
-## 2026-05-07 - Move response parsing, splash, and phase metadata out of resident memory
-
-Change:
-- Moved decrypted application response parsing and answer typing into
-  nonresident `T`, loaded after TLS has already copied the decrypted record into
-  `tls_rx_copy`.
-- Moved the final `seed build 6` splash into nonresident `B`.
-- Moved the phase table out of the resident image and into the padded `S` phase
-  sector; `tools/core-sys-info.py` now validates phase table bounds against the
-  full `CORE.SYS` container instead of resident bytes.
-- Removed the unreachable post-TLS request resend fallback and compacted several
-  small resident branches.
-
-Measurements:
-- Resident sectors dropped from 47 to 46.
-- Resident bytes when sector-rounded dropped from 24,064 to 23,552.
-- `CORE.SYS` total size is 29,184 bytes / 57 sectors.
-- Phase entries:
-  - `P`: sector offset 46, one sector, load address `0x0700`.
-  - `A`: sector offset 47, one sector, load address `0x0700`.
-  - `U`: sector offset 48, two sectors, load address `0x0700`.
-  - `Q`: sector offset 50, three sectors, load address `0x0700`.
-  - `R`: sector offset 53, one sector, load address `0x0700`.
-  - `T`: sector offset 54, one sector, load address `0x0700`.
-  - `B`: sector offset 55, one sector, load address `0x0700`.
-  - `S`: sector offset 56, one sector, load address `0x0700`.
-- Gap to the guarded 24 KiB BASIC target is now 9 resident sectors / 4,608
-  bytes.
-
-Verification:
-- `make inspect` passes.
-- `make test` passes.
-- `git diff --check` passes.
-- Saved `USER.CFG` `vm-net-ne2k8` canary reaches `seed build 6` with `ok`.
-- Saved `USER.CFG` `vm-net-3c501` canary initially showed one `agent setup
-  failed` warning, then two immediate reruns reached `seed build 6` with `ok`.
-- Saved `USER.CFG` `vm-net-3c503` canary reaches `seed build 6` with `ok`.
-- Saved `USER.CFG` `vm-net-wd8003e` canary reaches `seed build 6` with `ok`.
-
-## 2026-05-07 - Move optional config readers into phases
-
-Change:
-- Moved optional `NET.CFG` probe parsing into nonresident `P`.
-- Moved `AGENTS.CFG` agent-list parsing and built-in fallback population into
-  nonresident `A`.
-- Added a generic one-sector phase runner; the existing `S` save phase now uses
-  the same path.
-- Left the resident TLS/OpenAI fast path unchanged.
-
-Measurements:
-- Resident sectors dropped from 52 to 51.
-- Resident bytes when sector-rounded dropped from 26,624 to 26,112.
-- `CORE.SYS` total size returned to 27,648 bytes because `P`, `A`, and `S`
-  each occupy one nonresident sector.
-- Phase table entries:
-  - `P`: sector offset 51, one sector, load address `0x0700`.
-  - `A`: sector offset 52, one sector, load address `0x0700`.
-  - `S`: sector offset 53, one sector, load address `0x0700`.
-- Phase table offset is 26,002 bytes into `CORE.SYS`.
-- Estimated `core_resident_end` is now image offset 26,032, leaving 80 bytes
-  before the 51-sector resident boundary.
-
-Verification:
-- `make inspect` passes.
-- `make test` passes.
-- `git diff --check` passes.
-- First `vm-net-ne2k8` canary reached the agent selection prompt instead of
-  saved `USER.CFG`; the menu showed the old built-in fallback stride bug
-  (`openai`, truncated `anthropic`, hidden `google`).
-- Root cause was the phase resident-call relocation macro targeting one byte
-  before the intended resident routine.
-- Fixed the phase-call displacement in all phase includes and made built-in
-  fallback agent IDs populate the same 16-byte slots used by the menu.
-- Re-run `vm-net-ne2k8` canary reaches `seed build 6` with `ok`.
-- `vm-net-ne2k8` canary reaches `seed build 6` with `ok`.
-
-## 2026-05-07 - Move USER.CFG read/parser into a phase
-
-Change:
-- Moved optional `USER.CFG` read, line parsing, and saved-agent matching into
-  nonresident `U`.
-- Generalized the resident phase runner to load multi-sector phase windows into
-  low scratch before jumping to them.
-- Kept the resident interactive prompt, validation, and save trigger in place.
-- Left the resident TLS/OpenAI fast path unchanged.
-
-Measurements:
-- Resident sectors dropped from 51 to 50.
-- Resident bytes when sector-rounded dropped from 26,112 to 25,600.
-- `CORE.SYS` total size grew from 27,648 to 28,160 bytes because `U` occupies
-  two nonresident sectors.
-- Phase table entries:
-  - `P`: sector offset 50, one sector, load address `0x0700`.
-  - `A`: sector offset 51, one sector, load address `0x0700`.
-  - `U`: sector offset 52, two sectors, load address `0x0700`.
-  - `S`: sector offset 54, one sector, load address `0x0700`.
-- Phase table offset is 25,422 bytes into `CORE.SYS`.
-- Estimated `core_resident_end` is now image offset 25,462, leaving 138 bytes
-  before the 50-sector resident boundary.
-- Gap to the guarded 24 KiB BASIC target is now roughly 6.7 KiB of resident
-  code/data.
-
-Verification:
-- `make inspect` passes.
-- `make test` passes.
-- `git diff --check` passes.
-- `make test` passes.
-- `git diff --check` passes.
-- `vm-net-ne2k8` canary reaches `seed build 6` with `ok`.
-
-## 2026-05-07 - Move missing-config agent setup into a phase
-
-Change:
-- Moved the interactive agent selector and key/endpoint entry path into a
-  nonresident `Q` phase.
-- Changed resident `ensure_seed_values` into a validation-only guard: saved
-  `USER.CFG` with required values skips `Q`; missing or invalid values load
-  `Q` from floppy.
-- Kept the resident TLS/OpenAI fast path unchanged.
-- Left the shared form drawing helpers resident for this cut to reduce UI
-  regression risk.
-
-Measurements:
-- Resident sectors dropped from 50 to 49.
-- Resident bytes when sector-rounded dropped from 25,600 to 25,088.
-- `CORE.SYS` total size grew from 28,160 to 28,672 bytes because `Q` occupies
-  two nonresident sectors.
-- Phase table entries:
-  - `P`: sector offset 49, one sector, load address `0x0700`.
-  - `A`: sector offset 50, one sector, load address `0x0700`.
-  - `U`: sector offset 51, two sectors, load address `0x0700`.
-  - `Q`: sector offset 53, two sectors, load address `0x0700`.
-  - `S`: sector offset 55, one sector, load address `0x0700`.
-- Phase table offset is 24,842 bytes into `CORE.SYS`.
-- Gap to the guarded 24 KiB BASIC target is now roughly 6.0 KiB of resident
-  code/data.
-
-Verification:
-- `make inspect` passes.
-- `make test` passes.
-- `git diff --check` passes.
-- Saved `USER.CFG` `vm-net-ne2k8` canary reaches `seed build 6` with `ok`.
-- `INCLUDE_USER_CFG=0` `vm-net-ne2k8` canary reaches the `agent?` selector and
-  shows all configured agents, including `anthropic` and `google`.
-
-## 2026-05-07 - Move agent-specific UI helpers into Q
-
-Change:
-- Moved the agent selector drawing, agent values form drawing, input line
-  rendering, and agent-specific panel clearing helpers into the nonresident
-  `Q` phase.
-- Kept generic text output, failure UI, tones, and hot network/TLS/OpenAI code
-  resident.
-
-Measurements:
-- Resident sectors dropped from 49 to 48.
-- Resident bytes when sector-rounded dropped from 25,088 to 24,576.
-- `CORE.SYS` total size remains 28,672 bytes.
-- `Q` grew from two phase sectors to three phase sectors.
-- Phase table entries:
-  - `P`: sector offset 48, one sector, load address `0x0700`.
-  - `A`: sector offset 49, one sector, load address `0x0700`.
-  - `U`: sector offset 50, two sectors, load address `0x0700`.
-  - `Q`: sector offset 52, three sectors, load address `0x0700`.
-  - `S`: sector offset 55, one sector, load address `0x0700`.
-- Phase table offset is 24,355 bytes into `CORE.SYS`.
-- Gap to the guarded 24 KiB BASIC target is now roughly 5.5 KiB of resident
-  code/data.
-
-Verification:
-- `make inspect` passes.
-- `make test` passes.
-- `git diff --check` passes.
-- Saved `USER.CFG` `vm-net-ne2k8` canary reaches `seed build 6` with `ok`.
-- `INCLUDE_USER_CFG=0` `vm-net-ne2k8` canary reaches the `agent?` selector and
-  shows all configured agents, including `anthropic` and `google`.
-
-## 2026-05-07 - Move OpenAI request build into R
-
-Change:
-- Moved the OpenAI HTTP/JSON request construction into a nonresident `R` phase.
-- The resident agent path now loads `R` before TCP connect and TLS handshake,
-  so the critical TLS/application-data window only consumes the already-built
-  `api_request_plain` buffer.
-- Removed the fallback that could build an application request from inside the
-  TLS send path. A missing prepared request now fails instead of touching
-  floppy during the fast window.
-- First NE2K canary failed because `R` used phase-local string labels without
-  rebasing them to the low-scratch load address. Fixed the phase-local string
-  references to use `low_scratch_start + (label - PHASE_BASE)`.
-
-Measurements:
-- Resident sectors dropped from 48 to 47.
-- Resident bytes when sector-rounded dropped from 24,576 to 24,064.
-- `CORE.SYS` total size remains 28,672 bytes.
-- Added one phase sector:
-  - `P`: sector offset 47, one sector, load address `0x0700`.
-  - `A`: sector offset 48, one sector, load address `0x0700`.
-  - `U`: sector offset 49, two sectors, load address `0x0700`.
-  - `Q`: sector offset 51, three sectors, load address `0x0700`.
-  - `R`: sector offset 54, one sector, load address `0x0700`.
-  - `S`: sector offset 55, one sector, load address `0x0700`.
-- Phase table offset is 23,906 bytes into `CORE.SYS`.
-- Gap to the guarded 24 KiB BASIC target is now roughly 5.0 KiB of resident
-  code/data.
-
-Verification:
-- `make inspect` passes.
-- `make test` passes.
-- `git diff --check` passes.
-- Saved `USER.CFG` `vm-net-ne2k8` canary reaches `seed build 6` with `ok`.
-- Saved `USER.CFG` `vm-net-3c501` canary reaches `seed build 6` with `ok`.
-
-## 2026-05-07 - Remove temporary no-op phase
-
-Change:
-- Removed the temporary `N` no-op phase that only proved nonresident phase
-  loading.
-- Removed the associated startup phase probe, probe byte, service-vector slot,
-  and `phase-noop.bin` build rule.
-- Kept the real nonresident `S` save phase as the only phase entry.
-
-Measurements:
-- `CORE.SYS` total size dropped from 27,648 bytes to 27,136 bytes.
-- Total sectors dropped from 54 to 53.
-- Resident sectors remain 52.
-- Resident bytes when sector-rounded remain 26,624.
-- Phase table now has one entry:
-  - `S`: sector offset 52, one sector, load address `0x0700`.
-- Phase table offset is 26,492 bytes into `CORE.SYS`.
-- Estimated `core_resident_end` is now image offset 26,502, leaving 122 bytes
-  before the 52-sector resident boundary.
-- This recovered about 59 resident bytes, so dropping to 51 resident sectors
-  still needs roughly 390 more resident bytes moved or cut.
-
-Verification:
-- `make inspect` passes.
-- `make test` passes.
-- `git diff --check` passes.
-- No-card BIOS boot smoke reaches the expected red `. no network card` screen
-  with the reserved loader clearing the BASIC-entry signature.
-- The FAT root order is `CORE.SYS`, config files, `SEED24A.BAS`,
-  `SEED24B.BAS`.
-- `SEED24A.BAS` and `SEED24B.BAS` are generated at 635 bytes each.
-- `make test` passes.
-
-## 2026-05-07 - CORE.SYS container header scaffold
-
-Change:
-- Added a tiny `CORE.SYS` header at `0x1000`.
-- The first instruction is still executable from the old loader entry point:
-  it jumps over the header into the existing `start` label and preserves `DL`.
-- Added `tools/core-sys-info.py` to parse and check the header.
-- `make inspect` now prints the parsed header fields.
-- The BASIC bootstrap build now reads `resident-sectors` from the `CORE.SYS`
-  header instead of estimating from file size directly.
-- For this scaffold checkpoint, `resident-sectors` still equals
-  `total-sectors`; no phase is split out yet.
-
-Measurements:
-- Previous `CORE.SYS` size: 27,094 bytes.
-- New `CORE.SYS` size: 27,119 bytes.
-- Header size: 25 bytes.
-- Resident sectors: 53.
-- Resident bytes when sector-rounded: 27,136.
-- Total sectors: 53.
-- At the current 32 KiB stack guard, the rounded resident load reaches
-  `0x7a00`, exactly the guard start. This is acceptable as a temporary bridge,
-  but the next useful step must reduce `resident-sectors`.
-
-Verification:
-- `make inspect` passes.
-- `make test` passes.
-- `git diff --check` passes.
-- No-card BIOS boot smoke reaches the expected red `. no network card` screen.
-
-## 2026-05-07 - Reserved loader uses resident-sector count
-
-Change:
-- Updated the reserved BIOS loader to read the first `CORE.SYS` sector,
-  validate the `SEEDCORE` header, and then load only `resident-sectors` through
-  the FAT12 cluster chain.
-- Because `resident-sectors` still equals `total-sectors`, current runtime
-  behavior remains a full-image load.
-- Once the core is split, BIOS boot and BASIC boot will both load the same
-  resident nucleus before jumping to `0000:1000`.
-
-Measurements:
-- Reserved loader still fits in the configured four-sector loader area.
-- `CORE.SYS` remains 27,119 bytes.
-- Resident sectors remain 53.
-
-Verification:
-- `make inspect` passes.
-- `git diff --check` passes.
-- No-card BIOS boot smoke reaches the expected red `. no network card` screen
-  through the header-validating loader.
-
-## 2026-05-07 - First runtime phase-load proof
-
-Change:
-- Factored the three fatal paths in `main.inc` through one shared
-  `show_failure` routine.
-- Added a one-sector no-op phase after the resident image inside `CORE.SYS`.
-- Startup reads that no-op phase from the `CORE.SYS` container into low scratch
-  and calls it.
-- The phase writes a resident probe byte before returning; startup checks that
-  byte before continuing.
-
-Measurements:
-- Failure-path factoring reduced the resident image by 52 bytes before adding
-  the phase-load proof.
-- `CORE.SYS` total size is now 27,648 bytes because it includes one extra
-  sector outside the resident load.
-- Resident sectors remain 53.
-- Total sectors are now 54.
-- This proves the container can hold a non-resident phase sector while both
-  BIOS boot and BASIC boot still load only the resident sector count.
-
-Verification:
-- `make inspect` passes.
-- `make test` passes.
-- `git diff --check` passes.
-- No-card BIOS boot smoke reaches the expected red `. no network card` screen
-  after the startup phase-load probe.
-
-## 2026-05-07 - Resident phase table
-
-Change:
-- Added the first resident phase-table entry.
-- The current table has one entry:
-  - id `N`
-  - sector offset 53
-  - sector count 1
-  - load address `0x0700`
-  - flags `0`
-- Extended `tools/core-sys-info.py` to validate and print phase-table entries.
-
-Measurements:
-- `CORE.SYS` total size remains 27,648 bytes.
-- Resident sectors remain 53.
-- Total sectors remain 54.
-- Phase table offset is 27,100 bytes into `CORE.SYS`.
-
-Verification:
-- `make inspect` passes and prints the `N` phase entry.
-- `make test` passes.
-- `git diff --check` passes.
-
-## 2026-05-07 - Separately assembled phase and service vector
-
-Change:
-- Moved the no-op proof code into
-  `targets/ibm_pc_5150/boot/phases/noop.asm`.
-- The no-op phase is assembled for its runtime address, `0x0700`, then
-  embedded as a sector-aligned nonresident `CORE.SYS` phase.
-- Added a fixed low-memory phase service vector immediately after the handoff
-  block at `0x062c`.
-- The phase calls the probe service through that vector instead of directly
-  calling resident labels. This validates the rule that phase code cannot rely
-  on normal near calls into the resident image.
-
-Measurements:
-- `CORE.SYS` total size remains 27,648 bytes.
-- Resident sectors remain 53.
-- Total sectors remain 54.
-- Phase table offset is 27,116 bytes into `CORE.SYS`.
-- `core_resident_end` is at image offset `0x69f6`, leaving 10 bytes before the
-  53-sector resident boundary.
-- Dropping to 52 resident sectors requires moving or cutting about 502 bytes
-  from the resident image.
-
-Verification:
-- `make inspect` passes and prints the `N` phase entry.
-- `make test` passes.
-- No-card BIOS boot smoke reaches the expected red `. no network card` screen
-  after the separately assembled phase calls back through the service vector.
-
-## 2026-05-07 - First resident sector cut and SAVE phase
-
-Change:
-- Removed the resident `USER.CFG` creation/write path and write-only FAT/root
-  bookkeeping from the permanent image.
-- Kept `USER.CFG`, `AGENTS.CFG`, and `NET.CFG` reads resident for now.
-- Added a nonresident `S` phase after the no-op phase. The resident code loads
-  it only after the provider response path has finished and only when
-  `user_cfg_dirty` is set.
-- The `S` phase updates an existing `USER.CFG` data cluster and root-directory
-  size. It intentionally does not create `USER.CFG` when missing yet; missing
-  persistence remains non-fatal and should be expanded later if product scope
-  requires writes on a floppy without a shipped `USER.CFG`.
-
-Measurements:
-- Resident sectors dropped from 53 to 52.
-- Resident bytes when sector-rounded dropped from 27,136 to 26,624.
-- `CORE.SYS` total size is 27,648 bytes because it now contains two
-  nonresident phase sectors.
-- Phase table entries:
-  - `N`: sector offset 52, one sector, load address `0x0700`.
-  - `S`: sector offset 53, one sector, load address `0x0700`.
-- `core_resident_end` is at image offset `0x67ad`, leaving 83 bytes before the
-  52-sector resident boundary.
-- The `S` phase code is 371 bytes and fits in one sector.
-
-Verification:
-- `make inspect` passes and prints both phase entries.
-- `make test` passes.
-- `git diff --check` passes.
-- No-card BIOS boot smoke reaches the expected red `. no network card` screen.
-
-Follow-up:
-- The inline `S` phase uses explicit resident-call relocation because it is
-  still assembled in the same NASM pass as the resident image. Before many
-  larger phases are added, this needs to become a stricter phase ABI or a
-  generated-symbol/link step so relocated calls cannot be used accidentally.
-
-## 2026-05-07 - BASIC entry passes RAM ceiling
-
-Change:
-- Added a tiny BASIC-entry convention: the BASIC bootstrap passes
-  `AX=SEED_RAM_TOP`, `BX=0x5345`, and `CX=0x4544` before jumping to
-  `CORE.SYS`.
-- The core checks that signature before setting its initial stack. BIOS boot
-  keeps the normal `0x8000` stack top, while the 24 KiB BASIC path can use
-  `0x6000`.
-- The reserved BIOS loader explicitly clears `AX/BX/CX` before jumping so it
-  cannot accidentally match the BASIC-entry signature.
-- Extended the handoff block to publish the runtime RAM top.
-
-Measurements:
-- Resident sectors remain 52.
-- `core_resident_end` is now at image offset `0x67c1`, leaving 63 bytes before
-  the 52-sector resident boundary.
-- BASIC loader programs grew from 635 bytes to 664 bytes.
-
-Verification:
-- `make inspect` passes.
-
-## 2026-05-07 - Scratch-tail alias reaches guarded 24 KiB fit
+## 2026-05-07 21:58:37 - Scratch-tail alias reaches guarded 24 KiB fit
 
 Change:
 - Reused the second TLS receive-buffer payload as pre-response scratch. The
@@ -669,7 +669,7 @@ Verification:
 - 32 KiB BIOS-boot canaries for `vm-net-ne2k8` and `vm-net-3c501` reached
   `seed build 6` with `ok`.
 
-## 2026-05-07 - BASIC helpers are sidecar text, not FAT files
+## 2026-05-07 21:58:37 - BASIC helpers are sidecar text, not FAT files
 
 Change:
 - Removed `SEED24A.BAS` and `SEED24B.BAS` from the release floppy FAT root.
@@ -692,7 +692,7 @@ Emulator note:
   BASIC, and the 24 KiB release gate should use a 32 KiB profile forced through
   the BASIC helper, which passes `SEED_RAM_TOP=0x6000` to Seed.
 
-## 2026-05-07 - BASIC sidecar path reaches OpenAI ok under 24 KiB ceiling
+## 2026-05-07 21:58:37 - BASIC sidecar path reaches OpenAI ok under 24 KiB ceiling
 
 Root cause:
 - The first 24 KiB BASIC sidecar loaded its tiny machine-code loader at
@@ -733,7 +733,7 @@ Verification:
 - 24 KiB BASIC sidecar path reached `seed build 6` and `ok` on:
   `vm-net-ne2k8`, `vm-net-3c501`, `vm-net-3c503`, and `vm-net-wd8003e`.
 
-## 2026-05-07 - BASIC helper manual-entry reduction
+## 2026-05-07 23:06:07 - BASIC helper manual-entry reduction
 
 Change:
 - Replaced the generated decimal-byte BASIC helper with short hexadecimal

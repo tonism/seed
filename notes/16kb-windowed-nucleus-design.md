@@ -22,26 +22,31 @@ explicit, reloadable windows inside `CORE.SYS`.
 
 ## Current Baseline
 
-The current 24 KiB release still loads `CORE.SYS` at `0x1000`.
+The current Build 7 release candidate still loads `CORE.SYS` at `0x1000`.
 
 Measured current image:
 
 ```text
-CORE.SYS total bytes:       29696
-CORE.SYS total sectors:     58
-resident sectors:           37
-resident bytes:             18944
-resident load range:        0x1000..0x5a00
-24 KiB ceiling:             0x6000
-16 KiB ceiling:             0x4000
-BASIC sidecar loader addr:  0x5a00
+CORE.SYS total bytes:           23040
+CORE.SYS total sectors:         45
+resident nucleus sectors:       4
+resident nucleus bytes:         2048
+largest provider-critical K:    13 sectors / 6656 bytes
+provider-critical K range:      0x1800..0x3200
+high crypto scratch range:      0x3200..0x32c2
+critical scratch range:         0x32c2..0x3af3
+16 KiB ceiling:                 0x4000
+BASIC sidecar loader addr:      0x3a00
+preferred stack guard:          1024 bytes
+measured guarded slack:         +269 bytes
 ```
 
 For a 16 KiB machine, `0x1000..0x4000` is only 12 KiB total. That must cover
 resident code, persistent data, phase/window space or scratch, stack, and
-guards. The current resident image alone is about 6.5 KiB too large before any
-useful stack/scratch budget is considered. This is why 16 KiB is not a normal
-trimming pass.
+guards. Build 7 fits that shape only because the resident nucleus is tiny, the
+provider-critical path runs in a single measured K window, and high/critical
+scratch lives immediately above that window instead of at the older 24 KiB
+addresses.
 
 Lowering the `CORE.SYS` load address may be worth evaluating later, but it is
 not the main strategy. It buys at most a small amount and risks colliding with

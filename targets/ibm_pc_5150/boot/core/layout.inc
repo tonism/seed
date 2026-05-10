@@ -268,7 +268,7 @@ tcp_payload_read_len equ tcp_payload_offset + tcp_payload_max_len
 tls_payload_buffer_len equ tcp_payload_max_len
 tls_pre_response_tail_len equ tls_app_record_buffer_len + (16 * 2) + (16 * 2) + tls_random_len + tls_master_secret_len + sha256_digest_len
 tls_stream_buffer_len equ tls_payload_buffer_len + tls_pre_response_tail_len
-critical_scratch_start equ 0x5000
+critical_scratch_start equ 0x32c2
 critical_scratch_len equ tls_stream_buffer_len
 critical_scratch_end equ critical_scratch_start + critical_scratch_len
 tcp_source_port_word equ 0x02c0
@@ -330,7 +330,7 @@ p256_word_count equ 16
 p256_word_len equ p256_word_count * 2
 p256_product_word_count equ p256_word_count * 2
 p256_product_word_len equ p256_product_word_count * 2
-high_crypto_scratch_start equ 0x4c00
+high_crypto_scratch_start equ 0x3200
 high_tls_client_write_key equ high_crypto_scratch_start
 high_tls_server_write_key equ high_tls_client_write_key + tls_chacha_key_len
 high_tls_client_write_iv equ high_tls_server_write_key + tls_chacha_key_len
@@ -352,6 +352,9 @@ high_crypto_work equ high_crypto_scratch_start
 %error "agent id overlay exceeds persistent TLS key arena"
 %endif
 high_crypto_scratch_end equ high_tls_persistent_end
+%if critical_scratch_start != high_crypto_scratch_end
+%error "critical scratch must immediately follow high crypto scratch"
+%endif
 wd_saprom equ 0x08
 fat_root_start_lba equ LOADER_SECTORS + 3
 fat_fat_start_lba equ LOADER_SECTORS + 1

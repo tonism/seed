@@ -19,8 +19,8 @@ DEFAULT_BASIC_LOADER = ROOT / "build/ibm_pc_5150/seed24b-loader.bin"
 DEFAULT_FLOPPY = ROOT / "build/ibm_pc_5150/floppy-160k.img"
 DEFAULT_LOADER_FLOPPY = ROOT / "build/ibm_pc_5150/floppy-160k-lowmem-loader.img"
 DEFAULT_SCREENSHOT = ROOT / "build/ibm_pc_5150/86box-seed24-basic.png"
-BASIC_BOOTSTRAP_ADDR = 0x5A00
-BASIC_BOOTSTRAP_CLEAR_TOP = 23039
+BASIC_BOOTSTRAP_ADDR = 0x3A00
+BASIC_BOOTSTRAP_CLEAR_TOP = 14847
 BASIC_HEX_CHUNK_SIZE = 32
 
 
@@ -450,7 +450,7 @@ def main() -> int:
     parser.add_argument("--floppy", type=Path, default=DEFAULT_FLOPPY)
     parser.add_argument("--loader-floppy", type=Path, default=DEFAULT_LOADER_FLOPPY)
     parser.add_argument("--screenshot", type=Path, default=DEFAULT_SCREENSHOT)
-    parser.add_argument("--ram-kib", type=int, default=32)
+    parser.add_argument("--ram-kib", type=int, default=16)
     parser.add_argument("--startup-delay", type=float, default=22.0)
     parser.add_argument("--capture-delay", type=float, default=60.0)
     parser.add_argument("--type-delay", type=float, default=0.035)
