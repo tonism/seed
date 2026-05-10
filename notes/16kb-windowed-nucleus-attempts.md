@@ -3056,3 +3056,36 @@ Verification:
 - 16 KiB ROM BASIC sidecar profile `vm-net-wd8003eb` reached returned `ok`.
 - 16 KiB ROM BASIC sidecar no-card profile `vm` showed no NIC as expected.
 - 16 KiB ROM BASIC sidecar no-card profile `vm-mda` showed no NIC as expected.
+
+## 2026-05-10 04:25:47 - Remove empty resident include placeholders
+
+Change:
+
+- Deleted empty `core/config.inc`, `core/hal_display.inc`,
+  `core/hal_nic.inc`, and `core/ui_menu.inc`.
+- Removed their no-op include lines from `core.asm`.
+
+Reasoning:
+
+- These files were zero-byte placeholders and had no references except the
+  top-level include list.
+- Keeping them made the source tree look larger than it really is without
+  carrying behavior.
+
+Measurements:
+
+- `CORE.SYS` stayed 23040 bytes.
+- Total sectors stayed 45.
+- Resident nucleus stayed 4 sectors / 2048 bytes.
+- LINK/K provider-critical window stayed 13 sectors.
+- `16k-target critical guarded slack` stayed +269 bytes.
+
+Result:
+
+- Accepted as behavior-neutral source cleanup.
+
+Verification:
+
+- No remaining references to the deleted include filenames.
+- `make inspect` passed.
+- `make test` passed.

@@ -20,12 +20,8 @@ core_header_phase_count dw (core_phase_table_end - core_phase_table) / core_phas
 core_header_end:
 
 %include "core/main.inc"
-%include "core/hal_display.inc"
 %include "core/ui_core.inc"
-%include "core/ui_menu.inc"
-%include "core/hal_nic.inc"
 %include "core/net_phase.inc"
-%include "core/config.inc"
 %include "core/fs.inc"
 %include "core/nic.inc"
 %include "core/net_tx.inc"
