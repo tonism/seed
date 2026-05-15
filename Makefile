@@ -57,7 +57,7 @@ FAT_FILES += --file $(USER_CFG):USER.CFG
 endif
 endif
 
-.PHONY: all clean inspect basic-bootstrap test
+.PHONY: all clean inspect basic-bootstrap memory-map test
 
 all: $(FLOPPY_IMG)
 
@@ -136,6 +136,9 @@ inspect: $(FLOPPY_IMG) $(BASIC_BOOT_A_BAS) $(BASIC_BOOT_B_BAS)
 
 basic-bootstrap: $(BASIC_BOOT_A_BAS) $(BASIC_BOOT_B_BAS)
 	ls -l $(BASIC_BOOT_A_BIN) $(BASIC_BOOT_A_BAS) $(BASIC_BOOT_B_BIN) $(BASIC_BOOT_B_BAS)
+
+memory-map: $(CORE_SYS)
+	python3 tools/memory-map.py --update docs/memory.md
 
 test:
 	python3 tools/check-p256.py

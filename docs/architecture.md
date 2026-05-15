@@ -222,6 +222,10 @@ profiles.
 The 16 KiB target ceiling is `0x4000`. Seed currently keeps a 1 KiB measured
 execution guard below that ceiling.
 
+Generated stage-by-stage memory diagrams live in [`memory.md`](memory.md).
+Treat that file as an appendix to this architecture contract: regenerate it
+with `make memory-map` after memory-layout changes and before release checks.
+
 Entry-time BASIC view:
 
 ```text

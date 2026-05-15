@@ -2,12 +2,21 @@
 from __future__ import annotations
 
 import argparse
+import ctypes
+from datetime import datetime, timezone
 import os
+import re
 import shutil
+import signal
 import subprocess
+import struct
 import sys
 import tempfile
+import termios
+import threading
 import time
+import tty
+import zlib
 from pathlib import Path
 
 
@@ -19,9 +28,17 @@ DEFAULT_BASIC_LOADER = ROOT / "build/ibm_pc_5150/seed24b-loader.bin"
 DEFAULT_FLOPPY = ROOT / "build/ibm_pc_5150/floppy-160k.img"
 DEFAULT_LOADER_FLOPPY = ROOT / "build/ibm_pc_5150/floppy-160k-lowmem-loader.img"
 DEFAULT_SCREENSHOT = ROOT / "build/ibm_pc_5150/86box-seed24-basic.png"
+DEFAULT_ORACLE_SCREENSHOT = ROOT / "build/ibm_pc_5150/86box-oracle.png"
+DEFAULT_OCR_SCRIPT = ROOT / "tools/ocr-vision.swift"
+DEFAULT_BASIC_STARTUP_DELAY = 10.0
+DEFAULT_BASIC_CAPTURE_DELAY = 45.0
+DEFAULT_DIRECT_STARTUP_DELAY = 10.0
+DEFAULT_DIRECT_CAPTURE_DELAY = 50.0
 BASIC_BOOTSTRAP_ADDR = 0x3A00
 BASIC_BOOTSTRAP_CLEAR_TOP = 14847
 BASIC_HEX_CHUNK_SIZE = 32
+
+PTY_PATH_RE = re.compile(r"serial_passthrough:\s*Slave side is\s*(/dev/ttys\d+)")
 
 
 KEY_CODES = {
@@ -101,6 +118,75 @@ def run(args: list[str], **kwargs) -> subprocess.CompletedProcess[str]:
     return subprocess.run(args, check=True, text=True, **kwargs)
 
 
+def current_branch() -> str:
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return "unknown"
+    if result.returncode != 0:
+        return "unknown"
+    return result.stdout.strip() or "unknown"
+
+
+class TestLock:
+    def __init__(self, path: Path, name: str, profile: str, timeout: float):
+        self.path = path
+        self.name = name
+        self.profile = profile
+        self.timeout = timeout
+        self.content = ""
+        self.acquired = False
+
+    def acquire(self) -> None:
+        deadline = time.monotonic() + self.timeout
+        warned = False
+        timestamp = datetime.now(timezone.utc).isoformat()
+        self.content = f"{self.name} | {current_branch()} | {timestamp} | {self.profile}\n"
+        while True:
+            try:
+                fd = os.open(
+                    self.path,
+                    os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                    0o644,
+                )
+            except FileExistsError:
+                try:
+                    existing = self.path.read_text(encoding="utf-8").strip()
+                except OSError:
+                    existing = "(unreadable)"
+                if time.monotonic() >= deadline:
+                    raise SystemExit(f"test lock busy after {self.timeout:.0f}s: {self.path}: {existing}")
+                if not warned:
+                    print(f"test lock: waiting for {self.path}: {existing}")
+                    warned = True
+                time.sleep(2.0)
+                continue
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(self.content)
+            self.acquired = True
+            print(f"test lock: acquired {self.path}")
+            return
+
+    def release(self) -> None:
+        if not self.acquired:
+            return
+        try:
+            existing = self.path.read_text(encoding="utf-8")
+            if existing == self.content:
+                self.path.unlink()
+                print(f"test lock: released {self.path}")
+        except FileNotFoundError:
+            pass
+        finally:
+            self.acquired = False
+
+
 def emulator_path() -> str:
     found = shutil.which("86Box")
     if found:
@@ -113,6 +199,47 @@ def emulator_path() -> str:
 
 def activate_86box() -> None:
     run(["osascript", "-e", FOCUS_86BOX_SCRIPT])
+
+
+def frontmost_process_name() -> str | None:
+    script = (
+        'tell application "System Events" to '
+        'get name of first application process whose frontmost is true'
+    )
+    try:
+        result = subprocess.run(
+            ["osascript", "-e", script],
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+        )
+    except subprocess.CalledProcessError:
+        return None
+    name = result.stdout.strip()
+    return name or None
+
+
+def restore_frontmost_process(name: str | None) -> None:
+    if not name or name == "86Box":
+        return
+    script = """
+on run argv
+  set processName to item 1 of argv
+  tell application "System Events"
+    if exists process processName then
+      tell process processName to set frontmost to true
+    end if
+  end tell
+end run
+"""
+    subprocess.run(
+        ["osascript", "-e", script, name],
+        check=False,
+        text=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
 
 
 def paste_basic(basic: str) -> None:
@@ -209,30 +336,498 @@ def type_basic_keycodes(basic: str, key_delay: float, line_delay: float) -> None
         path.unlink(missing_ok=True)
 
 
-def rewrite_vm_config(config: Path, ram_kib: int, floppy: Path, rom_basic: bool) -> None:
-    lines = config.read_text(encoding="utf-8").splitlines()
-    out: list[str] = []
-    in_floppy_section = False
-    wrote_fdd2_check = False
-    wrote_fdd2_fn = False
-    wrote_fdd2_type = False
+def type_basic_pid_keycodes(
+    pid: int,
+    basic: str,
+    key_delay: float,
+    line_delay: float,
+) -> None:
+    unsupported = sorted({char for char in basic.lower().replace("\r", "") if char not in KEY_CODES})
+    if unsupported:
+        raise SystemExit(
+            "unsupported BASIC injection characters: "
+            + " ".join(repr(char) for char in unsupported)
+        )
+
+    cg = ctypes.CDLL("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics")
+    cf = ctypes.CDLL("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")
+    cg.CGEventCreateKeyboardEvent.argtypes = [ctypes.c_void_p, ctypes.c_uint16, ctypes.c_bool]
+    cg.CGEventCreateKeyboardEvent.restype = ctypes.c_void_p
+    cg.CGEventSetFlags.argtypes = [ctypes.c_void_p, ctypes.c_uint64]
+    cg.CGEventPostToPid.argtypes = [ctypes.c_int, ctypes.c_void_p]
+    cf.CFRelease.argtypes = [ctypes.c_void_p]
+
+    def post_raw_key(key_code: int) -> None:
+        for pressed in (True, False):
+            event = cg.CGEventCreateKeyboardEvent(None, key_code, pressed)
+            if not event:
+                raise SystemExit("CGEventCreateKeyboardEvent failed")
+            try:
+                cg.CGEventPostToPid(pid, event)
+            finally:
+                cf.CFRelease(event)
+
+    def post_key(key_code: int, shifted: bool) -> None:
+        if not shifted:
+            post_raw_key(key_code)
+            return
+        shift_code = 56
+        shift_down = cg.CGEventCreateKeyboardEvent(None, shift_code, True)
+        shift_up = cg.CGEventCreateKeyboardEvent(None, shift_code, False)
+        if not shift_down or not shift_up:
+            raise SystemExit("CGEventCreateKeyboardEvent failed")
+        try:
+            cg.CGEventPostToPid(pid, shift_down)
+            post_raw_key(key_code)
+            cg.CGEventPostToPid(pid, shift_up)
+        finally:
+            cf.CFRelease(shift_down)
+            cf.CFRelease(shift_up)
+
+    for char in basic.lower():
+        if char == "\r":
+            continue
+        key_code, shifted = KEY_CODES[char]
+        post_key(key_code, shifted)
+        time.sleep(line_delay if char == "\n" else key_delay)
+    time.sleep(line_delay)
+
+
+class ComCapture:
+    """Reads 86Box stdout for the passthrough PTY path then streams bytes off the PTY.
+
+    86Box prints a line like `serial_passthrough: Slave side is /dev/ttysNNN`
+    when `serial1_passthrough_enabled = 1` is set in the VM cfg. We open that
+    PTY and accumulate whatever the guest writes to COM1 (port 0x3F8).
+    """
+
+    def __init__(self, output_path: Path):
+        self.output_path = output_path
+        self.buf = bytearray()
+        self.lock = threading.Lock()
+        self.stop_event = threading.Event()
+        self.pty_path: str | None = None
+        self.pty_open_time: float | None = None
+        self.start_time: float = 0.0
+        self.stdout_thread: threading.Thread | None = None
+        self.pty_thread: threading.Thread | None = None
+
+    def start(self, process: subprocess.Popen) -> None:
+        self.stdout_thread = threading.Thread(
+            target=self._read_stdout, args=(process,), daemon=True
+        )
+        self.stdout_thread.start()
+
+    def _read_stdout(self, process: subprocess.Popen) -> None:
+        log_path = self.output_path.with_suffix(self.output_path.suffix + ".86box.log")
+        try:
+            log_file = open(log_path, "w")
+        except OSError:
+            log_file = None
+        try:
+            assert process.stdout is not None
+            for line in iter(process.stdout.readline, ""):
+                if self.stop_event.is_set():
+                    break
+                if log_file is not None:
+                    log_file.write(f"[{time.monotonic():.3f}] {line}")
+                    log_file.flush()
+                match = PTY_PATH_RE.search(line)
+                if match and self.pty_path is None:
+                    self.pty_path = match.group(1)
+                    self.pty_open_time = time.monotonic()
+                    print(f"com capture: PTY {self.pty_path} announced at t={self.pty_open_time:.2f}s")
+                    self.pty_thread = threading.Thread(
+                        target=self._read_pty, daemon=True
+                    )
+                    self.pty_thread.start()
+        except (ValueError, OSError):
+            pass
+        finally:
+            if log_file is not None:
+                log_file.close()
+
+    def _read_pty(self) -> None:
+        assert self.pty_path is not None
+        try:
+            fd = os.open(self.pty_path, os.O_RDWR | os.O_NONBLOCK | os.O_NOCTTY)
+        except OSError as exc:
+            print(
+                f"com capture: could not open PTY {self.pty_path}: {exc}",
+                file=sys.stderr,
+            )
+            return
+        try:
+            # PTY slaves default to cooked / line-discipline mode on macOS,
+            # which filters binary bytes. Put into raw mode so all bytes pass.
+            try:
+                tty.setraw(fd, termios.TCSANOW)
+            except termios.error as exc:
+                print(f"com capture: tty.setraw failed: {exc}", file=sys.stderr)
+            while not self.stop_event.is_set():
+                try:
+                    chunk = os.read(fd, 4096)
+                    if chunk:
+                        with self.lock:
+                            self.buf.extend(chunk)
+                    else:
+                        time.sleep(0.05)
+                except BlockingIOError:
+                    time.sleep(0.05)
+                except OSError:
+                    break
+        finally:
+            os.close(fd)
+
+    def finish(self) -> None:
+        self.stop_event.set()
+        time.sleep(0.2)
+        if self.stdout_thread is not None:
+            self.stdout_thread.join(timeout=2)
+        if self.pty_thread is not None:
+            self.pty_thread.join(timeout=2)
+        with self.lock:
+            data = bytes(self.buf)
+        self.output_path.parent.mkdir(parents=True, exist_ok=True)
+        self.output_path.write_bytes(data)
+        print(f"com capture: {len(data)} byte(s) -> {self.output_path}")
+        if self.pty_path is None:
+            print(
+                "com capture: WARNING - never observed a 'serial_passthrough: "
+                "Slave side is /dev/ttysNNN' line in 86Box stdout"
+            )
+            return
+        if not data:
+            print(
+                f"com capture: PTY {self.pty_path} opened but no bytes received"
+            )
+            return
+        preview = data[:64]
+        print(f"com capture: first {len(preview)} bytes hex: {preview.hex()}")
+        ascii_preview = preview.decode("ascii", errors="replace")
+        printable = "".join(
+            c if 32 <= ord(c) < 127 else "." for c in ascii_preview
+        )
+        print(f"com capture: first {len(preview)} bytes ascii: {printable}")
+
+
+class PcapCapture:
+    """Drive `sudo tcpdump` as a subprocess so the harness can capture host
+    network traffic for the run, then dump a quick text summary at the end.
+
+    Requires a `/etc/sudoers.d/*` entry granting NOPASSWD for /usr/sbin/tcpdump.
+    """
+
+    def __init__(
+        self,
+        path: Path,
+        filter_expr: str,
+        iface: str,
+        report_filter: str | None,
+        max_lines: int,
+    ):
+        self.path = path
+        self.filter_expr = filter_expr
+        self.iface = iface
+        self.report_filter = report_filter
+        self.max_lines = max_lines
+        self.proc: subprocess.Popen | None = None
+
+    def start(self) -> None:
+        # tcpdump needs root to open the capture device, then drops back to the
+        # invoking user. Keeping the running tcpdump child user-owned lets the
+        # harness send SIGINT for a clean pcap flush without orphaning a root
+        # process. This is intentionally the default en0 path; pktap0 may reject
+        # privilege drop on some macOS versions.
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        user = os.environ.get("USER") or os.environ.get("LOGNAME") or "nobody"
+        cmd = [
+            "sudo", "-n", "/usr/sbin/tcpdump",
+            "-i", self.iface,
+            "-U",
+            "-Z", user,
+            "-w", str(self.path),
+            self.filter_expr,
+        ]
+        try:
+            self.proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                start_new_session=True,
+            )
+        except FileNotFoundError as exc:
+            raise SystemExit(f"pcap: tcpdump not found: {exc}")
+        time.sleep(0.6)
+        if self.proc.poll() is not None:
+            err = self.proc.stderr.read().decode("utf-8", errors="replace") if self.proc.stderr else ""
+            raise SystemExit(
+                f"pcap: tcpdump exited immediately (rc={self.proc.returncode}). "
+                f"Verify `/etc/sudoers.d/seed-tcpdump` is present and `sudo -n tcpdump --version` works.\n{err}"
+            )
+        print(f"pcap: capturing on {self.iface} with filter '{self.filter_expr}' -> {self.path}")
+
+    def stop(self) -> None:
+        if self.proc is None:
+            return
+        pgid = self.proc.pid
+        try:
+            os.killpg(pgid, signal.SIGINT)
+        except (ProcessLookupError, PermissionError):
+            pass
+        try:
+            self.proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(pgid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+            try:
+                self.proc.wait(timeout=3)
+            except subprocess.SubprocessError:
+                pass
+        self.proc = None
+
+    def analyze(self) -> None:
+        lines = self.decoded_lines(report=True)
+        if lines is None:
+            print("pcap: capture file empty or missing")
+            return
+        if not lines:
+            print(f"pcap: decoding {self.path} ({self.path.stat().st_size} bytes)")
+            if self.report_filter:
+                print(f"pcap: no packets matched report filter '{self.report_filter}'")
+            else:
+                print("pcap: no packets captured")
+            return
+        print(f"pcap: decoding {self.path} ({self.path.stat().st_size} bytes)")
+        self.print_flow_summary(lines)
+        # Find the first timestamp to use as t=0
+        first_t = None
+        for line in lines:
+            try:
+                first_t = float(line.split()[0])
+                break
+            except (ValueError, IndexError):
+                continue
+        print("=== pcap: packets (t relative to first) ===")
+        if len(lines) > self.max_lines:
+            print(f"pcap: showing first {self.max_lines} of {len(lines)} decoded packets")
+        prev_t = first_t
+        for line in lines[: self.max_lines]:
+            tokens = line.split(None, 1)
+            try:
+                t_abs = float(tokens[0])
+            except (ValueError, IndexError):
+                print(line)
+                continue
+            t_rel = t_abs - first_t if first_t is not None else 0.0
+            gap = (t_abs - prev_t) if prev_t is not None else 0.0
+            gap_marker = ""
+            if gap >= 1.0:
+                gap_marker = f"  <-- {gap:.2f}s gap"
+            print(f"  t={t_rel:8.3f}  {tokens[1] if len(tokens) > 1 else ''}{gap_marker}")
+            prev_t = t_abs
+
+    def print_flow_summary(self, lines: list[str]) -> None:
+        flows = self.tcp443_flows(lines)
+        if not flows:
+            return
+        ranked = self.rank_flows(flows)
+        print("=== pcap: tcp/443 flow summary (top 12 by payload bytes) ===")
+        for (local_port, remote_host), flow in ranked[:12]:
+            duration = float(flow["last"]) - float(flow["first"])
+            print(
+                f"  lport={local_port:>5} remote={remote_host:<39} "
+                f"out={int(flow['out_pkts']):>4}p/{int(flow['out_bytes']):>6}B "
+                f"in={int(flow['in_pkts']):>4}p/{int(flow['in_bytes']):>6}B "
+                f"span={duration:>6.2f}s"
+            )
+
+    def tcp443_flows(self, lines: list[str]) -> dict[tuple[str, str], dict[str, float | int]]:
+        flows: dict[tuple[str, str], dict[str, float | int]] = {}
+        for line in lines:
+            parts = line.split()
+            if len(parts) < 7 or parts[1] not in ("IP", "IP6"):
+                continue
+            if parts[5] != "tcp":
+                continue
+            try:
+                t_abs = float(parts[0])
+            except ValueError:
+                continue
+            src_host, src_port = self.split_endpoint(parts[2])
+            dst_host, dst_port = self.split_endpoint(parts[4].rstrip(":"))
+            if src_host is None or dst_host is None:
+                continue
+            if src_port == "443":
+                key = (dst_port or "?", src_host)
+                direction = "in"
+            elif dst_port == "443":
+                key = (src_port or "?", dst_host)
+                direction = "out"
+            else:
+                continue
+            try:
+                size = int(parts[6])
+            except ValueError:
+                size = 0
+            flow = flows.setdefault(
+                key,
+                {
+                    "first": t_abs,
+                    "last": t_abs,
+                    "in_pkts": 0,
+                    "out_pkts": 0,
+                    "in_bytes": 0,
+                    "out_bytes": 0,
+                },
+            )
+            flow["first"] = min(float(flow["first"]), t_abs)
+            flow["last"] = max(float(flow["last"]), t_abs)
+            flow[f"{direction}_pkts"] = int(flow[f"{direction}_pkts"]) + 1
+            flow[f"{direction}_bytes"] = int(flow[f"{direction}_bytes"]) + size
+        return flows
+
+    @staticmethod
+    def rank_flows(
+        flows: dict[tuple[str, str], dict[str, float | int]]
+    ) -> list[tuple[tuple[str, str], dict[str, float | int]]]:
+        return sorted(
+            flows.items(),
+            key=lambda item: (
+                int(item[1]["in_bytes"]) + int(item[1]["out_bytes"]),
+                int(item[1]["in_pkts"]) + int(item[1]["out_pkts"]),
+            ),
+            reverse=True,
+        )
+
+    @staticmethod
+    def split_endpoint(endpoint: str) -> tuple[str | None, str | None]:
+        if "." not in endpoint:
+            return None, None
+        host, port = endpoint.rsplit(".", 1)
+        if not port.isdigit():
+            return None, None
+        return host, port
+
+    def decoded_lines(self, report: bool = False) -> list[str] | None:
+        if not self.path.exists() or self.path.stat().st_size == 0:
+            return None
+        cmd = ["/usr/sbin/tcpdump", "-r", str(self.path), "-nn", "-tt", "-q"]
+        if report and self.report_filter:
+            cmd.append(self.report_filter)
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            print(f"pcap: tcpdump -r failed (rc={result.returncode}): {result.stderr}")
+            return []
+        lines = [line for line in result.stdout.splitlines() if line and not line.startswith("reading from")]
+        return lines
+
+
+def ensure_com_passthrough(lines: list[str]) -> list[str]:
+    """Ensure cfg has `serial1_passthrough_enabled = 1` under [Ports (COM & LPT)]."""
+    result: list[str] = []
+    in_ports = False
+    saw_key = False
+    section_present = False
 
     for line in lines:
         stripped = line.strip()
         if stripped.startswith("[") and stripped.endswith("]"):
+            if in_ports and not saw_key:
+                result.append("serial1_passthrough_enabled = 1")
+                saw_key = True
+            in_ports = stripped == "[Ports (COM & LPT)]"
+            if in_ports:
+                section_present = True
+            result.append(line)
+            continue
+        if in_ports and stripped.startswith("serial1_passthrough_enabled"):
+            result.append("serial1_passthrough_enabled = 1")
+            saw_key = True
+            continue
+        result.append(line)
+
+    if in_ports and not saw_key:
+        result.append("serial1_passthrough_enabled = 1")
+        saw_key = True
+
+    if not section_present:
+        if result and result[-1].strip() != "":
+            result.append("")
+        result.append("[Ports (COM & LPT)]")
+        result.append("serial1_passthrough_enabled = 1")
+
+    return result
+
+
+def rewrite_vm_config(
+    config: Path,
+    ram_kib: int,
+    floppy: Path,
+    rom_basic: bool,
+    com_passthrough: bool = False,
+    muted: bool = True,
+) -> None:
+    lines = config.read_text(encoding="utf-8").splitlines()
+    out: list[str] = []
+    in_general_section = False
+    in_floppy_section = False
+    wrote_sound_muted = False
+    wrote_sound_gain = False
+    wrote_fdd1_fn = False
+    wrote_fdd2_check = False
+    wrote_fdd2_fn = False
+    wrote_fdd2_type = False
+
+    def flush_general_tail():
+        if not muted:
+            return
+        if not wrote_sound_muted:
+            out.append("sound_muted = 1")
+        if not wrote_sound_gain:
+            out.append("sound_gain = 0")
+
+    def flush_floppy_tail():
+        # Called when leaving the floppy section. Append any keys we still
+        # need that weren't already written from the source iteration.
+        if not rom_basic and not wrote_fdd1_fn:
+            out.append(f"fdd_01_fn = {floppy}")
+        if rom_basic and not wrote_fdd2_check:
+            out.append("fdd_02_check_bpb = 0")
+        if rom_basic and not wrote_fdd2_fn:
+            out.append(f"fdd_02_fn = {floppy}")
+        if not wrote_fdd2_type:
+            out.append("fdd_02_type = 525_1dd" if rom_basic else "fdd_02_type = none")
+
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            if in_general_section:
+                flush_general_tail()
             if in_floppy_section:
-                if not wrote_fdd2_check:
-                    out.append("fdd_02_check_bpb = 0")
-                if not wrote_fdd2_fn:
-                    out.append(f"fdd_02_fn = {floppy}")
-                if not wrote_fdd2_type:
-                    out.append("fdd_02_type = 525_1dd")
+                flush_floppy_tail()
+            in_general_section = stripped == "[General]"
             in_floppy_section = stripped == "[Floppy and CD-ROM drives]"
+            wrote_sound_muted = False
+            wrote_sound_gain = False
+            wrote_fdd1_fn = False
             wrote_fdd2_check = False
             wrote_fdd2_fn = False
             wrote_fdd2_type = False
             out.append(line)
             continue
+
+        if in_general_section and muted:
+            if stripped.startswith("sound_muted ="):
+                out.append("sound_muted = 1")
+                wrote_sound_muted = True
+                continue
+            if stripped.startswith("sound_gain ="):
+                out.append("sound_gain = 0")
+                wrote_sound_gain = True
+                continue
 
         if stripped.startswith("mem_size ="):
             out.append(f"mem_size = {ram_kib}")
@@ -247,6 +842,7 @@ def rewrite_vm_config(config: Path, ram_kib: int, floppy: Path, rom_basic: bool)
             if stripped.startswith("fdd_01_fn ="):
                 if not rom_basic:
                     out.append(f"fdd_01_fn = {floppy}")
+                    wrote_fdd1_fn = True
                 continue
             if stripped.startswith("fdd_01_type ="):
                 out.append("fdd_01_type = none" if rom_basic else "fdd_01_type = 525_1dd")
@@ -275,14 +871,12 @@ def rewrite_vm_config(config: Path, ram_kib: int, floppy: Path, rom_basic: bool)
         out.append(line)
 
     if in_floppy_section:
-        if not rom_basic:
-            out.append(f"fdd_01_fn = {floppy}")
-        if rom_basic and not wrote_fdd2_check:
-            out.append("fdd_02_check_bpb = 0")
-        if rom_basic and not wrote_fdd2_fn:
-            out.append(f"fdd_02_fn = {floppy}")
-        if not wrote_fdd2_type:
-            out.append("fdd_02_type = 525_1dd" if rom_basic else "fdd_02_type = none")
+        flush_floppy_tail()
+    if in_general_section:
+        flush_general_tail()
+
+    if com_passthrough:
+        out = ensure_com_passthrough(out)
 
     config.write_text("\n".join(out) + "\n", encoding="utf-8")
 
@@ -419,19 +1013,112 @@ def make_loader_boot_floppy(
     output.write_bytes(image)
 
 
-def launch_86box(vm_path: Path, image_args: list[str] | None = None) -> subprocess.Popen[str]:
+class ExternalProcess:
+    """Minimal process handle for apps launched through macOS LaunchServices."""
+
+    def __init__(self, pid: int):
+        self.pid = pid
+        self.stdout = None
+
+    def poll(self) -> int | None:
+        try:
+            os.kill(self.pid, 0)
+        except ProcessLookupError:
+            return 0
+        except PermissionError:
+            return None
+        return None
+
+    def kill(self) -> None:
+        try:
+            os.kill(self.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+
+    def wait(self, timeout: float | None = None) -> int:
+        deadline = None if timeout is None else time.monotonic() + timeout
+        while self.poll() is None:
+            if deadline is not None and time.monotonic() >= deadline:
+                raise subprocess.TimeoutExpired(["86Box"], timeout)
+            time.sleep(0.1)
+        return 0
+
+
+def matching_86box_pids(vm_path: Path) -> set[int]:
+    try:
+        result = subprocess.run(
+            ["ps", "-axo", "pid=,command="],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return set()
+    pids: set[int] = set()
+    vm_path_text = str(vm_path)
+    for line in result.stdout.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        pid_text, _, command = stripped.partition(" ")
+        if not pid_text.isdigit():
+            continue
+        if "86Box" not in command or "--vmpath" not in command:
+            continue
+        if vm_path_text not in command:
+            continue
+        pids.add(int(pid_text))
+    return pids
+
+
+def launch_86box(
+    vm_path: Path,
+    image_args: list[str] | None = None,
+    capture_stdout: bool = False,
+    background: bool = True,
+) -> subprocess.Popen[str] | ExternalProcess:
     env = os.environ.copy()
     env["SEED_NO_IMAGE"] = "1"
+    if background and not capture_stdout:
+        before = matching_86box_pids(vm_path)
+        cmd = [
+            "open",
+            "-g",
+            "-n",
+            "-a",
+            "/Applications/86Box.app",
+            "--env",
+            "SEED_NO_IMAGE=1",
+            "--args",
+            "--vmpath",
+            str(vm_path),
+        ]
+        if image_args:
+            for image in image_args:
+                cmd.extend(["--image", image])
+        subprocess.run(cmd, cwd=ROOT, check=True, text=True)
+        deadline = time.monotonic() + 10.0
+        while time.monotonic() < deadline:
+            current = matching_86box_pids(vm_path)
+            created = sorted(current - before)
+            if created:
+                return ExternalProcess(created[-1])
+            time.sleep(0.1)
+        current = sorted(matching_86box_pids(vm_path))
+        if current:
+            return ExternalProcess(current[-1])
+        raise SystemExit("86Box launched through open(1), but no matching process was found")
+
     cmd = [emulator_path(), "--vmpath", str(vm_path)]
     if image_args:
         for image in image_args:
             cmd.extend(["--image", image])
-    return subprocess.Popen(
-        cmd,
-        cwd=ROOT,
-        env=env,
-        text=True,
-    )
+    kwargs: dict = {"cwd": ROOT, "env": env, "text": True}
+    if capture_stdout:
+        kwargs["stdout"] = subprocess.PIPE
+        kwargs["stderr"] = subprocess.STDOUT
+        kwargs["bufsize"] = 1
+    return subprocess.Popen(cmd, **kwargs)
 
 
 def screenshot(path: Path) -> None:
@@ -439,25 +1126,561 @@ def screenshot(path: Path) -> None:
     run(["screencapture", "-x", str(path)])
 
 
+def find_86box_window_id(
+    profile: str | None = None,
+    pid: int | None = None,
+) -> int | None:
+    """Return a visible 86Box CGWindow id without activating it."""
+    try:
+        cg = ctypes.CDLL("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics")
+        cf = ctypes.CDLL("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")
+        cg.CGWindowListCopyWindowInfo.argtypes = [ctypes.c_uint32, ctypes.c_uint32]
+        cg.CGWindowListCopyWindowInfo.restype = ctypes.c_void_p
+        cf.CFArrayGetCount.argtypes = [ctypes.c_void_p]
+        cf.CFArrayGetCount.restype = ctypes.c_long
+        cf.CFArrayGetValueAtIndex.argtypes = [ctypes.c_void_p, ctypes.c_long]
+        cf.CFArrayGetValueAtIndex.restype = ctypes.c_void_p
+        cf.CFDictionaryGetValue.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+        cf.CFDictionaryGetValue.restype = ctypes.c_void_p
+        cf.CFStringGetCString.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_char_p,
+            ctypes.c_long,
+            ctypes.c_uint32,
+        ]
+        cf.CFStringGetCString.restype = ctypes.c_bool
+        cf.CFNumberGetValue.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p]
+        cf.CFNumberGetValue.restype = ctypes.c_bool
+        cf.CFRelease.argtypes = [ctypes.c_void_p]
+
+        def cg_symbol(name: str) -> ctypes.c_void_p:
+            return ctypes.c_void_p(ctypes.c_void_p.in_dll(cg, name).value)
+
+        key_owner = cg_symbol("kCGWindowOwnerName")
+        key_owner_pid = cg_symbol("kCGWindowOwnerPID")
+        key_title = cg_symbol("kCGWindowName")
+        key_number = cg_symbol("kCGWindowNumber")
+        key_layer = cg_symbol("kCGWindowLayer")
+
+        def cf_string(ptr: int | None) -> str:
+            if not ptr:
+                return ""
+            buf = ctypes.create_string_buffer(1024)
+            ok = cf.CFStringGetCString(ptr, buf, len(buf), 0x08000100)
+            return buf.value.decode("utf-8", errors="replace") if ok else ""
+
+        def cf_number(ptr: int | None) -> int:
+            if not ptr:
+                return 0
+            value = ctypes.c_longlong()
+            # kCFNumberLongLongType is stable enough for CGWindow ids/layers.
+            cf.CFNumberGetValue(ptr, 4, ctypes.byref(value))
+            return int(value.value)
+
+        # kCGWindowListOptionOnScreenOnly == 1. The list includes occluded
+        # windows, so this still works when the user puts another window on top.
+        window_list = cg.CGWindowListCopyWindowInfo(1, 0)
+        if not window_list:
+            return None
+        try:
+            fallback: int | None = None
+            count = cf.CFArrayGetCount(window_list)
+            for idx in range(count):
+                item = cf.CFArrayGetValueAtIndex(window_list, idx)
+                owner = cf_string(cf.CFDictionaryGetValue(item, key_owner))
+                if owner != "86Box":
+                    continue
+                owner_pid = cf_number(cf.CFDictionaryGetValue(item, key_owner_pid))
+                if pid is not None and owner_pid != pid:
+                    continue
+                layer = cf_number(cf.CFDictionaryGetValue(item, key_layer))
+                if layer != 0:
+                    continue
+                title = cf_string(cf.CFDictionaryGetValue(item, key_title))
+                window_id = cf_number(cf.CFDictionaryGetValue(item, key_number))
+                if window_id == 0:
+                    continue
+                if fallback is None:
+                    fallback = window_id
+                if profile and profile in title:
+                    return window_id
+            return fallback
+        finally:
+            cf.CFRelease(window_list)
+    except (OSError, ValueError, AttributeError):
+        return None
+
+
+def screenshot_86box_window(
+    path: Path,
+    profile: str | None = None,
+    pid: int | None = None,
+) -> bool:
+    """Capture the 86Box window by id. This does not activate or raise it."""
+    window_id = find_86box_window_id(profile, pid)
+    if window_id is None:
+        return False
+    path.parent.mkdir(parents=True, exist_ok=True)
+    result = subprocess.run(
+        ["screencapture", "-x", "-o", f"-l{window_id}", str(path)],
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode == 0 and path.exists() and path.stat().st_size > 0
+
+
+def screenshot_86box_window_or_screen(
+    path: Path,
+    profile: str | None = None,
+    pid: int | None = None,
+) -> None:
+    if not screenshot_86box_window(path, profile, pid):
+        screenshot(path)
+
+
+def read_png_rgb(path: Path) -> tuple[int, int, int, list[list[int]]]:
+    data = path.read_bytes()
+    if data[:8] != b"\x89PNG\r\n\x1a\n":
+        raise ValueError("not a PNG")
+    offset = 8
+    width = height = bit_depth = color_type = None
+    idat = bytearray()
+    while offset < len(data):
+        chunk_len = struct.unpack(">I", data[offset : offset + 4])[0]
+        chunk_type = data[offset + 4 : offset + 8]
+        chunk = data[offset + 8 : offset + 8 + chunk_len]
+        offset += 12 + chunk_len
+        if chunk_type == b"IHDR":
+            width, height, bit_depth, color_type, _, _, interlace = struct.unpack(
+                ">IIBBBBB", chunk
+            )
+            if interlace != 0:
+                raise ValueError("interlaced PNG is unsupported")
+        elif chunk_type == b"IDAT":
+            idat.extend(chunk)
+        elif chunk_type == b"IEND":
+            break
+    if width is None or height is None or bit_depth != 8 or color_type not in (2, 6):
+        raise ValueError("unsupported PNG format")
+
+    channels = 4 if color_type == 6 else 3
+    stride = width * channels
+    raw = zlib.decompress(bytes(idat))
+    rows: list[list[int]] = []
+    previous = [0] * stride
+    pos = 0
+    for _ in range(height):
+        filter_type = raw[pos]
+        pos += 1
+        current = list(raw[pos : pos + stride])
+        pos += stride
+        for i in range(stride):
+            left = current[i - channels] if i >= channels else 0
+            up = previous[i]
+            upper_left = previous[i - channels] if i >= channels else 0
+            if filter_type == 1:
+                current[i] = (current[i] + left) & 0xFF
+            elif filter_type == 2:
+                current[i] = (current[i] + up) & 0xFF
+            elif filter_type == 3:
+                current[i] = (current[i] + ((left + up) // 2)) & 0xFF
+            elif filter_type == 4:
+                estimate = left + up - upper_left
+                pa = abs(estimate - left)
+                pb = abs(estimate - up)
+                pc = abs(estimate - upper_left)
+                predictor = left if pa <= pb and pa <= pc else up if pb <= pc else upper_left
+                current[i] = (current[i] + predictor) & 0xFF
+            elif filter_type != 0:
+                raise ValueError(f"unsupported PNG filter {filter_type}")
+        rows.append(current)
+        previous = current
+    return width, height, channels, rows
+
+
+def classify_86box_screen(path: Path) -> tuple[str, str]:
+    """Classify Seed's visible VM state from a local 86Box window capture.
+
+    This intentionally uses coarse color/position signals rather than OCR:
+    - a centered splash/prompt state is success;
+    - red text in the main display means a clean Seed fatal error screen;
+    - gray text on an otherwise dark display is the known freeze class;
+    - anything else is ambiguous and should keep the screenshot for inspection.
+    """
+    width, height, channels, rows = read_png_rgb(path)
+    if width < 320 or height < 240:
+        return "ambiguous", "capture too small"
+
+    x0 = max(0, width // 20)
+    x1 = min(width, width - width // 20)
+    y0 = max(0, height // 9)
+    y1 = min(height, height - height // 12)
+    lower_y0 = y0 + ((y1 - y0) * 68) // 100
+    lower_y1 = y0 + ((y1 - y0) * 93) // 100
+
+    center_red_pixels = 0
+    lower_bright_pixels = 0
+    center_dim_pixels = 0
+    non_dark_pixels = 0
+    sampled_pixels = 0
+    splash_pixels = 0
+    splash_min_x = width
+    splash_max_x = 0
+    splash_min_y = height
+    splash_max_y = 0
+
+    center_x0 = width * 35 // 100
+    center_x1 = width * 65 // 100
+    center_y0 = y0 + ((y1 - y0) * 35) // 100
+    center_y1 = y0 + ((y1 - y0) * 65) // 100
+    splash_x0 = width * 30 // 100
+    splash_x1 = width * 75 // 100
+    splash_y0 = y0 + ((y1 - y0) * 34) // 100
+    splash_y1 = y0 + ((y1 - y0) * 64) // 100
+    error_x0 = width * 28 // 100
+    error_x1 = width * 78 // 100
+    error_y0 = y0 + ((y1 - y0) * 38) // 100
+    error_y1 = y0 + ((y1 - y0) * 76) // 100
+
+    for y in range(y0, y1):
+        row = rows[y]
+        for x in range(x0, x1):
+            off = x * channels
+            r, g, b = row[off], row[off + 1], row[off + 2]
+            sampled_pixels += 1
+            if (
+                error_x0 <= x <= error_x1
+                and error_y0 <= y <= error_y1
+                and r > 145
+                and g < 100
+                and b < 100
+            ):
+                center_red_pixels += 1
+            if r > 165 and g > 165 and b > 165:
+                non_dark_pixels += 1
+                if lower_y0 <= y <= lower_y1:
+                    lower_bright_pixels += 1
+            elif r > 45 or g > 45 or b > 45:
+                non_dark_pixels += 1
+            if (
+                splash_x0 <= x <= splash_x1
+                and splash_y0 <= y <= splash_y1
+                and 35 <= r <= 245
+                and 35 <= g <= 245
+                and 35 <= b <= 245
+                and abs(r - g) < 36
+                and abs(g - b) < 36
+            ):
+                splash_pixels += 1
+                splash_min_x = min(splash_min_x, x)
+                splash_max_x = max(splash_max_x, x)
+                splash_min_y = min(splash_min_y, y)
+                splash_max_y = max(splash_max_y, y)
+            if center_x0 <= x <= center_x1 and center_y0 <= y <= center_y1:
+                if 35 <= r <= 150 and 35 <= g <= 150 and 35 <= b <= 150:
+                    center_dim_pixels += 1
+
+    if center_red_pixels >= 70:
+        return "clean-failure", f"center_red={center_red_pixels}"
+    splash_width = splash_max_x - splash_min_x + 1 if splash_pixels else 0
+    splash_height = splash_max_y - splash_min_y + 1 if splash_pixels else 0
+    if splash_pixels >= 300 and splash_width >= 80 and splash_height >= 12:
+        return "success", f"splash={splash_pixels} bbox={splash_width}x{splash_height}"
+    if lower_bright_pixels >= 40:
+        return "success", f"lower_bright={lower_bright_pixels}"
+    if center_dim_pixels >= 15 and non_dark_pixels < max(4000, sampled_pixels // 120):
+        return "freeze", f"center_dim={center_dim_pixels} non_dark={non_dark_pixels}"
+    return (
+        "ambiguous",
+        f"center_red={center_red_pixels} lower_bright={lower_bright_pixels} "
+        f"splash={splash_pixels}/{splash_width}x{splash_height} "
+        f"center_dim={center_dim_pixels} non_dark={non_dark_pixels}",
+    )
+
+
+def sample_process_https_remotes(pid: int) -> set[str]:
+    """Return remote TCP/443 IPs owned by the emulator process.
+
+    en0 captures all host traffic, so DNS or broad-flow heuristics can mistake
+    unrelated Codex/Claude/browser traffic for the VM. lsof gives us the
+    process-owned SLIRP sockets while 86Box is still running.
+    """
+    try:
+        result = subprocess.run(
+            ["lsof", "-nP", "-a", "-p", str(pid), "-iTCP"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return set()
+    if result.returncode != 0:
+        return set()
+
+    remotes: set[str] = set()
+    for line in result.stdout.splitlines()[1:]:
+        if "->" not in line or ":443" not in line:
+            continue
+        match = re.search(r"->([^:() ]+):443(?:\s|\()", line)
+        if match:
+            remotes.add(match.group(1))
+    return remotes
+
+
+def wait_with_process_https_sampling(process: subprocess.Popen[str], seconds: float) -> set[str]:
+    remotes: set[str] = set()
+    deadline = time.monotonic() + seconds
+    while True:
+        remotes.update(sample_process_https_remotes(process.pid))
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        time.sleep(min(1.0, remaining))
+    return remotes
+
+
+def argv_without_repeat() -> list[str]:
+    argv: list[str] = []
+    skip_next = False
+    for arg in sys.argv[1:]:
+        if skip_next:
+            skip_next = False
+            continue
+        if arg == "--repeat":
+            skip_next = True
+            continue
+        if arg.startswith("--repeat="):
+            continue
+        if arg == "--repeat-fail-fast":
+            continue
+        argv.append(arg)
+    return argv
+
+
+def run_repeat(args: argparse.Namespace) -> int:
+    if args.leave_running:
+        raise SystemExit("--repeat cannot be combined with --leave-running")
+    if args.repeat < 1:
+        raise SystemExit("--repeat must be >= 1")
+    if not args.no_build:
+        run(["make"], cwd=ROOT)
+        run(["make", "basic-bootstrap"], cwd=ROOT)
+
+    base_argv = argv_without_repeat()
+    if not args.no_build and "--no-build" not in base_argv:
+        base_argv.append("--no-build")
+
+    passed = 0
+    failures: list[tuple[int, int]] = []
+    started = time.monotonic()
+    for index in range(1, args.repeat + 1):
+        run_started = time.monotonic()
+        cmd = [sys.executable, str(Path(__file__).resolve()), *base_argv]
+        result = subprocess.run(
+            cmd,
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        elapsed = time.monotonic() - run_started
+        ok = result.returncode == 0
+        if ok:
+            passed += 1
+        else:
+            failures.append((index, result.returncode))
+        print(
+            f"repeat {index}/{args.repeat}: "
+            f"{'PASS' if ok else 'FAIL'} rc={result.returncode} {elapsed:.1f}s"
+        )
+        output = result.stdout.strip()
+        if output:
+            for line in output.splitlines()[-12:]:
+                print(f"  {line}")
+        if not ok and args.repeat_fail_fast:
+            break
+
+    attempted = passed + len(failures)
+    total_elapsed = time.monotonic() - started
+    rate = (passed / attempted * 100.0) if attempted else 0.0
+    print(
+        f"repeat summary: {passed}/{attempted} passed "
+        f"({rate:.1f}%) in {total_elapsed:.1f}s"
+    )
+    if failures:
+        print(
+            "repeat failures: "
+            + ", ".join(f"#{index} rc={code}" for index, code in failures)
+        )
+        return 1
+    return 0
+
+
+def classify_running_vm(
+    args: argparse.Namespace,
+    process: subprocess.Popen[str],
+    label: str,
+) -> tuple[str, str]:
+    if not screenshot_86box_window(
+        args.oracle_screenshot,
+        args.profile,
+        process.pid,
+    ):
+        print(f"{label}: ambiguous (could not capture 86Box window)")
+        return "ambiguous", "could not capture 86Box window"
+    try:
+        verdict, detail = classify_86box_screen(args.oracle_screenshot)
+    except (OSError, ValueError) as exc:
+        verdict, detail = "ambiguous", str(exc)
+    print(f"{label}: {verdict} ({detail})")
+    if verdict == "success" and args.screen_ocr_success:
+        maybe_print_screen_ocr(args, label, args.oracle_screenshot)
+    if verdict == "success" and not args.keep_success_oracle_screenshot:
+        args.oracle_screenshot.unlink(missing_ok=True)
+    elif verdict != "success":
+        maybe_print_screen_ocr(args, label, args.oracle_screenshot)
+        print(f"{label}: kept {args.oracle_screenshot}")
+    return verdict, detail
+
+
+def screen_ocr_lines(path: Path, timeout: float) -> tuple[str | None, list[str]]:
+    if not path.exists():
+        return None, []
+
+    tesseract = shutil.which("tesseract")
+    if tesseract is not None:
+        try:
+            result = subprocess.run(
+                [
+                    tesseract,
+                    str(path),
+                    "stdout",
+                    "--psm",
+                    "6",
+                    "--dpi",
+                    "96",
+                ],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            result = None
+        if result is not None and result.returncode == 0:
+            return "tesseract", unique_nonempty_lines(result.stdout)
+
+    swift = shutil.which("swift")
+    if swift is None or not DEFAULT_OCR_SCRIPT.exists():
+        return None, []
+    cache_root = Path(tempfile.gettempdir()) / "seed-swift-module-cache"
+    cache_root.mkdir(parents=True, exist_ok=True)
+    env = os.environ.copy()
+    env["CLANG_MODULE_CACHE_PATH"] = str(cache_root)
+    env["SWIFT_MODULE_CACHE_PATH"] = str(cache_root)
+    try:
+        result = subprocess.run(
+            [swift, str(DEFAULT_OCR_SCRIPT), str(path)],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=timeout,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None, []
+    if result.returncode != 0:
+        return None, []
+    return "vision", unique_nonempty_lines(result.stdout)
+
+
+def unique_nonempty_lines(text: str) -> list[str]:
+    seen: set[str] = set()
+    lines: list[str] = []
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line in seen:
+            continue
+        seen.add(line)
+        lines.append(line)
+    return lines
+
+
+def maybe_print_screen_ocr(args: argparse.Namespace, label: str, path: Path) -> None:
+    if args.no_screen_ocr:
+        return
+    engine, lines = screen_ocr_lines(path, args.screen_ocr_timeout)
+    if engine is None:
+        print(f"{label} OCR: unavailable (install tesseract for local text extraction)")
+        return
+    if not lines:
+        print(f"{label} OCR ({engine}): no text recognized")
+        return
+    print(f"{label} OCR ({engine}):")
+    for line in lines[:8]:
+        print(f"  {line}")
+    if len(lines) > 8:
+        print(f"  ... {len(lines) - 8} more line(s)")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Launch a ROM BASIC 86Box VM and inject Seed's 24 KiB BASIC bootstrap.",
     )
     parser.add_argument("--profile", default=DEFAULT_PROFILE)
+    parser.add_argument(
+        "--vm-path",
+        type=Path,
+        default=None,
+        help="override the 86Box profile directory; useful for per-run temporary profile copies",
+    )
     parser.add_argument("--basic", type=Path, default=DEFAULT_BASIC)
     parser.add_argument("--loader", type=Path, default=DEFAULT_LOADER)
     parser.add_argument("--basic-loader", type=Path, default=DEFAULT_BASIC_LOADER)
     parser.add_argument("--floppy", type=Path, default=DEFAULT_FLOPPY)
     parser.add_argument("--loader-floppy", type=Path, default=DEFAULT_LOADER_FLOPPY)
     parser.add_argument("--screenshot", type=Path, default=DEFAULT_SCREENSHOT)
+    parser.add_argument("--oracle-screenshot", type=Path, default=DEFAULT_ORACLE_SCREENSHOT)
     parser.add_argument("--ram-kib", type=int, default=16)
-    parser.add_argument("--startup-delay", type=float, default=22.0)
-    parser.add_argument("--capture-delay", type=float, default=60.0)
-    parser.add_argument("--type-delay", type=float, default=0.035)
-    parser.add_argument("--line-delay", type=float, default=0.5)
-    parser.add_argument("--mode", choices=("paste", "text", "chars", "keycode"), default="keycode")
+    parser.add_argument("--startup-delay", type=float, default=None)
+    parser.add_argument("--capture-delay", type=float, default=None)
+    parser.add_argument(
+        "--post-dpi-text",
+        default=None,
+        help="after the first successful DPI oracle, type this prompt into the same VM and wait for the next response",
+    )
+    parser.add_argument(
+        "--post-dpi-wait",
+        type=float,
+        default=25.0,
+        help="seconds to wait after --post-dpi-text before the final oracle classification",
+    )
+    parser.add_argument("--type-delay", type=float, default=0.06)
+    parser.add_argument("--line-delay", type=float, default=0.6)
+    parser.add_argument(
+        "--mode",
+        choices=("paste", "text", "chars", "keycode", "pidkeycode"),
+        default="pidkeycode",
+        help="BASIC injection mode (default: pidkeycode, posts directly to the 86Box process)",
+    )
+    parser.add_argument(
+        "--pidkeycode-background",
+        action="store_true",
+        help="deprecated no-op; pidkeycode posts directly to 86Box without changing focus",
+    )
     parser.add_argument("--no-type", action="store_true")
     parser.add_argument("--no-run", action="store_true")
+    parser.add_argument(
+        "--repeat",
+        type=int,
+        default=1,
+        help="run this harness invocation N times and print a pass-rate summary",
+    )
+    parser.add_argument(
+        "--repeat-fail-fast",
+        action="store_true",
+        help="stop --repeat after the first failing run",
+    )
     parser.add_argument("--entry", choices=("basic", "loader", "direct"), default="basic")
     parser.add_argument(
         "--debug-boot-stop",
@@ -472,7 +1695,160 @@ def main() -> int:
     parser.add_argument("--loader-mount", choices=("cli", "config"), default="cli")
     parser.add_argument("--no-build", action="store_true")
     parser.add_argument("--leave-running", action="store_true")
+    parser.add_argument(
+        "--com-capture",
+        type=Path,
+        default=None,
+        help="enable serial1 passthrough and capture COM1 bytes to this file",
+    )
+    parser.add_argument(
+        "--no-screenshot",
+        action="store_true",
+        help="skip the screencapture step (useful when --com-capture is the only output you need)",
+    )
+    parser.add_argument(
+        "--screenshot-if-pcap-quiet",
+        action="store_true",
+        help="when --pcap is set, screenshot only if no packets matched after the wait",
+    )
+    parser.add_argument(
+        "--screen-oracle",
+        action="store_true",
+        help="capture the 86Box window without focusing it and classify DPI/fatal/freeze locally",
+    )
+    parser.add_argument(
+        "--oracle-only",
+        action="store_true",
+        help="classify the currently visible 86Box window and exit without launching a VM",
+    )
+    parser.add_argument(
+        "--keep-success-oracle-screenshot",
+        action="store_true",
+        help="keep the local oracle screenshot even when the screen classifier reports success",
+    )
+    parser.add_argument(
+        "--fail-on-screen-oracle",
+        action="store_true",
+        help="exit non-zero unless --screen-oracle classifies the final VM screen as success",
+    )
+    parser.add_argument(
+        "--no-screen-ocr",
+        action="store_true",
+        help="disable local OCR on non-success screen-oracle captures",
+    )
+    parser.add_argument(
+        "--screen-ocr-success",
+        action="store_true",
+        help="also run local OCR on successful screen-oracle captures before deleting the local image",
+    )
+    parser.add_argument(
+        "--screen-ocr-timeout",
+        type=float,
+        default=8.0,
+        help="seconds to allow local OCR for screen-oracle captures",
+    )
+    parser.add_argument(
+        "--pcap",
+        type=Path,
+        default=None,
+        help="run `sudo -n tcpdump` in parallel and capture packets here; requires `/etc/sudoers.d/*` NOPASSWD for tcpdump",
+    )
+    parser.add_argument(
+        "--pcap-filter",
+        default="tcp or arp",
+        help="BPF filter expression for the pcap capture (default: tcp or arp)",
+    )
+    parser.add_argument(
+        "--pcap-report-filter",
+        default=None,
+        help="optional tcpdump display filter applied only when decoding the saved pcap",
+    )
+    parser.add_argument(
+        "--pcap-max-lines",
+        type=int,
+        default=80,
+        help="maximum decoded pcap lines to print (default: 80; full capture remains in the pcap file)",
+    )
+    parser.add_argument(
+        "--pcap-iface",
+        default="en0",
+        help="interface to capture on (default: en0)",
+    )
+    parser.add_argument(
+        "--test-lock",
+        type=Path,
+        default=None,
+        help="optional VM coordination lock path; disabled by default",
+    )
+    parser.add_argument(
+        "--test-lock-name",
+        default="codex",
+        help="name written into the VM coordination lock (default: codex)",
+    )
+    parser.add_argument(
+        "--test-lock-timeout",
+        type=float,
+        default=900.0,
+        help="seconds to wait for the VM coordination lock (default: 900)",
+    )
+    parser.add_argument(
+        "--no-test-lock",
+        action="store_true",
+        help="deprecated no-op; locks are disabled unless --test-lock is passed",
+    )
+    parser.add_argument(
+        "--no-restore-focus",
+        action="store_true",
+        help="do not restore the previously frontmost app after launching 86Box",
+    )
+    parser.add_argument(
+        "--foreground-launch",
+        action="store_true",
+        help="launch 86Box directly instead of using macOS background open(1)",
+    )
+    parser.add_argument(
+        "--sound",
+        action="store_true",
+        help="leave 86Box sound enabled; harness runs are muted by default",
+    )
     args = parser.parse_args()
+
+    if args.repeat > 1:
+        return run_repeat(args)
+
+    if args.oracle_only:
+        if not screenshot_86box_window(args.oracle_screenshot, args.profile):
+            print("screen oracle: ambiguous (could not capture 86Box window)")
+            return 2 if args.fail_on_screen_oracle else 0
+        try:
+            oracle_verdict, oracle_detail = classify_86box_screen(args.oracle_screenshot)
+        except (OSError, ValueError) as exc:
+            oracle_verdict, oracle_detail = "ambiguous", str(exc)
+        print(f"screen oracle: {oracle_verdict} ({oracle_detail})")
+        if oracle_verdict == "success" and args.screen_ocr_success:
+            maybe_print_screen_ocr(args, "screen oracle", args.oracle_screenshot)
+        if oracle_verdict == "success" and not args.keep_success_oracle_screenshot:
+            args.oracle_screenshot.unlink(missing_ok=True)
+        elif oracle_verdict != "success":
+            maybe_print_screen_ocr(args, "screen oracle", args.oracle_screenshot)
+            print(f"screen oracle: kept {args.oracle_screenshot}")
+        return 2 if args.fail_on_screen_oracle and oracle_verdict != "success" else 0
+
+    # Entry mode drives timing/typing defaults independently of memory size.
+    # ROM BASIC sidecar typing needs a longer prompt wait and the AppleScript
+    # focus dance; direct loader/BIOS-boot entries don't type anything and
+    # don't need to steal window focus from the user.
+    if args.entry == "basic":
+        if args.startup_delay is None:
+            args.startup_delay = DEFAULT_BASIC_STARTUP_DELAY
+        if args.capture_delay is None:
+            args.capture_delay = DEFAULT_BASIC_CAPTURE_DELAY
+    else:
+        if args.startup_delay is None:
+            args.startup_delay = DEFAULT_DIRECT_STARTUP_DELAY
+        if args.capture_delay is None:
+            args.capture_delay = DEFAULT_DIRECT_CAPTURE_DELAY
+        args.no_type = True
 
     if not args.no_build:
         run(["make"], cwd=ROOT)
@@ -509,9 +1885,11 @@ def main() -> int:
     floppy = args.floppy
     image_args: list[str] | None = None
     restore_config: tuple[Path, bytes] | None = None
-    vm_path = ROOT / "targets/ibm_pc_5150/86box" / args.profile
+    vm_path = args.vm_path or (ROOT / "targets/ibm_pc_5150/86box" / args.profile)
     if not vm_path.is_dir():
         raise SystemExit(f"missing 86Box profile: {vm_path}")
+
+    com_passthrough = args.com_capture is not None
 
     if args.entry == "loader":
         floppy = args.loader_floppy
@@ -523,22 +1901,77 @@ def main() -> int:
             args.debug_boot_stop,
             args.debug_loader_stop,
         )
-        if args.loader_mount == "config":
+        # --com-capture requires cfg rewrite to inject the passthrough key,
+        # which is also where the floppy gets put in fdd_01 for BIOS boot.
+        if args.loader_mount == "config" or com_passthrough:
             config = vm_path / "86box.cfg"
             restore_config = (config, config.read_bytes())
-            rewrite_vm_config(config, args.ram_kib, floppy, False)
+            rewrite_vm_config(
+                config,
+                args.ram_kib,
+                floppy,
+                False,
+                com_passthrough=com_passthrough,
+                muted=not args.sound,
+            )
         else:
             image_args = [f"A:{floppy}"]
     elif args.entry == "basic":
         config = vm_path / "86box.cfg"
         restore_config = (config, config.read_bytes())
-        rewrite_vm_config(config, args.ram_kib, floppy, True)
+        rewrite_vm_config(
+            config,
+            args.ram_kib,
+            floppy,
+            True,
+            com_passthrough=com_passthrough,
+            muted=not args.sound,
+        )
 
+    com_capture: ComCapture | None = None
+    if args.com_capture is not None:
+        com_capture = ComCapture(args.com_capture)
+
+    pcap_capture: PcapCapture | None = None
+    if args.pcap is not None:
+        pcap_capture = PcapCapture(
+            args.pcap,
+            args.pcap_filter,
+            args.pcap_iface,
+            args.pcap_report_filter,
+            args.pcap_max_lines,
+        )
+
+    test_lock: TestLock | None = None
+    if args.test_lock is not None and not args.no_test_lock:
+        test_lock = TestLock(
+            args.test_lock,
+            args.test_lock_name,
+            args.profile,
+            args.test_lock_timeout,
+        )
+
+    if test_lock is not None:
+        test_lock.acquire()
+    exit_code = 0
+    previous_frontmost = None if args.no_restore_focus else frontmost_process_name()
     try:
-        process = launch_86box(vm_path, image_args)
+        process = launch_86box(
+            vm_path,
+            image_args,
+            capture_stdout=com_capture is not None,
+            background=not args.foreground_launch,
+        )
+        restore_frontmost_process(previous_frontmost)
+        if com_capture is not None:
+            com_capture.start(process)
         try:
             time.sleep(args.startup_delay)
-            activate_86box()
+            if args.entry == "basic" and not args.no_type and args.mode != "pidkeycode":
+                activate_86box()
+            if args.entry == "basic" and not args.no_type and args.mode == "pidkeycode":
+                if args.pidkeycode_background:
+                    pass
             if args.entry != "basic" or args.no_type:
                 pass
             elif args.mode == "paste":
@@ -547,6 +1980,8 @@ def main() -> int:
                 type_basic_text(basic_text, args.line_delay)
             elif args.mode == "chars":
                 type_basic_chars(basic_text, args.type_delay, args.line_delay)
+            elif args.mode == "pidkeycode":
+                type_basic_pid_keycodes(process.pid, basic_text, args.type_delay, args.line_delay)
             else:
                 type_basic_keycodes(basic_text, args.type_delay, args.line_delay)
             if run_text:
@@ -557,20 +1992,104 @@ def main() -> int:
                     type_basic_text(run_text, args.line_delay)
                 elif args.mode == "chars":
                     type_basic_chars(run_text, args.type_delay, args.line_delay)
+                elif args.mode == "pidkeycode":
+                    type_basic_pid_keycodes(process.pid, run_text, args.type_delay, args.line_delay)
                 else:
                     type_basic_keycodes(run_text, args.type_delay, args.line_delay)
-            time.sleep(args.capture_delay)
-            screenshot(args.screenshot)
-            print(f"screenshot: {args.screenshot}")
+            if pcap_capture is not None:
+                pcap_capture.start()
+            https_remotes = wait_with_process_https_sampling(process, args.capture_delay)
+            if https_remotes:
+                print("process: 86Box HTTPS remotes: " + ", ".join(sorted(https_remotes)))
+            oracle_verdict = None
+            if args.post_dpi_text is not None:
+                if not args.screen_oracle:
+                    print("--post-dpi-text requires --screen-oracle", file=sys.stderr)
+                    exit_code = 2
+                else:
+                    oracle_verdict, _ = classify_running_vm(
+                        args,
+                        process,
+                        "screen oracle initial",
+                    )
+                    if oracle_verdict != "success":
+                        if args.fail_on_screen_oracle:
+                            exit_code = 2
+                    else:
+                        type_basic_pid_keycodes(
+                            process.pid,
+                            args.post_dpi_text,
+                            args.type_delay,
+                            args.line_delay,
+                        )
+                        more_remotes = wait_with_process_https_sampling(
+                            process,
+                            args.post_dpi_wait,
+                        )
+                        https_remotes.update(more_remotes)
+                        if more_remotes:
+                            print(
+                                "process: post-DPI 86Box HTTPS remotes: "
+                                + ", ".join(sorted(more_remotes))
+                            )
+                        oracle_verdict = None
+            if args.screen_oracle:
+                oracle_verdict, _ = classify_running_vm(args, process, "screen oracle")
+                if args.fail_on_screen_oracle and oracle_verdict != "success":
+                    exit_code = 2
+            conditional_pcap_screenshot = (
+                args.screenshot_if_pcap_quiet
+                and pcap_capture is not None
+                and not args.no_screenshot
+                and oracle_verdict is None
+            )
+            if conditional_pcap_screenshot:
+                pcap_capture.stop()
+                report_lines = None
+                if https_remotes:
+                    dynamic_report_filter = " or ".join(f"host {host}" for host in sorted(https_remotes))
+                    saved_report_filter = pcap_capture.report_filter
+                    pcap_capture.report_filter = dynamic_report_filter
+                    report_lines = pcap_capture.decoded_lines(report=True)
+                    pcap_capture.report_filter = saved_report_filter
+                elif pcap_capture.report_filter:
+                    report_lines = pcap_capture.decoded_lines(report=True)
+                quiet = report_lines is None or len(report_lines) == 0
+                if quiet:
+                    print("pcap: no matching VM-specific TLS flow; taking screenshot before closing VM")
+                    try:
+                        screenshot_86box_window_or_screen(args.screenshot, args.profile, process.pid)
+                        print(f"screenshot: {args.screenshot}")
+                    except subprocess.CalledProcessError as exc:
+                        print(f"screenshot: failed ({exc})", file=sys.stderr)
+                else:
+                    matched = 0 if report_lines is None else len(report_lines)
+                    if matched:
+                        print(f"pcap: {matched} report-filtered packets; skipping screenshot")
+            elif not args.no_screenshot:
+                try:
+                    screenshot_86box_window_or_screen(args.screenshot, args.profile, process.pid)
+                    print(f"screenshot: {args.screenshot}")
+                except subprocess.CalledProcessError as exc:
+                    print(f"screenshot: failed ({exc})", file=sys.stderr)
         finally:
+            if com_capture is not None:
+                com_capture.finish()
             if not args.leave_running:
                 process.kill()
                 process.wait(timeout=5)
     finally:
+        if pcap_capture is not None:
+            pcap_capture.stop()
         if restore_config is not None:
             restore_config[0].write_bytes(restore_config[1])
+        if test_lock is not None:
+            test_lock.release()
 
-    return 0
+    if pcap_capture is not None:
+        pcap_capture.analyze()
+
+    return exit_code
 
 
 if __name__ == "__main__":
