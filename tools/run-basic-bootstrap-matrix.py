@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 import hashlib
 import json
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -52,10 +53,12 @@ def parse_verdict(output: str) -> str:
         marker = "screen oracle: "
         if marker not in line:
             continue
-        verdict = line.split(marker, 1)[1].split(None, 1)[0]
-        if verdict == "kept":
+        body = line.split(marker, 1)[1].strip()
+        if body.startswith("kept"):
             continue
-        return verdict.strip()
+        match = re.search(r"\b(?:verdict=|derived=)?(success|clean-failure|freeze|ambiguous)\b", body)
+        if match:
+            return match.group(1)
     return "unknown"
 
 

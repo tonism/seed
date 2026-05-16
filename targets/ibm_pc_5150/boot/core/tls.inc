@@ -17,7 +17,7 @@ tls_probe_server:
     jc .failed
     cmp byte [handoff_addr + handoff_nic_family], family_3c501
     jne .wait_for_record
-    mov cx, 4
+    mov cx, 2
     call wait_ticks
 .wait_for_record:
     call tls_wait_for_server_hello
@@ -31,16 +31,25 @@ tls_probe_server:
     jc .failed
     call tls_wait_for_server_key_exchange_or_done
     jc .failed
+    cmp byte [handoff_addr + handoff_nic_family], family_3c501
+    jne .transcript_client_key_exchange
+    inc byte [tls_client_record_seq + tls_client_record_seq_len - 1]
+    call tls_build_application_data_record
+    dec byte [tls_client_record_seq + tls_client_record_seq_len - 1]
+.transcript_client_key_exchange:
     call tls_prepare_client_key_exchange_transcript
     jc .failed
     cmp byte [handoff_addr + handoff_nic_family], family_3c501
-    jne .prepare_keys
+    jne .show_crypto_ready
     call tls_send_client_key_exchange
     jc .failed
-.prepare_keys:
+.show_crypto_ready:
+    cmp byte [handoff_addr + handoff_nic_family], family_3c501
+    je .maybe_prepare_keys
     mov bl, [crypto_attr]
     mov al, 'o'
     call show_load_marker
+.maybe_prepare_keys:
     cmp byte [tls_key_schedule_ready], 1
     je .key_schedule_ready
     call tls_prepare_master_secret
@@ -51,16 +60,24 @@ tls_probe_server:
     call tls_prepare_client_finished
     jc .failed
     cmp byte [handoff_addr + handoff_nic_family], family_3c501
-    je .final_flight_ready
+    je .send_final_flight
     call tls_send_client_key_exchange
     jc .failed
-.final_flight_ready:
+.send_final_flight:
     call tls_send_client_final_flight
     jc .failed
-    call tls_send_application_data_current_seq
+    cmp byte [handoff_addr + handoff_nic_family], family_3c501
+    jne .wait_for_server_finished
+    call tls_send_prebuilt_application_data_current_seq
     jc .failed
+.wait_for_server_finished:
     call tls_wait_for_server_finished
     jc .failed
+    cmp byte [handoff_addr + handoff_nic_family], family_3c501
+    je .done
+    call tls_send_application_data_current_seq
+    jc .failed
+.done:
     clc
     ret
 .failed:
@@ -709,7 +726,6 @@ tls_prepare_client_key_exchange_transcript:
     sub cx, 5
     jmp tls_transcript_update
 .failed:
-    stc
     ret
 
 tls_send_client_key_exchange:
@@ -719,10 +735,8 @@ tls_send_client_key_exchange:
     mov cx, [tls_tx_len]
     call tcp_send_payload
     jc .failed
-    clc
     ret
 .failed:
-    stc
     ret
 
 tls_prepare_client_finished:
@@ -730,23 +744,22 @@ tls_prepare_client_finished:
     jc .failed
     jmp tls_encrypt_client_finished
 .failed:
-    stc
     ret
 
 tls_send_client_final_flight:
     call build_tls_client_final_flight
-    mov si, fs_sector_buffer
-    mov cx, [tls_tx_len]
-    call tcp_send_payload
-    jc .failed
     mov si, tls_finished_plain
     mov cx, tls_finished_plain_len
     call tls_transcript_update
-    jc .failed
+    jc tls_send_client_final_flight_failed
+tls_send_prebuilt_client_final_flight:
+    mov si, fs_sector_buffer
+    mov cx, [tls_tx_len]
+    call tcp_send_payload
+    jc tls_send_client_final_flight_failed
     call tls_increment_client_record_seq
-    clc
     ret
-.failed:
+tls_send_client_final_flight_failed:
     stc
     ret
 
@@ -784,13 +797,10 @@ tls_wait_for_server_finished:
     jmp tls_fail_error
 
 tls_send_application_data_current_seq:
-    cmp word [tls_app_len], 0
-    je tls_send_app_done
     call tls_build_application_data_record
-    jc tls_send_app_failed
 tls_send_prebuilt_application_data_current_seq:
     mov si, tls_app_record_buffer
-    mov cx, [tls_tx_len]
+    mov cx, [tls_app_record_len]
     call tcp_send_payload
     jc tls_send_app_failed
     call tls_increment_client_record_seq
@@ -798,7 +808,6 @@ tls_send_app_done:
     clc
     ret
 tls_send_app_failed:
-    stc
     ret
 
 tls_build_application_data_record:
@@ -844,8 +853,8 @@ tls_build_application_data_record:
 
     mov ax, [tls_app_len]
     add ax, tls_record_header_len + tls_aead_tag_len
+    mov [tls_app_record_len], ax
     mov [tls_tx_len], ax
-    clc
     ret
 
 tls_receive_application_data:
@@ -1072,7 +1081,6 @@ tls_poly1305_mac_app:
     mov word [poly_block_ptr], poly_block
     call poly1305_process_block
     call poly1305_emit_tag
-    clc
     ret
 
 tls_build_client_app_aad:

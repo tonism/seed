@@ -217,6 +217,42 @@ then clean up the remaining harness/oracle rough edges.
 - Comparison: stable Build 7 sent ClientKeyExchange immediately for 3c501 before the expensive key schedule, then sent only CCS/Finished later. The rebuild regressed to sending CKE after key schedule for all cards.
 - Change: restore 3c501-specific early ClientKeyExchange ordering in tls_probe_server.
 
+## 2026-05-16 23:30 - return 3c501 to the Build 7 final-flight shape
+
+Observed behavior:
+
+- Delaying ClientKeyExchange until after more Build 8 request precompute missed
+  Cloudflare/OpenAI's first idle timer. The server sent FIN roughly 14.4s after
+  ServerHello/SKE/SHD, and our CKE left just after the close.
+- Sending CKE early again fixed the first timer, but the server then sent FIN
+  roughly 1.1s after CKE. The CCS/Finished path missed that by a small margin
+  when extra debug/marker work remained in the path.
+
+Useful packet captures:
+
+- `/tmp/seed-3c501-retry-after-basic-hiccup.pcap`: CKE left after server FIN.
+- `/tmp/seed-3c501-build7-order.pcap`: early CKE worked, but CCS/Finished
+  missed the second timer by about 18 ms.
+- `/tmp/seed-3c501-shaved-delay.pcap`: early CKE plus smaller 3c501 delay and
+  skipped crypto marker reached server Finished and received application data.
+
+Change:
+
+- Restored the Build 7 ordering for 3c501:
+  - send ClientKeyExchange early;
+  - finish key schedule and client Finished locally;
+  - send CCS/Finished;
+  - send the already-built application request before waiting for server
+    Finished.
+- Reduced the 3c501 post-ClientHello receive delay from 4 ticks to 2 ticks.
+- Skipped the nonessential crypto load-marker redraw on the 3c501 fast lane.
+
+Conclusion:
+
+This is timing-sensitive but no longer looks fundamentally broken. The 3c501
+path is viable if we keep the first request path close to the proven Build 7
+sequence and avoid decorative work inside the CKE-to-Finished window.
+
 
 ## 2026-05-16 11:19 - pre-encrypt first app record before final flight
 

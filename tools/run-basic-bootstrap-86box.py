@@ -1588,13 +1588,39 @@ def screen_ocr_lines(path: Path, timeout: float) -> tuple[str | None, list[str]]
     if not path.exists():
         return None, []
 
-    tesseract = shutil.which("tesseract")
-    if tesseract is not None:
+    ocr_path = path
+    copied_ocr_path: Path | None = None
+    local_ocr_dir = ROOT / "build/ibm_pc_5150"
+    local_ocr_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        with tempfile.NamedTemporaryFile(
+            prefix="seed-ocr-",
+            suffix=path.suffix or ".png",
+            dir=local_ocr_dir,
+            delete=False,
+        ) as copied:
+            copied.write(path.read_bytes())
+            copied_ocr_path = Path(copied.name)
+            ocr_path = copied_ocr_path
+    except OSError:
+        ocr_path = path
+
+    tesseract_candidates = [
+        shutil.which("tesseract"),
+        "/opt/homebrew/bin/tesseract",
+        "/usr/local/bin/tesseract",
+        "/usr/bin/tesseract",
+    ]
+    tesseract_seen: set[str] = set()
+    for tesseract in tesseract_candidates:
+        if tesseract is None or tesseract in tesseract_seen:
+            continue
+        tesseract_seen.add(tesseract)
         try:
             result = subprocess.run(
                 [
                     tesseract,
-                    str(path),
+                    str(ocr_path),
                     "stdout",
                     "--psm",
                     "6",
@@ -1604,12 +1630,18 @@ def screen_ocr_lines(path: Path, timeout: float) -> tuple[str | None, list[str]]
                 cwd=ROOT,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=timeout,
             )
         except (OSError, subprocess.TimeoutExpired):
             result = None
         if result is not None and result.returncode == 0:
+            if copied_ocr_path is not None:
+                copied_ocr_path.unlink(missing_ok=True)
             return "tesseract", unique_nonempty_lines(result.stdout)
+    if copied_ocr_path is not None:
+        copied_ocr_path.unlink(missing_ok=True)
 
     swift = shutil.which("swift")
     if swift is None or not DEFAULT_OCR_SCRIPT.exists():
@@ -1625,6 +1657,8 @@ def screen_ocr_lines(path: Path, timeout: float) -> tuple[str | None, list[str]]
             cwd=ROOT,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             env=env,
             timeout=timeout,
         )

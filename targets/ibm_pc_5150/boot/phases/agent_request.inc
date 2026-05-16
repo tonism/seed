@@ -99,7 +99,10 @@ agent_request_phase:
     cmp ax, api_request_plain_len
     ja .request_too_large
     cmp byte [handoff_addr + handoff_status], handoff_status_ready
-    jne .success_ready
+    je .ready_request
+    mov word [api_response_pending_len], 0
+    jmp .success_ready
+.ready_request:
     mov word [handoff_addr + handoff_net_status], 0xb0fe
 .success_ready:
     clc
