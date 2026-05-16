@@ -216,15 +216,39 @@ core_agent_request_phase_end:
 
 align 512, db 0
 
+core_agent_cache_phase_start:
+%define PHASE_BASE core_agent_cache_phase_start
+%include "phases/agent_cache.inc"
+%undef PHASE_BASE
+core_agent_cache_phase_end:
+
+%if (core_agent_cache_phase_end - core_agent_cache_phase_start) > 512
+%error "agent cache phase exceeds one sector"
+%endif
+
+times 512 - (core_agent_cache_phase_end - core_agent_cache_phase_start) db 0
+
+core_agent_api_stream_phase_start:
+%define PHASE_BASE core_agent_api_stream_phase_start
+%define PHASE_LOAD_ADDR net_setup_phase_start
+%include "phases/agent_api_stream.inc"
+%undef PHASE_LOAD_ADDR
+%undef PHASE_BASE
+core_agent_api_stream_phase_end:
+
+%if (core_agent_api_stream_phase_end - core_agent_api_stream_phase_start) > (low_scratch_end - net_setup_phase_start)
+%error "agent api stream phase exceeds net setup phase window"
+%endif
+
+align 512, db 0
+
 core_agent_response_phase_start:
 %define PHASE_BASE core_agent_response_phase_start
-%define PHASE_LOAD_ADDR fs_sector_buffer
 %include "phases/agent_response.inc"
-%undef PHASE_LOAD_ADDR
 %undef PHASE_BASE
 core_agent_response_phase_end:
 
-%if (core_agent_response_phase_end - core_agent_response_phase_start) > 1024
+%if (core_agent_response_phase_end - core_agent_response_phase_start) > (low_scratch_end - low_scratch_start)
 %error "agent response phase exceeds cold response window"
 %endif
 
@@ -241,6 +265,18 @@ core_splash_phase_end:
 %endif
 
 times 512 - (core_splash_phase_end - core_splash_phase_start) db 0
+
+core_dpi_phase_start:
+%define PHASE_BASE core_dpi_phase_start
+%include "phases/dpi.inc"
+%undef PHASE_BASE
+core_dpi_phase_end:
+
+%if (core_dpi_phase_end - core_dpi_phase_start) > 512
+%error "dpi phase exceeds one sector"
+%endif
+
+times 512 - (core_dpi_phase_end - core_dpi_phase_start) db 0
 
 core_save_phase_start:
 %define PHASE_BASE core_save_phase_start
@@ -314,14 +350,29 @@ core_phase_table:
     dw (core_agent_request_phase_end - core_agent_request_phase_start + 511) / 512
     dw low_scratch_start
     dw 0
+    db 'V', 0
+    dw (core_agent_cache_phase_start - $$) / 512
+    dw (core_agent_cache_phase_end - core_agent_cache_phase_start + 511) / 512
+    dw low_scratch_start
+    dw 0
+    db 'X', 0
+    dw (core_agent_api_stream_phase_start - $$) / 512
+    dw (core_agent_api_stream_phase_end - core_agent_api_stream_phase_start + 511) / 512
+    dw net_setup_phase_start
+    dw 0
     db 'T', 0
     dw (core_agent_response_phase_start - $$) / 512
     dw (core_agent_response_phase_end - core_agent_response_phase_start + 511) / 512
-    dw fs_sector_buffer
+    dw low_scratch_start
     dw 0
     db 'B', 0
     dw (core_splash_phase_start - $$) / 512
     dw (core_splash_phase_end - core_splash_phase_start + 511) / 512
+    dw low_scratch_start
+    dw 0
+    db 'Y', 0
+    dw (core_dpi_phase_start - $$) / 512
+    dw (core_dpi_phase_end - core_dpi_phase_start + 511) / 512
     dw low_scratch_start
     dw 0
     db 'S', 0

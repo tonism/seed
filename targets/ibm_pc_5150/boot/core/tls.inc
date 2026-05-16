@@ -51,10 +51,10 @@ tls_probe_server:
     call tls_prepare_client_finished
     jc .failed
     cmp byte [handoff_addr + handoff_nic_family], family_3c501
-    je .send_final_flight
+    je .final_flight_ready
     call tls_send_client_key_exchange
     jc .failed
-.send_final_flight:
+.final_flight_ready:
     call tls_send_client_final_flight
     jc .failed
     call tls_send_application_data_current_seq
@@ -785,38 +785,32 @@ tls_wait_for_server_finished:
 
 tls_send_application_data_current_seq:
     cmp word [tls_app_len], 0
-    je .done
-    mov word [tls_app_record_ptr], tls_app_record_buffer
+    je tls_send_app_done
     call tls_build_application_data_record
-    jc .failed
-    mov si, [tls_app_record_ptr]
+    jc tls_send_app_failed
+tls_send_prebuilt_application_data_current_seq:
+    mov si, tls_app_record_buffer
     mov cx, [tls_tx_len]
     call tcp_send_payload
-    jc .failed
+    jc tls_send_app_failed
     call tls_increment_client_record_seq
-.done:
+tls_send_app_done:
     clc
     ret
-.failed:
+tls_send_app_failed:
     stc
     ret
 
 tls_build_application_data_record:
-    cmp word [tls_app_len], api_request_plain_len
-    ja .failed
-    cmp word [tls_app_plain_ptr], 0
-    je .failed
-    cmp word [tls_app_record_ptr], 0
-    je .failed
     mov byte [tls_app_content_type], 0x17
     push ds
     pop es
     mov si, [tls_app_plain_ptr]
-    mov di, [tls_app_record_ptr]
+    mov di, tls_app_record_buffer
     add di, tls_record_header_len
     mov cx, [tls_app_len]
     rep movsb
-    mov ax, [tls_app_record_ptr]
+    mov ax, tls_app_record_buffer
     add ax, tls_record_header_len
     mov [tls_app_data_ptr], ax
     call tls_build_client_nonce
@@ -834,14 +828,13 @@ tls_build_application_data_record:
 
     push ds
     pop es
-    mov di, [tls_app_record_ptr]
+    mov di, tls_app_record_buffer
     mov al, [tls_app_content_type]
     stosb
     mov ax, 0x0303
     stosw
     mov ax, [tls_app_len]
     add ax, tls_aead_tag_len
-    mov [tls_app_record_len], ax
     call tls_write_be16
     mov di, [tls_app_data_ptr]
     add di, [tls_app_len]
@@ -853,9 +846,6 @@ tls_build_application_data_record:
     add ax, tls_record_header_len + tls_aead_tag_len
     mov [tls_tx_len], ax
     clc
-    ret
-.failed:
-    stc
     ret
 
 tls_receive_application_data:
@@ -883,7 +873,6 @@ tls_receive_application_data:
     mov al, [si + 4]
     cmp ax, tls_aead_tag_len + 1
     jb .failed
-    mov [tls_app_record_len], ax
     mov dx, ax
     sub dx, tls_aead_tag_len
     cmp dx, tls_payload_buffer_len

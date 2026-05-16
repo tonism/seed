@@ -154,7 +154,8 @@ parse_tcp_payload:
     stc
     ret
 .ports_ready:
-    cmp word [ne_tx_frame + tcp_offset + 2], tcp_source_port_word
+    mov ax, [tcp_source_port_word]
+    cmp word [ne_tx_frame + tcp_offset + 2], ax
     jne .not_payload
     test byte [ne_tx_frame + tcp_offset + 13], 0x04
     jnz .not_payload

@@ -1086,7 +1086,7 @@ def launch_86box(
             "-g",
             "-n",
             "-a",
-            "/Applications/86Box.app",
+            "86Box",
             "--env",
             "SEED_NO_IMAGE=1",
             "--args",
@@ -1096,18 +1096,22 @@ def launch_86box(
         if image_args:
             for image in image_args:
                 cmd.extend(["--image", image])
-        subprocess.run(cmd, cwd=ROOT, check=True, text=True)
-        deadline = time.monotonic() + 10.0
-        while time.monotonic() < deadline:
-            current = matching_86box_pids(vm_path)
-            created = sorted(current - before)
-            if created:
-                return ExternalProcess(created[-1])
-            time.sleep(0.1)
-        current = sorted(matching_86box_pids(vm_path))
-        if current:
-            return ExternalProcess(current[-1])
-        raise SystemExit("86Box launched through open(1), but no matching process was found")
+        try:
+            subprocess.run(cmd, cwd=ROOT, check=True, text=True)
+        except subprocess.CalledProcessError as exc:
+            print(f"open(1) launch failed ({exc.returncode}); falling back to direct 86Box launch")
+        else:
+            deadline = time.monotonic() + 10.0
+            while time.monotonic() < deadline:
+                current = matching_86box_pids(vm_path)
+                created = sorted(current - before)
+                if created:
+                    return ExternalProcess(created[-1])
+                time.sleep(0.1)
+            current = sorted(matching_86box_pids(vm_path))
+            if current:
+                return ExternalProcess(current[-1])
+            print("open(1) launch produced no matching 86Box process; falling back to direct 86Box launch")
 
     cmd = [emulator_path(), "--vmpath", str(vm_path)]
     if image_args:
@@ -1320,6 +1324,7 @@ def classify_86box_screen(path: Path) -> tuple[str, str]:
 
     center_red_pixels = 0
     lower_bright_pixels = 0
+    lower_text_pixels = 0
     center_dim_pixels = 0
     non_dark_pixels = 0
     sampled_pixels = 0
@@ -1362,6 +1367,8 @@ def classify_86box_screen(path: Path) -> tuple[str, str]:
                     lower_bright_pixels += 1
             elif r > 45 or g > 45 or b > 45:
                 non_dark_pixels += 1
+                if lower_y0 <= y <= lower_y1:
+                    lower_text_pixels += 1
             if (
                 splash_x0 <= x <= splash_x1
                 and splash_y0 <= y <= splash_y1
@@ -1388,11 +1395,14 @@ def classify_86box_screen(path: Path) -> tuple[str, str]:
         return "success", f"splash={splash_pixels} bbox={splash_width}x{splash_height}"
     if lower_bright_pixels >= 40:
         return "success", f"lower_bright={lower_bright_pixels}"
+    if lower_text_pixels >= 40:
+        return "success", f"lower_text={lower_text_pixels}"
     if center_dim_pixels >= 15 and non_dark_pixels < max(4000, sampled_pixels // 120):
         return "freeze", f"center_dim={center_dim_pixels} non_dark={non_dark_pixels}"
     return (
         "ambiguous",
         f"center_red={center_red_pixels} lower_bright={lower_bright_pixels} "
+        f"lower_text={lower_text_pixels} "
         f"splash={splash_pixels}/{splash_width}x{splash_height} "
         f"center_dim={center_dim_pixels} non_dark={non_dark_pixels}",
     )
@@ -1529,18 +1539,49 @@ def classify_running_vm(
         print(f"{label}: ambiguous (could not capture 86Box window)")
         return "ambiguous", "could not capture 86Box window"
     try:
-        verdict, detail = classify_86box_screen(args.oracle_screenshot)
+        shape_verdict, shape_detail = classify_86box_screen(args.oracle_screenshot)
     except (OSError, ValueError) as exc:
-        verdict, detail = "ambiguous", str(exc)
-    print(f"{label}: {verdict} ({detail})")
-    if verdict == "success" and args.screen_ocr_success:
-        maybe_print_screen_ocr(args, label, args.oracle_screenshot)
+        shape_verdict, shape_detail = "ambiguous", str(exc)
+
+    engine: str | None = None
+    lines: list[str] = []
+    should_ocr = (
+        not args.no_screen_ocr
+        and (
+            shape_verdict != "success"
+            or args.screen_ocr_success
+        )
+    )
+    if should_ocr:
+        engine, lines = screen_ocr_lines(args.oracle_screenshot, args.screen_ocr_timeout)
+
+    verdict = shape_verdict
+    detail = shape_detail
+    if verdict == "ambiguous":
+        if ocr_lines_suggest_dpi_ready(lines):
+            verdict = "success"
+            detail = f"ocr_{engine or 'unknown'}_dpi"
+
+    print(f"{label}: shape={shape_verdict} ({shape_detail})")
+    if should_ocr:
+        print_screen_ocr_lines(label, engine, lines)
+    if verdict != shape_verdict or detail != shape_detail:
+        print(f"{label}: derived={verdict} ({detail})")
+    else:
+        print(f"{label}: verdict={verdict} ({detail})")
     if verdict == "success" and not args.keep_success_oracle_screenshot:
         args.oracle_screenshot.unlink(missing_ok=True)
     elif verdict != "success":
-        maybe_print_screen_ocr(args, label, args.oracle_screenshot)
         print(f"{label}: kept {args.oracle_screenshot}")
     return verdict, detail
+
+
+def ocr_lines_suggest_dpi_ready(lines: list[str]) -> bool:
+    for line in lines:
+        folded = line.lower()
+        if folded.startswith(">"):
+            return True
+    return False
 
 
 def screen_ocr_lines(path: Path, timeout: float) -> tuple[str | None, list[str]]:
@@ -1610,6 +1651,14 @@ def maybe_print_screen_ocr(args: argparse.Namespace, label: str, path: Path) -> 
     if args.no_screen_ocr:
         return
     engine, lines = screen_ocr_lines(path, args.screen_ocr_timeout)
+    print_screen_ocr_lines(label, engine, lines)
+
+
+def print_screen_ocr_lines(
+    label: str,
+    engine: str | None,
+    lines: list[str],
+) -> None:
     if engine is None:
         print(f"{label} OCR: unavailable (install tesseract for local text extraction)")
         return
@@ -2016,9 +2065,12 @@ def main() -> int:
                         if args.fail_on_screen_oracle:
                             exit_code = 2
                     else:
+                        post_dpi_text = args.post_dpi_text
+                        if not post_dpi_text.endswith(("\n", "\r")):
+                            post_dpi_text += "\n"
                         type_basic_pid_keycodes(
                             process.pid,
-                            args.post_dpi_text,
+                            post_dpi_text,
                             args.type_delay,
                             args.line_delay,
                         )

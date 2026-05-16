@@ -78,3 +78,239 @@ Conclusion:
 
 These are safe to keep. They improve observability and release discipline
 without changing Seed's runtime behavior.
+
+## 2026-05-16 15:25:00 - Preserve first request metadata instead of rescanning it
+
+Observed behavior:
+
+- First Build 8 model response rendered correctly in DPI.
+- Submitting `hi` after that waited for a long time and then failed in agent
+  setup with `0D/12`.
+- Packet capture from earlier NE2K runs showed only the first TLS application
+  request/response. No second application request left the VM after the DPI
+  prompt was submitted.
+
+Diagnosis:
+
+- The first plaintext HTTP request is intentionally preserved so later DPI
+  requests can reuse the key/model without rereading `USER.CFG`.
+- The ready-path model reuse code tried to rediscover the JSON model value by
+  scanning the preserved request for `CRLF CRLF` on every prompt submit.
+- That scan was unbounded. If the delimiter was missed for any reason, the
+  second request path could hang before `tls_send_application_data_current_seq`,
+  matching the "no second packet leaves" capture.
+
+Change:
+
+- First attempted to store the model value pointer in `dns_tx_len`, but that
+  was wrong: the endpoint/DNS phase still owns `dns_tx_len` after the first
+  request is built, and overwrites it before DPI.
+- Replaced that with a no-new-state calculation on the ready path:
+  `api_request_plain + tls_record_header_len + tls_tx_len -
+  tls_record_header_len - tls_aead_tag_len - api_body_len +
+  api_request_model_value_offset`.
+- On later DPI requests, copy the model from that calculated pointer instead
+  of rescanning the preserved HTTP request.
+
+Correction:
+
+- The first version of the no-new-state calculation used `tls_app_len`.
+  That also failed with `B2/02`, because `tls_receive_application_data`
+  overwrites `tls_app_len` with the response plaintext length after the first
+  response arrives.
+- `tls_tx_len` remains the encrypted record length from the first application
+  send, so subtracting the TLS record header and AEAD tag gives the preserved
+  first HTTP request length.
+
+Expected result:
+
+- The second request should either leave the machine or fail earlier with a
+  bounded error. It should not spin forever trying to rediscover saved request
+  structure.
+
+## 2026-05-16 15:50:00 - Move chat key/model cache out of the receive arena
+
+Observed behavior:
+
+- The second prompt still failed quickly with `B2/02`.
+- That means the ready-path body builder still could not read a valid model
+  string.
+
+Diagnosis:
+
+- `api_request_plain` lives in `tls_pre_response_scratch`, which is part of
+  the extended TLS receive window.
+- The first model response can overwrite that area before DPI submits the next
+  prompt.
+- Therefore preserving the whole first HTTP request in that arena is not a
+  valid chat-loop lifetime model.
+
+Change:
+
+- Added a one-sector cold `agent_cache` phase.
+- After the TLS handshake and first application send complete, but before the
+  first application response is received, copy only the durable values needed
+  for later prompts:
+  - model -> `chat_model_cache`
+  - key -> `chat_key_cache`
+- These caches reuse the retired SHA-256 K table at `0x0500`. That table is
+  needed during the handshake, but not for later TLS application-data
+  send/receive on the current Build 8 keep-open session path.
+- Later DPI prompt requests now read key/model from this compact cache instead
+  of the overwritten request/receive arena.
+
+Tradeoff:
+
+- `CORE.SYS` grows by one sector because this is a separate cold phase. The
+  resident/K/critical memory layout still fits the 16 KiB guarded target.
+- Removed the nonessential bright ready marker in resident code to keep the
+  resident nucleus within four sectors.
+
+## 2026-05-16 10:54:08 - Response rendered but first call did not return
+
+Observed behavior:
+
+- The first model greeting appeared on screen, but Seed stayed in the normal
+  `o` phase. No `seed build 8` splash and no usable prompt appeared.
+- The harness mistakenly promoted this to success because OCR saw the greeting.
+  Tightened the harness so it reports both shape verdict and OCR lines, and no
+  longer treats a greeting alone as a ready DPI prompt.
+
+Diagnosis:
+
+- The first response renderer was working.
+- The response phase then kept waiting for the HTTP response body to drain
+  before returning to `main`.
+- The drain code only searched for lowercase `content-length: `.
+- A real HTTP/1.1 OpenAI Responses call uses `Content-Length: ...` with
+  uppercase `C` and `L`, so Seed rendered the answer but never learned how many
+  bytes remained to drain.
+
+Change:
+
+- Added `Content-Length: ` as a second response-phase header pattern.
+- Kept the response renderer direct-to-video; `api_response_text_buf` remains
+  unsuitable for durable text because later TLS receive records reuse that
+  arena.
+
+Verification:
+
+- `make inspect` passes.
+- `vm-net-ne2k8` ROM BASIC background harness:
+  - first call rendered a greeting;
+  - `seed build 8` splash appeared afterward;
+  - `hi` submitted from the prompt;
+  - a second model response rendered;
+  - local pixel inspection of the kept oracle image shows bright prompt-band
+    pixels after the second response, even though OCR does not reliably read
+    the lone `>` prompt marker.
+
+Conclusion:
+
+The immediate hang before DPI was caused by case-sensitive content-length
+parsing, not a TLS sequencing failure. Continue with NIC-family testing and
+then clean up the remaining harness/oracle rough edges.
+
+## 2026-05-16 11:13 - restore 3c501 early CKE timing
+
+- Observation: 3c501 pcap still showed ClientHello/ServerHello and Finished OK, but server sent close+FIN before our first application request. The request then hit RST.
+- Comparison: stable Build 7 sent ClientKeyExchange immediately for 3c501 before the expensive key schedule, then sent only CCS/Finished later. The rebuild regressed to sending CKE after key schedule for all cards.
+- Change: restore 3c501-specific early ClientKeyExchange ordering in tls_probe_server.
+
+
+## 2026-05-16 11:19 - pre-encrypt first app record before final flight
+
+- Observation: restoring early ClientKeyExchange moved CKE earlier, but pcap still showed the first app record 40 ms after server close/FIN. The remaining delay was application-record encryption after Finished.
+- Change: prebuild the first application-data record using the next client record sequence before sending CCS/Finished, then send the prepared record immediately after final flight. Normal ready-loop sends still build+send through the same wrapper.
+
+## 2026-05-16 11:53 - post-Finished request chunk timing
+
+- Observation: with the request split into 128-byte TLS application records and
+  server Finished verified before sending application data, 3c501 completed the
+  TLS handshake but still froze at the dark `o` marker.
+- Focused pcap showed:
+  - ClientKeyExchange at 11:53:21.005.
+  - ChangeCipherSpec + client Finished at 11:53:22.196.
+  - Server Finished at 11:53:22.205 and ACKed immediately.
+  - Server close/FIN at 11:53:23.388.
+  - First 128-byte application-data chunk at 11:53:24.389, one second after
+    the server had already closed the connection.
+- Diagnosis: waiting for server Finished is correct, but encrypting a 128-byte
+  first request chunk on 3c501 is still too slow for the provider's
+  post-Finished application-data timeout.
+- Next attempt: send a tiny 16-byte first application-data record immediately
+  after server Finished, then continue the same plaintext request with 128-byte
+  records once the provider has seen application data.
+
+## 2026-05-16 12:00 - 16-byte first chunk still too late if built after Finished
+
+- Observation: changing the first post-Finished application record to 16 bytes
+  still froze at the dark `o` marker on 3c501.
+- Focused pcap showed:
+  - Server Finished arrived and was ACKed at 12:01:11.990.
+  - Server sent close/FIN at 12:01:13.181.
+  - The first 16-byte application-data record left at 12:01:13.895, after the
+    connection was already closed.
+- Diagnosis: even a 16-byte encrypted record is too slow if the encryption
+  work starts only after server Finished. The record must be prepared before
+  the server-Finished wait, but stored somewhere the receive path will not
+  overwrite.
+- Change under test: prebuild the first 16-byte application-data record in
+  `fs_sector_buffer`, build/send the client final flight from `tls_rx_copy`,
+  verify server Finished, then send the prepared record immediately and
+  continue the remaining request in 128-byte records.
+
+## 2026-05-16 - Build 8 rebuild: TLS ordering rollback and chat config cache
+
+- Observation: trying to precompute the server-Finished verifier and move the
+  chat config cache between ClientHello and final-flight send regressed NE2K8
+  from the previously working first response back into first-turn TLS/network
+  failures. This was the wrong layer to touch for the second-prompt bug.
+- Rollback: restored the Build 7-compatible final-flight shape: send
+  ClientKeyExchange/CCS/Finished, transcript-update the client Finished after
+  send, send the prepared application record, then wait for and verify server
+  Finished with the normal server-Finished verifier path.
+- Diagnosis for the second-prompt `B2/02`: the chat cache was placed at
+  `low_sha256_k`. `tls_client_hello` reloads SHA-256 K constants there during
+  the first handshake, so the ready-loop model/key cache was corrupted before
+  DPI could send the second request.
+- Fix under test: preserve only the bytes the handshake actually destroys:
+  the model string plus the first `tls_pre_response_scratch_end - seed_key`
+  bytes of the key. The remaining key tail stays in the original `seed_key`
+  arena. This keeps the first-turn path unchanged while giving the ready loop
+  stable config state without a full 256-byte duplicate.
+- Result: wrong assumption. The key tail begins exactly where ready-loop
+  state starts, so `tls_app_len` and related state overwrote the first bytes of
+  the supposed preserved tail. The second request reached OpenAI again, but
+  OpenAI rejected the reconstructed key as invalid.
+- Follow-up: cache the full model plus full key in the 269-byte gap between
+  the TLS stream arena and the 16K stack guard. This spends that local slack,
+  but it is the smallest non-cheating path that keeps the TLS connection open
+  and avoids rereading config from floppy for every prompt.
+- Result: NE2K8 and WD8003e reached first response, accepted `hi`, and
+  rendered the second model response. 3c501 regressed at first-turn TLS with
+  `@D/12`.
+- Adjustment under test: move the cache phase later, after endpoint/DNS/TCP
+  setup has consumed the config values and immediately before `tls_probe_server`
+  reuses the config arena for TLS state.
+- Follow-up observation: 3c501 still failed at first-turn TLS with `@D/12`.
+  Diff review showed the Build 7 internet-readiness probe had been removed from
+  `prepare_internet_path`, reducing the path to DHCP only. Restoring the
+  probe/TCP-80 readiness step before the agent path because this was part of
+  the stable 3c501 sequence.
+
+## 2026-05-16 - Stop TLS ordering experiments and return to the first-response anchor
+
+- Decision: the stable ground is the rebuild state that displayed the first
+  model response in the DPI area, accepted a user prompt, and then exposed the
+  second-prompt problem. That is the correct Build 8 anchor.
+- Rejected path: further packet-order experiments around the TLS final flight.
+  Build 7's TLS ordering was heavily tested across all 16 KiB NIC profiles, so
+  changing that path is a regression risk unless a first-flight bug is proven.
+- Active recovery:
+  - Keep the unified `send_agent_prompt_path` model-call shape.
+  - Keep the key/model chat cache outside the receive arena.
+  - Restore the Build 7 internet-readiness probe in `prepare_internet_path`;
+    it had been removed in the rebuild and is part of the settled 3c501 path.
+  - Keep `tls_build_application_data_record` bounded, but do not prebuild or
+    reorder the application record relative to the final flight.

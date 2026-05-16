@@ -9,6 +9,8 @@
 
 agent_endpoint_phase:
     mov word [tcp_dest_port_word], tcp_port_https_word
+    cmp byte [handoff_addr + handoff_status], handoff_status_ready
+    je .open_provider
     call agent_endpoint_phase_selected_agent_needs_endpoint
     jc .known_provider
     mov si, seed_endpoint

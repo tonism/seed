@@ -1,14 +1,5 @@
 tls_app_data_ptr dw 0
 tls_app_plain_ptr dw 0
-tls_app_record_ptr dw 0
-tls_app_len dw 0
-tls_app_record_len dw 0
-tls_app_total_len dw 0
-tls_app_chunk_len dw 0
-api_receive_tries db 0
-tls_app_content_type db 0
-tls_transcript_certificate_remaining dw 0
-dns_tx_len dw dns_tx_frame_default_len
 ne_tx_frame equ low_scratch_start
 ne_prom equ ne_tx_frame + net_frame_buffer_len
 low_packet_scratch_end equ ne_prom + ne_prom_len
@@ -152,8 +143,11 @@ tcp_local_seq equ tcp_dest_port_word + 2
 tcp_remote_ack equ tcp_local_seq + 4
 tls_stream_skip_remaining equ tcp_remote_ack + 4
 api_body_len equ tls_stream_skip_remaining + 2
-dns_qname_len equ api_body_len + 2
-low_runtime_state_end equ dns_qname_len + 1
+tcp_source_port_word equ api_body_len + 2
+dns_qname_len equ tcp_source_port_word + 2
+api_response_pending_len equ dns_qname_len + 1
+api_receive_tries equ api_response_pending_len + 2
+low_runtime_state_end equ api_receive_tries + 1
 low_static_constants_start equ low_phase_state_end
 tls_label_master_secret equ low_static_constants_start
 tls_label_master_secret_len equ 13
@@ -238,6 +232,10 @@ tls_pre_response_scratch equ tls_rx_copy + tls_payload_buffer_len
 %error "dns_qname scratch overlaps pre-response scratch"
 %endif
 api_request_plain equ tls_pre_response_scratch
+api_response_text_buf equ tls_rx_copy
+; Build the encrypted application record over the plaintext request arena. This
+; survives server-Finished verification, unlike fs_sector_buffer, and the
+; current request cap keeps each request in one TLS record.
 tls_app_record_buffer equ api_request_plain
 hmac_prepared_inner_state equ api_request_plain + tls_app_record_buffer_len
 hmac_prepared_outer_state equ hmac_prepared_inner_state + (16 * 2)
@@ -311,3 +309,27 @@ poly_product equ critical_poly_product
 poly_value equ critical_poly_value
 tls_random equ tls_handshake_hash
 sha256_k equ low_sha256_k
+
+; Build 8 keeps cross-phase agent/TLS request state outside the resident
+; nucleus so adding the chat loop does not push the K window upward.
+tls_app_len equ critical_scratch_end
+tls_app_record_len equ tls_app_len + 2
+tls_app_total_len equ tls_app_record_len + 2
+tls_app_chunk_len equ tls_app_total_len + 2
+tls_app_content_type equ tls_app_chunk_len + 2
+tls_transcript_certificate_remaining equ tls_app_content_type + 1
+dns_tx_len equ tls_transcript_certificate_remaining + 2
+; The first TLS handshake and ready-loop state reuse the AGENTS/USER config
+; arena. Preserve the chat-loop values that every request still needs.
+chat_model_cache equ dns_tx_len + 2
+chat_key_cache equ chat_model_cache + seed_model_len
+chat_cache_end equ chat_key_cache + seed_key_len
+%if chat_cache_end > (basic_sidecar_stack_top_16k - basic_sidecar_stack_guard_len_16k)
+%error "chat config cache overlaps 16K BASIC stack guard"
+%endif
+
+dpi_input_buf equ tls_rx_copy
+dpi_input_len_byte equ dpi_input_buf + dpi_input_max_len
+%if (dpi_input_len_byte + 1) > tls_pre_response_scratch
+%error "DPI input buffer exceeds first TLS receive payload"
+%endif

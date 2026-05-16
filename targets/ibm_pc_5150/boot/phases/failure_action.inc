@@ -16,6 +16,7 @@ failure_action_phase:
     mov bl, [error_attr]
     call .message_ptr
     call failure_action_phase_type_z
+    call .type_agent_net_error
     mov byte [menu_index], 0
     call .type_failure_options
     call .flush_keys
@@ -64,6 +65,37 @@ failure_action_phase:
     mov si, low_scratch_start + (network_error_text - PHASE_BASE)
 .message_done:
     ret
+
+.type_agent_net_error:
+    cmp byte [handoff_addr + handoff_status], handoff_status_agent_failed
+    jne .net_error_done
+    mov al, ' '
+    call failure_action_phase_type_char
+    mov al, [handoff_addr + handoff_net_error]
+    call .type_hex_byte
+    mov al, '/'
+    call failure_action_phase_type_char
+    mov al, [handoff_addr + handoff_net_status]
+    call .type_hex_byte
+.net_error_done:
+    ret
+
+.type_hex_byte:
+    push ax
+    shr al, 1
+    shr al, 1
+    shr al, 1
+    shr al, 1
+    call .type_hex_nibble
+    pop ax
+    and al, 0x0f
+.type_hex_nibble:
+    add al, '0'
+    cmp al, '9'
+    jbe .hex_ready
+    add al, 7
+.hex_ready:
+    jmp failure_action_phase_type_char
 
 .type_failure_options:
     mov byte [cursor_row], question_row

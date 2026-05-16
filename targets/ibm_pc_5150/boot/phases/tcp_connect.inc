@@ -25,7 +25,27 @@
 %endif
 
 tcp_connect_phase:
+    cmp byte [handoff_addr + handoff_status], handoff_status_ready
+    je tcp_reopen_cached_target
     call tcp_connect_target
+    ret
+
+tcp_reopen_cached_target:
+    call ne_flush_receive_frames
+    call ne_transmit_tcp_syn
+    jc .done
+    call ne_wait_for_tcp_synack
+    cmp byte [handoff_addr + handoff_net_status], net_status_tcp_synack_received
+    jne .failed
+    phase_call_res ne_transmit_tcp_ack
+    jc .done
+    cmp byte [handoff_addr + handoff_net_status], net_status_tcp_connected
+    jne .failed
+    clc
+    ret
+.failed:
+    stc
+.done:
     ret
 
 tcp_connect_target:
@@ -104,6 +124,11 @@ ne_transmit_tcp_syn:
     ret
 
 tcp_reset_state:
+    mov ax, [0x046c]
+    and al, 0x3f
+    add al, 0xc0
+    mov ah, 0x02
+    mov [tcp_source_port_word], ax
     mov word [tcp_local_seq], 0x4553
     mov word [tcp_local_seq + 2], 0x4445
     mov di, tcp_remote_ack
@@ -602,7 +627,8 @@ parse_tcp_synack:
     mov ax, [tcp_dest_port_word]
     cmp word [ne_tx_frame + tcp_offset], ax
     jne .not_synack
-    cmp word [ne_tx_frame + tcp_offset + 2], tcp_source_port_word
+    mov ax, [tcp_source_port_word]
+    cmp word [ne_tx_frame + tcp_offset + 2], ax
     jne .not_synack
     mov al, [ne_tx_frame + tcp_offset + 13]
     and al, 0x12

@@ -43,9 +43,6 @@ hal_start:
     call_core_phase core_packet_io_init_phase_start, core_packet_io_init_phase_end
     jc network_setup_error
 
-    mov bl, [load_attr]
-    mov al, ','
-    call show_load_marker
     call prepare_internet_path
     jc network_setup_error
 
@@ -57,17 +54,10 @@ hal_start:
     mov byte [handoff_addr + handoff_status], handoff_status_ready
     call_core_phase core_splash_phase_start, core_splash_phase_end
 
-halt:
-    hlt
-    jmp halt
-
-network_error:
-    mov al, handoff_status_no_nic
-    jmp show_failure
-
-network_setup_error:
-    mov al, handoff_status_network_failed
-    jmp show_failure
+chat_loop:
+    call_core_phase core_dpi_phase_start, core_dpi_phase_end
+    call prepare_agent_endpoint_path
+    jnc chat_loop
 
 agent_setup_error:
     mov al, handoff_status_agent_failed
@@ -76,6 +66,14 @@ show_failure:
     mov [handoff_addr + handoff_status], al
     call_core_phase core_failure_phase_start, core_failure_phase_end
     jmp hal_start
+
+network_error:
+    mov al, handoff_status_no_nic
+    jmp show_failure
+
+network_setup_error:
+    mov al, handoff_status_network_failed
+    jmp show_failure
 
 run_tcp_connect_phase:
     mov ax, (((core_tcp_connect_phase_end - core_tcp_connect_phase_start + 511) / 512) << 8) | ((core_tcp_connect_phase_start - $$) / 512)

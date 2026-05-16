@@ -212,7 +212,7 @@ build_tcp_segment_frame:
     movsw
     movsw
 
-    mov ax, tcp_source_port_word
+    mov ax, [tcp_source_port_word]
     stosw
     mov ax, [tcp_dest_port_word]
     stosw

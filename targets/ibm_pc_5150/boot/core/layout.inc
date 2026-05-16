@@ -2,7 +2,7 @@
 %define LOADER_SECTORS 4
 %endif
 
-build_number equ 7
+build_number equ 8
 core_load_addr equ 0x1000
 handoff_addr equ 0x0600
 low_sha256_k equ 0x0500
@@ -12,6 +12,8 @@ low_scratch_start equ 0x0700
 low_scratch_end equ 0x1000
 net_setup_frame_scratch_len equ 512
 net_setup_phase_start equ low_scratch_start + net_setup_frame_scratch_len
+basic_sidecar_stack_top_16k equ 0x4000
+basic_sidecar_stack_guard_len_16k equ 0x0400
 basic_sidecar_stack_top_24k equ 0x6000
 basic_sidecar_stack_guard_len_24k equ 0x0100
 handoff_magic equ 0
@@ -125,6 +127,10 @@ menu_idle_attr_mda equ 0x07
 seed_len equ 4
 seed_row equ 12
 question_row equ seed_row + 2
+dpi_prompt_row equ 24
+dpi_prompt_col equ 0
+dpi_input_max_len equ 48
+api_response_text_max_len equ 192
 load_ticks equ 6
 type_ticks equ 1
 done_ticks equ 9
@@ -271,7 +277,6 @@ tls_stream_buffer_len equ tls_payload_buffer_len + tls_pre_response_tail_len
 critical_scratch_start equ 0x32c2
 critical_scratch_len equ tls_stream_buffer_len
 critical_scratch_end equ critical_scratch_start + critical_scratch_len
-tcp_source_port_word equ 0x02c0
 tcp_port_http_word equ 0x5000
 tcp_port_https_word equ 0xbb01
 tcp_wait_count equ 4
@@ -319,6 +324,8 @@ tls_app_max_plain_len equ tcp_payload_max_len - tls_record_header_len - tls_aead
 ; Fixed OpenAI proof request with max 192-byte key and max 64-byte model.
 api_request_plain_len equ 440
 tls_app_record_buffer_len equ api_request_plain_len + tls_record_header_len + tls_aead_tag_len
+api_request_key_value_offset equ 73
+api_request_model_value_offset equ 10
 chacha_word_count equ 16
 chacha_block_len equ 64
 poly1305_r_len equ 16
