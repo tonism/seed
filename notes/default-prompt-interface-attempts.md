@@ -314,3 +314,23 @@ then clean up the remaining harness/oracle rough edges.
     it had been removed in the rebuild and is part of the settled 3c501 path.
   - Keep `tls_build_application_data_record` bounded, but do not prebuild or
     reorder the application record relative to the final flight.
+
+## 2026-05-16 18:16 - Preserve request split offset across TLS scratch
+
+- Observation: NE2K8 reached the first model response and accepted a user
+  prompt, but the follow-up request produced an OpenAI invalid-JSON error.
+  The ready-loop body tail was being cut from `tls_app_chunk_len`.
+- Diagnosis: `tls_app_chunk_len` is TLS encryption scratch. It is overwritten
+  inside the encrypted application-data send path, so it cannot safely carry
+  the request-body split offset from the request phase to the stream phase.
+- Change: keep the boot request unsplit in the first application-data record.
+  For ready-loop prompts, keep the split offset in request-owned
+  `api_response_pending_len` until the stream phase sends the remaining body
+  tail, then clear both request length fields.
+- Result: NE2K8 and WD8003e rendered the first model greeting, accepted a
+  prompt, and rendered a follow-up model response. This is the first clean
+  Build 8 proof of multiple model responses flowing through the DPI loop.
+- Remaining issue: 3c501 still fails before DPI at the TLS `0D/12` point.
+  A temporary attempt to defer the first 3c501 application record until after
+  server Finished changed the failure into a dark `o` freeze, so that
+  experiment was backed out. Treat 3c501 as the next separate TLS timing issue.

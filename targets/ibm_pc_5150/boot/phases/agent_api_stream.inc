@@ -16,16 +16,13 @@ agent_api_stream_phase:
     cld
     cmp byte [handoff_addr + handoff_status], handoff_status_ready
     je .ready_tail
-
-    mov si, PHASE_LOAD_ADDR + (.boot_tail_text - PHASE_BASE)
-    mov cx, .boot_tail_text_end - .boot_tail_text - 1
-    jmp .send_tail
+    jmp .done
 
 .ready_tail:
     mov si, fs_sector_buffer
-    add si, [tls_app_chunk_len]
+    add si, [api_response_pending_len]
     mov cx, [api_body_len]
-    sub cx, [tls_app_chunk_len]
+    sub cx, [api_response_pending_len]
 
 .send_tail:
     jcxz .done
@@ -39,6 +36,7 @@ agent_api_stream_phase:
     phase_call_res tls_send_application_data_current_seq
     jc .failed
 .done:
+    mov word [api_response_pending_len], 0
     mov word [api_body_len], 0
     clc
     ret
@@ -46,8 +44,5 @@ agent_api_stream_phase:
 .failed:
     stc
     ret
-
-.boot_tail_text db 'Hi."}', 0
-.boot_tail_text_end:
 
 %unmacro phase_call_res 1

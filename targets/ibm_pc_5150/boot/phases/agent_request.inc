@@ -84,11 +84,12 @@ agent_request_phase:
     call .append_u16_decimal
     call agent_request_phase_append_crlf_to_buffer
     call agent_request_phase_append_crlf_to_buffer
-    mov ax, [api_response_pending_len]
-    mov [tls_app_chunk_len], ax
-    mov word [api_response_pending_len], 0
     mov si, fs_sector_buffer
-    mov cx, [tls_app_chunk_len]
+    mov cx, [api_body_len]
+    cmp byte [handoff_addr + handoff_status], handoff_status_ready
+    jne .copy_body_prefix
+    mov cx, [api_response_pending_len]
+.copy_body_prefix:
     rep movsb
     mov ax, di
     sub ax, api_request_plain + tls_record_header_len
