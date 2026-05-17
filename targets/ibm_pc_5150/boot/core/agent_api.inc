@@ -1,5 +1,5 @@
 agent_api_exchange:
-    mov byte [api_receive_tries], 16
+    mov byte [api_receive_tries], 80
 .receive:
     call tls_receive_application_data
     jc .retry

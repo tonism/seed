@@ -48,6 +48,14 @@ agent_request_phase:
 
 .build_openai_request:
     mov word [api_response_pending_len], 0
+    mov byte [api_stream_state], 0
+    mov byte [api_stream_delta_match], 0
+    mov byte [api_stream_event_match], 0
+    mov byte [api_stream_event_ready], 0
+    mov byte [api_stream_seen], 0
+    mov byte [api_stream_completed], 0
+    mov byte [api_http_state], 0
+    mov byte [api_http_header_match], 0
     call .build_openai_body
     jc .request_failed
     push ds
@@ -150,7 +158,7 @@ agent_request_phase:
     mov si, PHASE_LOAD_ADDR + (api_json_boot_prompt_text - PHASE_BASE)
     call agent_request_phase_append_z_to_buffer
 .body_close:
-    mov si, PHASE_LOAD_ADDR + (api_json_plain_close_text - PHASE_BASE)
+    mov si, PHASE_LOAD_ADDR + (api_json_stream_close_text - PHASE_BASE)
     call agent_request_phase_append_z_to_buffer
     mov ax, di
     sub ax, fs_sector_buffer
@@ -202,7 +210,7 @@ agent_request_host_openai_text db 'api.openai.com', 0
 api_json_model_text db '{"model":"', 0
 api_json_input_text db '","input":"', 0
 api_json_boot_prompt_text db 'Hi.', 0
-api_json_plain_close_text db '"}', 0
+api_json_stream_close_text db '","stream":true}', 0
 
 agent_request_phase_append_z_to_buffer:
     lodsb

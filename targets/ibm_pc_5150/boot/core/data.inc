@@ -148,6 +148,18 @@ dns_qname_len equ tcp_source_port_word + 2
 api_response_pending_len equ dns_qname_len + 1
 api_receive_tries equ api_response_pending_len + 2
 low_runtime_state_end equ api_receive_tries + 1
+
+; After agent/user setup, the setup form scratch bytes are no longer live.
+; Reuse them for the chat response scanner instead of growing the always-tight
+; low runtime block.
+api_stream_state equ menu_value_a
+api_stream_delta_match equ menu_index
+api_stream_event_match equ input_target
+api_stream_event_ready equ input_max
+api_stream_seen equ input_len
+api_stream_completed equ input_start_col
+api_http_state equ form_left_col
+api_http_header_match equ form_field_col
 low_static_constants_start equ low_phase_state_end
 tls_label_master_secret equ low_static_constants_start
 tls_label_master_secret_len equ 13

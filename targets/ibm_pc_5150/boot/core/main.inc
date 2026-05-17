@@ -52,7 +52,6 @@ hal_start:
     call prepare_agent_path
     jc agent_setup_error
     mov byte [handoff_addr + handoff_status], handoff_status_ready
-    call_core_phase core_splash_phase_start, core_splash_phase_end
 
 chat_loop:
     call_core_phase core_dpi_phase_start, core_dpi_phase_end

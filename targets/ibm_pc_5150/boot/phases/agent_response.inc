@@ -11,21 +11,13 @@
     dw %1 - (PHASE_LOAD_ADDR + ($ - PHASE_BASE) + 2)
 %endmacro
 
-api_response_answer_ptr equ PHASE_LOAD_ADDR + (api_response_answer_ptr_storage - PHASE_BASE)
-api_response_answer_len equ PHASE_LOAD_ADDR + (api_response_answer_len_storage - PHASE_BASE)
-
 agent_response_phase:
-    cmp word [api_response_pending_len], 0
-    jne .answer_ready
-    call .api_find_answer
-    jc .update_remaining
-    call .api_store_answer
-.answer_ready:
-.update_remaining:
-    call .api_update_body_remaining
-    jc .need_more
-    cmp word [api_response_pending_len], 0
+    call .scan_tls_record
+    cmp byte [api_stream_completed], 0
+    je .need_more
+    cmp byte [api_stream_seen], 0
     je .failed
+    clc
     ret
 .need_more:
     stc
@@ -34,192 +26,348 @@ agent_response_phase:
     stc
     ret
 
-.api_find_answer:
-    mov si, PHASE_LOAD_ADDR + (api_answer_output_pattern - PHASE_BASE)
-    call .api_find_pattern
-    jnc .api_measure_answer
-    mov si, PHASE_LOAD_ADDR + (api_answer_output_spaced_pattern - PHASE_BASE)
-    call .api_find_pattern
-    jnc .api_measure_answer
-    mov si, PHASE_LOAD_ADDR + (api_answer_text_pattern - PHASE_BASE)
-    call .api_find_pattern
-    jnc .api_measure_answer
-    mov si, PHASE_LOAD_ADDR + (api_answer_text_spaced_pattern - PHASE_BASE)
-    call .api_find_pattern
-    jnc .api_measure_answer
-    mov si, PHASE_LOAD_ADDR + (api_error_message_pattern - PHASE_BASE)
-    call .api_find_pattern
-    jnc .api_measure_answer
-    mov si, PHASE_LOAD_ADDR + (api_error_message_spaced_pattern - PHASE_BASE)
-    call .api_find_pattern
-    jnc .api_measure_answer
+.scan_tls_record:
+    mov si, [tls_app_data_ptr]
+    mov cx, [tls_app_len]
+.raw_next:
+    or cx, cx
+    jz .raw_done
+    lodsb
+    push si
+    call .accept_raw_byte
+    pop si
+    dec cx
+    jmp .raw_next
+.raw_done:
+    ret
+
+.accept_raw_byte:
+    cmp byte [api_http_state], 0
+    je .http_header
+    cmp byte [api_http_state], 1
+    je .chunk_size
+    cmp byte [api_http_state], 2
+    je .chunk_size_lf
+    cmp byte [api_http_state], 3
+    je .chunk_data
+    cmp byte [api_http_state], 4
+    je .chunk_data_cr
+    cmp byte [api_http_state], 5
+    je .chunk_data_lf
+    cmp byte [api_http_state], 7
+    je .chunk_size_skip
+    ret
+
+.http_header:
+    push si
+    mov si, PHASE_LOAD_ADDR + (header_end_pattern - PHASE_BASE)
+    mov di, api_http_header_match
+    call .match_char
+    pop si
+    jc .raw_ret
+    mov byte [api_http_state], 1
+    mov word [api_body_len], 0
+.raw_ret:
+    ret
+
+.chunk_size:
+    cmp al, 13
+    je .chunk_size_cr
+    cmp al, ';'
+    je .chunk_skip_rest
+    call .hex_nibble
+    jc .raw_ret
+    mov bl, al
+    xor bh, bh
+    mov ax, [api_body_len]
+    shl ax, 1
+    shl ax, 1
+    shl ax, 1
+    shl ax, 1
+    add ax, bx
+    mov [api_body_len], ax
+    ret
+.chunk_skip_rest:
+    mov byte [api_http_state], 7
+    ret
+.chunk_size_skip:
+    cmp al, 13
+    jne .raw_ret
+.chunk_size_cr:
+    mov byte [api_http_state], 2
+    ret
+.chunk_size_lf:
+    cmp al, 10
+    jne .raw_ret
+    cmp word [api_body_len], 0
+    jne .chunk_body_ready
+    mov byte [api_stream_completed], 1
+    mov byte [api_http_state], 6
+    ret
+.chunk_body_ready:
+    mov byte [api_http_state], 3
+    ret
+.chunk_data:
+    call .feed_sse_byte
+    dec word [api_body_len]
+    jnz .raw_ret
+    mov byte [api_http_state], 4
+    ret
+.chunk_data_cr:
+    cmp al, 13
+    jne .raw_ret
+    mov byte [api_http_state], 5
+    ret
+.chunk_data_lf:
+    cmp al, 10
+    jne .raw_ret
+    mov byte [api_http_state], 1
+    mov word [api_body_len], 0
+    ret
+
+.feed_sse_byte:
+    cmp byte [api_stream_state], 0
+    je .scan_idle
+    cmp byte [api_stream_state], 1
+    je .scan_string
+    cmp byte [api_stream_state], 2
+    je .scan_escaped
+    cmp byte [api_stream_state], 3
+    je .wait_colon
+    cmp byte [api_stream_state], 4
+    je .wait_quote
+    ret
+
+.scan_idle:
+    call .scan_patterns
+    ret
+.wait_colon:
+    cmp al, ' '
+    je .parser_ret
+    cmp al, ':'
+    jne .reset_parser
+    mov byte [api_stream_state], 4
+    ret
+.wait_quote:
+    cmp al, ' '
+    je .parser_ret
+    cmp al, '"'
+    jne .reset_parser
+    mov byte [api_stream_state], 1
+    ret
+.scan_string:
+    cmp al, '"'
+    je .string_done
+    cmp al, '\'
+    je .string_escape
+    call .emit_char
+    ret
+.string_escape:
+    mov byte [api_stream_state], 2
+    ret
+.scan_escaped:
+    mov byte [api_stream_state], 1
+    cmp al, 'n'
+    je .escaped_lf
+    cmp al, 'r'
+    je .escaped_cr
+    cmp al, 't'
+    je .escaped_space
+    call .emit_char
+    ret
+.escaped_lf:
+    mov al, 10
+    call .emit_char
+    ret
+.escaped_cr:
+    mov al, 13
+    call .emit_char
+    ret
+.escaped_space:
+    mov al, ' '
+    call .emit_char
+    ret
+.string_done:
+    mov byte [api_stream_state], 0
+    mov byte [api_stream_event_ready], 0
+    ret
+.reset_parser:
+    mov byte [api_stream_state], 0
+.parser_ret:
+    ret
+
+.scan_patterns:
+    mov si, PHASE_LOAD_ADDR + (event_delta_pattern - PHASE_BASE)
+    mov di, api_stream_event_match
+    call .match_char
+    jc .maybe_delta
+    mov byte [api_stream_event_ready], 1
+.maybe_delta:
+    cmp byte [api_stream_event_ready], 0
+    je .patterns_done
+    mov si, PHASE_LOAD_ADDR + (delta_key_pattern - PHASE_BASE)
+    mov di, api_stream_delta_match
+    call .match_char
+    jc .patterns_done
+    mov byte [api_stream_state], 3
+.patterns_done:
+    ret
+
+.match_char:
+    push bx
+    mov bl, [di]
+    xor bh, bh
+    cmp al, [si + bx]
+    je .match_advanced
+    cmp al, [si]
+    jne .match_reset
+    mov byte [di], 1
+    stc
+    pop bx
+    ret
+.match_reset:
+    mov byte [di], 0
+    stc
+    pop bx
+    ret
+.match_advanced:
+    inc bl
+    cmp byte [si + bx], 0
+    je .match_complete
+    mov [di], bl
+    stc
+    pop bx
+    ret
+.match_complete:
+    mov byte [di], 0
+    clc
+    pop bx
+    ret
+
+.hex_nibble:
+    cmp al, '0'
+    jb .hex_failed
+    cmp al, '9'
+    jbe .hex_digit
+    cmp al, 'A'
+    jb .hex_lower
+    cmp al, 'F'
+    jbe .hex_upper
+.hex_lower:
+    cmp al, 'a'
+    jb .hex_failed
+    cmp al, 'f'
+    ja .hex_failed
+    sub al, 'a' - 10
+    clc
+    ret
+.hex_upper:
+    sub al, 'A' - 10
+    clc
+    ret
+.hex_digit:
+    sub al, '0'
+    clc
+    ret
+.hex_failed:
     stc
     ret
 
-.api_find_pattern:
-    mov [api_response_answer_ptr], si
-    mov bx, [tls_app_data_ptr]
-    mov dx, [tls_app_len]
-.next_position:
-    or dx, dx
-    jz .find_failed
-    push bx
-    push dx
-    mov si, [api_response_answer_ptr]
-    mov di, bx
-.compare:
+.emit_char:
+    cmp byte [api_stream_seen], 0
+    jne .live_ready
+    cmp byte [handoff_addr + handoff_status], handoff_status_ready
+    je .position_live
+    push ax
+    push cx
+    push si
+    call .show_stream_splash
+    pop si
+    pop cx
+    pop ax
+.position_live:
+    mov byte [cursor_row], dpi_prompt_row - 1
+    mov byte [cursor_col], dpi_prompt_col
+    mov byte [api_stream_seen], 1
+.live_ready:
+    cmp al, 13
+    je .emit_newline
+    cmp al, 10
+    je .emit_newline
+    mov bl, [crypto_attr]
+    push cx
+    phase_call_res print_char
+    pop cx
+    mov al, [cursor_col]
+    cmp al, [screen_cols]
+    jb .emit_done
+.emit_newline:
+    call .scroll_response
+    mov byte [cursor_row], dpi_prompt_row - 1
+    mov byte [cursor_col], dpi_prompt_col
+.emit_done:
+    ret
+
+.show_stream_splash:
+    mov bl, [ready_attr]
+    mov al, 'o'
+    phase_call_res show_load_marker
+    mov cx, load_ticks
+    phase_call_res wait_ticks
+    mov byte [cursor_row], seed_row
+    mov al, [seed_col]
+    mov [cursor_col], al
+    mov si, PHASE_LOAD_ADDR + (stream_seed_text - PHASE_BASE)
+    mov bl, [seed_attr]
+    call .splash_type_z
+    mov al, ' '
+    mov bl, [build_attr]
+    call .splash_type_char
+    mov si, PHASE_LOAD_ADDR + (stream_build_text - PHASE_BASE)
+    call .splash_type_z
+    mov cx, done_ticks
+    phase_call_res wait_ticks
+    ret
+
+.splash_type_z:
     lodsb
     or al, al
-    jz .found
-    or dx, dx
-    jz .no_match
-    cmp al, [di]
-    jne .no_match
-    inc di
-    dec dx
-    jmp .compare
-.found:
-    mov [api_response_answer_ptr], di
-    pop dx
-    pop bx
-    clc
-    ret
-.no_match:
-    pop dx
-    pop bx
-    inc bx
-    dec dx
-    jmp .next_position
-.find_failed:
-    stc
+    jz .splash_done
+    call .splash_type_char
+    jmp .splash_type_z
+.splash_done:
     ret
 
-.api_measure_answer:
-    mov si, [api_response_answer_ptr]
-    mov ax, si
-    sub ax, [tls_app_data_ptr]
-    mov dx, [tls_app_len]
-    cmp ax, dx
-    jae .measure_failed
-    sub dx, ax
-    xor cx, cx
-.measure_next:
-    or dx, dx
-    jz .measure_done
-    mov al, [si]
-    cmp al, '"'
-    je .measure_done
-    cmp al, 13
-    je .measure_done
-    cmp al, 10
-    je .measure_done
-    inc si
-    inc cx
-    dec dx
-    jmp .measure_next
-.measure_done:
-    or cx, cx
-    jz .measure_failed
-    mov [api_response_answer_len], cx
-    clc
-    ret
-.measure_failed:
-    stc
+.splash_type_char:
+    phase_call_res print_char
+    mov cx, type_ticks
+    phase_call_res wait_ticks
     ret
 
-.api_store_answer:
-    push ds
-    pop es
-    mov si, [api_response_answer_ptr]
-    mov cx, [api_response_answer_len]
-    cmp cx, api_response_text_max_len
-    jbe .len_ready
-    mov cx, api_response_text_max_len
-.len_ready:
-    mov [api_response_pending_len], cx
-    mov di, api_response_text_buf
-    rep movsb
-    clc
-    ret
-
-.api_update_body_remaining:
-    cmp word [api_body_len], 0
-    jne .consume_whole_record
-    mov si, PHASE_LOAD_ADDR + (api_content_length_pattern - PHASE_BASE)
-    call .api_find_pattern
-    jnc .content_length_ready
-    mov si, PHASE_LOAD_ADDR + (api_content_length_caps_pattern - PHASE_BASE)
-    call .api_find_pattern
-    jc .need_more_body
-.content_length_ready:
-    mov si, [api_response_answer_ptr]
-    call .api_parse_content_length
-    jc .need_more_body
-    mov [api_body_len], bx
-    mov si, PHASE_LOAD_ADDR + (api_header_end_pattern - PHASE_BASE)
-    call .api_find_pattern
-    jc .need_more_body
-    mov si, [api_response_answer_ptr]
-    jmp .consume_from_si
-.consume_whole_record:
-    mov si, [tls_app_data_ptr]
-.consume_from_si:
-    mov ax, [tls_app_data_ptr]
-    add ax, [tls_app_len]
-    cmp ax, si
-    jbe .need_more_body
-    sub ax, si
-    mov bx, [api_body_len]
-    cmp ax, bx
-    jb .body_partial
-    mov word [api_body_len], 0
-    clc
-    ret
-.body_partial:
-    sub bx, ax
-    mov [api_body_len], bx
-.need_more_body:
-    stc
-    ret
-
-.api_parse_content_length:
-    xor bx, bx
-.content_digit:
-    lodsb
-    cmp al, '0'
-    jb .content_done
-    cmp al, '9'
-    ja .content_done
-    sub al, '0'
+.scroll_response:
     push ax
-    mov ax, bx
-    mov dx, 10
-    mul dx
-    mov bx, ax
+    push bx
+    push cx
+    push dx
+    mov ah, 0x06
+    mov al, 1
+    mov bh, 0x07
+    xor cx, cx
+    mov dh, dpi_prompt_row
+    mov dl, [screen_cols]
+    dec dl
+    int 0x10
+    pop dx
+    pop cx
+    pop bx
     pop ax
-    xor ah, ah
-    add bx, ax
-    jmp .content_digit
-.content_done:
-    or bx, bx
-    jz .content_failed
-    clc
-    ret
-.content_failed:
-    stc
     ret
 
-api_answer_output_pattern db '"output_text":"', 0
-api_answer_output_spaced_pattern db '"output_text": "', 0
-api_answer_text_pattern db '"text":"', 0
-api_answer_text_spaced_pattern db '"text": "', 0
-api_error_message_pattern db '"message":"', 0
-api_error_message_spaced_pattern db '"message": "', 0
-api_content_length_pattern db 'content-length: ', 0
-api_content_length_caps_pattern db 'Content-Length: ', 0
-api_header_end_pattern db 13, 10, 13, 10, 0
-api_response_answer_ptr_storage dw 0
-api_response_answer_len_storage dw 0
+delta_key_pattern db '"delta"', 0
+event_delta_pattern db 'event: response.output_text.delta', 0
+header_end_pattern db 13, 10, 13, 10, 0
+stream_seed_text db 'seed', 0
+stream_build_text db 'build ', '0' + build_number, 0
 
 %unmacro phase_call_res 1
 
