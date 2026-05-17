@@ -370,3 +370,19 @@ sequence and avoid decorative work inside the CKE-to-Finished window.
   A temporary attempt to defer the first 3c501 application record until after
   server Finished changed the failure into a dark `o` freeze, so that
   experiment was backed out. Treat 3c501 as the next separate TLS timing issue.
+
+## 2026-05-17 00:41 - Keep request-before-server-Finished ordering for every NIC
+
+- Regression: after the 3c501 prebuilt-record fix, NE2K8 froze at the normal
+  `o` before DPI. Three consecutive runs reproduced it.
+- Wire evidence: NE2K8 sent ClientHello, received the server flight, sent
+  ClientKeyExchange/CCS/Finished, received server encrypted data and FIN, and
+  only then sent the HTTP application request. Cloudflare reset that late
+  request. This proved the non-3c501 path had been moved away from the proven
+  Build 7 ordering.
+- Fix: keep application request before `tls_wait_for_server_finished` for all
+  NICs. The 3c501 path sends the prebuilt application record there; other NICs
+  build and send the current-sequence application record there. No NIC waits
+  for server Finished before sending the first application record.
+- Verification: `make inspect` passed. First-response canaries passed on
+  `vm-net-ne2k8`, `vm-net-3c501`, `vm-net-3c503`, and `vm-net-wd8003e`.

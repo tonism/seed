@@ -67,15 +67,14 @@ tls_probe_server:
     call tls_send_client_final_flight
     jc .failed
     cmp byte [handoff_addr + handoff_nic_family], family_3c501
-    jne .wait_for_server_finished
+    jne .send_application_data
     call tls_send_prebuilt_application_data_current_seq
+    jmp .wait_for_server_finished
+.send_application_data:
+    call tls_send_application_data_current_seq
     jc .failed
 .wait_for_server_finished:
     call tls_wait_for_server_finished
-    jc .failed
-    cmp byte [handoff_addr + handoff_nic_family], family_3c501
-    je .done
-    call tls_send_application_data_current_seq
     jc .failed
 .done:
     clc
