@@ -23,18 +23,23 @@ agent_api_stream_phase:
     jmp .done
 
 .ready_tail:
-    mov si, fs_sector_buffer
-    add si, [api_response_pending_len]
-    mov cx, [api_body_len]
-    sub cx, [api_response_pending_len]
+    cmp word [api_response_pending_len], 0
+    je .done
+    mov di, api_request_plain + tls_record_header_len
+    mov si, dpi_input_buf
+    mov cl, [dpi_input_len_byte]
+    xor ch, ch
+    call agent_api_stream_append_json_bytes_to_buffer
+    mov si, PHASE_LOAD_ADDR + (api_stream_json_close_text - PHASE_BASE)
+    call agent_api_stream_append_z_to_buffer
+    mov ax, di
+    sub ax, api_request_plain + tls_record_header_len
 
 .send_tail:
-    jcxz .done
-    cmp cx, api_request_plain_len
+    or ax, ax
+    jz .done
+    cmp ax, api_request_plain_len
     ja .failed
-    mov di, api_request_plain + tls_record_header_len
-    mov ax, cx
-    rep movsb
     mov [tls_app_len], ax
     mov word [tls_app_plain_ptr], api_request_plain + tls_record_header_len
     phase_call_res tls_send_application_data_current_seq
@@ -47,6 +52,45 @@ agent_api_stream_phase:
 
 .failed:
     stc
+    ret
+
+api_stream_json_close_text db '","stream":true}', 0
+
+agent_api_stream_append_z_to_buffer:
+    lodsb
+    or al, al
+    jz .append_done
+    stosb
+    jmp agent_api_stream_append_z_to_buffer
+.append_done:
+    ret
+
+agent_api_stream_append_json_bytes_to_buffer:
+    jcxz .json_done
+.json_next:
+    lodsb
+    cmp al, '"'
+    je .json_escape
+    cmp al, '\'
+    je .json_escape
+    cmp al, 32
+    jb .json_space
+    stosb
+    loop .json_next
+    ret
+.json_escape:
+    mov ah, al
+    mov al, '\'
+    stosb
+    mov al, ah
+    stosb
+    loop .json_next
+    ret
+.json_space:
+    mov al, ' '
+    stosb
+    loop .json_next
+.json_done:
     ret
 
 %unmacro phase_call_res 1

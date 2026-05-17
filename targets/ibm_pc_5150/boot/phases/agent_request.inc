@@ -54,6 +54,9 @@ agent_request_phase:
     mov byte [api_stream_completed], 0
     mov byte [api_http_state], 0
     mov byte [api_http_header_match], 0
+    cmp byte [handoff_addr + handoff_status], handoff_status_ready
+    je .build_ready_openai_request
+    mov byte [api_stream_event_ready], 0
     call .build_openai_body
     jc .request_failed
     push ds
@@ -106,11 +109,76 @@ agent_request_phase:
     ja .request_too_large
     cmp byte [handoff_addr + handoff_status], handoff_status_ready
     je .ready_request
-    mov word [api_response_pending_len], 0
+    mov word [api_response_pending_len], 1
     jmp .success_ready
 .ready_request:
     mov word [handoff_addr + handoff_net_status], 0xb0fe
 .success_ready:
+    clc
+    ret
+.build_ready_openai_request:
+    call .compute_ready_body_lengths
+    jc .request_failed
+    push ds
+    pop es
+    mov di, api_request_plain + tls_record_header_len
+    mov si, PHASE_LOAD_ADDR + (http_post_text - PHASE_BASE)
+    call agent_request_phase_append_z_to_buffer
+    mov si, PHASE_LOAD_ADDR + (http_openai_path_text - PHASE_BASE)
+    call agent_request_phase_append_z_to_buffer
+    mov si, PHASE_LOAD_ADDR + (http_version_text - PHASE_BASE)
+    call agent_request_phase_append_z_to_buffer
+    mov si, PHASE_LOAD_ADDR + (http_host_text - PHASE_BASE)
+    call agent_request_phase_append_z_to_buffer
+    mov si, PHASE_LOAD_ADDR + (agent_request_host_openai_text - PHASE_BASE)
+    call agent_request_phase_append_z_to_buffer
+    call agent_request_phase_append_crlf_to_buffer
+    mov si, PHASE_LOAD_ADDR + (http_auth_bearer_text - PHASE_BASE)
+    call agent_request_phase_append_z_to_buffer
+    mov si, chat_key_cache
+    mov cx, seed_key_len
+    call agent_request_phase_append_z_bounded_to_buffer
+    jc .request_key_failed
+    call agent_request_phase_append_crlf_to_buffer
+    mov si, PHASE_LOAD_ADDR + (http_content_length_text - PHASE_BASE)
+    call agent_request_phase_append_z_to_buffer
+    mov ax, [api_body_len]
+    call .append_u16_decimal
+    call agent_request_phase_append_crlf_to_buffer
+    call agent_request_phase_append_crlf_to_buffer
+    mov si, PHASE_LOAD_ADDR + (api_json_model_text - PHASE_BASE)
+    call agent_request_phase_append_z_to_buffer
+    mov si, chat_model_cache
+    mov cx, seed_model_len
+    call agent_request_phase_append_z_bounded_to_buffer
+    jc .request_failed
+    mov si, PHASE_LOAD_ADDR + (api_json_input_text - PHASE_BASE)
+    call agent_request_phase_append_z_to_buffer
+    mov ax, di
+    sub ax, api_request_plain + tls_record_header_len
+    mov bx, ax
+    add ax, [api_response_pending_len]
+    cmp ax, api_request_plain_len
+    ja .split_ready_request
+    mov si, dpi_input_buf
+    mov cl, [dpi_input_len_byte]
+    xor ch, ch
+    call agent_request_phase_append_json_bytes_to_buffer
+    mov si, PHASE_LOAD_ADDR + (api_json_stream_close_text - PHASE_BASE)
+    call agent_request_phase_append_z_to_buffer
+    mov ax, di
+    sub ax, api_request_plain + tls_record_header_len
+    mov word [api_response_pending_len], 0
+    jmp .ready_request_len_ready
+.split_ready_request:
+    mov ax, bx
+.ready_request_len_ready:
+    mov [tls_app_total_len], ax
+    mov [tls_app_len], ax
+    mov word [tls_app_plain_ptr], api_request_plain + tls_record_header_len
+    cmp ax, api_request_plain_len
+    ja .request_too_large
+    mov word [handoff_addr + handoff_net_status], 0xb0fe
     clc
     ret
 .request_key_failed:
@@ -170,6 +238,26 @@ agent_request_phase:
     stc
     ret
 
+.compute_ready_body_lengths:
+    mov si, chat_model_cache
+    mov cx, seed_model_len
+    call agent_request_phase_strlen_z_bounded
+    jc .body_failed
+    mov bx, ax
+    mov si, dpi_input_buf
+    mov cl, [dpi_input_len_byte]
+    xor ch, ch
+    call agent_request_phase_json_bytes_len
+    mov dx, ax
+    add ax, api_json_stream_close_text_len
+    mov [api_response_pending_len], ax
+    mov ax, dx
+    add ax, bx
+    add ax, api_json_model_text_len + api_json_input_text_len + api_json_stream_close_text_len
+    mov [api_body_len], ax
+    clc
+    ret
+
 .append_u16_decimal:
     xor cx, cx
     mov bx, 100
@@ -206,9 +294,50 @@ http_auth_bearer_text db 'Authorization: Bearer ', 0
 http_content_length_text db 'Content-Length: ', 0
 agent_request_host_openai_text db 'api.openai.com', 0
 api_json_model_text db '{"model":"', 0
+api_json_model_text_len equ $ - api_json_model_text - 1
 api_json_input_text db '","input":"', 0
+api_json_input_text_len equ $ - api_json_input_text - 1
 api_json_boot_prompt_text db 'Hi.', 0
 api_json_stream_close_text db '","stream":true}', 0
+api_json_stream_close_text_len equ $ - api_json_stream_close_text - 1
+
+agent_request_phase_strlen_z_bounded:
+    xor dx, dx
+.strlen_next:
+    jcxz .strlen_failed
+    lodsb
+    or al, al
+    jz .strlen_done
+    inc dx
+    loop .strlen_next
+.strlen_failed:
+    stc
+    ret
+.strlen_done:
+    mov ax, dx
+    clc
+    ret
+
+agent_request_phase_json_bytes_len:
+    xor dx, dx
+    jcxz .json_len_done
+.json_len_next:
+    lodsb
+    cmp al, '"'
+    je .json_len_escape
+    cmp al, '\'
+    je .json_len_escape
+    inc dx
+    loop .json_len_next
+    jmp .json_len_done
+.json_len_escape:
+    inc dx
+    inc dx
+    loop .json_len_next
+.json_len_done:
+    mov ax, dx
+    clc
+    ret
 
 agent_request_phase_append_z_to_buffer:
     lodsb

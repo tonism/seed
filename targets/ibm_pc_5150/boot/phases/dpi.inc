@@ -1,21 +1,32 @@
 %ifndef PHASE_BASE
 %error "PHASE_BASE must name the containing phase start label"
 %endif
+%ifndef PHASE_LOAD_ADDR
+%define PHASE_LOAD_ADDR low_scratch_start
+%define PHASE_LOAD_ADDR_DEFAULTED
+%endif
 
 %macro phase_call_res 1
     db 0xe8
-    dw %1 - (low_scratch_start + ($ - PHASE_BASE) + 2)
+    dw %1 - (PHASE_LOAD_ADDR + ($ - PHASE_BASE) + 2)
 %endmacro
 
 %macro phase_jmp_res 1
     db 0xe9
-    dw %1 - (low_scratch_start + ($ - PHASE_BASE) + 2)
+    dw %1 - (PHASE_LOAD_ADDR + ($ - PHASE_BASE) + 2)
 %endmacro
 
 dpi_phase:
+    cmp byte [api_stream_event_ready], 1
+    je .request_phase_ready
+    mov ax, (((core_agent_request_phase_end - core_agent_request_phase_start + 511) / 512) << 8) | ((core_agent_request_phase_start - $$) / 512)
+    mov bx, net_setup_phase_start
+    phase_call_res load_core_sectors_at
+    jc .agent_failed
+    mov byte [api_stream_event_ready], 1
+.request_phase_ready:
     call .show_cursor
     call .drain_kbd
-    call .render_pending_response
     call .render_prompt
 
 .read_key:
@@ -85,70 +96,6 @@ dpi_phase:
     mov byte [dpi_input_len_byte], 0
     ret
 
-.render_pending_response:
-    mov cx, [api_response_pending_len]
-    or cx, cx
-    jnz .response_present
-    ret
-.response_present:
-    cmp cx, api_response_text_max_len
-    jbe .response_len_ready
-    mov cx, api_response_text_max_len
-.response_len_ready:
-    mov si, api_response_text_buf
-    mov byte [cursor_row], dpi_prompt_row - 1
-    mov byte [cursor_col], dpi_prompt_col
-    mov bl, [crypto_attr]
-.response_next:
-    jcxz .response_finish
-    lodsb
-    cmp al, '\'
-    je .response_escape
-    cmp al, 13
-    je .response_newline
-    cmp al, 10
-    je .response_newline
-    call .response_print_char
-    loop .response_next
-    jmp .response_finish
-.response_escape:
-    dec cx
-    jcxz .response_finish
-    lodsb
-    cmp al, 'n'
-    je .response_newline_after_escape
-    call .response_print_char
-    loop .response_next
-    jmp .response_finish
-.response_newline_after_escape:
-    call .scroll_screen
-    mov byte [cursor_row], dpi_prompt_row - 1
-    mov byte [cursor_col], dpi_prompt_col
-    loop .response_next
-    jmp .response_finish
-.response_newline:
-    call .scroll_screen
-    mov byte [cursor_row], dpi_prompt_row - 1
-    mov byte [cursor_col], dpi_prompt_col
-    loop .response_next
-    jmp .response_finish
-.response_print_char:
-    push cx
-    phase_call_res print_char
-    pop cx
-    mov al, [cursor_col]
-    cmp al, [screen_cols]
-    jb .response_print_done
-    call .scroll_screen
-    mov byte [cursor_row], dpi_prompt_row - 1
-    mov byte [cursor_col], dpi_prompt_col
-.response_print_done:
-    ret
-.response_finish:
-    mov word [api_response_pending_len], 0
-.response_done:
-    ret
-
 .clear_input_line:
     cmp byte [dpi_input_len_byte], 0
     je .clear_done
@@ -208,3 +155,8 @@ dpi_phase:
 
 %unmacro phase_jmp_res 1
 %unmacro phase_call_res 1
+
+%ifdef PHASE_LOAD_ADDR_DEFAULTED
+%undef PHASE_LOAD_ADDR_DEFAULTED
+%undef PHASE_LOAD_ADDR
+%endif

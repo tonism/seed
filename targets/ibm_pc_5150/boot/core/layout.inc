@@ -12,6 +12,7 @@ low_scratch_start equ 0x0700
 low_scratch_end equ 0x1000
 net_setup_frame_scratch_len equ 512
 net_setup_phase_start equ low_scratch_start + net_setup_frame_scratch_len
+agent_response_phase_load_addr equ low_scratch_start + 0x0600
 basic_sidecar_stack_top_16k equ 0x4000
 basic_sidecar_stack_guard_len_16k equ 0x0400
 basic_sidecar_stack_top_24k equ 0x6000
