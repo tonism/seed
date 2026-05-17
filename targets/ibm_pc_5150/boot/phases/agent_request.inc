@@ -50,8 +50,6 @@ agent_request_phase:
     mov word [api_response_pending_len], 0
     mov byte [api_stream_state], 0
     mov byte [api_stream_delta_match], 0
-    mov byte [api_stream_event_match], 0
-    mov byte [api_stream_event_ready], 0
     mov byte [api_stream_seen], 0
     mov byte [api_stream_completed], 0
     mov byte [api_http_state], 0

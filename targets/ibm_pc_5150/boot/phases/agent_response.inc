@@ -54,8 +54,6 @@ agent_response_phase:
     je .chunk_data_cr
     cmp byte [api_http_state], 5
     je .chunk_data_lf
-    cmp byte [api_http_state], 7
-    je .chunk_size_skip
     ret
 
 .http_header:
@@ -73,8 +71,6 @@ agent_response_phase:
 .chunk_size:
     cmp al, 13
     je .chunk_size_cr
-    cmp al, ';'
-    je .chunk_skip_rest
     call .hex_nibble
     jc .raw_ret
     mov bl, al
@@ -87,12 +83,6 @@ agent_response_phase:
     add ax, bx
     mov [api_body_len], ax
     ret
-.chunk_skip_rest:
-    mov byte [api_http_state], 7
-    ret
-.chunk_size_skip:
-    cmp al, 13
-    jne .raw_ret
 .chunk_size_cr:
     mov byte [api_http_state], 2
     ret
@@ -132,27 +122,13 @@ agent_response_phase:
     je .scan_string
     cmp byte [api_stream_state], 2
     je .scan_escaped
-    cmp byte [api_stream_state], 3
-    je .wait_colon
-    cmp byte [api_stream_state], 4
-    je .wait_quote
     ret
 
 .scan_idle:
-    call .scan_patterns
-    ret
-.wait_colon:
-    cmp al, ' '
-    je .parser_ret
-    cmp al, ':'
-    jne .reset_parser
-    mov byte [api_stream_state], 4
-    ret
-.wait_quote:
-    cmp al, ' '
-    je .parser_ret
-    cmp al, '"'
-    jne .reset_parser
+    mov si, PHASE_LOAD_ADDR + (delta_key_pattern - PHASE_BASE)
+    mov di, api_stream_delta_match
+    call .match_char
+    jc .parser_ret
     mov byte [api_stream_state], 1
     ret
 .scan_string:
@@ -189,28 +165,7 @@ agent_response_phase:
     ret
 .string_done:
     mov byte [api_stream_state], 0
-    mov byte [api_stream_event_ready], 0
-    ret
-.reset_parser:
-    mov byte [api_stream_state], 0
 .parser_ret:
-    ret
-
-.scan_patterns:
-    mov si, PHASE_LOAD_ADDR + (event_delta_pattern - PHASE_BASE)
-    mov di, api_stream_event_match
-    call .match_char
-    jc .maybe_delta
-    mov byte [api_stream_event_ready], 1
-.maybe_delta:
-    cmp byte [api_stream_event_ready], 0
-    je .patterns_done
-    mov si, PHASE_LOAD_ADDR + (delta_key_pattern - PHASE_BASE)
-    mov di, api_stream_delta_match
-    call .match_char
-    jc .patterns_done
-    mov byte [api_stream_state], 3
-.patterns_done:
     ret
 
 .match_char:
@@ -276,16 +231,6 @@ agent_response_phase:
 .emit_char:
     cmp byte [api_stream_seen], 0
     jne .live_ready
-    cmp byte [handoff_addr + handoff_status], handoff_status_ready
-    je .position_live
-    push ax
-    push cx
-    push si
-    call .show_stream_splash
-    pop si
-    pop cx
-    pop ax
-.position_live:
     mov byte [cursor_row], dpi_prompt_row - 1
     mov byte [cursor_col], dpi_prompt_col
     mov byte [api_stream_seen], 1
@@ -308,42 +253,6 @@ agent_response_phase:
 .emit_done:
     ret
 
-.show_stream_splash:
-    mov bl, [ready_attr]
-    mov al, 'o'
-    phase_call_res show_load_marker
-    mov cx, load_ticks
-    phase_call_res wait_ticks
-    mov byte [cursor_row], seed_row
-    mov al, [seed_col]
-    mov [cursor_col], al
-    mov si, PHASE_LOAD_ADDR + (stream_seed_text - PHASE_BASE)
-    mov bl, [seed_attr]
-    call .splash_type_z
-    mov al, ' '
-    mov bl, [build_attr]
-    call .splash_type_char
-    mov si, PHASE_LOAD_ADDR + (stream_build_text - PHASE_BASE)
-    call .splash_type_z
-    mov cx, done_ticks
-    phase_call_res wait_ticks
-    ret
-
-.splash_type_z:
-    lodsb
-    or al, al
-    jz .splash_done
-    call .splash_type_char
-    jmp .splash_type_z
-.splash_done:
-    ret
-
-.splash_type_char:
-    phase_call_res print_char
-    mov cx, type_ticks
-    phase_call_res wait_ticks
-    ret
-
 .scroll_response:
     push ax
     push bx
@@ -363,11 +272,8 @@ agent_response_phase:
     pop ax
     ret
 
-delta_key_pattern db '"delta"', 0
-event_delta_pattern db 'event: response.output_text.delta', 0
+delta_key_pattern db '"delta":"', 0
 header_end_pattern db 13, 10, 13, 10, 0
-stream_seed_text db 'seed', 0
-stream_build_text db 'build ', '0' + build_number, 0
 
 %unmacro phase_call_res 1
 

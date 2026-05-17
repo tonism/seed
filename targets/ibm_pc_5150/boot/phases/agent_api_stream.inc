@@ -16,6 +16,10 @@ agent_api_stream_phase:
     cld
     cmp byte [handoff_addr + handoff_status], handoff_status_ready
     je .ready_tail
+    mov ax, (((core_splash_phase_end - core_splash_phase_start + 511) / 512) << 8) | ((core_splash_phase_start - $$) / 512)
+    mov bx, low_scratch_start
+    phase_call_res run_core_phase_at
+    jc .failed
     jmp .done
 
 .ready_tail:
