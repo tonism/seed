@@ -19,8 +19,7 @@ agent_response_phase:
     jne .answer_ready
     call .api_find_answer
     jc .update_remaining
-    call .api_render_answer
-    mov word [api_response_pending_len], 1
+    call .api_store_answer
 .answer_ready:
 .update_remaining:
     call .api_update_body_remaining
@@ -128,79 +127,19 @@ agent_response_phase:
     stc
     ret
 
-.api_render_answer:
-    cmp word [api_response_pending_len], 0
-    jne .position_ready
-    mov byte [cursor_row], dpi_prompt_row - 1
-    mov byte [cursor_col], dpi_prompt_col
-.position_ready:
+.api_store_answer:
+    push ds
+    pop es
     mov si, [api_response_answer_ptr]
     mov cx, [api_response_answer_len]
     cmp cx, api_response_text_max_len
     jbe .len_ready
     mov cx, api_response_text_max_len
 .len_ready:
-    jcxz .render_done
-.render_next:
-    lodsb
-    cmp al, '\'
-    je .render_escape
-    cmp al, 13
-    je .render_newline
-    cmp al, 10
-    je .render_newline
-    call .render_char
-    loop .render_next
-    ret
-.render_escape:
-    dec cx
-    jcxz .render_done
-    lodsb
-    cmp al, 'n'
-    je .render_newline_after_escape
-    call .render_char
-    loop .render_next
-    ret
-.render_newline_after_escape:
-    call .scroll_screen
-    mov byte [cursor_row], dpi_prompt_row - 1
-    mov byte [cursor_col], dpi_prompt_col
-    loop .render_next
-    ret
-.render_newline:
-    call .scroll_screen
-    mov byte [cursor_row], dpi_prompt_row - 1
-    mov byte [cursor_col], dpi_prompt_col
-    loop .render_next
-    ret
-.render_done:
-    ret
-
-.render_char:
-    push cx
-    mov bl, [crypto_attr]
-    phase_call_res print_char
-    mov al, [cursor_col]
-    cmp al, [screen_cols]
-    jb .render_char_done
-    call .scroll_screen
-    mov byte [cursor_row], dpi_prompt_row - 1
-    mov byte [cursor_col], dpi_prompt_col
-.render_char_done:
-    pop cx
-    ret
-
-.scroll_screen:
-    push cx
-    mov ah, 0x06
-    mov al, 1
-    mov bh, 0x07
-    xor cx, cx
-    mov dh, dpi_prompt_row
-    mov dl, [screen_cols]
-    dec dl
-    int 0x10
-    pop cx
+    mov [api_response_pending_len], cx
+    mov di, api_response_text_buf
+    rep movsb
+    clc
     ret
 
 .api_update_body_remaining:

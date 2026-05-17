@@ -232,7 +232,7 @@ tls_pre_response_scratch equ tls_rx_copy + tls_payload_buffer_len
 %error "dns_qname scratch overlaps pre-response scratch"
 %endif
 api_request_plain equ tls_pre_response_scratch
-api_response_text_buf equ tls_rx_copy
+api_response_text_buf equ fs_sector_buffer
 ; Build the encrypted application record over the plaintext request arena. This
 ; survives server-Finished verification, unlike fs_sector_buffer, and the
 ; current request cap keeps each request in one TLS record.

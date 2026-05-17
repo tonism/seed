@@ -18,11 +18,12 @@ prepare_agent_path:
     jnc .values_ready
     call_core_phase core_agent_setup_phase_start, core_agent_setup_phase_end
 .values_ready:
+    cmp byte [user_cfg_dirty], 0
+    je .config_saved
+    call_core_phase core_save_phase_start, core_save_phase_end
+.config_saved:
     call prepare_agent_endpoint_path
     jc .failed
-    cmp byte [user_cfg_dirty], 0
-    je .ready
-    call_core_phase core_save_phase_start, core_save_phase_end
 .ready:
     clc
     ret

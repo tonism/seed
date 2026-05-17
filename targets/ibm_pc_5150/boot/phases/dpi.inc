@@ -15,6 +15,7 @@
 dpi_phase:
     call .show_cursor
     call .drain_kbd
+    call .render_pending_response
     call .render_prompt
 
 .read_key:

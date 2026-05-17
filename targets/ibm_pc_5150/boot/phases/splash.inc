@@ -8,6 +8,9 @@
 %endmacro
 
 splash_phase:
+    mov bl, [ready_attr]
+    mov al, 'o'
+    phase_call_res show_load_marker
     mov cx, load_ticks
     phase_call_res wait_ticks
 

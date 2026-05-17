@@ -31,7 +31,7 @@ DEFAULT_SCREENSHOT = ROOT / "build/ibm_pc_5150/86box-seed24-basic.png"
 DEFAULT_ORACLE_SCREENSHOT = ROOT / "build/ibm_pc_5150/86box-oracle.png"
 DEFAULT_OCR_SCRIPT = ROOT / "tools/ocr-vision.swift"
 DEFAULT_BASIC_STARTUP_DELAY = 10.0
-DEFAULT_BASIC_CAPTURE_DELAY = 45.0
+DEFAULT_BASIC_CAPTURE_DELAY = 35.0
 DEFAULT_DIRECT_STARTUP_DELAY = 10.0
 DEFAULT_DIRECT_CAPTURE_DELAY = 50.0
 BASIC_BOOTSTRAP_ADDR = 0x3A00
@@ -1735,11 +1735,17 @@ def main() -> int:
     parser.add_argument(
         "--post-dpi-wait",
         type=float,
-        default=25.0,
+        default=70.0,
         help="seconds to wait after --post-dpi-text before the final oracle classification",
     )
-    parser.add_argument("--type-delay", type=float, default=0.06)
-    parser.add_argument("--line-delay", type=float, default=0.6)
+    parser.add_argument(
+        "--post-dpi-at",
+        type=float,
+        default=80.0,
+        help="absolute seconds after VM launch to type --post-dpi-text; skips the initial oracle gate",
+    )
+    parser.add_argument("--type-delay", type=float, default=0.03)
+    parser.add_argument("--line-delay", type=float, default=0.3)
     parser.add_argument(
         "--mode",
         choices=("paste", "text", "chars", "keycode", "pidkeycode"),
@@ -2038,6 +2044,7 @@ def main() -> int:
         test_lock.acquire()
     exit_code = 0
     previous_frontmost = None if args.no_restore_focus else frontmost_process_name()
+    launch_started_at = time.monotonic()
     try:
         process = launch_86box(
             vm_path,
@@ -2086,7 +2093,31 @@ def main() -> int:
                 print("process: 86Box HTTPS remotes: " + ", ".join(sorted(https_remotes)))
             oracle_verdict = None
             if args.post_dpi_text is not None:
-                if not args.screen_oracle:
+                if args.post_dpi_at is not None:
+                    remaining = launch_started_at + args.post_dpi_at - time.monotonic()
+                    if remaining > 0:
+                        time.sleep(remaining)
+                    post_dpi_text = args.post_dpi_text
+                    if not post_dpi_text.endswith(("\n", "\r")):
+                        post_dpi_text += "\n"
+                    type_basic_pid_keycodes(
+                        process.pid,
+                        post_dpi_text,
+                        args.type_delay,
+                        args.line_delay,
+                    )
+                    more_remotes = wait_with_process_https_sampling(
+                        process,
+                        args.post_dpi_wait,
+                    )
+                    https_remotes.update(more_remotes)
+                    if more_remotes:
+                        print(
+                            "process: post-DPI 86Box HTTPS remotes: "
+                            + ", ".join(sorted(more_remotes))
+                        )
+                    oracle_verdict = None
+                elif not args.screen_oracle:
                     print("--post-dpi-text requires --screen-oracle", file=sys.stderr)
                     exit_code = 2
                 else:
