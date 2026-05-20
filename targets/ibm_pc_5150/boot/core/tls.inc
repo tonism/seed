@@ -994,14 +994,8 @@ tls_receive_large_application_record:
 
     call tls_clear_buffered_payload
 
-    call tls_build_server_nonce
-    mov word [chacha_key_ptr], tls_server_write_key
-    mov word [chacha_nonce_ptr], tls_client_nonce
-    mov word [chacha_counter_low], 1
-    mov word [chacha_counter_high], 0
-    mov word [tls_app_chunk_len], chacha_block_len
-
-    mov ax, [tls_app_len]
+    mov ax, [tls_app_total_len]
+    sub ax, tls_record_header_len
     mov [tls_stream_skip_remaining], ax
 
     mov si, [tls_current_payload_ptr]
@@ -1026,37 +1020,11 @@ tls_receive_large_application_record:
     jbe .take_ready
     mov dx, ax
 .take_ready:
-    push cx
-    call tls_large_feed_cipher_bytes
-    pop cx
+    add si, dx
     sub cx, dx
     sub word [tls_stream_skip_remaining], dx
     jmp .consume_current
 .record_done:
-    mov word [tls_app_record_len], tls_aead_tag_len
-.skip_tag:
-    cmp word [tls_app_record_len], 0
-    je .tag_done
-    or cx, cx
-    jnz .have_tag
-    call ne_transmit_tcp_ack
-    jc .failed
-    call tcp_receive_payload
-    jc .failed
-    mov si, [tcp_rx_payload_ptr]
-    mov cx, [tcp_rx_payload_len]
-.have_tag:
-    mov dx, cx
-    mov ax, [tls_app_record_len]
-    cmp dx, ax
-    jbe .take_tag
-    mov dx, ax
-.take_tag:
-    add si, dx
-    sub cx, dx
-    sub word [tls_app_record_len], dx
-    jmp .skip_tag
-.tag_done:
     mov [tls_buffered_payload_len], cx
     mov [tls_buffered_payload_ptr], si
     xor ax, ax
@@ -1068,43 +1036,6 @@ tls_receive_large_application_record:
     ret
 .failed:
     stc
-    ret
-
-tls_large_feed_cipher_bytes:
-    push dx
-.next_byte:
-    or dx, dx
-    jz .done
-    cmp byte [tls_app_chunk_len], chacha_block_len
-    jb .block_ready
-    push si
-    push dx
-    call chacha20_block
-    inc word [chacha_counter_low]
-    jnz .counter_ready
-    inc word [chacha_counter_high]
-.counter_ready:
-    mov byte [tls_app_chunk_len], 0
-    pop dx
-    pop si
-.block_ready:
-    mov bl, [tls_app_chunk_len]
-    xor bh, bh
-    lodsb
-    xor al, [chacha_block + bx]
-    inc byte [tls_app_chunk_len]
-    mov [tls_rx_copy], al
-    push si
-    push dx
-    mov word [tls_app_data_ptr], tls_rx_copy
-    mov word [tls_app_len], 1
-    call agent_response_phase_load_addr
-    pop dx
-    pop si
-    dec dx
-    jmp .next_byte
-.done:
-    pop dx
     ret
 
 tls_preserve_buffered_payload:
