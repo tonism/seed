@@ -14,7 +14,7 @@ net_setup_frame_scratch_len equ 512
 net_setup_phase_start equ low_scratch_start + net_setup_frame_scratch_len
 agent_response_phase_load_addr equ low_scratch_start + 0x0600
 basic_sidecar_stack_top_16k equ 0x4000
-basic_sidecar_stack_guard_len_16k equ 0x0400
+basic_sidecar_stack_guard_len_16k equ 0x0200
 basic_sidecar_stack_top_24k equ 0x6000
 basic_sidecar_stack_guard_len_24k equ 0x0100
 handoff_magic equ 0
@@ -116,6 +116,8 @@ question_attr_cga equ 0x0f
 error_attr_cga equ 0x0c
 menu_selected_attr_cga equ 0x0f
 menu_idle_attr_cga equ 0x08
+debug_trace_video_seg equ 0xb800
+debug_trace_attr equ 0x0e
 seed_attr_mda equ 0x0f
 build_attr_mda equ 0x07
 load_attr_mda equ 0x07
@@ -130,7 +132,7 @@ seed_row equ 12
 question_row equ seed_row + 2
 dpi_prompt_row equ 24
 dpi_prompt_col equ 0
-dpi_input_max_len equ 48
+dpi_input_max_len equ 128
 api_response_text_max_len equ 192
 load_ticks equ 6
 type_ticks equ 1
@@ -275,7 +277,7 @@ tcp_payload_read_len equ tcp_payload_offset + tcp_payload_max_len
 tls_payload_buffer_len equ tcp_payload_max_len
 tls_pre_response_tail_len equ tls_app_record_buffer_len + (16 * 2) + (16 * 2) + tls_random_len + tls_master_secret_len + sha256_digest_len
 tls_stream_buffer_len equ tls_payload_buffer_len + tls_pre_response_tail_len
-critical_scratch_start equ 0x32c2
+critical_scratch_start equ 0x34c2
 critical_scratch_len equ tls_stream_buffer_len
 critical_scratch_end equ critical_scratch_start + critical_scratch_len
 tcp_port_http_word equ 0x5000
@@ -338,7 +340,7 @@ p256_word_count equ 16
 p256_word_len equ p256_word_count * 2
 p256_product_word_count equ p256_word_count * 2
 p256_product_word_len equ p256_product_word_count * 2
-high_crypto_scratch_start equ 0x3200
+high_crypto_scratch_start equ 0x3400
 high_tls_client_write_key equ high_crypto_scratch_start
 high_tls_server_write_key equ high_tls_client_write_key + tls_chacha_key_len
 high_tls_client_write_iv equ high_tls_server_write_key + tls_chacha_key_len

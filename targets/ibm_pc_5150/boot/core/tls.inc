@@ -859,13 +859,9 @@ tls_build_application_data_record:
 tls_receive_application_data:
     call tls_load_server_payload
     jc .failed
-    mov si, [tls_current_payload_ptr]
-    call tls_ensure_current_tls_record_complete
+    call tls_ensure_tls_header_complete
     jc .failed
     mov si, [tls_current_payload_ptr]
-    mov cx, [tls_current_payload_len]
-    cmp cx, tls_record_header_len + tls_aead_tag_len
-    jb .failed
     mov al, [si]
     mov [tls_app_content_type], al
     cmp byte [tls_app_content_type], 0x17
@@ -883,11 +879,18 @@ tls_receive_application_data:
     jb .failed
     mov dx, ax
     sub dx, tls_aead_tag_len
-    cmp dx, tls_payload_buffer_len
-    ja .failed
     mov [tls_app_len], dx
     add ax, tls_record_header_len
     mov [tls_app_total_len], ax
+    cmp dx, tls_payload_buffer_len
+    ja .large_record
+    cmp ax, tls_stream_buffer_len
+    ja .large_record
+    call tls_ensure_current_tls_record_complete
+    jc .failed
+    mov ax, [tls_app_total_len]
+    mov si, [tls_current_payload_ptr]
+    mov cx, [tls_current_payload_len]
     cmp ax, cx
     ja .failed
     call tls_save_payload_after_current_offset
@@ -924,13 +927,199 @@ tls_receive_application_data:
     jne .application_record
     jmp .failed
 .application_record:
+    push es
+    mov bx, debug_trace_video_seg
+    mov es, bx
+    mov bl, [debug_trace_cursor]
+    xor bh, bh
+    shl bx, 1
+    mov ax, (debug_trace_attr << 8) | 'R'
+    mov [es:bx], ax
+    inc byte [debug_trace_cursor]
+    pop es
+
+    call tls_preserve_buffered_payload
     call tls_increment_server_record_seq
     call ne_transmit_tcp_ack
     jc .failed
+    ret
+.large_record:
+    jmp tls_receive_large_application_record
+.failed:
+    jmp tls_fail_error
+
+tls_ensure_tls_header_complete:
+    cmp word [tls_current_payload_len], tls_record_header_len
+    jae .done
+    call tls_copy_current_payload
+    jc .failed
+.receive_more:
+    call ne_transmit_tcp_ack
+    jc .failed
+    call tcp_receive_payload
+    jc .failed
+    mov ax, [tls_current_payload_len]
+    mov di, tls_rx_copy
+    add di, ax
+    mov cx, [tcp_rx_payload_len]
+    add ax, cx
+    cmp ax, tls_stream_buffer_len
+    ja .failed
+    push ds
+    pop es
+    mov si, [tcp_rx_payload_ptr]
+    rep movsb
+    mov [tls_current_payload_len], ax
+    mov word [tls_current_payload_ptr], tls_rx_copy
+    cmp ax, tls_record_header_len
+    jb .receive_more
+.done:
     clc
     ret
 .failed:
-    jmp tls_fail_error
+    stc
+    ret
+
+tls_receive_large_application_record:
+    push es
+    mov bx, debug_trace_video_seg
+    mov es, bx
+    mov bl, [debug_trace_cursor]
+    xor bh, bh
+    shl bx, 1
+    mov ax, (debug_trace_attr << 8) | 'L'
+    mov [es:bx], ax
+    inc byte [debug_trace_cursor]
+    pop es
+
+    call tls_clear_buffered_payload
+
+    call tls_build_server_nonce
+    mov word [chacha_key_ptr], tls_server_write_key
+    mov word [chacha_nonce_ptr], tls_client_nonce
+    mov word [chacha_counter_low], 1
+    mov word [chacha_counter_high], 0
+    mov word [tls_app_chunk_len], chacha_block_len
+
+    mov ax, [tls_app_len]
+    mov [tls_stream_skip_remaining], ax
+
+    mov si, [tls_current_payload_ptr]
+    mov cx, [tls_current_payload_len]
+    add si, tls_record_header_len
+    sub cx, tls_record_header_len
+.consume_current:
+    cmp word [tls_stream_skip_remaining], 0
+    je .record_done
+    or cx, cx
+    jnz .have_bytes
+    call ne_transmit_tcp_ack
+    jc .failed
+    call tcp_receive_payload
+    jc .failed
+    mov si, [tcp_rx_payload_ptr]
+    mov cx, [tcp_rx_payload_len]
+.have_bytes:
+    mov dx, cx
+    mov ax, [tls_stream_skip_remaining]
+    cmp dx, ax
+    jbe .take_ready
+    mov dx, ax
+.take_ready:
+    push cx
+    call tls_large_feed_cipher_bytes
+    pop cx
+    sub cx, dx
+    sub word [tls_stream_skip_remaining], dx
+    jmp .consume_current
+.record_done:
+    mov word [tls_app_record_len], tls_aead_tag_len
+.skip_tag:
+    cmp word [tls_app_record_len], 0
+    je .tag_done
+    or cx, cx
+    jnz .have_tag
+    call ne_transmit_tcp_ack
+    jc .failed
+    call tcp_receive_payload
+    jc .failed
+    mov si, [tcp_rx_payload_ptr]
+    mov cx, [tcp_rx_payload_len]
+.have_tag:
+    mov dx, cx
+    mov ax, [tls_app_record_len]
+    cmp dx, ax
+    jbe .take_tag
+    mov dx, ax
+.take_tag:
+    add si, dx
+    sub cx, dx
+    sub word [tls_app_record_len], dx
+    jmp .skip_tag
+.tag_done:
+    mov [tls_buffered_payload_len], cx
+    mov [tls_buffered_payload_ptr], si
+    xor ax, ax
+    mov [tls_app_len], ax
+    call tls_preserve_buffered_payload
+    call tls_increment_server_record_seq
+    call ne_transmit_tcp_ack
+    jc .failed
+    ret
+.failed:
+    stc
+    ret
+
+tls_large_feed_cipher_bytes:
+    push dx
+.next_byte:
+    or dx, dx
+    jz .done
+    cmp byte [tls_app_chunk_len], chacha_block_len
+    jb .block_ready
+    push si
+    push dx
+    call chacha20_block
+    inc word [chacha_counter_low]
+    jnz .counter_ready
+    inc word [chacha_counter_high]
+.counter_ready:
+    mov byte [tls_app_chunk_len], 0
+    pop dx
+    pop si
+.block_ready:
+    mov bl, [tls_app_chunk_len]
+    xor bh, bh
+    lodsb
+    xor al, [chacha_block + bx]
+    inc byte [tls_app_chunk_len]
+    mov [tls_rx_copy], al
+    push si
+    push dx
+    mov word [tls_app_data_ptr], tls_rx_copy
+    mov word [tls_app_len], 1
+    call agent_response_phase_load_addr
+    pop dx
+    pop si
+    dec dx
+    jmp .next_byte
+.done:
+    pop dx
+    ret
+
+tls_preserve_buffered_payload:
+    mov cx, [tls_buffered_payload_len]
+    jcxz .done
+    mov ax, tls_rx_copy
+    add ax, [tls_app_len]
+    push ds
+    pop es
+    mov si, [tls_buffered_payload_ptr]
+    mov di, ax
+    rep movsb
+    mov [tls_buffered_payload_ptr], ax
+.done:
+    ret
 
 tls_ensure_current_tls_record_complete:
     mov si, [tls_current_payload_ptr]
@@ -1050,9 +1239,20 @@ tls_poly1305_mac_app:
 
     mov si, [tls_app_data_ptr]
     mov cx, [tls_app_len]
+    call tls_poly1305_process_cipher_bytes
+    call poly1305_clear_block
+    mov byte [poly_block], tls_aead_aad_len
+    mov ax, [tls_app_len]
+    mov [poly_block + 8], ax
+    mov word [poly_block_ptr], poly_block
+    call poly1305_process_block
+    call poly1305_emit_tag
+    ret
+
+tls_poly1305_process_cipher_bytes:
 .cipher_block:
     or cx, cx
-    jz .length_block
+    jz .cipher_done
     call poly1305_clear_block
     mov dx, cx
     cmp dx, 16
@@ -1071,15 +1271,7 @@ tls_poly1305_mac_app:
     call poly1305_process_block
     pop cx
     jmp .cipher_block
-
-.length_block:
-    call poly1305_clear_block
-    mov byte [poly_block], tls_aead_aad_len
-    mov ax, [tls_app_len]
-    mov [poly_block + 8], ax
-    mov word [poly_block_ptr], poly_block
-    call poly1305_process_block
-    call poly1305_emit_tag
+.cipher_done:
     ret
 
 tls_build_client_app_aad:

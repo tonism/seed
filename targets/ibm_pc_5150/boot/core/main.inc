@@ -57,6 +57,8 @@ chat_loop:
     call_core_phase core_dpi_phase_start, core_dpi_phase_end
     call prepare_agent_endpoint_path
     jnc chat_loop
+    cmp byte [api_stream_completed], 3
+    je chat_loop
 
 agent_setup_error:
     mov al, handoff_status_agent_failed

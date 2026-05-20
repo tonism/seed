@@ -26,13 +26,13 @@ tcp_receive_payload:
 tcp_parse_3c501_second_frame:
     cmp byte [handoff_addr + handoff_nic_family], family_3c501
     jne .failed
+    mov cx, 16
+.next_frame:
     call tcp_3c501_drop_first_frame
     jc .failed
     call parse_tcp_payload
     jnc .done
-    call tcp_3c501_drop_first_frame
-    jc .failed
-    jmp parse_tcp_payload
+    loop .next_frame
 .done:
     ret
 .failed:

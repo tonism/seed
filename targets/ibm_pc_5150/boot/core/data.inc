@@ -33,7 +33,8 @@ form_left_col equ input_start_col + 1
 form_field_col equ form_left_col + 1
 seed_config_flags equ form_field_col + 1
 user_cfg_dirty equ seed_config_flags + 1
-agent_count equ user_cfg_dirty + 1
+debug_trace_cursor equ user_cfg_dirty + 1
+agent_count equ debug_trace_cursor + 1
 agent_draw_index equ agent_count + 1
 agent_scan_index equ agent_draw_index + 1
 blink_state equ agent_scan_index + 1
@@ -146,6 +147,7 @@ api_body_len equ tls_stream_skip_remaining + 2
 tcp_source_port_word equ api_body_len + 2
 dns_qname_len equ tcp_source_port_word + 2
 api_response_pending_len equ dns_qname_len + 1
+api_stream_done_match equ api_response_pending_len
 api_receive_tries equ api_response_pending_len + 2
 low_runtime_state_end equ api_receive_tries + 1
 
@@ -155,6 +157,7 @@ low_runtime_state_end equ api_receive_tries + 1
 api_stream_state equ menu_value_a
 api_stream_delta_match equ menu_index
 api_stream_event_match equ input_target
+dpi_prompt_marker_row equ api_stream_event_match
 api_stream_event_ready equ input_max
 api_stream_seen equ input_len
 api_stream_completed equ input_start_col
@@ -333,7 +336,9 @@ tls_transcript_certificate_remaining equ tls_app_content_type + 1
 dns_tx_len equ tls_transcript_certificate_remaining + 2
 ; The first TLS handshake and ready-loop state reuse the AGENTS/USER config
 ; arena. Preserve the chat-loop values that every request still needs.
-chat_model_cache equ dns_tx_len + 2
+; dns_tx_len is only needed while establishing the endpoint connection. Once
+; agent_cache runs, the hot chat loop can reuse that word as cache storage.
+chat_model_cache equ dns_tx_len
 chat_key_cache equ chat_model_cache + seed_model_len
 chat_cache_end equ chat_key_cache + seed_key_len
 %if chat_cache_end > (basic_sidecar_stack_top_16k - basic_sidecar_stack_guard_len_16k)

@@ -20,11 +20,17 @@ agent_api_stream_phase:
     mov bx, low_scratch_start
     phase_call_res run_core_phase_at
     jc .failed
+    mov byte [cursor_row], dpi_prompt_row - 2
+    mov byte [cursor_col], dpi_prompt_col
     jmp .done
 
 .ready_tail:
+    mov al, 'F'
+    call agent_api_stream_trace_loop_step
     cmp word [api_response_pending_len], 0
     je .done
+    mov al, 'S'
+    call agent_api_stream_trace_loop_step
     mov di, api_request_plain + tls_record_header_len
     mov si, dpi_input_buf
     mov cl, [dpi_input_len_byte]
@@ -34,6 +40,10 @@ agent_api_stream_phase:
     call agent_api_stream_append_z_to_buffer
     mov ax, di
     sub ax, api_request_plain + tls_record_header_len
+    push ax
+    mov al, 'A'
+    call agent_api_stream_trace_loop_step
+    pop ax
 
 .send_tail:
     or ax, ax
@@ -44,7 +54,13 @@ agent_api_stream_phase:
     mov word [tls_app_plain_ptr], api_request_plain + tls_record_header_len
     phase_call_res tls_send_application_data_current_seq
     jc .failed
+    mov al, 'T'
+    call agent_api_stream_trace_loop_step
 .done:
+    mov ax, (((core_agent_response_phase_end - core_agent_response_phase_start + 511) / 512) << 8) | ((core_agent_response_phase_start - $$) / 512)
+    mov bx, agent_response_phase_load_addr
+    phase_call_res load_core_sectors_at
+    jc .failed
     mov word [api_response_pending_len], 0
     mov word [api_body_len], 0
     clc
@@ -91,6 +107,19 @@ agent_api_stream_append_json_bytes_to_buffer:
     stosb
     loop .json_next
 .json_done:
+    ret
+
+agent_api_stream_trace_loop_step:
+    push es
+    mov bx, debug_trace_video_seg
+    mov es, bx
+    mov bl, [debug_trace_cursor]
+    xor bh, bh
+    shl bx, 1
+    mov ah, debug_trace_attr
+    mov [es:bx], ax
+    inc byte [debug_trace_cursor]
+    pop es
     ret
 
 %unmacro phase_call_res 1

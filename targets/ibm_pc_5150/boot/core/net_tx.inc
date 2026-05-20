@@ -225,10 +225,10 @@ build_tcp_segment_frame:
     mov ah, dl
     mov al, 0x50
     stosw
-    mov ax, 0x0004
+    mov ax, 0x0001
     cmp byte [handoff_addr + handoff_nic_family], family_3c501
     jne .write_window
-    shr ax, 1
+    shl ax, 1
 .write_window:
     stosw
     xor ax, ax

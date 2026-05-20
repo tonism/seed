@@ -1,20 +1,16 @@
 agent_api_exchange:
-    mov byte [api_receive_tries], 80
-    cmp byte [handoff_addr + handoff_status], handoff_status_ready
-    je .receive
-    mov ax, (((core_agent_response_phase_end - core_agent_response_phase_start + 511) / 512) << 8) | ((core_agent_response_phase_start - $$) / 512)
-    mov bx, agent_response_phase_load_addr
-    call load_core_sectors_at
-    jc .failed
 .receive:
     call tls_receive_application_data
-    jc .retry
+    jc .failed
     call agent_response_phase_load_addr
-    jnc .answer
-.retry:
-    dec byte [api_receive_tries]
+    cmp byte [api_stream_completed], 3
     jnz .receive
+.success:
+    call tls_clear_buffered_payload
+    clc
+    ret
 .failed:
+    cmp byte [api_stream_completed], 2
+    je .success
     stc
-.answer:
     ret

@@ -47,7 +47,13 @@ KEY_CODES = {
     ",": (43, False),
     ".": (47, False),
     ":": (41, True),
+    ";": (41, False),
+    "'": (39, False),
+    "?": (44, True),
+    "/": (44, False),
+    "!": (18, True),
     "-": (27, False),
+    "_": (27, True),
     "=": (24, False),
     "(": (25, True),
     ")": (29, True),
@@ -353,32 +359,43 @@ def type_basic_pid_keycodes(
     cf = ctypes.CDLL("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")
     cg.CGEventCreateKeyboardEvent.argtypes = [ctypes.c_void_p, ctypes.c_uint16, ctypes.c_bool]
     cg.CGEventCreateKeyboardEvent.restype = ctypes.c_void_p
+    cg.CGEventKeyboardSetUnicodeString.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_ulong,
+        ctypes.POINTER(ctypes.c_uint16),
+    ]
     cg.CGEventSetFlags.argtypes = [ctypes.c_void_p, ctypes.c_uint64]
     cg.CGEventPostToPid.argtypes = [ctypes.c_int, ctypes.c_void_p]
     cf.CFRelease.argtypes = [ctypes.c_void_p]
 
-    def post_raw_key(key_code: int) -> None:
+    def post_raw_key(key_code: int, text: str | None = None) -> None:
         for pressed in (True, False):
             event = cg.CGEventCreateKeyboardEvent(None, key_code, pressed)
             if not event:
                 raise SystemExit("CGEventCreateKeyboardEvent failed")
             try:
+                if pressed and text:
+                    chars = (ctypes.c_uint16 * len(text))(*[ord(char) for char in text])
+                    cg.CGEventKeyboardSetUnicodeString(event, len(text), chars)
                 cg.CGEventPostToPid(pid, event)
             finally:
                 cf.CFRelease(event)
 
-    def post_key(key_code: int, shifted: bool) -> None:
+    def post_key(key_code: int, shifted: bool, text: str) -> None:
         if not shifted:
-            post_raw_key(key_code)
+            post_raw_key(key_code, text)
             return
         shift_code = 56
+        chord_delay = min(0.01, max(0.002, key_delay / 3.0))
         shift_down = cg.CGEventCreateKeyboardEvent(None, shift_code, True)
         shift_up = cg.CGEventCreateKeyboardEvent(None, shift_code, False)
         if not shift_down or not shift_up:
             raise SystemExit("CGEventCreateKeyboardEvent failed")
         try:
             cg.CGEventPostToPid(pid, shift_down)
-            post_raw_key(key_code)
+            time.sleep(chord_delay)
+            post_raw_key(key_code, text)
+            time.sleep(chord_delay)
             cg.CGEventPostToPid(pid, shift_up)
         finally:
             cf.CFRelease(shift_down)
@@ -388,7 +405,7 @@ def type_basic_pid_keycodes(
         if char == "\r":
             continue
         key_code, shifted = KEY_CODES[char]
-        post_key(key_code, shifted)
+        post_key(key_code, shifted, char)
         time.sleep(line_delay if char == "\n" else key_delay)
     time.sleep(line_delay)
 
@@ -1076,6 +1093,7 @@ def launch_86box(
     image_args: list[str] | None = None,
     capture_stdout: bool = False,
     background: bool = True,
+    detached: bool = False,
 ) -> subprocess.Popen[str] | ExternalProcess:
     env = os.environ.copy()
     env["SEED_NO_IMAGE"] = "1"
@@ -1122,6 +1140,11 @@ def launch_86box(
         kwargs["stdout"] = subprocess.PIPE
         kwargs["stderr"] = subprocess.STDOUT
         kwargs["bufsize"] = 1
+    elif detached:
+        kwargs["stdin"] = subprocess.DEVNULL
+        kwargs["stdout"] = subprocess.DEVNULL
+        kwargs["stderr"] = subprocess.DEVNULL
+        kwargs["start_new_session"] = True
     return subprocess.Popen(cmd, **kwargs)
 
 
@@ -1557,6 +1580,9 @@ def classify_running_vm(
 
     verdict = shape_verdict
     detail = shape_detail
+    if lines and ocr_lines_suggest_rom_basic(lines):
+        verdict = "bootstrap-failure"
+        detail = f"ocr_{engine or 'unknown'}_rom_basic"
     if verdict == "ambiguous":
         if ocr_lines_suggest_dpi_ready(lines):
             verdict = "success"
@@ -1576,12 +1602,84 @@ def classify_running_vm(
     return verdict, detail
 
 
+def wait_for_dpi_prompt(
+    args: argparse.Namespace,
+    process: subprocess.Popen[str],
+    label: str,
+    timeout: float,
+    interval: float,
+) -> bool:
+    """Wait until the visible VM has the DPI prompt marker.
+
+    The shape oracle intentionally treats the splash as success, which is good
+    for final pass/fail but too early for typing the next prompt. For prompt
+    injection we require OCR to see a line beginning with `>`, so the harness
+    does not type into the splash or into a still-streaming response.
+    """
+    deadline = time.monotonic() + timeout
+    last_shape = ("ambiguous", "not captured")
+    last_engine: str | None = None
+    last_lines: list[str] = []
+
+    while True:
+        if process.poll() is not None:
+            print(f"{label}: process exited before DPI prompt")
+            return False
+        if screenshot_86box_window(
+            args.oracle_screenshot,
+            args.profile,
+            process.pid,
+        ):
+            try:
+                last_shape = classify_86box_screen(args.oracle_screenshot)
+            except (OSError, ValueError) as exc:
+                last_shape = ("ambiguous", str(exc))
+            last_engine, last_lines = screen_ocr_lines(
+                args.oracle_screenshot,
+                args.screen_ocr_timeout,
+            )
+            if last_shape[0] == "clean-failure":
+                print(f"{label}: clean failure before DPI prompt ({last_shape[1]})")
+                print_screen_ocr_lines(label, last_engine, last_lines)
+                print(f"{label}: kept {args.oracle_screenshot}")
+                return False
+            if ocr_lines_suggest_dpi_ready(last_lines):
+                print(
+                    f"{label}: DPI prompt ready "
+                    f"(shape={last_shape[0]} {last_shape[1]}, ocr={last_engine or 'none'})"
+                )
+                if not args.keep_success_oracle_screenshot:
+                    args.oracle_screenshot.unlink(missing_ok=True)
+                return True
+        else:
+            last_shape = ("ambiguous", "could not capture 86Box window")
+            last_engine = None
+            last_lines = []
+
+        if time.monotonic() >= deadline:
+            print(f"{label}: timed out waiting for DPI prompt ({last_shape[0]} {last_shape[1]})")
+            print_screen_ocr_lines(label, last_engine, last_lines)
+            if args.oracle_screenshot.exists():
+                print(f"{label}: kept {args.oracle_screenshot}")
+            return False
+        time.sleep(interval)
+
+
 def ocr_lines_suggest_dpi_ready(lines: list[str]) -> bool:
     for line in lines:
-        folded = line.lower()
-        if folded.startswith(">"):
+        folded = line.strip().lower()
+        if folded in {">", "›", "»", ")", "gee", "gee,"}:
             return True
     return False
+
+
+def ocr_lines_suggest_rom_basic(lines: list[str]) -> bool:
+    joined = " ".join(line.lower() for line in lines)
+    return (
+        "personal computer basic" in joined
+        or "copyright ibm corp" in joined
+        or "syntax error" in joined
+    )
 
 
 def screen_ocr_lines(path: Path, timeout: float) -> tuple[str | None, list[str]]:
@@ -1729,8 +1827,9 @@ def main() -> int:
     parser.add_argument("--capture-delay", type=float, default=None)
     parser.add_argument(
         "--post-dpi-text",
-        default=None,
-        help="after the first successful DPI oracle, type this prompt into the same VM and wait for the next response",
+        action="append",
+        default=[],
+        help="after DPI is ready, type this prompt into the same VM and wait for the next response; repeat to send multiple prompts",
     )
     parser.add_argument(
         "--post-dpi-wait",
@@ -1741,8 +1840,20 @@ def main() -> int:
     parser.add_argument(
         "--post-dpi-at",
         type=float,
-        default=80.0,
-        help="absolute seconds after VM launch to type --post-dpi-text; skips the initial oracle gate",
+        default=None,
+        help="absolute seconds after VM launch to type --post-dpi-text; skips the OCR prompt-ready gate",
+    )
+    parser.add_argument(
+        "--post-dpi-gate-timeout",
+        type=float,
+        default=420.0,
+        help="seconds to wait for OCR to see the DPI prompt before each --post-dpi-text (default: 420)",
+    )
+    parser.add_argument(
+        "--post-dpi-gate-interval",
+        type=float,
+        default=3.0,
+        help="seconds between DPI prompt-ready OCR checks (default: 3)",
     )
     parser.add_argument("--type-delay", type=float, default=0.03)
     parser.add_argument("--line-delay", type=float, default=0.3)
@@ -1784,6 +1895,11 @@ def main() -> int:
     parser.add_argument("--loader-mount", choices=("cli", "config"), default="cli")
     parser.add_argument("--no-build", action="store_true")
     parser.add_argument("--leave-running", action="store_true")
+    parser.add_argument(
+        "--long-running",
+        action="store_true",
+        help="manual session mode: type the BASIC loader, run it, skip capture/screenshot, and leave 86Box running",
+    )
     parser.add_argument(
         "--com-capture",
         type=Path,
@@ -1901,6 +2017,11 @@ def main() -> int:
         help="leave 86Box sound enabled; harness runs are muted by default",
     )
     args = parser.parse_args()
+    if args.long_running:
+        args.leave_running = True
+        args.no_screenshot = True
+        if args.capture_delay is None:
+            args.capture_delay = 0
 
     if args.repeat > 1:
         return run_repeat(args)
@@ -2051,6 +2172,7 @@ def main() -> int:
             image_args,
             capture_stdout=com_capture is not None,
             background=not args.foreground_launch,
+            detached=args.long_running and com_capture is None,
         )
         restore_frontmost_process(previous_frontmost)
         if com_capture is not None:
@@ -2092,45 +2214,12 @@ def main() -> int:
             if https_remotes:
                 print("process: 86Box HTTPS remotes: " + ", ".join(sorted(https_remotes)))
             oracle_verdict = None
-            if args.post_dpi_text is not None:
+            if args.post_dpi_text:
                 if args.post_dpi_at is not None:
                     remaining = launch_started_at + args.post_dpi_at - time.monotonic()
                     if remaining > 0:
                         time.sleep(remaining)
-                    post_dpi_text = args.post_dpi_text
-                    if not post_dpi_text.endswith(("\n", "\r")):
-                        post_dpi_text += "\n"
-                    type_basic_pid_keycodes(
-                        process.pid,
-                        post_dpi_text,
-                        args.type_delay,
-                        args.line_delay,
-                    )
-                    more_remotes = wait_with_process_https_sampling(
-                        process,
-                        args.post_dpi_wait,
-                    )
-                    https_remotes.update(more_remotes)
-                    if more_remotes:
-                        print(
-                            "process: post-DPI 86Box HTTPS remotes: "
-                            + ", ".join(sorted(more_remotes))
-                        )
-                    oracle_verdict = None
-                elif not args.screen_oracle:
-                    print("--post-dpi-text requires --screen-oracle", file=sys.stderr)
-                    exit_code = 2
-                else:
-                    oracle_verdict, _ = classify_running_vm(
-                        args,
-                        process,
-                        "screen oracle initial",
-                    )
-                    if oracle_verdict != "success":
-                        if args.fail_on_screen_oracle:
-                            exit_code = 2
-                    else:
-                        post_dpi_text = args.post_dpi_text
+                    for index, post_dpi_text in enumerate(args.post_dpi_text, start=1):
                         if not post_dpi_text.endswith(("\n", "\r")):
                             post_dpi_text += "\n"
                         type_basic_pid_keycodes(
@@ -2146,7 +2235,41 @@ def main() -> int:
                         https_remotes.update(more_remotes)
                         if more_remotes:
                             print(
-                                "process: post-DPI 86Box HTTPS remotes: "
+                                f"process: post-DPI {index} 86Box HTTPS remotes: "
+                                + ", ".join(sorted(more_remotes))
+                            )
+                    oracle_verdict = None
+                elif not args.screen_oracle:
+                    print("--post-dpi-text requires --screen-oracle", file=sys.stderr)
+                    exit_code = 2
+                else:
+                    for index, post_dpi_text in enumerate(args.post_dpi_text, start=1):
+                        if not wait_for_dpi_prompt(
+                            args,
+                            process,
+                            f"post-DPI gate {index}",
+                            args.post_dpi_gate_timeout,
+                            args.post_dpi_gate_interval,
+                        ):
+                            if args.fail_on_screen_oracle:
+                                exit_code = 2
+                            break
+                        if not post_dpi_text.endswith(("\n", "\r")):
+                            post_dpi_text += "\n"
+                        type_basic_pid_keycodes(
+                            process.pid,
+                            post_dpi_text,
+                            args.type_delay,
+                            args.line_delay,
+                        )
+                        more_remotes = wait_with_process_https_sampling(
+                            process,
+                            args.post_dpi_wait,
+                        )
+                        https_remotes.update(more_remotes)
+                        if more_remotes:
+                            print(
+                                f"process: post-DPI {index} 86Box HTTPS remotes: "
                                 + ", ".join(sorted(more_remotes))
                             )
                         oracle_verdict = None

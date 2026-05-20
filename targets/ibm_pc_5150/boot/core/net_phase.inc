@@ -22,17 +22,31 @@ prepare_agent_path:
     je .config_saved
     call_core_phase core_save_phase_start, core_save_phase_end
 .config_saved:
+    call prepare_agent_endpoint_path
+    jc .failed
+.ready:
+    clc
+    ret
+.failed:
+    stc
+    ret
 
 prepare_agent_endpoint_path:
     call wd_enter_packet_path
-    cmp byte [handoff_addr + handoff_status], handoff_status_ready
-    je .request_preloaded
     call_core_phase_at core_agent_request_phase_start, core_agent_request_phase_end, net_setup_phase_start
     jc .restore
+    cmp byte [handoff_addr + handoff_status], handoff_status_ready
+    je .link_loaded
     call_core_phase core_agent_endpoint_phase_start, core_agent_endpoint_phase_end
     jc .restore
+.link_loaded:
     load_core_window core_link_window_start, core_link_window_end
     jc .restore
+    cmp byte [handoff_addr + handoff_status], handoff_status_ready
+    jne .connect_new_session
+    call tls_send_application_data_current_seq
+    jc .restore
+    jmp .stream_body
 .connect_new_session:
     call_core_phase core_tls_client_hello_phase_start, core_tls_client_hello_phase_end
     jc .restore
@@ -43,9 +57,6 @@ prepare_agent_endpoint_path:
     call tls_probe_server
     jc .restore
 .stream_body:
-    cmp word [api_response_pending_len], 0
-    je .exchange
-    mov byte [api_stream_event_ready], 0
     call_core_phase_at core_agent_api_stream_phase_start, core_agent_api_stream_phase_end, net_setup_phase_start
     jc .restore
 .exchange:
@@ -55,8 +66,3 @@ prepare_agent_endpoint_path:
     call wd_restore_dp8390_base
     popf
     ret
-.request_preloaded:
-    call net_setup_phase_start
-    call tls_send_application_data_current_seq
-    jc .restore
-    jmp .stream_body

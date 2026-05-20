@@ -56,6 +56,8 @@ agent_request_phase:
     mov byte [api_http_header_match], 0
     cmp byte [handoff_addr + handoff_status], handoff_status_ready
     je .build_ready_openai_request
+    mov byte [dpi_input_len_byte], 0
+    mov byte [dpi_prompt_marker_row], 0
     mov byte [api_stream_event_ready], 0
     call .build_openai_body
     jc .request_failed
@@ -152,7 +154,7 @@ agent_request_phase:
     mov cx, seed_model_len
     call agent_request_phase_append_z_bounded_to_buffer
     jc .request_failed
-    mov si, PHASE_LOAD_ADDR + (api_json_input_text - PHASE_BASE)
+    mov si, PHASE_LOAD_ADDR + (api_json_ready_input_text - PHASE_BASE)
     call agent_request_phase_append_z_to_buffer
     mov ax, di
     sub ax, api_request_plain + tls_record_header_len
@@ -208,7 +210,13 @@ agent_request_phase:
     call agent_request_phase_append_z_bounded_to_buffer
     jc .body_failed
 .model_done:
+    cmp byte [handoff_addr + handoff_status], handoff_status_ready
+    jne .cold_input_prefix
+    mov si, PHASE_LOAD_ADDR + (api_json_ready_input_text - PHASE_BASE)
+    jmp .input_prefix_ready
+.cold_input_prefix:
     mov si, PHASE_LOAD_ADDR + (api_json_input_text - PHASE_BASE)
+.input_prefix_ready:
     call agent_request_phase_append_z_to_buffer
     mov ax, di
     sub ax, fs_sector_buffer
@@ -253,7 +261,7 @@ agent_request_phase:
     mov [api_response_pending_len], ax
     mov ax, dx
     add ax, bx
-    add ax, api_json_model_text_len + api_json_input_text_len + api_json_stream_close_text_len
+    add ax, api_json_model_text_len + api_json_ready_input_text_len + api_json_stream_close_text_len
     mov [api_body_len], ax
     clc
     ret
@@ -297,7 +305,9 @@ api_json_model_text db '{"model":"', 0
 api_json_model_text_len equ $ - api_json_model_text - 1
 api_json_input_text db '","input":"', 0
 api_json_input_text_len equ $ - api_json_input_text - 1
-api_json_boot_prompt_text db 'Hi.', 0
+api_json_ready_input_text db '","reasoning":{"effort":"minimal"},"input":"', 0
+api_json_ready_input_text_len equ $ - api_json_ready_input_text - 1
+api_json_boot_prompt_text db 'Greet briefly.', 0
 api_json_stream_close_text db '","stream":true}', 0
 api_json_stream_close_text_len equ $ - api_json_stream_close_text - 1
 
@@ -367,42 +377,6 @@ agent_request_phase_append_crlf_to_buffer:
     stosb
     mov al, 10
     stosb
-    ret
-
-agent_request_phase_append_until_cr_to_buffer:
-    lodsb
-    cmp al, 13
-    je .done
-    cmp al, 10
-    je .done
-    or al, al
-    jz .failed
-    stosb
-    jmp agent_request_phase_append_until_cr_to_buffer
-.done:
-    clc
-    ret
-.failed:
-    stc
-    ret
-
-agent_request_phase_append_until_quote_to_buffer:
-    lodsb
-    cmp al, '"'
-    je .done
-    cmp al, 13
-    je .failed
-    cmp al, 10
-    je .failed
-    or al, al
-    jz .failed
-    stosb
-    jmp agent_request_phase_append_until_quote_to_buffer
-.done:
-    clc
-    ret
-.failed:
-    stc
     ret
 
 agent_request_phase_append_json_bytes_to_buffer:
