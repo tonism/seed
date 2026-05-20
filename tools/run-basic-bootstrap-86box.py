@@ -1570,10 +1570,6 @@ def classify_running_vm(
     lines: list[str] = []
     should_ocr = (
         not args.no_screen_ocr
-        and (
-            shape_verdict != "success"
-            or args.screen_ocr_success
-        )
     )
     if should_ocr:
         engine, lines = screen_ocr_lines(args.oracle_screenshot, args.screen_ocr_timeout)
@@ -1798,10 +1794,8 @@ def print_screen_ocr_lines(
         print(f"{label} OCR ({engine}): no text recognized")
         return
     print(f"{label} OCR ({engine}):")
-    for line in lines[:8]:
+    for line in lines:
         print(f"  {line}")
-    if len(lines) > 8:
-        print(f"  ... {len(lines) - 8} more line(s)")
 
 
 def main() -> int:
@@ -1939,12 +1933,12 @@ def main() -> int:
     parser.add_argument(
         "--no-screen-ocr",
         action="store_true",
-        help="disable local OCR on non-success screen-oracle captures",
+        help="disable local OCR on final screen captures",
     )
     parser.add_argument(
         "--screen-ocr-success",
         action="store_true",
-        help="also run local OCR on successful screen-oracle captures before deleting the local image",
+        help="deprecated no-op; successful screen-oracle captures are OCRed by default",
     )
     parser.add_argument(
         "--screen-ocr-timeout",
@@ -2035,12 +2029,10 @@ def main() -> int:
         except (OSError, ValueError) as exc:
             oracle_verdict, oracle_detail = "ambiguous", str(exc)
         print(f"screen oracle: {oracle_verdict} ({oracle_detail})")
-        if oracle_verdict == "success" and args.screen_ocr_success:
-            maybe_print_screen_ocr(args, "screen oracle", args.oracle_screenshot)
+        maybe_print_screen_ocr(args, "screen oracle", args.oracle_screenshot)
         if oracle_verdict == "success" and not args.keep_success_oracle_screenshot:
             args.oracle_screenshot.unlink(missing_ok=True)
         elif oracle_verdict != "success":
-            maybe_print_screen_ocr(args, "screen oracle", args.oracle_screenshot)
             print(f"screen oracle: kept {args.oracle_screenshot}")
         return 2 if args.fail_on_screen_oracle and oracle_verdict != "success" else 0
 
@@ -2300,6 +2292,7 @@ def main() -> int:
                     try:
                         screenshot_86box_window_or_screen(args.screenshot, args.profile, process.pid)
                         print(f"screenshot: {args.screenshot}")
+                        maybe_print_screen_ocr(args, "screenshot", args.screenshot)
                     except subprocess.CalledProcessError as exc:
                         print(f"screenshot: failed ({exc})", file=sys.stderr)
                 else:
@@ -2310,6 +2303,7 @@ def main() -> int:
                 try:
                     screenshot_86box_window_or_screen(args.screenshot, args.profile, process.pid)
                     print(f"screenshot: {args.screenshot}")
+                    maybe_print_screen_ocr(args, "screenshot", args.screenshot)
                 except subprocess.CalledProcessError as exc:
                     print(f"screenshot: failed ({exc})", file=sys.stderr)
         finally:

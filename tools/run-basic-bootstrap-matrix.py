@@ -199,8 +199,8 @@ def write_summary(results: list[RunResult], artifact_dir: Path) -> None:
                 f"  {item.iteration:02d}: {status} rc={item.returncode} "
                 f"verdict={item.verdict} {item.elapsed_s:.1f}s"
             )
+            lines.append(f"      log: {item.log}")
             if not item.ok:
-                lines.append(f"      log: {item.log}")
                 lines.append(f"      oracle: {item.oracle_screenshot}")
     (artifact_dir / "summary.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
