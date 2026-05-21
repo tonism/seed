@@ -284,14 +284,14 @@ tcp_port_http_word equ 0x5000
 tcp_port_https_word equ 0xbb01
 tcp_wait_count equ 4
 tcp_payload_wait_count equ 2048
-tls_client_base_len equ 134
-tls_body_base_len equ 125
-tls_record_base_len equ 129
-tls_extensions_base_len equ 82
+tls_client_base_len equ 88
+tls_body_base_len equ 79
+tls_record_base_len equ 83
+tls_extensions_base_len equ 36
 tls_random_len equ 32
 tls_after_random_len equ 7
 tls_extensions_prefix_len equ 5
-tls_extensions_tail_len equ 68
+tls_extensions_tail_len equ 22
 tls_bulk_aes_128_gcm equ 1
 tls_bulk_aes_256_gcm equ 2
 tls_bulk_chacha20_poly1305 equ 3
@@ -327,7 +327,7 @@ tls_app_max_plain_len equ tcp_payload_max_len - tls_record_header_len - tls_aead
 ; Fixed OpenAI proof request with max 192-byte key and max 64-byte model.
 api_request_plain_len equ 440
 tls_app_record_buffer_len equ api_request_plain_len + tls_record_header_len + tls_aead_tag_len
-api_request_key_value_offset equ 73
+api_request_key_value_offset equ 71
 api_request_model_value_offset equ 10
 chacha_word_count equ 16
 chacha_block_len equ 64

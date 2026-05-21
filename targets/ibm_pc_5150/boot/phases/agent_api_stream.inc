@@ -52,10 +52,12 @@ agent_api_stream_phase:
     ja .failed
     mov [tls_app_len], ax
     mov word [tls_app_plain_ptr], api_request_plain + tls_record_header_len
+    phase_call_res tls_prepare_3c501_receive
     phase_call_res tls_send_application_data_current_seq
     jc .failed
     mov al, 'T'
     call agent_api_stream_trace_loop_step
+    phase_call_res tls_prepare_3c501_receive
 .done:
     mov ax, (((core_agent_response_phase_end - core_agent_response_phase_start + 511) / 512) << 8) | ((core_agent_response_phase_start - $$) / 512)
     mov bx, agent_response_phase_load_addr

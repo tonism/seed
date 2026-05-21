@@ -336,11 +336,18 @@ tls_transcript_certificate_remaining equ tls_app_content_type + 1
 dns_tx_len equ tls_transcript_certificate_remaining + 2
 ; The first TLS handshake and ready-loop state reuse the AGENTS/USER config
 ; arena. Preserve the chat-loop values that every request still needs.
-; dns_tx_len is only needed while establishing the endpoint connection. Once
-; agent_cache runs, the hot chat loop can reuse that word as cache storage.
-chat_model_cache equ dns_tx_len
+; Keep DNS/TCP setup state intact through run_tcp_connect; the hot chat loop
+; reuses the last 16K-safe bytes below the BASIC stack guard for values needed
+; after TLS scratch takes over.
+chat_model_cache equ dns_tx_len + 2
 chat_key_cache equ chat_model_cache + seed_model_len
 chat_cache_end equ chat_key_cache + seed_key_len
+%if chat_model_cache < low_scratch_end
+%error "chat config cache overlaps phase load window"
+%endif
+%if chat_model_cache < tls_pre_response_scratch_end
+%error "chat config cache overlaps TLS/request scratch"
+%endif
 %if chat_cache_end > (basic_sidecar_stack_top_16k - basic_sidecar_stack_guard_len_16k)
 %error "chat config cache overlaps 16K BASIC stack guard"
 %endif

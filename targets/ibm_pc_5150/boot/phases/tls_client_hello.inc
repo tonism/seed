@@ -145,14 +145,7 @@ tls_client_hello_after_random db 0
 tls_client_hello_extensions_prefix db 0xff, 1, 0, 1, 0
 tls_client_hello_extensions_tail db 0, 11, 0, 2, 1, 0
                                  db 0, 10, 0, 4, 0, 2, 0, 23
-                                 db 0, 35, 0, 0
-                                 db 0, 22, 0, 0
-                                 db 0, 13, 0, 42, 0, 40
-                                 db 4, 3, 5, 3, 6, 3, 8, 7
-                                 db 8, 8, 8, 9, 8, 10, 8, 11
-                                 db 8, 4, 8, 5, 8, 6, 4, 1
-                                 db 5, 1, 6, 1, 3, 3, 3, 1
-                                 db 3, 2, 4, 2, 5, 2, 6, 2
+                                 db 0, 13, 0, 4, 0, 2, 4, 3
 tls_low_constants_constant:
 tls_label_master_secret_constant db 'master secret'
 tls_label_client_finished_constant db 'client finished'

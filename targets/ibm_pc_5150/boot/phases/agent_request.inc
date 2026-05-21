@@ -297,9 +297,9 @@ agent_request_phase:
 http_post_text db 'POST ', 0
 http_openai_path_text db '/v1/responses', 0
 http_version_text db ' HTTP/1.1', 13, 10, 0
-http_host_text db 'Host: ', 0
-http_auth_bearer_text db 'Authorization: Bearer ', 0
-http_content_length_text db 'Content-Length: ', 0
+http_host_text db 'Host:', 0
+http_auth_bearer_text db 'Authorization:Bearer ', 0
+http_content_length_text db 'Content-Length:', 0
 agent_request_host_openai_text db 'api.openai.com', 0
 api_json_model_text db '{"model":"', 0
 api_json_model_text_len equ $ - api_json_model_text - 1
@@ -307,7 +307,7 @@ api_json_input_text db '","input":"', 0
 api_json_input_text_len equ $ - api_json_input_text - 1
 api_json_ready_input_text db '","reasoning":{"effort":"minimal"},"input":"', 0
 api_json_ready_input_text_len equ $ - api_json_ready_input_text - 1
-api_json_boot_prompt_text db 'Greet briefly.', 0
+api_json_boot_prompt_text db 'Greet.', 0
 api_json_stream_close_text db '","stream":true}', 0
 api_json_stream_close_text_len equ $ - api_json_stream_close_text - 1
 

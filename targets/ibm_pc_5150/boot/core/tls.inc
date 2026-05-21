@@ -15,10 +15,6 @@ tls_probe_server:
     mov cx, [tls_tx_len]
     call tcp_send_payload
     jc .failed
-    cmp byte [handoff_addr + handoff_nic_family], family_3c501
-    jne .wait_for_record
-    mov cx, 2
-    call wait_ticks
 .wait_for_record:
     call tls_wait_for_server_hello
     jc .failed
@@ -31,11 +27,6 @@ tls_probe_server:
     jc .failed
     call tls_wait_for_server_key_exchange_or_done
     jc .failed
-    cmp byte [handoff_addr + handoff_nic_family], family_3c501
-    jne .transcript_client_key_exchange
-    inc byte [tls_client_record_seq + tls_client_record_seq_len - 1]
-    call tls_build_application_data_record
-    dec byte [tls_client_record_seq + tls_client_record_seq_len - 1]
 .transcript_client_key_exchange:
     call tls_prepare_client_key_exchange_transcript
     jc .failed
@@ -57,6 +48,11 @@ tls_probe_server:
     call tls_prepare_key_block
     jc .failed
 .key_schedule_ready:
+    cmp byte [handoff_addr + handoff_nic_family], family_3c501
+    jne .prepare_client_finished
+    call tls_prepare_3c501_split_application_record
+    jc .failed
+.prepare_client_finished:
     call tls_prepare_client_finished
     jc .failed
     cmp byte [handoff_addr + handoff_nic_family], family_3c501
@@ -64,12 +60,18 @@ tls_probe_server:
     call tls_send_client_key_exchange
     jc .failed
 .send_final_flight:
+    cmp byte [handoff_addr + handoff_nic_family], family_3c501
+    jne .final_flight_ready
+    call tls_prepare_3c501_prebuilt_application_tcp_frame
+    jc .failed
+.final_flight_ready:
     call tls_send_client_final_flight
     jc .failed
     cmp byte [handoff_addr + handoff_nic_family], family_3c501
     jne .send_application_data
-    call tls_send_prebuilt_application_data_current_seq
-    jmp .wait_for_server_finished
+    call tls_wait_for_server_finished_then_send_prebuilt_application
+    jc .failed
+    jmp .done
 .send_application_data:
     call tls_send_application_data_current_seq
     jc .failed
@@ -511,9 +513,10 @@ tls_wait_for_server_key_exchange_or_done:
     jc .failed
     call tls_finish_server_key_exchange
     jc .failed
-    call tls_prepare_early_key_schedule
+    call tls_wait_for_server_hello_done
     jc .failed
-    jmp tls_wait_for_server_hello_done
+    clc
+    ret
 .failed:
     jmp tls_fail_error
 
@@ -762,12 +765,96 @@ tls_send_client_final_flight_failed:
     stc
     ret
 
-tls_wait_for_server_finished:
+tls_prepare_3c501_split_application_record:
+    inc byte [tls_client_record_seq + tls_client_record_seq_len - 1]
+    call tls_build_application_data_record
+    dec byte [tls_client_record_seq + tls_client_record_seq_len - 1]
+    ret
+
+tls_wait_for_server_finished_then_send_prebuilt_application:
     call tls_prepare_3c501_receive
     call tls_load_server_payload
     jc .failed
+    call tls_send_prebuilt_3c501_application_tcp_frame
+    jc .failed
+    call tls_parse_server_change_cipher_spec
+    jc .failed
+    cmp word [tls_buffered_payload_len], 0
+    jne .load_finished
+    call ne_transmit_tcp_ack
+    jc .failed
+.load_finished:
+    call tls_load_server_payload
+    jc .failed
     mov si, [tls_current_payload_ptr]
-    call tls_maybe_consume_server_new_session_ticket
+    call tls_parse_server_finished_record
+    jc .failed
+    call tls_verify_server_finished
+    jc .failed
+    mov si, tls_finished_plain
+    mov cx, tls_finished_plain_len
+    call tls_transcript_update
+    jc .failed
+    call tls_increment_server_record_seq
+    clc
+    ret
+.failed:
+    stc
+    ret
+
+tls_prepare_3c501_prebuilt_application_tcp_frame:
+    mov ax, [tcp_remote_ack]
+    push ax
+    mov ax, [tcp_remote_ack + 2]
+    push ax
+    mov ax, [tcp_local_seq]
+    push ax
+    mov ax, [tcp_local_seq + 2]
+    push ax
+    mov di, tcp_remote_ack
+    mov cx, tls_change_cipher_spec_total_len + tls_finished_total_len
+    call tcp_add_cx_to_seq
+    mov di, tcp_local_seq
+    call tcp_add_cx_to_seq
+    mov al, 0x18
+    mov si, tls_app_record_buffer
+    mov cx, [tls_app_record_len]
+    call build_tcp_segment_frame
+    mov [tls_app_chunk_len], cx
+    push ds
+    pop es
+    mov si, ne_tx_frame
+    mov di, tls_rx_copy
+    rep movsb
+    pop ax
+    mov [tcp_local_seq + 2], ax
+    pop ax
+    mov [tcp_local_seq], ax
+    pop ax
+    mov [tcp_remote_ack + 2], ax
+    pop ax
+    mov [tcp_remote_ack], ax
+    clc
+    ret
+
+tls_send_prebuilt_3c501_application_tcp_frame:
+    mov si, tls_rx_copy
+    mov cx, [tls_app_chunk_len]
+    call ne_transmit_frame
+    jc .failed
+    mov di, tcp_local_seq
+    mov cx, [tls_app_record_len]
+    call tcp_add_cx_to_seq
+    call tls_increment_client_record_seq
+    clc
+    ret
+.failed:
+    stc
+    ret
+
+tls_wait_for_server_finished:
+    call tls_prepare_3c501_receive
+    call tls_load_server_payload
     jc .failed
     call tls_parse_server_change_cipher_spec
     jc .failed
@@ -882,8 +969,6 @@ tls_receive_application_data:
     mov [tls_app_len], dx
     add ax, tls_record_header_len
     mov [tls_app_total_len], ax
-    cmp dx, tls_payload_buffer_len
-    ja .large_record
     cmp ax, tls_stream_buffer_len
     ja .large_record
     call tls_ensure_current_tls_record_complete
@@ -1226,37 +1311,6 @@ tls_build_app_aad_from_seq:
     mov ax, [tls_app_len]
     call tls_write_be16
     pop es
-    ret
-
-tls_maybe_consume_server_new_session_ticket:
-    mov si, [tls_current_payload_ptr]
-    mov cx, [tls_current_payload_len]
-    cmp cx, 9
-    jb .done
-    cmp byte [si], 0x16
-    jne .done
-    cmp byte [si + 5], 0x04
-    jne .done
-    call tls_parse_next_handshake_header
-    jc .failed
-    cmp byte [tls_server_next_handshake_type], 0x04
-    jne .done
-    call tls_transcript_update_next_handshake
-    jc .failed
-    mov ax, [tls_server_next_total_len]
-    call tls_save_payload_after_current_offset
-    cmp word [tls_buffered_payload_len], 0
-    jne .load_next
-    call ne_transmit_tcp_ack
-    jc .failed
-.load_next:
-    call tls_load_server_payload
-    jc .failed
-.done:
-    clc
-    ret
-.failed:
-    stc
     ret
 
 tls_parse_server_change_cipher_spec:
@@ -1765,6 +1819,8 @@ tls_finish_server_key_exchange:
     call tls_save_payload_after_current_offset
     cmp word [tls_buffered_payload_len], 0
     jne .done
+    cmp byte [handoff_addr + handoff_nic_family], family_3c501
+    je .done
     call ne_transmit_tcp_ack
     jc .failed
 .done:

@@ -50,9 +50,9 @@ prepare_agent_endpoint_path:
 .connect_new_session:
     call_core_phase core_tls_client_hello_phase_start, core_tls_client_hello_phase_end
     jc .restore
-    call run_tcp_connect_phase
-    jc .restore
     call_core_phase core_agent_cache_phase_start, core_agent_cache_phase_end
+    jc .restore
+    call run_tcp_connect_phase
     jc .restore
     call tls_probe_server
     jc .restore

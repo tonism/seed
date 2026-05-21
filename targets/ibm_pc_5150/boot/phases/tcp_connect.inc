@@ -65,7 +65,16 @@ tcp_resolve_target_name:
     jc .done
     call ne_wait_for_dns_response
     cmp byte [handoff_addr + handoff_net_status], net_status_dns_response_received
+    je .resolved
+    cmp byte [handoff_addr + handoff_nic_family], family_3c501
     jne .failed
+    call ne_flush_receive_frames
+    call ne_transmit_dns_query
+    jc .done
+    call ne_wait_for_dns_response
+    cmp byte [handoff_addr + handoff_net_status], net_status_dns_response_received
+    jne .failed
+.resolved:
     clc
     ret
 .failed:
