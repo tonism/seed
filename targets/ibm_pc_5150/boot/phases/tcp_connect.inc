@@ -84,7 +84,7 @@ tcp_resolve_target_name:
 
 ne_flush_receive_frames:
     mov word [ne_rx_read_limit], ne_rx_sample_len
-    mov cx, 8
+    mov cx, 64
 .next:
     push cx
     phase_call_res ne_try_receive_frame

@@ -148,8 +148,9 @@ tcp_source_port_word equ api_body_len + 2
 dns_qname_len equ tcp_source_port_word + 2
 api_response_pending_len equ dns_qname_len + 1
 api_stream_done_match equ api_response_pending_len
-api_receive_tries equ api_response_pending_len + 2
-low_runtime_state_end equ api_receive_tries + 1
+api_stream_text_seen equ api_response_pending_len + 2
+api_stream_prompt_len equ api_stream_text_seen + 1
+low_runtime_state_end equ api_stream_prompt_len + 1
 
 ; After agent/user setup, the setup form scratch bytes are no longer live.
 ; Reuse them for the chat response scanner instead of growing the always-tight

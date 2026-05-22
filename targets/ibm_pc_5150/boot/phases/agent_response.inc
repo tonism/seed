@@ -149,6 +149,7 @@ agent_response_phase:
     call agent_response_trace_step
     pop ax
     mov byte [api_stream_seen], 1
+    mov byte [api_stream_text_seen], 1
 .live_ready:
     cmp al, 10
     je .emit_newline

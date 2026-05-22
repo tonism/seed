@@ -32,10 +32,7 @@ agent_api_stream_phase:
     mov al, 'S'
     call agent_api_stream_trace_loop_step
     mov di, api_request_plain + tls_record_header_len
-    mov si, dpi_input_buf
-    mov cl, [dpi_input_len_byte]
-    xor ch, ch
-    call agent_api_stream_append_json_bytes_to_buffer
+    call agent_api_stream_append_prompt_screen_to_buffer
     mov si, PHASE_LOAD_ADDR + (api_stream_json_close_text - PHASE_BASE)
     call agent_api_stream_append_z_to_buffer
     mov ax, di
@@ -72,7 +69,7 @@ agent_api_stream_phase:
     stc
     ret
 
-api_stream_json_close_text db '","stream":true}', 0
+api_stream_json_close_text db '","stream":true,"stream_options":{"include_obfuscation":false}}', 0
 
 agent_api_stream_append_z_to_buffer:
     lodsb
@@ -109,6 +106,60 @@ agent_api_stream_append_json_bytes_to_buffer:
     stosb
     loop .json_next
 .json_done:
+    ret
+
+agent_api_stream_append_prompt_screen_to_buffer:
+    mov al, [api_stream_prompt_len]
+    mov [api_http_state], al
+    mov al, [dpi_prompt_marker_row]
+    and al, 0x7f
+    mov [api_stream_delta_match], al
+    mov byte [api_http_header_match], dpi_prompt_col + 2
+.screen_next:
+    cmp byte [api_http_state], 0
+    je .screen_done
+    push di
+    mov ah, 0x02
+    mov bh, 0
+    mov dh, [api_stream_delta_match]
+    mov dl, [api_http_header_match]
+    int 0x10
+    mov ah, 0x08
+    mov bh, 0
+    int 0x10
+    pop di
+    cmp al, '"'
+    je .screen_escape
+    cmp al, '\'
+    je .screen_escape
+    cmp al, 32
+    jb .screen_space
+    stosb
+    jmp .screen_advanced
+.screen_escape:
+    mov ah, al
+    mov al, '\'
+    stosb
+    mov al, ah
+    stosb
+    jmp .screen_advanced
+.screen_space:
+    mov al, ' '
+    stosb
+.screen_advanced:
+    inc byte [api_http_header_match]
+    mov al, [screen_cols]
+    cmp [api_http_header_match], al
+    jb .screen_count
+    mov byte [api_http_header_match], dpi_prompt_col + 2
+    inc byte [api_stream_delta_match]
+.screen_count:
+    dec byte [api_http_state]
+    jmp .screen_next
+.screen_done:
+    mov byte [api_http_state], 0
+    mov byte [api_http_header_match], 0
+    mov byte [api_stream_delta_match], 0
     ret
 
 agent_api_stream_trace_loop_step:

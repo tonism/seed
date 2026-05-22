@@ -51,6 +51,8 @@ agent_request_phase:
     mov byte [api_stream_state], 0
     mov byte [api_stream_delta_match], 0
     mov byte [api_stream_seen], 0
+    mov byte [api_stream_text_seen], 0
+    mov byte [api_stream_prompt_len], 0
     mov byte [api_stream_completed], 0
     mov byte [api_http_state], 0
     mov byte [api_http_header_match], 0
@@ -121,6 +123,8 @@ agent_request_phase:
 .build_ready_openai_request:
     call .compute_ready_body_lengths
     jc .request_failed
+    mov al, [dpi_input_len_byte]
+    mov [api_stream_prompt_len], al
     push ds
     pop es
     mov di, api_request_plain + tls_record_header_len
@@ -158,23 +162,6 @@ agent_request_phase:
     call agent_request_phase_append_z_to_buffer
     mov ax, di
     sub ax, api_request_plain + tls_record_header_len
-    mov bx, ax
-    add ax, [api_response_pending_len]
-    cmp ax, api_request_plain_len
-    ja .split_ready_request
-    mov si, dpi_input_buf
-    mov cl, [dpi_input_len_byte]
-    xor ch, ch
-    call agent_request_phase_append_json_bytes_to_buffer
-    mov si, PHASE_LOAD_ADDR + (api_json_stream_close_text - PHASE_BASE)
-    call agent_request_phase_append_z_to_buffer
-    mov ax, di
-    sub ax, api_request_plain + tls_record_header_len
-    mov word [api_response_pending_len], 0
-    jmp .ready_request_len_ready
-.split_ready_request:
-    mov ax, bx
-.ready_request_len_ready:
     mov [tls_app_total_len], ax
     mov [tls_app_len], ax
     mov word [tls_app_plain_ptr], api_request_plain + tls_record_header_len
@@ -257,11 +244,11 @@ agent_request_phase:
     xor ch, ch
     call agent_request_phase_json_bytes_len
     mov dx, ax
-    add ax, api_json_stream_close_text_len
+    add ax, api_ready_stream_close_text_len
     mov [api_response_pending_len], ax
     mov ax, dx
     add ax, bx
-    add ax, api_json_model_text_len + api_json_ready_input_text_len + api_json_stream_close_text_len
+    add ax, api_json_model_text_len + api_json_ready_input_text_len + api_ready_stream_close_text_len
     mov [api_body_len], ax
     clc
     ret
@@ -310,6 +297,7 @@ api_json_ready_input_text_len equ $ - api_json_ready_input_text - 1
 api_json_boot_prompt_text db 'Greet.', 0
 api_json_stream_close_text db '","stream":true}', 0
 api_json_stream_close_text_len equ $ - api_json_stream_close_text - 1
+api_ready_stream_close_text_len equ 63
 
 agent_request_phase_strlen_z_bounded:
     xor dx, dx

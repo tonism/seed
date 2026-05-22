@@ -1004,31 +1004,33 @@ tls_receive_application_data:
     mov di, tls_received_tag
     mov cx, tls_aead_tag_len
     call tls_compare_buffers
-    jc .failed
+    jnc .tag_ready
+    mov byte [handoff_addr + handoff_net_status], 0xe4
+    jmp .failed
+.tag_ready:
     mov word [chacha_counter_low], 1
     mov word [chacha_counter_high], 0
     call tls_xor_app_data
     cmp byte [tls_app_content_type], 0x15
     jne .application_record
-    jmp .failed
+    cmp word [tls_rx_copy], 0x0001
+    jne .failed
+    mov byte [tls_key_schedule_ready], 0
+    mov byte [api_stream_completed], 3
 .application_record:
-    push es
-    mov bx, debug_trace_video_seg
-    mov es, bx
-    mov bl, [debug_trace_cursor]
-    xor bh, bh
-    shl bx, 1
-    mov ax, (debug_trace_attr << 8) | 'R'
-    mov [es:bx], ax
-    inc byte [debug_trace_cursor]
-    pop es
-
     call tls_preserve_buffered_payload
     call tls_increment_server_record_seq
-    call ne_transmit_tcp_ack
-    jc .failed
     ret
 .large_record:
+    cmp byte [api_stream_text_seen], 0
+    je .large_before_text
+    xor ax, ax
+    mov [tls_app_len], ax
+    call tls_clear_buffered_payload
+    mov byte [tls_key_schedule_ready], 0
+    mov byte [api_stream_completed], 3
+    ret
+.large_before_text:
     jmp tls_receive_large_application_record
 .failed:
     jmp tls_fail_error
@@ -1062,21 +1064,11 @@ tls_ensure_tls_header_complete:
     clc
     ret
 .failed:
+    mov byte [handoff_addr + handoff_net_status], 0xe7
     stc
     ret
 
 tls_receive_large_application_record:
-    push es
-    mov bx, debug_trace_video_seg
-    mov es, bx
-    mov bl, [debug_trace_cursor]
-    xor bh, bh
-    shl bx, 1
-    mov ax, (debug_trace_attr << 8) | 'L'
-    mov [es:bx], ax
-    inc byte [debug_trace_cursor]
-    pop es
-
     call tls_clear_buffered_payload
 
     mov ax, [tls_app_total_len]
@@ -1174,6 +1166,7 @@ tls_ensure_current_tls_record_complete:
 .append_next_payload:
     call ne_transmit_tcp_ack
     jc .append_failed
+    mov byte [handoff_addr + handoff_net_status], 0xe8
     call tcp_receive_payload
     jc .append_failed
     mov ax, [tls_current_payload_len]

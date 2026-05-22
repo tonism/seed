@@ -1431,6 +1431,50 @@ def classify_86box_screen(path: Path) -> tuple[str, str]:
     )
 
 
+def image_suggests_dpi_prompt(path: Path) -> bool:
+    """Detect the bottom-left DPI prompt when OCR drops the lone `>` marker."""
+    width, height, channels, rows = read_png_rgb(path)
+    if width < 320 or height < 240:
+        return False
+
+    y0 = (height * 90) // 100
+    y1 = (height * 94) // 100
+    prompt_x1 = max(28, min(48, width // 25))
+    line_x1 = width - max(8, width // 40)
+    prompt_pixels = 0
+    line_pixels = 0
+    prompt_min_x = width
+    prompt_max_x = 0
+    prompt_min_y = height
+    prompt_max_y = 0
+
+    for y in range(y0, min(y1, height)):
+        row = rows[y]
+        for x in range(0, min(prompt_x1, width)):
+            off = x * channels
+            r, g, b = row[off], row[off + 1], row[off + 2]
+            if r > 165 and g > 165 and b > 165:
+                prompt_pixels += 1
+                prompt_min_x = min(prompt_min_x, x)
+                prompt_max_x = max(prompt_max_x, x)
+                prompt_min_y = min(prompt_min_y, y)
+                prompt_max_y = max(prompt_max_y, y)
+        for x in range(min(prompt_x1, width), max(prompt_x1, line_x1)):
+            off = x * channels
+            r, g, b = row[off], row[off + 1], row[off + 2]
+            if r > 165 and g > 165 and b > 165:
+                line_pixels += 1
+
+    prompt_width = prompt_max_x - prompt_min_x + 1 if prompt_pixels else 0
+    prompt_height = prompt_max_y - prompt_min_y + 1 if prompt_pixels else 0
+    return (
+        12 <= prompt_pixels <= 220
+        and 4 <= prompt_width <= prompt_x1
+        and 8 <= prompt_height <= max(8, y1 - y0)
+        and line_pixels <= max(28, prompt_pixels // 4)
+    )
+
+
 def sample_process_https_remotes(pid: int) -> set[str]:
     """Return remote TCP/443 IPs owned by the emulator process.
 
@@ -1639,11 +1683,20 @@ def wait_for_dpi_prompt(
                 print_screen_ocr_lines(label, last_engine, last_lines)
                 print(f"{label}: kept {args.oracle_screenshot}")
                 return False
-            if ocr_lines_suggest_dpi_ready(last_lines):
+            visual_prompt = False
+            try:
+                visual_prompt = image_suggests_dpi_prompt(args.oracle_screenshot)
+            except (OSError, ValueError):
+                visual_prompt = False
+            if ocr_lines_suggest_dpi_ready(last_lines) or visual_prompt:
+                ocr_prompt = ocr_lines_suggest_dpi_ready(last_lines)
                 print(
                     f"{label}: DPI prompt ready "
-                    f"(shape={last_shape[0]} {last_shape[1]}, ocr={last_engine or 'none'})"
+                    f"(shape={last_shape[0]} {last_shape[1]}, "
+                    f"ocr={last_engine or 'none'}, ocr_prompt={ocr_prompt}, "
+                    f"visual_prompt={visual_prompt})"
                 )
+                print_screen_ocr_lines(label, last_engine, last_lines)
                 if not args.keep_success_oracle_screenshot:
                     args.oracle_screenshot.unlink(missing_ok=True)
                 return True
@@ -1665,6 +1718,8 @@ def ocr_lines_suggest_dpi_ready(lines: list[str]) -> bool:
     for line in lines:
         folded = line.strip().lower()
         if folded in {">", "›", "»", ")", "gee", "gee,"}:
+            return True
+        if len(folded) <= 3 and folded[-1:] in {">", "›", "»", ")"}:
             return True
     return False
 

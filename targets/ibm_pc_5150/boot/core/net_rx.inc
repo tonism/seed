@@ -188,8 +188,6 @@ parse_tcp_payload:
     cmp dx, bx
     jbe .not_payload
     sub dx, bx
-    cmp dx, 5
-    jb .not_payload
     cmp ax, dx
     jbe .payload_len_ready
     mov ax, dx

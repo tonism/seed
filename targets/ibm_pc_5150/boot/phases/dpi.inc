@@ -88,9 +88,13 @@ dpi_phase:
     phase_call_res print_char
     pop dx
     mov [cursor_row], dl
+    cmp dl, dpi_prompt_row
+    jne .submit_no_scroll
+    dec byte [dpi_prompt_marker_row]
+.submit_no_scroll:
     call .advance_line
     mov byte [cursor_col], dpi_prompt_col
-    mov byte [dpi_prompt_marker_row], 0x80
+    or byte [dpi_prompt_marker_row], 0x80
     call .sync_cursor
     ret
 .agent_failed:

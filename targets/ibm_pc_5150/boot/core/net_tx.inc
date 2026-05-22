@@ -227,9 +227,9 @@ build_tcp_segment_frame:
     stosw
     mov ax, 0x0001
     cmp byte [handoff_addr + handoff_nic_family], family_3c501
-    jne .write_window
-    shl ax, 1
-.write_window:
+    jne .window_ready
+    mov al, 0x02
+.window_ready:
     stosw
     xor ax, ax
     stosw
