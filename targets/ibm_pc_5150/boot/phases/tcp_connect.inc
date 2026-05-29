@@ -41,6 +41,7 @@ tcp_reopen_cached_target:
     jc .done
     cmp byte [handoff_addr + handoff_net_status], net_status_tcp_connected
     jne .failed
+    call ne_flush_receive_frames
     clc
     ret
 .failed:
@@ -84,7 +85,7 @@ tcp_resolve_target_name:
 
 ne_flush_receive_frames:
     mov word [ne_rx_read_limit], ne_rx_sample_len
-    mov cx, 64
+    mov cx, 256
 .next:
     push cx
     phase_call_res ne_try_receive_frame
@@ -133,10 +134,23 @@ ne_transmit_tcp_syn:
     ret
 
 tcp_reset_state:
-    mov ax, [0x046c]
+    mov ax, [tcp_source_port_word]
+    or ax, ax
+    jnz .bump_source_port
+    mov bx, [0x046c]
+    mov al, bl
     and al, 0x3f
     add al, 0xc0
-    mov ah, 0x02
+    mov ah, bh
+    jmp .source_port_ready
+.bump_source_port:
+    inc ah
+    jnz .source_port_ready
+    inc al
+    cmp al, 0xc0
+    jae .source_port_ready
+    mov al, 0xc0
+.source_port_ready:
     mov [tcp_source_port_word], ax
     mov word [tcp_local_seq], 0x4553
     mov word [tcp_local_seq + 2], 0x4445
@@ -288,6 +302,9 @@ ne_wait_for_dns_response:
 ne_wait_for_tcp_synack:
     mov word [ne_rx_read_limit], tcp_rx_read_len
     mov word [dhcp_wait_count], tcp_wait_count
+    cmp byte [handoff_addr + handoff_nic_family], family_3c501
+    jne .poll
+    mov word [dhcp_wait_count], tcp_wait_count_3c501
 .poll:
     phase_call_res ne_try_receive_frame
     jc .failed

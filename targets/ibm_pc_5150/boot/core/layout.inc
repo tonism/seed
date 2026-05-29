@@ -116,8 +116,7 @@ question_attr_cga equ 0x0f
 error_attr_cga equ 0x0c
 menu_selected_attr_cga equ 0x0f
 menu_idle_attr_cga equ 0x08
-debug_trace_video_seg equ 0xb800
-debug_trace_attr equ 0x0e
+color_video_seg equ 0xb800
 seed_attr_mda equ 0x0f
 build_attr_mda equ 0x07
 load_attr_mda equ 0x07
@@ -283,7 +282,8 @@ critical_scratch_end equ critical_scratch_start + critical_scratch_len
 tcp_port_http_word equ 0x5000
 tcp_port_https_word equ 0xbb01
 tcp_wait_count equ 4
-tcp_payload_wait_count equ 2048
+tcp_wait_count_3c501 equ 128
+tcp_payload_wait_count equ 8192
 tls_client_base_len equ 88
 tls_body_base_len equ 79
 tls_record_base_len equ 83
@@ -326,6 +326,8 @@ tls_aead_tag_len equ 16
 tls_app_max_plain_len equ tcp_payload_max_len - tls_record_header_len - tls_aead_tag_len
 ; Fixed OpenAI proof request with max 192-byte key and max 64-byte model.
 api_request_plain_len equ 440
+api_ready_tiny_prompt_max equ 10
+api_ready_short_prompt_max equ 24
 tls_app_record_buffer_len equ api_request_plain_len + tls_record_header_len + tls_aead_tag_len
 api_request_key_value_offset equ 71
 api_request_model_value_offset equ 10

@@ -28,7 +28,9 @@ build 4   "." dark phase: hardware setup, adapter autodetect/fallback questions,
 build 5   "," dark phase: internet prep, IP config, reachability proof
 build 6   "o" dark + normal + bright phases: secure connection, credentials, minimal provider API proof
 build 7   ROM BASIC low-memory entry and 16 KiB windowed-nucleus release target
-build 8   user/agent environment handoff and first environment-owned tool loop
+build 8   Default Prompt Interface chat loop
+build 9   minimal context management for agentic continuity
+build 10  minimal tool calling through controlled RAM access
 ```
 
 Build 5 is intentionally broad. It should end when Seed can bring up a network
@@ -183,12 +185,12 @@ scratch, window space, and stack needs are accounted for
 1 KiB cut would make the critical path brittle
 ```
 
-The active implementation strategy is the windowed nucleus described in
-`notes/16kb-windowed-nucleus-design.md`: keep a tiny resident control plane,
+The Build 7 implementation strategy was the windowed nucleus described in
+`notes/old/16kb-windowed-nucleus-design.md`: keep a tiny resident control plane,
 move cold setup and post-answer work into reloadable windows, and preserve one
-no-floppy provider-critical window from TLS/API start until the answer has
-been found. Current progress and failed cuts are tracked in
-`notes/16kb-windowed-nucleus-attempts.md`.
+no-floppy provider-critical window from TLS/API start until the answer has been
+found. Historical progress and failed cuts are tracked in
+`notes/old/16kb-windowed-nucleus-attempts.md`.
 
 Current Build 7 checkpoint:
 
@@ -209,23 +211,100 @@ no-card CGA and MDA profiles fail cleanly with no NIC
 
 ## Build 8
 
-Build 8 owns the other end of Seed: the first usable user/agent environment
-after the provider API path is alive. It should start from the Build 7
-low-memory entry contract rather than assuming a larger machine.
+Build 8 owns the Default Prompt Interface, the first usable chat loop after the
+provider API path is alive. It starts from the Build 7 low-memory entry contract
+rather than assuming a larger machine.
 
-Build 8 should turn Seed from an API proof into a bootstrapped user/agent
-environment:
+DPI is a disposable starter interface, not the final user/agent environment. It
+exists so a user can boot the machine, see an initial model greeting, type
+prompts, and receive streamed model responses across multiple turns in one boot
+session.
+
+Build 8 scope:
 
 ```text
-publish the live memory and hardware contract to the agent
-handoff to the first user/agent environment
-let that environment define local tool formats, loading, calling, and results
-reserve or discover environment-owned arena/work buffers when available
-provide a narrow retained API service surface only where needed
-provide a recovery path if the tool fails or corrupts volatile state
+initial model greeting
+prompt input with a visible ">" marker
+user text in bright text and model text in normal text
+readable streamed response rendering
+multiple prompt/response turns in one boot session
+each prompt may still be a fresh provider request without semantic context
+no tool calling yet
 ```
 
-This is not a general OS milestone. Seed remains the bootstrapping control
+Build 8 release blockers:
+
+```text
+chat loop must not freeze after repeated prompt/response turns
+response rendering must be readable enough for real use
+prompt input must not corrupt runtime state
+hot chat loop should avoid floppy reads after splash, or document any temporary exception before release
+```
+
+Build 8 should stay minimal. It should not introduce protected-mode machinery,
+a general shell, a local tool ABI, or memory-ocean/defrag work while the chat
+loop itself is still being stabilized.
+
+## Build 9
+
+Build 9 owns minimal context management for agentic continuity. It should build
+on a stable Build 8 chat loop rather than pulling memory policy into DPI
+stabilization.
+
+Build 9 scope:
+
+```text
+recent user prompt and model response can influence the next request
+small rolling session summary or equivalent compact context state
+context assembly fits the 16 KiB hot chat-loop constraints
+context state does not require floppy reads after splash in the normal prompt loop
+context state does not require writeable boot media
+clear truncation/summarization behavior when context space is exhausted
+no tool calling yet
+```
+
+Build 9 is not full long-term agent memory. Persistent notes, preferences,
+project state, and durable workspaces belong to the later user/agent
+environment unless explicitly scoped. Build 9 only needs enough continuity that
+the next prompt is not semantically fresh.
+
+## Build 10
+
+Build 10 owns the first minimal tool-calling surface and is in scope for the
+first public release. It should build on a stable Build 9 context path rather
+than making stateless tool calls from isolated prompts.
+
+Build 10 scope:
+
+```text
+agent can read RAM through a narrow controlled mechanism
+agent can write RAM through a narrow controlled mechanism
+agent can jump to or execute controlled RAM entrypoints
+agent gets enough success/failure feedback for Seed-observable failures
+published memory and hardware contract is sufficient for tool decisions
+tool results can flow back through the Build 9 context path
+```
+
+This is still not a general OS milestone. Seed remains the bootstrapping control
 plane: it provides the trusted recovery boundary, working provider API path,
-published machine contract, and first environment handoff, then leaves local
-tooling to the user/agent environment.
+published machine contract, and first controlled tool hook, then leaves local
+tool formats, loaders, ABIs, workspaces, and result handling to the user/agent
+environment.
+
+## Public Release Gate
+
+The first public release should include Builds 8, 9, and 10, not Build 8 alone.
+
+Minimum public release criteria:
+
+```text
+Build 8 chat loop stable across repeated prompt/response turns
+Build 9 minimal context management stable enough that prompts are not fresh each turn
+Build 10 minimal RAM read/write/execute tool calling stable
+supported NIC matrix documented
+known security and hardware constraints documented honestly
+16 KiB ROM BASIC entry documented
+32 KiB and larger direct floppy boot documented
+one write-protected 160 KiB FAT12 floppy image remains the recovery boundary
+one visible CORE.SYS remains the runtime artifact
+```

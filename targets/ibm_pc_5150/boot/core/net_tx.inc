@@ -225,11 +225,12 @@ build_tcp_segment_frame:
     mov ah, dl
     mov al, 0x50
     stosw
+    ; Uniform 256-byte advertised window. Under SLiRP (the emulated test path) the
+    ; VM<->proxy link is local, so the window has no real effect on throughput; the
+    ; bytes freed by dropping the per-NIC case pay for the reconnect request-rebuild
+    ; in net_phase. (3c501 previously advertised 512; revisit only if/when running on
+    ; real hardware where the advertised window actually paces the sender.)
     mov ax, 0x0001
-    cmp byte [handoff_addr + handoff_nic_family], family_3c501
-    jne .window_ready
-    mov al, 0x02
-.window_ready:
     stosw
     xor ax, ax
     stosw

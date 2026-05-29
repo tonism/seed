@@ -7,10 +7,18 @@
 %endif
 
 agent_cache_phase:
+    ; On a reconnect (chat loop, handoff ready) the key/model are already cached
+    ; from the cold connect, and api_request_plain now holds the ready-request
+    ; layout (different key/model offsets), so re-parsing it fails (B6/06). The
+    ; cache is still valid, so skip re-caching and keep the live prompt length.
+    cmp byte [handoff_addr + handoff_status], handoff_status_ready
+    je .done
     call .cache_key
     jc .failed
     call .cache_model
     jc .failed
+    mov byte [chat_prompt_len_cache], 0
+.done:
     clc
     ret
 .failed:
@@ -61,7 +69,7 @@ agent_cache_phase:
     add si, api_request_model_value_offset
     sub cx, api_request_model_value_offset
     mov di, chat_model_cache
-    mov bx, seed_model_len - 1
+    mov bx, seed_model_len - 2
 .model_next:
     or cx, cx
     jz .cache_failed

@@ -74,8 +74,6 @@ dpi_phase:
     jmp .read_key
 
 .submit_line:
-    mov al, 'P'
-    call dpi_trace_loop_step
     call .hide_cursor
     mov dl, [cursor_row]
     mov al, [dpi_prompt_marker_row]
@@ -247,19 +245,6 @@ dpi_phase:
     int 0x16
     jmp .drain_kbd
 .drain_done:
-    ret
-
-dpi_trace_loop_step:
-    push es
-    mov bx, debug_trace_video_seg
-    mov es, bx
-    mov bl, [debug_trace_cursor]
-    xor bh, bh
-    shl bx, 1
-    mov ah, debug_trace_attr
-    mov [es:bx], ax
-    inc byte [debug_trace_cursor]
-    pop es
     ret
 
 %unmacro phase_jmp_res 1

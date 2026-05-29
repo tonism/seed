@@ -25,22 +25,24 @@ agent_api_stream_phase:
     jmp .done
 
 .ready_tail:
-    mov al, 'F'
-    call agent_api_stream_trace_loop_step
-    cmp word [api_response_pending_len], 0
+    mov al, [chat_prompt_len_cache]
+    push ax
+    cmp word [tls_app_len], 0
+    je .tail_pending
+    phase_call_res tls_prepare_3c501_receive
+    phase_call_res tls_send_application_data_current_seq
+    jc .prefix_failed
+.tail_pending:
+    pop ax
+    mov [api_stream_prompt_len], al
+    or al, al
     je .done
-    mov al, 'S'
-    call agent_api_stream_trace_loop_step
     mov di, api_request_plain + tls_record_header_len
     call agent_api_stream_append_prompt_screen_to_buffer
     mov si, PHASE_LOAD_ADDR + (api_stream_json_close_text - PHASE_BASE)
     call agent_api_stream_append_z_to_buffer
     mov ax, di
     sub ax, api_request_plain + tls_record_header_len
-    push ax
-    mov al, 'A'
-    call agent_api_stream_trace_loop_step
-    pop ax
 
 .send_tail:
     or ax, ax
@@ -52,8 +54,6 @@ agent_api_stream_phase:
     phase_call_res tls_prepare_3c501_receive
     phase_call_res tls_send_application_data_current_seq
     jc .failed
-    mov al, 'T'
-    call agent_api_stream_trace_loop_step
     phase_call_res tls_prepare_3c501_receive
 .done:
     mov ax, (((core_agent_response_phase_end - core_agent_response_phase_start + 511) / 512) << 8) | ((core_agent_response_phase_start - $$) / 512)
@@ -62,14 +62,24 @@ agent_api_stream_phase:
     jc .failed
     mov word [api_response_pending_len], 0
     mov word [api_body_len], 0
+    mov byte [chat_prompt_len_cache], 0
+    mov byte [api_stream_state], 0
+    mov byte [api_stream_delta_match], 0
+    mov byte [api_stream_seen], 0
+    mov byte [api_stream_text_seen], 0
+    mov byte [api_stream_completed], 0
+    mov byte [api_http_state], 0
+    mov byte [api_http_header_match], 0
     clc
     ret
 
+.prefix_failed:
+    pop ax
 .failed:
     stc
     ret
 
-api_stream_json_close_text db '","stream":true,"stream_options":{"include_obfuscation":false}}', 0
+api_stream_json_close_text db '","stream":true}', 0
 
 agent_api_stream_append_z_to_buffer:
     lodsb
@@ -109,50 +119,62 @@ agent_api_stream_append_json_bytes_to_buffer:
     ret
 
 agent_api_stream_append_prompt_screen_to_buffer:
+    push es
     mov al, [api_stream_prompt_len]
     mov [api_http_state], al
+    mov ax, color_video_seg
+    test word [handoff_addr + handoff_flags], handoff_flag_mda
+    jz .segment_ready
+    mov ax, 0xb000
+.segment_ready:
+    mov es, ax
     mov al, [dpi_prompt_marker_row]
     and al, 0x7f
-    mov [api_stream_delta_match], al
+    mov bl, [screen_cols]
+    mul bl
+    xor bh, bh
+    mov bl, dpi_prompt_col + 2
+    add ax, bx
+    shl ax, 1
+    mov si, ax
     mov byte [api_http_header_match], dpi_prompt_col + 2
 .screen_next:
     cmp byte [api_http_state], 0
     je .screen_done
-    push di
-    mov ah, 0x02
-    mov bh, 0
-    mov dh, [api_stream_delta_match]
-    mov dl, [api_http_header_match]
-    int 0x10
-    mov ah, 0x08
-    mov bh, 0
-    int 0x10
-    pop di
+    mov al, [es:si]
     cmp al, '"'
     je .screen_escape
     cmp al, '\'
     je .screen_escape
     cmp al, 32
     jb .screen_space
-    stosb
-    jmp .screen_advanced
+    jmp .screen_store
 .screen_escape:
     mov ah, al
     mov al, '\'
-    stosb
+    mov [di], al
+    inc di
     mov al, ah
-    stosb
+    mov [di], al
+    inc di
     jmp .screen_advanced
 .screen_space:
     mov al, ' '
-    stosb
+    mov [di], al
+    inc di
+    jmp .screen_advanced
+.screen_store:
+    mov [di], al
+    inc di
 .screen_advanced:
+    inc si
+    inc si
     inc byte [api_http_header_match]
     mov al, [screen_cols]
     cmp [api_http_header_match], al
     jb .screen_count
     mov byte [api_http_header_match], dpi_prompt_col + 2
-    inc byte [api_stream_delta_match]
+    add si, (dpi_prompt_col + 2) * 2
 .screen_count:
     dec byte [api_http_state]
     jmp .screen_next
@@ -160,18 +182,6 @@ agent_api_stream_append_prompt_screen_to_buffer:
     mov byte [api_http_state], 0
     mov byte [api_http_header_match], 0
     mov byte [api_stream_delta_match], 0
-    ret
-
-agent_api_stream_trace_loop_step:
-    push es
-    mov bx, debug_trace_video_seg
-    mov es, bx
-    mov bl, [debug_trace_cursor]
-    xor bh, bh
-    shl bx, 1
-    mov ah, debug_trace_attr
-    mov [es:bx], ax
-    inc byte [debug_trace_cursor]
     pop es
     ret
 

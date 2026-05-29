@@ -7,11 +7,14 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import shutil
+import signal
 import subprocess
 import sys
+import threading
 import time
 import uuid
 
@@ -94,6 +97,48 @@ def rewrite_temp_identity(config: Path, run_name: str) -> None:
     config.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def matching_86box_pids(vm_path: Path) -> set[int]:
+    try:
+        result = subprocess.run(
+            ["pgrep", "-fl", "86Box"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return set()
+    if result.returncode not in (0, 1):
+        return set()
+    pids: set[int] = set()
+    vm_path_text = str(vm_path)
+    for line in result.stdout.splitlines():
+        pid_text, _, command = line.strip().partition(" ")
+        if not pid_text.isdigit():
+            continue
+        if "86Box" in command and "--vmpath" in command and vm_path_text in command:
+            pids.add(int(pid_text))
+    return pids
+
+
+def stop_matching_86box_pids(vm_path: Path, timeout: float = 5.0) -> None:
+    pids = sorted(matching_86box_pids(vm_path))
+    for pid in pids:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if not matching_86box_pids(vm_path):
+            return
+        time.sleep(0.1)
+    for pid in sorted(matching_86box_pids(vm_path)):
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+
+
 def run_one(
     profile: str,
     iteration: int,
@@ -141,21 +186,63 @@ def run_one(
     cmd.extend(harness_args)
 
     started = time.monotonic()
+    output_parts: list[str] = []
+    timed_out = False
+    returncode = 99
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_file = log_path.open("w", encoding="utf-8")
+    process: subprocess.Popen[str] | None = None
+
+    def read_stdout() -> None:
+        assert process is not None
+        assert process.stdout is not None
+        for line in process.stdout:
+            output_parts.append(line)
+            log_file.write(line)
+            log_file.flush()
+
     try:
-        result = subprocess.run(
+        process = subprocess.Popen(
             cmd,
             cwd=ROOT,
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
         )
-        output = result.stdout
-        returncode = result.returncode
+        reader = threading.Thread(target=read_stdout, daemon=True)
+        reader.start()
+        timeout = args.run_timeout if args.run_timeout > 0 else None
+        while True:
+            returncode = process.poll()
+            if returncode is not None:
+                break
+            if timeout is not None and time.monotonic() - started >= timeout:
+                timed_out = True
+                output_parts.append(
+                    f"\nmatrix: child timed out after {timeout:.0f}s\n"
+                )
+                log_file.write(output_parts[-1])
+                log_file.flush()
+                process.kill()
+                break
+            time.sleep(0.2)
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            process.kill()
+            process.wait(timeout=5)
+        reader.join(timeout=2)
+        if timed_out:
+            returncode = 124
     finally:
+        log_file.close()
+        if timed_out:
+            stop_matching_86box_pids(vm_path)
         shutil.rmtree(vm_path, ignore_errors=True)
 
     elapsed = time.monotonic() - started
-    log_path.write_text(output, encoding="utf-8")
+    output = "".join(output_parts)
     tail = output.strip().splitlines()[-12:]
     return RunResult(
         profile=profile,
@@ -258,6 +345,12 @@ def main() -> int:
         "--foreground-launch",
         action="store_true",
         help="pass --foreground-launch through to the harness",
+    )
+    parser.add_argument(
+        "--run-timeout",
+        type=float,
+        default=0.0,
+        help="seconds before a child harness run is killed (default: disabled)",
     )
     parser.add_argument(
         "harness_args",

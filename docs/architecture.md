@@ -27,6 +27,10 @@ runtime. Local tool formats, loaders, ABIs, workspaces, and result handling
 belong to the user/agent environment. Seed's job is to get that environment to
 the point where it can exist, not to become the environment itself.
 
+Protected mode is not part of the current product direction. Even on later
+machines, Seed should not become a protected supervisor unless the product
+direction explicitly changes.
+
 ## Current Target Snapshot
 
 The active implementation target is an IBM PC 5150-class machine:
@@ -217,6 +221,11 @@ T response parser from floppy and inspect that chunk. That is intentionally
 later than the handshake/request race and has been validated on the 16 KiB
 profiles.
 
+After splash and into the prompt loop, floppy access should be avoided unless
+the user or agent explicitly chooses to use the floppy, or Seed must recover
+from a dropped or rebuilt provider link. The hot prompt/response path should be
+RAM, network, and video flow rather than per-message overlay reads.
+
 ## Memory Layout
 
 The 16 KiB target ceiling is `0x4000`. Seed currently keeps a 1 KiB measured
@@ -301,6 +310,23 @@ contract, the tool owns the crash. Seed is not expected to defend itself from
 trusted bare-metal tooling.
 
 ## User/Agent Environment
+
+The Default Prompt Interface is Seed's disposable starter UI. It is useful
+enough to prove repeated chat after boot, but it is not the future environment
+and should not accumulate terminal, shell, or operating-system responsibilities.
+The first DPI release may send each prompt as a fresh provider request; the next
+roadmap step is minimal context assembly so recent interaction state can shape
+the following request.
+
+Seed-owned context management should be compact and volatile on the 16 KiB
+target: recent prompt/response state, a small rolling summary or equivalent
+context record, and later tool-result slots. It should not depend on writeable
+boot media and should not turn the hot prompt loop into a floppy-bound path.
+
+Long-term semantic agent memory is a later environment concern. Persistent
+notes, preferences, project state, and durable workspaces should use formats and
+storage chosen by the user/agent environment, with Seed publishing enough memory
+and storage facts for that environment to make its own decisions.
 
 The remote agent should not be in tight hardware timing loops. Network latency
 and model latency make live step-by-step hardware control unreliable on small
@@ -399,3 +425,9 @@ faster provider setup when extra RAM is available
 ```
 
 Those are expansions of the same contract, not alternate products.
+
+The long-term memory-ocean direction remains plausible: keep fixed Seed-owned
+runtime ranges, keep dynamic scratch/request/response ranges explicit, and make
+the remaining machine available to the user/agent environment. Do not reenter a
+full memory defragmentation or ocean redesign until the Build 8 chat loop is
+stable.

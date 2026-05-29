@@ -11,7 +11,10 @@ failure_action_phase:
     mov bl, [error_attr]
     mov al, [load_marker_char]
     phase_call_res show_load_marker
-    inc byte [cursor_col]
+    mov byte [cursor_row], seed_row
+    mov al, [seed_col]
+    inc al
+    mov [cursor_col], al
     call failure_action_phase_notify_failure
     mov bl, [error_attr]
     call .message_ptr
@@ -68,7 +71,10 @@ failure_action_phase:
 
 .type_agent_net_error:
     cmp byte [handoff_addr + handoff_status], handoff_status_agent_failed
+    je .type_net_code
+    cmp byte [handoff_addr + handoff_status], handoff_status_network_failed
     jne .net_error_done
+.type_net_code:
     mov al, ' '
     call failure_action_phase_type_char
     mov al, [handoff_addr + handoff_net_error]

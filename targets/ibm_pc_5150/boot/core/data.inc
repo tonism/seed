@@ -33,8 +33,7 @@ form_left_col equ input_start_col + 1
 form_field_col equ form_left_col + 1
 seed_config_flags equ form_field_col + 1
 user_cfg_dirty equ seed_config_flags + 1
-debug_trace_cursor equ user_cfg_dirty + 1
-agent_count equ debug_trace_cursor + 1
+agent_count equ user_cfg_dirty + 1
 agent_draw_index equ agent_count + 1
 agent_scan_index equ agent_draw_index + 1
 blink_state equ agent_scan_index + 1
@@ -150,6 +149,7 @@ api_response_pending_len equ dns_qname_len + 1
 api_stream_done_match equ api_response_pending_len
 api_stream_text_seen equ api_response_pending_len + 2
 api_stream_prompt_len equ api_stream_text_seen + 1
+api_stream_large_seen equ api_stream_prompt_len
 low_runtime_state_end equ api_stream_prompt_len + 1
 
 ; After agent/user setup, the setup form scratch bytes are no longer live.
@@ -334,6 +334,7 @@ tls_app_total_len equ tls_app_record_len + 2
 tls_app_chunk_len equ tls_app_total_len + 2
 tls_app_content_type equ tls_app_chunk_len + 2
 tls_transcript_certificate_remaining equ tls_app_content_type + 1
+tls_large_chacha_offset equ tls_transcript_certificate_remaining
 dns_tx_len equ tls_transcript_certificate_remaining + 2
 ; The first TLS handshake and ready-loop state reuse the AGENTS/USER config
 ; arena. Preserve the chat-loop values that every request still needs.
@@ -341,6 +342,7 @@ dns_tx_len equ tls_transcript_certificate_remaining + 2
 ; reuses the last 16K-safe bytes below the BASIC stack guard for values needed
 ; after TLS scratch takes over.
 chat_model_cache equ dns_tx_len + 2
+chat_prompt_len_cache equ chat_model_cache + seed_model_len - 1
 chat_key_cache equ chat_model_cache + seed_model_len
 chat_cache_end equ chat_key_cache + seed_key_len
 %if chat_model_cache < low_scratch_end

@@ -1062,6 +1062,23 @@ class ExternalProcess:
 
 
 def matching_86box_pids(vm_path: Path) -> set[int]:
+    def parse_process_lines(lines: list[str]) -> set[int]:
+        pids: set[int] = set()
+        vm_path_text = str(vm_path)
+        for line in lines:
+            stripped = line.strip()
+            if not stripped:
+                continue
+            pid_text, _, command = stripped.partition(" ")
+            if not pid_text.isdigit():
+                continue
+            if "86Box" not in command or "--vmpath" not in command:
+                continue
+            if vm_path_text not in command:
+                continue
+            pids.add(int(pid_text))
+        return pids
+
     try:
         result = subprocess.run(
             ["ps", "-axo", "pid=,command="],
@@ -1070,22 +1087,48 @@ def matching_86box_pids(vm_path: Path) -> set[int]:
             timeout=2,
         )
     except (OSError, subprocess.TimeoutExpired):
+        result = None
+    if result is not None and result.returncode == 0:
+        return parse_process_lines(result.stdout.splitlines())
+
+    try:
+        pgrep = subprocess.run(
+            ["pgrep", "-fl", "86Box"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except (OSError, subprocess.TimeoutExpired):
         return set()
-    pids: set[int] = set()
-    vm_path_text = str(vm_path)
-    for line in result.stdout.splitlines():
-        stripped = line.strip()
-        if not stripped:
-            continue
-        pid_text, _, command = stripped.partition(" ")
-        if not pid_text.isdigit():
-            continue
-        if "86Box" not in command or "--vmpath" not in command:
-            continue
-        if vm_path_text not in command:
-            continue
-        pids.add(int(pid_text))
-    return pids
+    if pgrep.returncode not in (0, 1):
+        return set()
+    return parse_process_lines(pgrep.stdout.splitlines())
+
+
+def stop_matching_86box_pids(vm_path: Path, timeout: float = 5.0) -> None:
+    pids = sorted(matching_86box_pids(vm_path))
+    if not pids:
+        return
+    print(
+        "harness: closing existing 86Box for this VM path: "
+        + ", ".join(str(pid) for pid in pids),
+        flush=True,
+    )
+    for pid in pids:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if not matching_86box_pids(vm_path):
+            return
+        time.sleep(0.1)
+    for pid in sorted(matching_86box_pids(vm_path)):
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
 
 
 def launch_86box(
@@ -1245,6 +1288,8 @@ def screenshot_86box_window(
 ) -> bool:
     """Capture the 86Box window by id. This does not activate or raise it."""
     window_id = find_86box_window_id(profile, pid)
+    if window_id is None and pid is not None:
+        window_id = find_86box_window_id(profile, None)
     if window_id is None:
         return False
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -1256,13 +1301,28 @@ def screenshot_86box_window(
     return result.returncode == 0 and path.exists() and path.stat().st_size > 0
 
 
+def wait_for_86box_window(
+    profile: str | None,
+    pid: int | None,
+    timeout: float = 15.0,
+) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        window_id = find_86box_window_id(profile, pid)
+        if window_id is None and pid is not None:
+            window_id = find_86box_window_id(profile, None)
+        if window_id is not None:
+            return True
+        time.sleep(0.2)
+    return False
+
+
 def screenshot_86box_window_or_screen(
     path: Path,
     profile: str | None = None,
     pid: int | None = None,
-) -> None:
-    if not screenshot_86box_window(path, profile, pid):
-        screenshot(path)
+) -> bool:
+    return screenshot_86box_window(path, profile, pid)
 
 
 def read_png_rgb(path: Path) -> tuple[int, int, int, list[list[int]]]:
@@ -1338,10 +1398,18 @@ def classify_86box_screen(path: Path) -> tuple[str, str]:
     if width < 320 or height < 240:
         return "ambiguous", "capture too small"
 
-    x0 = max(0, width // 20)
-    x1 = min(width, width - width // 20)
-    y0 = max(0, height // 9)
-    y1 = min(height, height - height // 12)
+    display_x0, display_y0, display_x1, display_y1 = image_display_bounds(
+        width,
+        height,
+        channels,
+        rows,
+    )
+    display_w = max(1, display_x1 - display_x0 + 1)
+    display_h = max(1, display_y1 - display_y0 + 1)
+    x0 = display_x0 + display_w // 20
+    x1 = display_x1 + 1 - display_w // 20
+    y0 = display_y0 + display_h // 20
+    y1 = display_y1 + 1 - display_h // 30
     lower_y0 = y0 + ((y1 - y0) * 68) // 100
     lower_y1 = y0 + ((y1 - y0) * 93) // 100
 
@@ -1357,16 +1425,16 @@ def classify_86box_screen(path: Path) -> tuple[str, str]:
     splash_min_y = height
     splash_max_y = 0
 
-    center_x0 = width * 35 // 100
-    center_x1 = width * 65 // 100
+    center_x0 = display_x0 + display_w * 35 // 100
+    center_x1 = display_x0 + display_w * 65 // 100
     center_y0 = y0 + ((y1 - y0) * 35) // 100
     center_y1 = y0 + ((y1 - y0) * 65) // 100
-    splash_x0 = width * 30 // 100
-    splash_x1 = width * 75 // 100
+    splash_x0 = display_x0 + display_w * 30 // 100
+    splash_x1 = display_x0 + display_w * 75 // 100
     splash_y0 = y0 + ((y1 - y0) * 34) // 100
     splash_y1 = y0 + ((y1 - y0) * 64) // 100
-    error_x0 = width * 28 // 100
-    error_x1 = width * 78 // 100
+    error_x0 = display_x0 + display_w * 28 // 100
+    error_x1 = display_x0 + display_w * 78 // 100
     error_y0 = y0 + ((y1 - y0) * 38) // 100
     error_y1 = y0 + ((y1 - y0) * 76) // 100
 
@@ -1431,26 +1499,92 @@ def classify_86box_screen(path: Path) -> tuple[str, str]:
     )
 
 
+def image_display_bounds(
+    width: int,
+    height: int,
+    channels: int,
+    rows: list[list[int]],
+) -> tuple[int, int, int, int]:
+    """Return the largest black display-like rectangle in an 86Box capture."""
+    sample_x0 = width // 20
+    sample_x1 = width - width // 20
+    sample_width = sample_x1 - sample_x0
+    row_threshold = max(sample_width // 2, (sample_width * 70) // 100)
+    row_dark: list[int] = []
+    for y in range(height):
+        row = rows[y]
+        dark = 0
+        for x in range(sample_x0, sample_x1):
+            off = x * channels
+            if row[off] < 10 and row[off + 1] < 10 and row[off + 2] < 10:
+                dark += 1
+        row_dark.append(dark)
+
+    dark_rows = [y for y, dark in enumerate(row_dark) if dark >= row_threshold]
+    if not dark_rows:
+        return 0, 0, width - 1, height - 1
+    y0, y1 = dark_rows[0], dark_rows[-1]
+    col_threshold = max(1, ((y1 - y0 + 1) * 55) // 100)
+    dark_cols: list[int] = []
+    for x in range(width):
+        dark = 0
+        for y in range(y0, y1 + 1):
+            row = rows[y]
+            off = x * channels
+            if row[off] < 10 and row[off + 1] < 10 and row[off + 2] < 10:
+                dark += 1
+        if dark >= col_threshold:
+            dark_cols.append(x)
+    if not dark_cols:
+        return 0, y0, width - 1, y1
+    return dark_cols[0], y0, dark_cols[-1], y1
+
+
 def image_suggests_dpi_prompt(path: Path) -> bool:
-    """Detect the bottom-left DPI prompt when OCR drops the lone `>` marker."""
+    """Detect a real bottom-left DPI prompt when OCR drops the lone `>` marker.
+
+    A true idle DPI prompt has the prompt glyph, the visible BIOS text cursor,
+    and an otherwise blank input row. Long streamed answers can put arbitrary
+    text at the bottom-left; those must not open the next harness gate.
+    """
     width, height, channels, rows = read_png_rgb(path)
     if width < 320 or height < 240:
         return False
 
-    y0 = (height * 90) // 100
-    y1 = (height * 94) // 100
-    prompt_x1 = max(28, min(48, width // 25))
-    line_x1 = width - max(8, width // 40)
+    display_x0, display_y0, display_x1, display_y1 = image_display_bounds(
+        width,
+        height,
+        channels,
+        rows,
+    )
+    display_w = max(1, display_x1 - display_x0 + 1)
+    display_h = max(1, display_y1 - display_y0 + 1)
+    cell_w = max(6, display_w // 80)
+    cell_h = max(10, display_h // 25)
+    y0 = display_y0 + (display_h * 92) // 100
+    y1 = min(display_y1 + 1, display_y0 + (display_h * 99) // 100)
+    prompt_x0 = display_x0
+    prompt_x1 = min(display_x1 + 1, display_x0 + cell_w * 2)
+    cursor_x0 = min(display_x1 + 1, display_x0 + cell_w * 2)
+    cursor_x1 = min(display_x1 + 1, display_x0 + cell_w * 4)
+    tail_x0 = min(display_x1 + 1, display_x0 + cell_w * 4)
+    tail_x1 = max(tail_x0, display_x1 + 1 - max(8, display_w // 40))
+
     prompt_pixels = 0
-    line_pixels = 0
+    cursor_pixels = 0
+    tail_pixels = 0
     prompt_min_x = width
     prompt_max_x = 0
     prompt_min_y = height
     prompt_max_y = 0
+    cursor_min_x = width
+    cursor_max_x = 0
+    cursor_min_y = height
+    cursor_max_y = 0
 
-    for y in range(y0, min(y1, height)):
+    for y in range(y0, y1):
         row = rows[y]
-        for x in range(0, min(prompt_x1, width)):
+        for x in range(prompt_x0, prompt_x1):
             off = x * channels
             r, g, b = row[off], row[off + 1], row[off + 2]
             if r > 165 and g > 165 and b > 165:
@@ -1459,20 +1593,88 @@ def image_suggests_dpi_prompt(path: Path) -> bool:
                 prompt_max_x = max(prompt_max_x, x)
                 prompt_min_y = min(prompt_min_y, y)
                 prompt_max_y = max(prompt_max_y, y)
-        for x in range(min(prompt_x1, width), max(prompt_x1, line_x1)):
+        for x in range(cursor_x0, cursor_x1):
             off = x * channels
             r, g, b = row[off], row[off + 1], row[off + 2]
             if r > 165 and g > 165 and b > 165:
-                line_pixels += 1
+                cursor_pixels += 1
+                cursor_min_x = min(cursor_min_x, x)
+                cursor_max_x = max(cursor_max_x, x)
+                cursor_min_y = min(cursor_min_y, y)
+                cursor_max_y = max(cursor_max_y, y)
+        for x in range(tail_x0, tail_x1):
+            off = x * channels
+            r, g, b = row[off], row[off + 1], row[off + 2]
+            if r > 165 and g > 165 and b > 165:
+                tail_pixels += 1
 
     prompt_width = prompt_max_x - prompt_min_x + 1 if prompt_pixels else 0
     prompt_height = prompt_max_y - prompt_min_y + 1 if prompt_pixels else 0
-    return (
-        12 <= prompt_pixels <= 220
-        and 4 <= prompt_width <= prompt_x1
-        and 8 <= prompt_height <= max(8, y1 - y0)
-        and line_pixels <= max(28, prompt_pixels // 4)
+    cursor_width = cursor_max_x - cursor_min_x + 1 if cursor_pixels else 0
+    cursor_height = cursor_max_y - cursor_min_y + 1 if cursor_pixels else 0
+    prompt_shape = (
+        8 <= prompt_pixels <= max(220, cell_w * cell_h)
+        and 4 <= prompt_width <= cell_w + 2
+        and 8 <= prompt_height <= y1 - y0
+        and tail_pixels <= max(20, prompt_pixels // 3)
     )
+    cursor_shape = (
+        6 <= cursor_pixels <= max(260, cell_w * cell_h)
+        and max(4, cell_w // 2) <= cursor_width <= cell_w * 2
+        and 1 <= cursor_height <= cell_h
+    )
+    return prompt_shape and (
+        cursor_shape
+        or tail_pixels <= max(20, prompt_pixels // 3)
+    )
+
+
+def image_prompt_band_crc(path: Path) -> int:
+    width, height, channels, rows = read_png_rgb(path)
+    display_x0, display_y0, display_x1, display_y1 = image_display_bounds(
+        width,
+        height,
+        channels,
+        rows,
+    )
+    display_w = max(1, display_x1 - display_x0 + 1)
+    display_h = max(1, display_y1 - display_y0 + 1)
+    cell_w = max(6, display_w // 80)
+    y0 = display_y0 + (display_h * 82) // 100
+    y1 = min(display_y1 + 1, display_y0 + (display_h * 99) // 100)
+    x0 = min(display_x1 + 1, display_x0 + cell_w * 4)
+    x1 = display_x1 + 1 - max(8, display_w // 40)
+    checksum = 0
+    for y in range(y0, min(y1, height)):
+        row = rows[y]
+        for x in range(x0, x1, 4):
+            off = x * channels
+            checksum = zlib.crc32(bytes(row[off : off + 3]), checksum)
+    return checksum
+
+
+def image_response_area_crc(path: Path) -> int:
+    width, height, channels, rows = read_png_rgb(path)
+    display_x0, display_y0, display_x1, display_y1 = image_display_bounds(
+        width,
+        height,
+        channels,
+        rows,
+    )
+    display_w = max(1, display_x1 - display_x0 + 1)
+    display_h = max(1, display_y1 - display_y0 + 1)
+    cell_w = max(6, display_w // 80)
+    x0 = min(display_x1 + 1, display_x0 + cell_w * 4)
+    x1 = display_x1 + 1 - max(8, display_w // 40)
+    y0 = display_y0 + (display_h * 10) // 100
+    y1 = display_y1 + 1
+    checksum = 0
+    for y in range(y0, min(y1, height), 2):
+        row = rows[y]
+        for x in range(x0, x1, 4):
+            off = x * channels
+            checksum = zlib.crc32(bytes(row[off : off + 3]), checksum)
+    return checksum
 
 
 def sample_process_https_remotes(pid: int) -> set[str]:
@@ -1598,7 +1800,7 @@ def classify_running_vm(
     process: subprocess.Popen[str],
     label: str,
 ) -> tuple[str, str]:
-    if not screenshot_86box_window(
+    if not screenshot_86box_window_or_screen(
         args.oracle_screenshot,
         args.profile,
         process.pid,
@@ -1648,28 +1850,34 @@ def wait_for_dpi_prompt(
     label: str,
     timeout: float,
     interval: float,
+    changed_from_crc: int | None = None,
 ) -> bool:
     """Wait until the visible VM has the DPI prompt marker.
 
     The shape oracle intentionally treats the splash as success, which is good
     for final pass/fail but too early for typing the next prompt. For prompt
-    injection we require OCR to see a line beginning with `>`, so the harness
-    does not type into the splash or into a still-streaming response.
+    injection we trust the bottom-left visual prompt shape. OCR is logged as
+    corroborating evidence only: long answers can contain OCR fragments that
+    look like a prompt, while OCR can also drop the real lone `>` marker.
     """
     deadline = time.monotonic() + timeout
     last_shape = ("ambiguous", "not captured")
     last_engine: str | None = None
     last_lines: list[str] = []
+    visual_candidate_crc: int | None = None
+    visual_candidate_count = 0
+    samples = 0
 
     while True:
         if process.poll() is not None:
             print(f"{label}: process exited before DPI prompt")
             return False
-        if screenshot_86box_window(
+        if screenshot_86box_window_or_screen(
             args.oracle_screenshot,
             args.profile,
             process.pid,
         ):
+            samples += 1
             try:
                 last_shape = classify_86box_screen(args.oracle_screenshot)
             except (OSError, ValueError) as exc:
@@ -1688,18 +1896,68 @@ def wait_for_dpi_prompt(
                 visual_prompt = image_suggests_dpi_prompt(args.oracle_screenshot)
             except (OSError, ValueError):
                 visual_prompt = False
-            if ocr_lines_suggest_dpi_ready(last_lines) or visual_prompt:
-                ocr_prompt = ocr_lines_suggest_dpi_ready(last_lines)
+            ocr_prompt = ocr_lines_suggest_dpi_ready(last_lines)
+            try:
+                candidate_crc = image_prompt_band_crc(args.oracle_screenshot)
+            except (OSError, ValueError):
+                candidate_crc = None
+            try:
+                response_crc = image_response_area_crc(args.oracle_screenshot)
+            except (OSError, ValueError):
+                response_crc = None
+            response_changed = (
+                changed_from_crc is None
+                or response_crc is None
+                or response_crc != changed_from_crc
+            )
+            if (
+                candidate_crc is not None
+                and visual_candidate_crc is not None
+                and candidate_crc != visual_candidate_crc
+            ):
+                visual_candidate_crc = None
+                visual_candidate_count = 0
+            prompt_candidate = visual_prompt or ocr_prompt
+            prompt_ready = False
+            if prompt_candidate:
+                if candidate_crc is not None and candidate_crc == visual_candidate_crc:
+                    visual_candidate_count += 1
+                else:
+                    visual_candidate_crc = candidate_crc
+                    visual_candidate_count = 1
+                prompt_ready = (
+                    (visual_prompt and visual_candidate_count >= 2)
+                    or (ocr_prompt and visual_candidate_count >= 3)
+                )
+                if changed_from_crc is None and ocr_prompt:
+                    prompt_ready = True
+                prompt_ready = prompt_ready and response_changed
+            else:
+                visual_candidate_crc = None
+                visual_candidate_count = 0
+            if prompt_ready:
                 print(
                     f"{label}: DPI prompt ready "
                     f"(shape={last_shape[0]} {last_shape[1]}, "
                     f"ocr={last_engine or 'none'}, ocr_prompt={ocr_prompt}, "
-                    f"visual_prompt={visual_prompt})"
+                    f"visual_prompt={visual_prompt}, visual_count={visual_candidate_count})"
                 )
                 print_screen_ocr_lines(label, last_engine, last_lines)
                 if not args.keep_success_oracle_screenshot:
                     args.oracle_screenshot.unlink(missing_ok=True)
                 return True
+            if samples % max(1, int(60 / max(interval, 1))) == 0:
+                changed_detail = (
+                    "n/a" if changed_from_crc is None else str(response_changed)
+                )
+                print(
+                    f"{label}: waiting "
+                    f"(shape={last_shape[0]} {last_shape[1]}, "
+                    f"ocr_prompt={ocr_prompt}, visual_prompt={visual_prompt}, "
+                    f"visual_count={visual_candidate_count}, "
+                    f"changed={changed_detail})"
+                )
+                print_screen_ocr_lines(label, last_engine, last_lines)
         else:
             last_shape = ("ambiguous", "could not capture 86Box window")
             last_engine = None
@@ -1714,12 +1972,40 @@ def wait_for_dpi_prompt(
         time.sleep(interval)
 
 
+def capture_response_area_crc(
+    args: argparse.Namespace,
+    process: subprocess.Popen[str],
+) -> int | None:
+    if not screenshot_86box_window_or_screen(
+        args.oracle_screenshot,
+        args.profile,
+        process.pid,
+    ):
+        return None
+    try:
+        return image_response_area_crc(args.oracle_screenshot)
+    except (OSError, ValueError):
+        return None
+    finally:
+        if not args.keep_success_oracle_screenshot:
+            args.oracle_screenshot.unlink(missing_ok=True)
+
+
 def ocr_lines_suggest_dpi_ready(lines: list[str]) -> bool:
-    for line in lines:
+    has_completion_trace = any(
+        "c" in line.strip().lower()
+        and ("cpr" in line.strip().lower() or "prsat" in line.strip().lower())
+        for line in lines
+    )
+    for line in lines[-5:]:
         folded = line.strip().lower()
         if folded in {">", "›", "»", ")", "gee", "gee,"}:
             return True
-        if len(folded) <= 3 and folded[-1:] in {">", "›", "»", ")"}:
+        if len(folded) <= 3 and folded[-1:] in {">", "›", "»"}:
+            return True
+        if len(folded) <= 6 and folded[:1] in {">", "›", "»", ")"}:
+            return True
+        if has_completion_trace and 1 <= len(folded) <= 6:
             return True
     return False
 
@@ -1854,6 +2140,10 @@ def print_screen_ocr_lines(
 
 
 def main() -> int:
+    try:
+        sys.stdout.reconfigure(line_buffering=True)
+    except AttributeError:
+        pass
     parser = argparse.ArgumentParser(
         description="Launch a ROM BASIC 86Box VM and inject Seed's 24 KiB BASIC bootstrap.",
     )
@@ -2053,12 +2343,22 @@ def main() -> int:
     parser.add_argument(
         "--no-restore-focus",
         action="store_true",
-        help="do not restore the previously frontmost app after launching 86Box",
+        help="deprecated no-op; focus restore is disabled by default",
+    )
+    parser.add_argument(
+        "--restore-focus",
+        action="store_true",
+        help="restore the previously frontmost app after launching 86Box",
     )
     parser.add_argument(
         "--foreground-launch",
         action="store_true",
         help="launch 86Box directly instead of using macOS background open(1)",
+    )
+    parser.add_argument(
+        "--allow-existing-86box",
+        action="store_true",
+        help="do not close existing 86Box processes for the same VM path before launch",
     )
     parser.add_argument(
         "--sound",
@@ -2076,7 +2376,16 @@ def main() -> int:
         return run_repeat(args)
 
     if args.oracle_only:
-        if not screenshot_86box_window(args.oracle_screenshot, args.profile):
+        oracle_vm_path = args.vm_path or (ROOT / "targets/ibm_pc_5150/86box" / args.profile)
+        oracle_pids = sorted(matching_86box_pids(oracle_vm_path))
+        oracle_pid = oracle_pids[-1] if len(oracle_pids) == 1 else None
+        if len(oracle_pids) > 1:
+            print(
+                "screen oracle: ambiguous "
+                f"(multiple matching 86Box processes: {', '.join(str(pid) for pid in oracle_pids)})"
+            )
+            return 2 if args.fail_on_screen_oracle else 0
+        if not screenshot_86box_window_or_screen(args.oracle_screenshot, args.profile, oracle_pid):
             print("screen oracle: ambiguous (could not capture 86Box window)")
             return 2 if args.fail_on_screen_oracle else 0
         try:
@@ -2145,6 +2454,8 @@ def main() -> int:
     vm_path = args.vm_path or (ROOT / "targets/ibm_pc_5150/86box" / args.profile)
     if not vm_path.is_dir():
         raise SystemExit(f"missing 86Box profile: {vm_path}")
+    if not args.allow_existing_86box:
+        stop_matching_86box_pids(vm_path)
 
     com_passthrough = args.com_capture is not None
 
@@ -2211,7 +2522,7 @@ def main() -> int:
     if test_lock is not None:
         test_lock.acquire()
     exit_code = 0
-    previous_frontmost = None if args.no_restore_focus else frontmost_process_name()
+    previous_frontmost = frontmost_process_name() if args.restore_focus else None
     launch_started_at = time.monotonic()
     try:
         process = launch_86box(
@@ -2221,6 +2532,30 @@ def main() -> int:
             background=not args.foreground_launch,
             detached=args.long_running and com_capture is None,
         )
+        needs_window_oracle = args.screen_oracle or bool(args.post_dpi_text)
+        if (
+            needs_window_oracle
+            and not wait_for_86box_window(args.profile, process.pid)
+        ):
+            print(
+                "harness: launched 86Box has no capturable window; "
+                "retrying direct launch",
+                flush=True,
+            )
+            process.kill()
+            process.wait(timeout=5)
+            process = launch_86box(
+                vm_path,
+                image_args,
+                capture_stdout=com_capture is not None,
+                background=False,
+                detached=args.long_running and com_capture is None,
+            )
+            if not wait_for_86box_window(args.profile, process.pid):
+                print(
+                    "harness: direct 86Box launch still has no capturable window",
+                    flush=True,
+                )
         restore_frontmost_process(previous_frontmost)
         if com_capture is not None:
             com_capture.start(process)
@@ -2275,6 +2610,10 @@ def main() -> int:
                             args.type_delay,
                             args.line_delay,
                         )
+                        print(
+                            f"post-DPI {index}: submitted {len(post_dpi_text.rstrip())} chars",
+                            flush=True,
+                        )
                         more_remotes = wait_with_process_https_sampling(
                             process,
                             args.post_dpi_wait,
@@ -2290,6 +2629,8 @@ def main() -> int:
                     print("--post-dpi-text requires --screen-oracle", file=sys.stderr)
                     exit_code = 2
                 else:
+                    post_dpi_gate_failed = False
+                    prior_prompt_crc: int | None = None
                     for index, post_dpi_text in enumerate(args.post_dpi_text, start=1):
                         if not wait_for_dpi_prompt(
                             args,
@@ -2297,10 +2638,13 @@ def main() -> int:
                             f"post-DPI gate {index}",
                             args.post_dpi_gate_timeout,
                             args.post_dpi_gate_interval,
+                            prior_prompt_crc,
                         ):
+                            post_dpi_gate_failed = True
                             if args.fail_on_screen_oracle:
                                 exit_code = 2
                             break
+                        prior_prompt_crc = capture_response_area_crc(args, process)
                         if not post_dpi_text.endswith(("\n", "\r")):
                             post_dpi_text += "\n"
                         type_basic_pid_keycodes(
@@ -2308,6 +2652,10 @@ def main() -> int:
                             post_dpi_text,
                             args.type_delay,
                             args.line_delay,
+                        )
+                        print(
+                            f"post-DPI {index}: submitted {len(post_dpi_text.rstrip())} chars",
+                            flush=True,
                         )
                         more_remotes = wait_with_process_https_sampling(
                             process,
@@ -2320,6 +2668,17 @@ def main() -> int:
                                 + ", ".join(sorted(more_remotes))
                             )
                         oracle_verdict = None
+                    if not post_dpi_gate_failed:
+                        if not wait_for_dpi_prompt(
+                            args,
+                            process,
+                            "post-DPI final gate",
+                            args.post_dpi_gate_timeout,
+                            args.post_dpi_gate_interval,
+                            prior_prompt_crc,
+                        ):
+                            if args.fail_on_screen_oracle:
+                                exit_code = 2
             if args.screen_oracle:
                 oracle_verdict, _ = classify_running_vm(args, process, "screen oracle")
                 if args.fail_on_screen_oracle and oracle_verdict != "success":

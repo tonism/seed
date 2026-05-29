@@ -32,34 +32,41 @@ agent_response_phase:
     ret
 
 .accept_raw_byte:
-    cmp byte [api_stream_completed], 2
-    jne .scan_done
+    cmp byte [api_stream_text_seen], 0
+    je .scan_done
     cmp byte [api_http_header_match], 0
     jne .zero_match
     cmp al, '0'
-    jne .scan_delta
+    jne .scan_done
 .zero_match:
     mov si, PHASE_LOAD_ADDR + (zero_chunk_pattern - PHASE_BASE)
     mov di, api_http_header_match
     call .match_char
-    jc .scan_delta
-    mov al, 'Z'
-    call agent_response_trace_step
+    jc .scan_done
     mov byte [api_stream_completed], 3
     ret
 
 .scan_done:
-    cmp byte [api_stream_done_match], 0
-    jne .done_match
-    cmp al, '.'
-    jne .scan_delta
-.done_match:
     mov si, PHASE_LOAD_ADDR + (done_pattern - PHASE_BASE)
+    cmp byte [tls_key_schedule_ready], 0
+    je .done_pattern_ready
+    mov si, PHASE_LOAD_ADDR + (completed_pattern - PHASE_BASE)
+.done_pattern_ready:
+    cmp byte [api_stream_done_match], 0
+    jne .match_done
+    cmp al, [si]
+    jne .scan_delta
+.match_done:
     mov di, api_stream_done_match
     call .match_char
     jc .scan_delta
-    mov al, 'C'
-    call agent_response_trace_step
+.done_ready:
+.completion_ready:
+    cmp byte [tls_key_schedule_ready], 0
+    jne .done_pending_transport
+    mov byte [api_stream_completed], 3
+    ret
+.done_pending_transport:
     mov byte [api_stream_completed], 2
     ret
 
@@ -82,8 +89,6 @@ agent_response_phase:
     mov di, api_stream_delta_match
     call .match_char
     jc .parser_ret
-    mov al, 'd'
-    call agent_response_trace_step
     mov byte [api_stream_state], 1
     ret
 .scan_string:
@@ -138,25 +143,29 @@ agent_response_phase:
 .emit_char:
     cmp byte [api_stream_seen], 0
     jne .live_ready
+    cmp byte [handoff_addr + handoff_status], handoff_status_ready
+    je .position_live_response
     test byte [dpi_prompt_marker_row], 0x80
-    jz .seen_ready
+    jz .position_cold_greeting
+.position_live_response:
     push ax
     call .advance_response_line
     pop ax
+    jmp .seen_ready
+.position_cold_greeting:
+    mov byte [cursor_row], dpi_prompt_row - 2
+    mov byte [cursor_col], dpi_prompt_col
+    jmp .stream_seen_ready
 .seen_ready:
-    push ax
-    mov al, 'e'
-    call agent_response_trace_step
-    pop ax
-    mov byte [api_stream_seen], 1
+.stream_seen_ready:
     mov byte [api_stream_text_seen], 1
+    mov byte [api_stream_seen], 1
+    call .sync_response_video_offset
 .live_ready:
     cmp al, 10
     je .emit_newline
-    mov bl, [crypto_attr]
-    push cx
-    phase_call_res print_char
-    pop cx
+    call agent_response_write_char_direct
+    inc byte [cursor_col]
     mov al, [cursor_col]
     cmp al, [screen_cols]
     jb .emit_done
@@ -173,6 +182,7 @@ agent_response_phase:
 .move_down:
     inc byte [cursor_row]
     mov byte [cursor_col], dpi_prompt_col
+    call .sync_response_video_offset
     ret
 
 .scroll_response:
@@ -188,21 +198,44 @@ agent_response_phase:
     pop cx
     ret
 
-done_pattern db '.completed', 0
+.sync_response_video_offset:
+    push ax
+    push bx
+    xor ax, ax
+    mov al, [cursor_row]
+    mov bl, [screen_cols]
+    mul bl
+    xor bh, bh
+    mov bl, [cursor_col]
+    add ax, bx
+    shl ax, 1
+    mov [api_body_len], ax
+    pop bx
+    pop ax
+    ret
+
+done_pattern db '.done', 0
+completed_pattern db '_text.done', 0
 delta_key_pattern db '"delta":"', 0
 zero_chunk_pattern db '0', 13, 10, 13, 10, 0
 
-agent_response_trace_step:
+agent_response_write_char_direct:
+    push bx
+    push di
     push es
-    mov bx, debug_trace_video_seg
+    mov ah, 0x07
+    mov bx, color_video_seg
+    test word [handoff_addr + handoff_flags], handoff_flag_mda
+    jz .segment_ready
+    mov bx, 0xb000
+.segment_ready:
     mov es, bx
-    mov bl, [debug_trace_cursor]
-    xor bh, bh
-    shl bx, 1
-    mov ah, debug_trace_attr
-    mov [es:bx], ax
-    inc byte [debug_trace_cursor]
+    mov di, [api_body_len]
+    stosw
+    mov [api_body_len], di
     pop es
+    pop di
+    pop bx
     ret
 
 %unmacro phase_call_res 1

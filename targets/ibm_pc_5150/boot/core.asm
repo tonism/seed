@@ -206,14 +206,12 @@ align 512, db 0
 
 core_agent_request_phase_start:
 %define PHASE_BASE core_agent_request_phase_start
-%define PHASE_LOAD_ADDR net_setup_phase_start
 %include "phases/agent_request.inc"
-%undef PHASE_LOAD_ADDR
 %undef PHASE_BASE
 core_agent_request_phase_end:
 
-%if (core_agent_request_phase_end - core_agent_request_phase_start) > 1024
-%error "agent request phase exceeds cold request window"
+%if (core_agent_request_phase_end - core_agent_request_phase_start) > (fs_sector_buffer - low_scratch_start)
+%error "agent request phase overlaps request body scratch"
 %endif
 
 align 512, db 0
