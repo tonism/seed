@@ -2194,6 +2194,14 @@ def main() -> int:
         default=3.0,
         help="seconds between DPI prompt-ready OCR checks (default: 3)",
     )
+    parser.add_argument(
+        "--post-dpi-idle",
+        type=float,
+        default=0.0,
+        help="seconds to idle after the prompt is ready and BEFORE typing each --post-dpi-text. "
+        "Lets the server close the idle keep-alive so the prompt exercises the real "
+        "reuse-fail->reconnect->resend path. This is the reconnect regression test (default: 0)",
+    )
     parser.add_argument("--type-delay", type=float, default=0.03)
     parser.add_argument("--line-delay", type=float, default=0.3)
     parser.add_argument(
@@ -2645,6 +2653,12 @@ def main() -> int:
                                 exit_code = 2
                             break
                         prior_prompt_crc = capture_response_area_crc(args, process)
+                        if args.post_dpi_idle > 0:
+                            print(
+                                f"post-DPI {index}: idling {args.post_dpi_idle:.0f}s to force keep-alive close (real reconnect)",
+                                flush=True,
+                            )
+                            time.sleep(args.post_dpi_idle)
                         if not post_dpi_text.endswith(("\n", "\r")):
                             post_dpi_text += "\n"
                         type_basic_pid_keycodes(

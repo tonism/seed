@@ -53,7 +53,11 @@ prepare_agent_endpoint_path:
     jc .restore
     call tls_probe_server
     jc .restore
-    mov word [tls_app_len], 0
+    ; Do NOT reset tls_app_len here: agent_request (above) already rebuilt the send-state,
+    ; and the handshake never touches tls_app_len/total (only the app-data receive does,
+    ; tls.inc:916-918). Zeroing it made an inline follow-up (chat_prompt_len_cache=0) send
+    ; nothing on reconnect -> the prompt returned with no answer. The cold first request
+    ; does not use tls_app_len here, so leaving it set is harmless for cold.
     call .stream_and_exchange
 .restore:
     pushf

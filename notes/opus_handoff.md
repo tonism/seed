@@ -122,22 +122,37 @@ single code state where all seven profiles passed Build 8 chat-loop `5+5`.
 
 Read `notes/nic_timing_lanes.md` for the fuller table. Current practical state:
 
-- `vm-net-3c501`: historical `5+5`; current WIP recovered short `5/5` and has
-  multiple strict current long/follow-up passes, but current long was not yet
-  completed to `5/5`.
-- `vm-net-3c503`: short lane recovered to `5/5`; long lane is the active
-  problem and is not stable.
-- `vm-net-ne2k8`: strongest NE control; focused historical short+long `5/5`,
-  current short spot pass.
-- `vm-net-ne1k`: suspicious/regressed in current WIP; failures resemble 3c503
-  short-loop failure family.
-- `vm-net-novell-ne1k`: not proven equivalent to NE2K8; keep separate.
-- `vm-net-wd8003e`: current short mostly healthy, not strict-clean because of
-  harness capture noise; long needs current recheck.
-- `vm-net-wd8003eb`: current short mostly works but has a first-prompt stall
-  suspicion; long needs current recheck.
+**2026-05-30 update (overnight, NO code changes — only notes/memory):** 3c503
+stabilized + committed (`4162147`); NE2K8 stabilized and WD8003e smoke-validated
+on that same build with no NIC-specific changes. The shared fixes are NIC-agnostic.
+The dominant residual is the shared `0D/12` handshake flake (see below). Nothing
+committed since `4162147`.
 
-The immediate focus before this handoff was `vm-net-3c503` long.
+- `vm-net-3c501`: regression smoke `4/4` on `4162147` (2 long + 2 short) — the
+  commit removed its 512-byte window special-case and 3c501 (the most-different
+  NIC) did NOT regress. Optionally complete a strict long `5/5`.
+- `vm-net-3c503`: STABLE + committed (`4162147`); long + short loops confirmed.
+- `vm-net-ne2k8`: STABLE on `4162147`, no NE-specific changes. 7 clean long +
+  `5/5` short overnight (false-green-checked); residual = the shared `0D/12`.
+- `vm-net-ne1k`: suspicious/regressed in earlier WIP; not re-verified on `4162147`.
+- `vm-net-novell-ne1k`: not proven equivalent to NE2K8; keep separate.
+- `vm-net-wd8003e`: smoke `4/4` (2 long + 2 short) on `4162147`, no WD-specific
+  changes; one long rode out a ~5.5 min intermittent-loss window. Optionally
+  extend to strict `5/5`.
+- `vm-net-wd8003eb`: not re-verified on `4162147`; earlier first-prompt-stall
+  suspicion stands until rechecked.
+
+Shared `0D/12` finding (now the dominant non-environmental failure: ~20% of long
+runs, network up, recoverable via the on-screen retry but a gate fail): the
+(re)handshake Certificate receive times out. `tcp_receive_payload`
+(`transport.inc:1`) polls with a bounded budget (`tcp_payload_wait_count`), so a
+single late cert segment aborts the handshake (`tls.inc:219-345`) → `0D/12`. This
+is a SEPARATE path from the always-decrypt data-path fix (`tls.inc:1032`), so it is
+neither a regression nor covered by it. Hardening is SHARED (touches
+3c503/3c501/NE/WD — validate 3c503 first): raise `tcp_payload_wait_count`, and/or
+auto-retry the reconnect handshake once on `0D/12`. Not changed overnight.
+
+The immediate focus before this handoff was `vm-net-3c503` long; that is now done.
 
 ## Important evidence
 
@@ -342,3 +357,78 @@ Please act as a bug reviewer and stabilization engineer:
 - Prefer one focused pcap-backed hypothesis at a time.
 - Record every meaningful attempt in `notes/default-prompt-interface-attempts.md`
   and update `notes/nic_timing_lanes.md` when a lane changes.
+
+## TLS session resumption — implementation plan (2026-05-30)
+
+GOAL: TLS 1.2 Session-ID resumption so a reconnect skips the ~7s ECDHE -> abbreviated
+handshake ~1-2s (just the key_block PRF) -> within Cloudflare's ~7.5s handshake timeout.
+Fixes the post-long reconnect EMPTY + the reconnect 0D/12 (same root). Cold handshake
+unchanged.
+
+FEASIBILITY (confirmed): api.openai.com supports pure Session-ID resumption — openssl
+-reconnect -no_ticket -> 5/5 "Reused", server assigns Session-ID 910087CE...; reconnect
+hits the same Cloudflare IP. ServerHello session-id is at si+43 (len) / si+44 (bytes).
+
+DESIGN (code-grounded, flag-gated so the cold/full path is byte-for-byte unchanged):
+ 1. Session cache (persistent ~80B, survives the next handshake): cached_session_id[32]
+    + cached_master_secret[48] + session_valid flag. Needs space NOT clobbered by the
+    handshake (tls_master_secret/tls_server_random are per-handshake) -> find/reclaim in
+    data.inc; assess LINK-window byte budget first (likely the gating constraint).
+ 2. ClientHello (phases/tls_client_hello.inc, the `tls_client_hello_after_random` db 0 =
+    empty session_id at line 141): if session_valid, emit len=32 + cached_session_id;
+    else len=0 (unchanged). Adjust the record/body/handshake length fields (+33).
+ 3. ServerHello parse (tls.inc tls_wait_for_server_hello ~159): read server session_id
+    (si+44, len si+43); if == cached_session_id -> set resuming=1; else resuming=0 (full).
+ 4. tls_probe_server: if resuming -> ABBREVIATED flow: skip cert/SKE/ServerHelloDone/CKE/
+    ECDHE; restore cached_master_secret -> hmac_prepare_current_key_context (tls.inc:562-
+    564) -> tls_prepare_key_block (key block from restored master_secret + NEW randoms,
+    runs as-is); then receive server CCS+Finished, verify, send client CCS+Finished.
+    NOTE order flips vs full (server sends Finished first on resume). Transcript hash =
+    ClientHello+ServerHello only. Else -> full flow (current, untouched).
+ 5. After a FULL handshake: copy server session_id + tls_master_secret -> cache; set valid.
+FLAG-GATE: a build define (e.g. TLS_RESUME) + the session_valid runtime gate; resume taken
+ONLY when valid AND the server echoes the id. Cold/first handshake always full -> no
+regression to the critical path. Boot 0D/12 (cold) is unaffected (cold is always full).
+BYTE BUDGET: resume code (~250-450B) + 80B cache in a LINK-window-constrained resident
+area -> MUST assess + probably reclaim bytes before it fits. Prerequisite.
+TEST: reconnect harness (--post-dpi-idle >keep-alive ~540s, OR the post-long sequence) +
+pcap -> confirm the 2nd handshake is SHORT (no cert flight, ~1-2s) and the response renders;
+cold greeting unchanged; repeat across 3c503/NE2K8/WD8003e/3c501. Grade by done/ok responses.
+RISK: critical-path TLS state-machine change; a bug breaks ALL connectivity and needs many
+(minutes-long) runs to validate. The flag-gate protects the cold path but the resume path
+itself must be exercised + verified before trusting it.
+
+### Session resumption — concrete byte-budget / memory findings (2026-05-30)
+
+The design above is complete + feasible, but the IMPLEMENTATION is gated by two
+critical-path constraints I scoped out:
+
+1. PERSISTENT CACHE (80B: session_id 32B + master_secret 48B). The current
+   tls_master_secret/tls_server_random OVERLAY the seed_* config arena
+   (data.inc:266, reused after the request build) -> per-connection, overwritten
+   each handshake -> cannot be the cache. The persistent regions are densely
+   overlaid: high_tls_persistent (0x3400, the session keys - re-derived each
+   handshake, key-block overlays it) and chat_*_cache (data.inc:344-347, the
+   ready-path config cache). Placing a NEW 80B region that survives "after a full
+   handshake -> next reconnect's ClientHello+key-block" needs a careful overlay
+   analysis (candidate: extend the chat_*_cache region if space exists before the
+   next boundary; verify against the data.inc collision %if guards).
+2. K-PHASE RECLAIM (~100-200B). The resident TLS handshake phase ends exactly at
+   0x3400 (largest-phase-end). The abbreviated-flow GLUE is modest because it
+   REUSES tls_prepare_key_block + the server-Finished receive/verify + the
+   client-CCS+Finished send (just reordered: server-first) + the master_secret
+   hmac-context tail (tls.inc:562-564). Resume-detection lives in
+   tls_wait_for_server_hello (compare server session_id at si+44/len si+43 to the
+   cache). The branch is one `cmp [tls_resuming],1 / je .resumed` after line 20.
+   Still ~100-200B over budget -> reclaim candidate: collapse the CKE early/late
+   family gate (tls.inc:30-56) to early-CKE-for-all (removes the late path), but
+   that changes NE2K8/WD8003e's full handshake -> must re-validate them.
+   The ClientHello session_id change is in the tls_client_hello PHASE (low_scratch,
+   NOT the byte-full K phase), so that part is free of the K-phase wall.
+
+IMPLEMENTATION ORDER (flag-gated; test the COLD greeting after every build to
+protect the critical path): (a) reclaim K-phase bytes + carve the 80B cache;
+(b) cache session_id+master_secret after a full handshake; (c) ClientHello sends
+the cached session_id (gated); (d) ServerHello resume-detect; (e) .resumed branch
+calling the reused fns in resume order; (f) validate with the reconnect harness
+(pcap: 2nd handshake short ~1-2s, response renders) + cold no-regression x4 NICs.
