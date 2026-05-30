@@ -432,3 +432,12 @@ protect the critical path): (a) reclaim K-phase bytes + carve the 80B cache;
 the cached session_id (gated); (d) ServerHello resume-detect; (e) .resumed branch
 calling the reused fns in resume order; (f) validate with the reconnect harness
 (pcap: 2nd handshake short ~1-2s, response renders) + cold no-regression x4 NICs.
+
+### 2026-05-30 update - stopgap shipped; full retry blocked on byte-reclaim
+- SHIPPED (committed): agent_api empty->carry stopgap. Silent post-long empty eliminated
+  (validated 3c503: no-regression 3/3; post-long 2/3 render, 1/3 clean 0D/12, 0 silent).
+- The full bounded reconnect retry (universal fix incl. hours-idle) is implemented +
+  cold-safe in notes/net_phase_retry_draft.inc but OVERFLOWS the link window by ~15-20B
+  (net_phase shares the 0x3400 crypto ceiling) - SAME byte wall as resumption.
+- THE unlock for both retry and resumption: reclaim ~15-20B in crypto/tls/agent_api
+  (delicate, focused effort), then apply the retry draft.

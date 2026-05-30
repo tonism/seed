@@ -829,3 +829,32 @@ REAL FIX (the deferred handshake area - significant, needs user decision; do NOT
   (2) Detect the mid-handshake FIN/RST -> turn the silent empty into a detected fail -> retry the reconnect handshake once (a marginal race -> a retry likely succeeds; ~25% -> ~6%). More contained.
   (3) Speed the 8088 ECDHE (hard; inherent).
 This is the dominant remaining reliability ceiling across ALL NICs (cold 0D/12 ~20% + post-long reconnect empty ~25%). My tls_app_len reconnect-send fix is valid + orthogonal (fixes the SEND once the handshake completes; proven forced-short 65/65). The reconnect-test automation (--post-dpi-idle + post-long sequence) is the regression harness for whatever handshake fix is chosen.
+
+## 2026-05-30 (cont.) - keep-alive measured dead, retry hits byte wall, stopgap shipped
+
+Keep-alive-during-render evaluated + rejected as universal: measured api.openai.com idle
+timeout = EXACTLY 400s, and a TCP keep-alive does NOT extend it (Cloudflare closes on
+HTTP-request inactivity, not TCP packets). A keep-alive would need a request-level ping,
+and it cannot cover the hours-long-idle case at all -> the reconnect ITSELF must be
+reliable. (Probe: /private/tmp/seed-keepalive-probe.py.)
+
+Full bounded retry (ensure-live -> reconnect-with-retry -> send, max 8, clean error on
+exhaustion) DESIGNED + IMPLEMENTED + cold-safe (notes/net_phase_retry_draft.inc), but
+net_phase is INSIDE the link window (resident code + crypto share the 0x3400 ceiling).
+The retry overflows by ~15-20B even after max net_phase shrinking (merged the two send
+sites, dropped the net_status write, removed a redundant request build). SAME byte wall
+as session resumption. => reclaiming ~15-20B in the crypto/tls region is the gating
+prerequisite for the full retry AND resumption.
+
+STOPGAP shipped (+8B, fits): agent_api_exchange returns CARRY when an exchange completes
+with NO text rendered (api_stream_text_seen==0). The committed reuse-fail -> reopen ->
+resend path then auto-recovers the silent empty. cmp against 0 never sets CF, so the
+non-empty path still returns nc (no regression). Validated on 3c503:
+- no-regression short loop: 3/3 (cold + reuse unaffected).
+- post-long recovery (long render idles the socket >400s, then say done/say ok): 2/3
+  trials fully rendered BOTH follow-ups; 1/3 reconnected but the handshake raced -> clean
+  0D/12 (NOT a silent empty). Silent post-long empty ELIMINATED; residual = the ~25-33%
+  handshake race (same root as the cold boot 0D/12), which only the full retry fixes.
+
+NEXT: reclaim ~15-20B in the link window -> apply net_phase_retry_draft.inc -> full
+bounded retry -> auto-retry the race + hours-idle seamless (~100%).

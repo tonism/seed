@@ -25,7 +25,15 @@ agent_api_exchange:
     cmp byte [api_stream_completed], 3
     jne .receive
 .success:
-    jmp tls_clear_buffered_payload
+    ; A completed exchange that rendered no text (server dropped the keep-alive on a reuse,
+    ; or a reconnect handshake raced the timeout and the request hit a dead socket) returns
+    ; carry, so the caller's existing reuse-fail -> reopen -> resend path recovers it instead
+    ; of handing the user an empty answer. Real responses (text_seen!=0) still return nc; the
+    ; buffer is cleared either way. cmp against 0 never sets CF, so the non-empty ret is nc.
+    call tls_clear_buffered_payload
+    cmp byte [api_stream_text_seen], 0
+    je .hard_failed
+    ret
 .failed:
     mov byte [handoff_addr + handoff_net_status], 0xf0
     cmp byte [api_stream_completed], 2
