@@ -60,6 +60,11 @@ agent_api_stream_phase:
     mov bx, agent_response_phase_load_addr
     phase_call_res load_core_sectors_at
     jc .failed
+    ; Reset keep-alive timing: this request is the last client activity, so the idle clock
+    ; (Cloudflare's ~400s timeout) restarts here, with no pings outstanding for this exchange.
+    mov ax, [0x046c]
+    mov [ka_last_tick], ax
+    mov byte [ka_sent_count], 0
     mov word [api_response_pending_len], 0
     mov word [api_body_len], 0
     mov byte [chat_prompt_len_cache], 0

@@ -13,6 +13,12 @@
 
 agent_response_phase:
     call .scan_tls_record
+    ; Keep the live session alive through a long render (see agent_api_keepalive). Called
+    ; here, after the record is scanned/rendered, so the ping's record build never disturbs
+    ; the bytes the scan just consumed. Resident routine; this phase persists at
+    ; agent_response_phase_load_addr across the whole receive loop (the only loaded code
+    ; that does), so it is the home for both the call site and the request template.
+    phase_call_res agent_api_keepalive
     cmp byte [api_stream_completed], 3
     ret
 
@@ -218,6 +224,25 @@ done_pattern db '.done', 0
 completed_pattern db '_text.done', 0
 delta_key_pattern db '"delta":"', 0
 zero_chunk_pattern db '0', 13, 10, 13, 10, 0
+
+; Keep-alive request template, sent by agent_api_keepalive during long renders. A bare
+; GET /v1 that the server answers 404 while keeping the HTTP/1.1 connection alive (measured
+; against api.openai.com; a partial/CRLF ping does NOT reset Cloudflare's idle, and GET /
+; returns 421 Misdirected Request which makes the server CLOSE the connection -> defeats
+; reuse, so the path must be a routed one like /v1 that 404s and keeps the connection alive).
+; It lives in this phase because the resident routine that sends it needs the template at a
+; fixed address that survives the whole receive loop, and this phase is the only loaded
+; code that persists there (the stream phase at net_setup_phase_start is overwritten by NIC
+; frame I/O, and the resident link window has no spare room). Referenced from the resident
+; routine as agent_response_phase_load_addr + (ka_request_template - PHASE_BASE).
+ka_request_template:
+    db "GET /v1 HTTP/1.1", 13, 10
+    db "Host: api.openai.com", 13, 10
+    db 13, 10
+ka_request_template_end:
+%if (ka_request_template_end - ka_request_template) != ka_request_len
+%error "ka_request_len (layout.inc) does not match the keep-alive template length"
+%endif
 
 agent_response_write_char_direct:
     push bx

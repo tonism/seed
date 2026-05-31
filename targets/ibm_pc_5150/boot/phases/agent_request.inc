@@ -121,6 +121,7 @@ agent_request_phase:
     clc
     ret
 .build_ready_openai_request:
+    call .restore_prompt_from_screen
     call .compute_ready_body_lengths
     jc .request_failed
     mov al, [dpi_input_len_byte]
@@ -290,6 +291,54 @@ agent_request_phase:
     add ax, cx
     mov [api_body_len], ax
     clc
+    ret
+
+.restore_prompt_from_screen:
+    ; Refresh dpi_input_buf (== tls_rx_copy, clobbered by a reconnect's receives) from the
+    ; durable on-screen copy of the prompt, using api_stream_prompt_len (captured before any
+    ; receive in prepare_agent_endpoint_path). Harmless on the first build (the screen matches
+    ; what DPI captured); repairs the clobbered prompt on a reconnect rebuild. Mirrors the proven
+    ; split-tail screen read (agent_api_stream_append_prompt_screen_to_buffer) but copies raw
+    ; bytes (no JSON escaping) into dpi_input_buf.
+    push es
+    mov al, [chat_resend_prompt_len]
+    mov [dpi_input_len_byte], al
+    or al, al
+    jz .restore_done
+    xor ah, ah
+    mov cx, ax
+    mov ax, color_video_seg
+    test word [handoff_addr + handoff_flags], handoff_flag_mda
+    jz .restore_seg_ready
+    mov ax, 0xb000
+.restore_seg_ready:
+    mov es, ax
+    mov al, [dpi_prompt_marker_row]
+    and al, 0x7f
+    mov bl, [screen_cols]
+    mul bl
+    xor bh, bh
+    mov bl, dpi_prompt_col + 2
+    add ax, bx
+    shl ax, 1
+    mov si, ax
+    mov di, dpi_input_buf
+    mov dl, dpi_prompt_col + 2
+.restore_next:
+    mov al, [es:si]
+    mov [di], al
+    inc di
+    inc si
+    inc si
+    inc dl
+    cmp dl, [screen_cols]
+    jb .restore_same_row
+    mov dl, dpi_prompt_col + 2
+    add si, (dpi_prompt_col + 2) * 2
+.restore_same_row:
+    loop .restore_next
+.restore_done:
+    pop es
     ret
 
 .append_u16_decimal:

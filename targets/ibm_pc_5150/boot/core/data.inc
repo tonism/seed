@@ -1,5 +1,11 @@
 tls_app_data_ptr dw 0
 tls_app_plain_ptr dw 0
+; Prompt length preserved for the reconnect resend, captured in prepare_agent_endpoint_path
+; before any receive (dpi_input_len_byte aliases the clobbered tls_rx_copy). MUST live in the
+; resident nucleus, NOT the link window: net_phase reloads the link window (load_core_window)
+; after capturing it, which would reset a link-window byte to its file value (0) and resend an
+; empty prompt. The nucleus is loaded once at boot and never reloaded.
+chat_resend_prompt_len db 0
 ne_tx_frame equ low_scratch_start
 ne_prom equ ne_tx_frame + net_frame_buffer_len
 low_packet_scratch_end equ ne_prom + ne_prom_len

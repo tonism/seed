@@ -334,18 +334,15 @@ poly1305_value_cmp_prime:
     dec di
     loop .next
 .greater_or_equal:
-    pop di
-    pop si
-    pop cx
-    pop ax
     clc
-    ret
+    jmp short .cmp_restore
 .less:
+    stc
+.cmp_restore:
     pop di
     pop si
     pop cx
     pop ax
-    stc
     ret
 
 poly1305_value_sub_prime:

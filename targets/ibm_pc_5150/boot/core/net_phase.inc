@@ -7,10 +7,9 @@ prepare_internet_path:
     mov word [tcp_dest_port_word], tcp_port_http_word
     call run_tcp_connect_phase
 .done:
-    pushf
-    call wd_restore_dp8390_base
-    popf
-    ret
+    ; Share the identical packet-path-exit epilogue with prepare_agent_endpoint_path.restore
+    ; (pushf; wd_restore_dp8390_base; popf; ret) to reclaim nucleus bytes for the probe glue.
+    jmp prepare_agent_endpoint_path.restore
 
 prepare_agent_path:
     call_core_phase core_agents_cfg_phase_start, core_agents_cfg_phase_end
@@ -24,22 +23,29 @@ prepare_agent_path:
 .config_saved:
 prepare_agent_endpoint_path:
     call wd_enter_packet_path
+    ; Capture the prompt length durably BEFORE any receive. dpi_input_len_byte (and dpi_input_buf)
+    ; alias tls_rx_copy, the TLS receive buffer, so a reconnect's dead-socket/cert receives
+    ; clobber them. chat_resend_prompt_len lives in the resident nucleus (data.inc) so neither a
+    ; receive nor load_core_window's link reload touches it; agent_request restores the prompt
+    ; from the screen using it on a reconnect rebuild.
+    mov al, [dpi_input_len_byte]
+    mov [chat_resend_prompt_len], al
     call_core_phase core_agent_request_phase_start, core_agent_request_phase_end
     jc .restore
     load_core_window core_link_window_start, core_link_window_end
     jc .restore
     ; tls_key_schedule_ready==1 means a live TLS session (only set after a handshake,
-    ; boot-cleared) so it already excludes the first request. Try to REUSE the live
-    ; session first so short back-and-forth stays fast. If the exchange fails, the
-    ; server most likely closed the idle keep-alive socket while the slow 8088 was
-    ; busy rendering a long answer, so fall through, reopen, and retry once.
+    ; boot-cleared) so it already excludes the first request. Try to REUSE the live session
+    ; first: the keep-alive holds it open through long renders, so an engaged session (incl.
+    ; post-long) reuses snappily. If the exchange fails (an hours-long idle closed the socket),
+    ; rebuild the request and reopen. The rebuild's agent_request restores the prompt durably
+    ; from the screen (via the resident chat_resend_prompt_len), so the resend is correct.
+    ; (Handoff-validated reuse->reconnect->resend; the probe-first speedup overflows the byte
+    ; wall by ~2B and is deferred - reuse-on-a-dead-socket still reconnects, just less snappily.)
     cmp byte [tls_key_schedule_ready], 1
     jne .connect_new_session
     call .stream_and_exchange
     jnc .restore
-    ; Reuse failed: the long answer's TLS receive reuses tls_app_len/total for the
-    ; received records, so the request send-state is gone (api_request_plain itself
-    ; is intact). Rebuild the request from the prompt before reopening + resending.
     call_core_phase core_agent_request_phase_start, core_agent_request_phase_end
     jc .restore
 .connect_new_session:

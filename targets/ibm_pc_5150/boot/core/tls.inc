@@ -30,16 +30,14 @@ tls_probe_server:
 .transcript_client_key_exchange:
     call tls_prepare_client_key_exchange_transcript
     jc .failed
-    mov al, [handoff_addr + handoff_nic_family]
-    ; 3c501 is timing-sensitive: put CKE on the wire before PRF/key-block work.
-    cmp al, family_3c501
-    je .send_early_client_key_exchange
-    cmp al, family_3c503
-    jne .show_crypto_ready
-.send_early_client_key_exchange:
+    ; Send ClientKeyExchange early (before the ~7s ECDHE PRF/key-block work) for ALL NICs,
+    ; so it reaches the server with maximum margin before Cloudflare's ~7.5s handshake
+    ; timeout. CKE carries only the client ephemeral public key (independent of the
+    ; master_secret/key_block), and the transcript was already updated just above, so the
+    ; wire order (CKE before CCS+Finished) and the Finished hash are unchanged; only the
+    ; local send timing moves earlier. (Was 3c501/3c503-only; NE/WD used to send it late.)
     call tls_send_client_key_exchange
     jc .failed
-.show_crypto_ready:
     cmp byte [tls_key_schedule_ready], 1
     je .key_schedule_ready
     call tls_prepare_master_secret
@@ -47,14 +45,8 @@ tls_probe_server:
     call tls_prepare_key_block
     jc .failed
 .key_schedule_ready:
-.send_late_client_key_exchange:
-    mov al, [handoff_addr + handoff_nic_family]
-    cmp al, family_3c501
+    cmp byte [handoff_addr + handoff_nic_family], family_3c501
     je .prepare_client_finished
-    cmp al, family_3c503
-    je .prebuild_application_record
-    call tls_send_client_key_exchange
-    jc .failed
 .prebuild_application_record:
     call tls_prepare_3c501_split_application_record
     jc .failed

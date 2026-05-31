@@ -858,3 +858,199 @@ non-empty path still returns nc (no regression). Validated on 3c503:
 
 NEXT: reclaim ~15-20B in the link window -> apply net_phase_retry_draft.inc -> full
 bounded retry -> auto-retry the race + hours-idle seamless (~100%).
+
+## 2026-05-31 - keep-alive + probe build (per opus_handoff NEXT SESSION)
+
+MEASUREMENT (decisive, /private/tmp/seed-keepalive-probe.py vs api.openai.com): Cloudflare
+HTTP-idle = EXACTLY 400.0s. Bare-CRLF keep-alive does NOT reset it AND provokes an early
+close (conn gone by 360s) -> UNUSABLE. A full HTTP request DOES keep it alive (alive at 767s).
+GET / -> 421 + Connection: keep-alive (878+124B, 1 record); GET /v1/models -> 401 (1 record).
+So the handoff's cheap-path hope (bare CRLF) is dead; keep-alive must be full-request + the
+response must be drained.
+
+BYTE-WALL (confirmed the handoff's blocked prerequisite): 16K-target RAM is FULL to 0x3E00
+(chat_cache_end == basic_sidecar_stack_top_16k - guard, zero free bytes). tls_rx_copy stream
+buffer spans 0x34c2..0x3CF3; handshake scratch above it is clobbered by large records. Loaded
+phases solve CODE bytes but NOT persistent DATA: the stream phase at net_setup_phase_start
+(0x0900) is overwritten by NIC frame I/O (ne_tx_frame 0x0700..0x0CEE), so only the response
+phase at 0x0D00 persists across the receive loop. Resident link window had 54B slack.
+USER DECISIONS (2 modals): (1) build full-request keep-alive (not pivot to reliable-reconnect);
+(2) reclaim ~40B and build BOTH keep-alive and probe now.
+
+RECLAIM (committed approach, validated): collapsed the early/late-CKE family gate in
+tls_probe_server (tls.inc) to early-CKE-for-ALL. Wire-order-safe (CKE carries only the client
+ephemeral public key, independent of master_secret/key_block; transcript already updated; only
+the local send timing moves earlier -> more margin before Cloudflare's ~7.5s handshake timeout).
+Freed +26B (link slack 54->80B). NE2K8 (a changed NIC) cold+short PASSED (greeting + say
+one->one + say two->two, verdict=success) -> collapse does not regress the handshake.
+
+KEEP-ALIVE build (zero net_phase change; uses bb01581 optimistic reuse for now):
+ - layout.inc: ka_interval_ticks=5461 (~300s at 18.2Hz), ka_request_len=40.
+ - agent_response.inc: GET / template (40B, persists at 0x0D00) + `phase_call_res
+   agent_api_keepalive` after .scan_tls_record. Phase now 509/512.
+ - agent_api.inc: agent_api_keepalive (resident; gated on tls_buffered_payload_len==0 so the
+   ping's record build into tls_app_record_buffer only clobbers already-consumed plaintext,
+   + interval gate skips short/cold; inc ka_sent_count; updates ka_last_tick), ka_last_tick/
+   ka_sent_count state, and a count-based drain in .success (consumes ka_sent_count keep-alive
+   responses so the TLS server-seq stays aligned for the next prompt's probe/receive).
+ - agent_api_stream.inc: reset ka_last_tick=now, ka_sent_count=0 when the request is sent.
+ Build green: link slack 8B, response phase 509/512.
+
+PROBE build (probe-first reuse; written, builds with keep-alive):
+ - tcp_connect.inc: tcp_probe_live (keep-alive seg at seq-1, restore seq, poll for reply) +
+   parse_tcp_probe_reply (server:443 ACK & !RST -> alive). tcp_probe_wait_count=16.
+ - net_phase.inc: on reuse, load tcp_connect phase + call tcp_probe_live -> alive: reuse;
+   dead/load-fail: reconnect (no rebuild, tls_app_len intact). +16B nucleus (2B slack left).
+
+VALIDATION: NE2K8 cold+short PASS (CKE collapse). Post-long 3c503 + pcap IN FLIGHT (keep-alive
+build, no probe yet) -> expect ONE connection (reuse, no reconnect SYN to Cloudflare) + done/ok
+render. Then build probe + validate forced-idle reconnect. Grade by rendered tokens, not exit code.
+
+### 2026-05-31 (cont.) - build fits + validation progress
+BUILD-FIT: the probe glue pushed the nucleus into a 5th sector (resident 4->5), shifting the
+whole link window +512B -> 0x3400 overflow. Fixed by sharing the identical packet-path-exit
+epilogue: prepare_internet_path.done now `jmp prepare_agent_endpoint_path.restore` (pushf;
+wd_restore_dp8390_base; popf; ret), reclaiming ~3B nucleus. Build GREEN with full keep-alive +
+probe: nucleus 5B slack (4 sectors), link 6B slack, tcp_connect phase 3B room, response phase
+509/512. Also: keep-alive now counts a ping only AFTER a successful send (call+jc+inc, not the
+pre-inc+jmp) so the drain never blocks on a missing reply.
+
+POST-LONG run 1 (3c503, keep-alive only, no probe in that build): the KEEP-ALIVE WORKED - pcap
+shows a 61-byte GET / ping on the single connection 62602 at t+376s (~300s after the request),
+server replied with the 421, and the connection was HELD through the whole ~300s render with NO
+idle-close (vs the old 400s close that forced a reconnect). Core mechanism PROVEN. The run then
+failed mid/late-answer with 0D/12 -> reconnect (62659) -> FIN+RST. That is the handoff's known
+~20-25% mid-stream/handshake flake (a single long run failing it is within the rate); the
+keep-alive does not address that separate flake (a mid-stream receive failure still triggers
+reuse-fail -> reconnect -> race).
+
+SHORT-LOOP + PROBE (3c503, full build): PASS, verdict=success. Greeting + say one->one ..
+five->five all rendered via probe-first reuse. Validates: probe ALIVE path (5 reuses; the
+seq-1 keep-alive probe + seq restore does NOT corrupt the connection), cold handshake (CKE
+collapse safe), keep-alive gated off for short answers, no regression.
+
+POST-LONG re-run (full build, probe active) IN FLIGHT -> want a clean long completion + the
+follow-up REUSING (pcap: one connection, no reconnect SYN after the answer) = the keep-alive
+payoff end-to-end. ~25% chance of the flake; re-run if it flakes.
+
+### 2026-05-31 (cont.) - post-long run 2 result + GET / 421 close bug + GET /v1 fix
+POST-LONG run 2 (full build, probe active): verdict=SUCCESS - long answer completed + DPI +
+say done->done + say ok->ok all rendered. BUT pcap analysis: the VM made 4 connections
+(62877 = greeting+long answer 144KB incl. the 61B keep-alive ping; 62965/62973/62982 ~10KB =
+the follow-ups). So the long answer HELD its connection (keep-alive worked for it) but the
+FOLLOW-UPS RECONNECTED rather than reused - the keep-alive's stated goal (reuse the post-long
+session) was NOT achieved, only masked by the reconnects happening to succeed.
+ROOT CAUSE (pcap + code): 62877 got NO FIN/RST and the long answer completed on it, yet no
+probe segment was sent and "say done" reconnected -> tls_key_schedule_ready was 0 -> the
+.success drain received a TLS close_notify (0x15, tls.inc:977 sets ready=0). CONTROL: the
+SHORT loop (no keep-alive ping, gated off) REUSED ONE connection for all 5 prompts, so the
+server keeps SSE-answer connections alive. The only post-long difference is the keep-alive
+ping. The ping was GET / -> 421 Misdirected Request, and a 421 tells the client to use a NEW
+connection -> the server CLOSES it (close_notify). So the ping meant to HOLD the connection
+instead CLOSED it. (Python can't repro the close - GET / 421 reuse=ALIVE there - it is the
+8088/SLiRP + pipelined-after-SSE scenario.)
+FIX: keep-alive path changed GET / -> GET /v1 (404 Not Found, Connection: keep-alive,
+measured). A 404 keeps the connection alive (no 421 use-new-connection semantics). 42B, fits
+the response phase 511/512. Re-running post-long to confirm the follow-up now REUSES (pcap:
+ONE VM wscale-6 connection to OpenAI for the whole loop).
+NOTE: the keep-alive HOLDING the connection through the ~300s render is PROVEN (ping fired at
+t+376s both runs, no idle-close). The remaining question is purely whether the held connection
+is REUSABLE for the follow-up, which the GET /v1 fix targets.
+
+### 2026-05-31 (cont.) - run 3 (GET /v1) reconnected too; ping TIMING was the bug
+POST-LONG run 3 (GET /v1): verdict=success (long+done+ok) but pcap STILL 3 connections (63074
+greeting+long 150KB; 63160/63167 follow-ups) -> follow-ups reconnected again. So GET/ 421 was
+NOT the cause. TRACE of 63074: the keep-alive ping (63B GET /v1) fired at ~t+527s, but the
+server sent a 23-byte close_notify at ~t+470s (the ~400s idle from the request fully-sent at
+~t+70s). So the ping fired ~57s AFTER the server had already closed -> useless. ROOT: the
+`tls_buffered_payload_len==0` gate is too rare in a dense stream (needs a frame ending exactly
+on a record boundary), so the ping was delayed past the idle-close. (Run 2's ping at 376s beat
+it by luck of stream alignment.)
+FIX: gate the ping on `tls_app_len + tls_buffered_payload_len < tls_payload_buffer_len` instead
+- i.e. fire whenever the current record + preserved tail end below the keep-alive record buffer
+offset (still corruption-safe), which is true at the LAST record of every frame -> fires ~once
+per frame, reliably and early (~t+310-370s, well before the ~470s close). +5B link; reclaimed
+3B via the poly1305_value_cmp_prime pop-merge (set carry before the shared pops, behavior-
+identical). Build green (link 4B slack, response phase 511/512). Re-running (run 4) to confirm
+the ping now beats the idle-close -> follow-up REUSES (pcap: ONE VM connection).
+LEARNING: the keep-alive's hard part is TIMING (fire before the server's idle-close) under the
+buffer-safety constraint, not the request content. The mechanism (hold the connection) is
+proven; the gate just had to fire early+often enough.
+
+### 2026-05-31 (cont.) - *** RUN 4: KEEP-ALIVE + PROBE WORKING END-TO-END (3c503) ***
+POST-LONG run 4 (relaxed gate): verdict=success AND pcap shows the FIX working: ONE VM
+connection (port 63252, wscale 6) to the OpenAI edge (172.66.0.243), server->client=190633B
+(greeting + long answer + both follow-up answers + keep-alive response all on it). Client
+segments on 63252: long prompt ...162B -> 63B keep-alive ping (~300s in, ON TIME) -> 333B
+"Say done" -> 331B "Say ok". NO FIN/RST. So the keep-alive ping fired before the server's idle
+-close, HELD the connection, and the post-long follow-ups REUSED it (no reconnect, no handshake
+race) - the keep-alive's actual goal, achieved for the first time. The relaxed buffer-safety
+gate (fire when current+buffered < payload_buffer_len, ~once per frame) was the unlock vs the
+too-rare buffered==0 gate.
+STATUS: 3c503 = short 1/1 (probe-first reuse, all 5) + long 1/1 (keep-alive reuse, 1 connection,
+verdict=success). Genuine 1+1 with the mechanism proven, NOT just token-rendered-by-luck.
+RESIDUAL (unchanged, separate): the pre-existing ~20-25% mid-stream/handshake 0D/12 flake still
+fails some long runs (the keep-alive doesn't address it; a mid-stream receive failure still
+triggers reuse-fail->reconnect->race). And this is 1 clean run each; a real stability gate wants
+5/5. Other NICs (NE2K8/WD/3c501) untested on this build beyond NE2K8 cold+short.
+
+### 2026-05-31 (cont.) - hours-idle resend = PRE-EXISTING prompt-clobber (root-caused)
+USER TEST (screenshot): after a >540s idle, the reconnect CONNECTS + streams + returns to DPI
+cleanly, but the RESENT PROMPT is corrupted (model: "your message only contains a quote mark";
+another run rendered a "3D" clarification). Connection/handshake/receive all work; only the
+prompt content is wrong.
+CONFIRMED PRE-EXISTING (not the probe / not the keep-alive): reproduced on bb81 reuse with the
+probe REVERTED -> still corrupt. The handoff validated reconnects via the force-hook (which
+short-circuited the optimistic receive) + post-long (follow-ups used key_schedule_ready==0 ->
+jne -> no optimistic exchange, no rebuild -> TOP build intact). The PURE >=540s-idle path
+(key_schedule_ready==1 -> optimistic exchange on a dead socket -> reuse-fail -> rebuild) was
+never validated.
+ROOT CAUSE: dpi_input_buf == tls_rx_copy (data.inc) AND dpi_input_len_byte == tls_rx_copy+128.
+Both the prompt and its LENGTH live in the TLS receive buffer. The reconnect's receives (dead-
+socket optimistic receive into tls_rx_copy; handshake cert receive into tls_rx_copy[0..1460])
+clobber them, so agent_request's REBUILD (.build_ready_openai_request reads dpi_input_buf +
+dpi_input_len_byte) produces a garbled/empty request. The SPLIT/tail path survives because it
+uses api_stream_prompt_len (durable, low_persistent_state) + a video-RAM screen-read; the INLINE
+path (short prompts) reads the fragile aliased buffers directly.
+FIX ATTEMPTS (all failed, each moved WHICH corrupted copy is read): probe-dead no-rebuild ->
+quote-mark; probe-dead rebuild (.reopen) -> empty/no-response; bb81 reuse-fail rebuild -> "3D".
+THE PRINCIPLED FIX (multi-file, spec'd): make the INLINE path durable like the SPLIT path:
+ (1) set api_stream_prompt_len from the prompt length in the DPI phase (before any receive),
+     and stop agent_request re-deriving it from the clobbered dpi_input_len_byte on rebuild;
+ (2) source the prompt from the SCREEN in agent_request's READY path (dpi_prompt_marker_row,
+     dpi_prompt_col+2, JSON-escaped, api_stream_prompt_len chars) instead of dpi_input_buf.
+ Then re-add the probe (probe-dead -> rebuild) - with a durable source, the rebuild is safe.
+ High blast radius (changes the prompt source for EVERY chat request) -> validate short loop +
+ post-long + hours-idle. Consider instrumenting (dump tls_app_len / first request bytes) first.
+CURRENT CODE STATE: keep-alive intact (validated: short 1/1, post-long reuse 1/1); net_phase
+reverted to bb81 reuse/reconnect (probe glue removed); probe routine still present-but-unused in
+tcp_connect.inc + tcp_probe_wait_count in layout.inc. Uncommitted on work/default-prompt-interface-rebuild.
+
+### 2026-05-31 (cont.) - durable-resend fix v1 (api_stream_prompt_len) FAILED -> v2 (dedicated byte)
+v1: capture prompt length in api_stream_prompt_len at the resident top + restore dpi_input_buf
+from the screen in agent_request. Short loop PASSED (no regression - restore reads the screen
+correctly on every build). Hours-idle: bug signature (quote-mark/3D) GONE, but NO response (empty
+prompt, returns to DPI) - user-confirmed. ROOT of v1's failure: the optimistic reuse exchange's
+agent_api_stream .ready_tail does `mov [api_stream_prompt_len], [chat_prompt_len_cache]` (line 37),
+and chat_prompt_len_cache==0 for an INLINE short prompt -> api_stream_prompt_len wiped to 0 ->
+the rebuild's restore reads 0 chars -> empty prompt -> empty request -> no response.
+v2 FIX: use a DEDICATED resident byte chat_resend_prompt_len (agent_api.inc) that no resend-path
+code touches. Captured = dpi_input_len_byte at the resident top of prepare_agent_endpoint_path
+(before any receive); agent_request .restore_prompt_from_screen reads chat_resend_prompt_len chars
+from the screen into dpi_input_buf. api_stream_prompt_len reverted to its original behavior.
+Build green (nucleus 16B slack, link 4B). Re-testing hours-idle (expect a real "one" response,
+ONE reconnect). Then short-loop regression recheck + re-add the probe.
+
+### 2026-05-31 (cont.) - durable-resend ROOT CAUSE found via instrumentation -> nucleus byte
+v2 (chat_resend_prompt_len in agent_api.inc = the LINK window) ALSO gave no response. Instrumented
+the restore to print chat_resend_prompt_len + dpi_input_buf[0] at screen (0,0)/(0,1). Screenshot
+showed "0s": (0,0)='0' => chat_resend_prompt_len==0 on the REBUILD; (0,1)='s' => the FIRST build
+read "say..." correctly (len was 8 then). So the length was captured (8) but WIPED to 0 before
+the rebuild. CAUSE: prepare_agent_endpoint_path captures chat_resend_prompt_len, then calls
+load_core_window (reloads the link window from disk) BEFORE the reuse/reconnect. chat_resend_prompt_len
+lived IN the link window -> the reload reset it to its db-0 file value. The rebuild then read 0 ->
+empty prompt -> empty request -> no response. (api_stream_prompt_len in v1 survived load_core_window
+- it's nucleus RAM - but was wiped by .ready_tail instead. Two different wipes, same empty result.)
+FIX v3: move chat_resend_prompt_len to the RESIDENT NUCLEUS (data.inc, near tls_app_data_ptr).
+The nucleus is loaded once at boot, never reloaded by load_core_window, and nothing on the resend
+path writes it. Build green (nucleus 16B slack, link 4B). Re-testing hours-idle (expect real "one").

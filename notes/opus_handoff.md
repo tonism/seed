@@ -441,3 +441,65 @@ calling the reused fns in resume order; (f) validate with the reconnect harness
   (net_phase shares the 0x3400 crypto ceiling) - SAME byte wall as resumption.
 - THE unlock for both retry and resumption: reclaim ~15-20B in crypto/tls/agent_api
   (delicate, focused effort), then apply the retry draft.
+
+## ============================================================
+## NEXT SESSION — BUILD: keep-alive + probe (the proven fix)
+## ============================================================
+## (2026-05-31; hand-off after the diagnosis was proven. Jump straight to the build.)
+
+### THE PROVEN PROBLEM (packet-level, no longer a hypothesis)
+After a long answer, the connection dies: the ~11min 8088 render idles it past Cloudflare's
+**400s** keep-alive, so the server FINs it (pcap: cold conn lived 482s then server FIN). So the
+next prompt MUST reconnect. The reconnect handshake is the 8088's **~14.7s of crypto = TWO ~7s
+P-256 scalar mults** (ECDHE ephemeral key-gen + shared-secret). The server FINs each reconnect at
+**~15s**. So the handshake RACES the ~15s window — a coin-flip → ~25-75% of post-long follow-ups
+fail. PCAP EVIDENCE (filter to Cloudflare 162.159.0.0/16 to escape the Mac's heavy background
+:443 noise): success conn computed gaps +7.15s,+7.54s, done ~14.7s, FIN 17.5s (made it);
+fail conn done ~15.0s, server FIN+RST at exactly 15.0s (missed it).
+
+### LOCKED ARCHITECTURE (the user agreed)
+Reuse-while-engaged (connection stays alive -> reuse, snappy, NO handshake) + reconnect-after-idle
+(slower reconnect after hours = acceptable). Two pieces:
+ 1. KEEP-ALIVE during render: periodic request-ping (every <400s) inside agent_api_exchange's
+    receive+render loop, to keep the SERVER's connection alive through the long render -> next
+    prompt reuses it. (A TCP keep-alive does NOT reset Cloudflare's idle - MEASURED; needs an
+    HTTP-request-level ping.) TRICKY PART: send the ping to the server THROUGH the SLiRP proxy
+    mid-render and drain its reply (the proxy buffers; the ping-response arrives after the answer).
+    SUGGESTION: first measure whether a partial request (a bare CRLF) resets Cloudflare's idle -
+    much simpler than a full request+drain if it works.
+ 2. PROBE (check-first): before sending the real request, a lightweight liveness check -> reuse if
+    alive, reconnect if dead. Replaces today's OPTIMISTIC reuse (net_phase sends the real request
+    on a maybe-dead socket, discovers death via a slow receive-timeout).
+
+### THE BYTE-WALL SOLUTION (critical - this is what makes it viable where resumption wasn't)
+The resident LINK window is FULL at 0x3400 ("LINK window overlaps high crypto scratch"). ANY new
+resident code overflows. PUT THE NEW CODE IN LOADED PHASES (load_core_window / call_core_phase),
+NOT the resident link window: PROBE -> the tcp_connect phase (already loaded for connects);
+KEEP-ALIVE -> the response/render phase. This sidesteps the 0x3400 wall.
+
+### CONCRETE DESIGNS
+- PROBE: TCP keep-alive segment (seq = tcp_local_seq-1, ACK flag, len 0) -> transmit -> receive
+  (short timeout) -> read flags at [ne_tx_frame + tcp_offset + 13]: RST(0x04)=dead, ACK(0x10)=alive,
+  timeout=dead. Model the flag-parse + connection-match on parse_tcp_synack (tcp_connect.inc:623).
+- net_phase: replace the optimistic reuse (current .ee_send path) with: if session flag set, load
+  tcp_connect phase + call probe -> alive: reuse(send); dead: reconnect. (Probe-first.)
+- KEEP-ALIVE: in the receive+render loop, track BIOS tick [0x046c]; every <400s send the ping +
+  drain. Validate by pcap: post-long should show ONE connection (no reconnect SYN) -> reuse.
+
+### CURRENT STATE
+Branch work/default-prompt-interface-rebuild. COMMITTED: bb01581 (stopgap agent_api empty->carry =
+silent post-long empty gone) + 269cb28 (reconnect-send fix + --post-dpi-idle harness) + 4162147.
+UNCOMMITTED: net_phase.inc has a simplified bounded-retry (.ensure_and_exchange loop, max 8, relies
+on agent_api's carry). Validated: short 3/3 no-regression; post-long ~75% recovery (3/4) but WEAK
+(each failed attempt ~2min so it barely gets a few tries; user doubts it). For the keep-alive+probe
+build: revert net_phase to bb01581 for a clean base (the retry is superseded by reuse), OR keep as a
+backstop. Full retry draft committed at notes/net_phase_retry_draft.inc.
+
+### KEY FACTS / TEST RECIPE
+- Cloudflare idle=400s exact; TCP keep-alive does NOT extend it; reconnect handshake window ~15s.
+- Test: post-long = the "16kb 8088 ram ABI design" prompt -> "say done" -> "say ok"; ~12min/run;
+  ~25-75% post-long fail. Harness: python3 tools/run-basic-bootstrap-86box.py --profile vm-net-3c503
+  --no-build --screen-oracle --foreground-launch --post-dpi-gate-timeout 900 --post-dpi-text "...".
+  pcap: --pcap FILE --pcap-filter "tcp port 443" --pcap-iface en0, then analyze with
+  `tcpdump -nttr FILE 'net 162.159.0.0/16 and (tcp[13]&0x07!=0 or tcp[13]&0x12=0x12)'`.
+- One 86Box at a time (pkill -9 -f 86Box first). Grade by rendered tokens, not harness exit code.

@@ -284,6 +284,15 @@ tcp_port_https_word equ 0xbb01
 tcp_wait_count equ 4
 tcp_wait_count_3c501 equ 128
 tcp_payload_wait_count equ 8192
+; Keep-alive: during a long (~11min) render the connection would otherwise idle past
+; Cloudflare's measured ~400s HTTP-idle timeout and be closed, forcing the next prompt to
+; reconnect (a handshake that races the ~15s window). Ping the server with a lightweight
+; HTTP request this often (BIOS ticks at ~18.2065 Hz) to reset that idle so the next prompt
+; REUSES the live session. ~300s gives margin under 400s. ka_request_len is the template
+; length (a bare "GET / HTTP/1.1" + Host that 401/421s but keeps the connection alive;
+; measured: a partial/CRLF ping does NOT reset the idle and can trigger an early close).
+ka_interval_ticks equ 5461
+ka_request_len equ 42
 tls_client_base_len equ 88
 tls_body_base_len equ 79
 tls_record_base_len equ 83
