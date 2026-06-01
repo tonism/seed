@@ -1054,3 +1054,44 @@ empty prompt -> empty request -> no response. (api_stream_prompt_len in v1 survi
 FIX v3: move chat_resend_prompt_len to the RESIDENT NUCLEUS (data.inc, near tls_app_data_ptr).
 The nucleus is loaded once at boot, never reloaded by load_core_window, and nothing on the resend
 path writes it. Build green (nucleus 16B slack, link 4B). Re-testing hours-idle (expect real "one").
+
+## NIC matrix (2026-05-31, post keep-alive+resend commit 2b09f60)
+
+Autonomous matrix: 7 cards x {short, long, idle-reconnect}, deepening passes.
+Driver: /tmp/seed_matrix_run.sh ; live table: /tmp/seed_matrix/summary.txt ; raw rows: runs.tsv.
+Gotcha: macOS has no GNU `timeout` (no coreutils/gtimeout) -> first launch false-failed
+every run in 0s; fixed with a bash watchdog (background the run + sleep/kill).
+
+Pass 1 (1+1+1), verdict=success except one:
+  card         short long idle
+  3c503        1/1   1/1  1/1
+  ne2k8        1/1   1/1  1/1
+  wd8003e      1/1   1/1  1/1
+  3c501        1/1   1/1  1/1
+  ne1k         1/1   0/1  1/1   <- long failed at 646s, tok 0/2 (no done/ok); fits the known
+                                   ~20-25% completion-detection (0D/12) flake on long render.
+  novell-ne1k  1/1   1/1  1/1
+  wd8003eb     1/1   1/1  1/1
+Timing avg: short 409s, idle 706s, long 787s (~31 min/card for 1+1+1); pass1 ~3h44m.
+Takeaway: keep-alive + durable resend generalize across 3Com/NE2000/WD-SMC families incl.
+idle-reconnect. Deepening to 2+2+2 to resolve ne1k-long (flake vs persistent).
+
+## NIC matrix FINAL (2026-06-01, 4+4+4 complete = 84 runs)
+  card         short long idle
+  3c503        4/4   4/4  4/4
+  ne2k8        4/4   4/4  4/4
+  wd8003e      4/4   4/4  4/4
+  3c501        4/4   4/4  4/4
+  ne1k         4/4   3/4  4/4
+  novell-ne1k  4/4   3/4  4/4
+  wd8003eb     4/4   3/4  4/4
+Overall: short 28/28, idle 28/28, long 25/28 = 81/84 (96.4%). Avg secs short 409 / long 787 / idle 706.
+The only 3 fails are long: p1 ne1k, p2 novell-ne1k, p3 wd8003eb -- each a DIFFERENT card, each
+~580-650s with 0/2 tokens (long render never completed -> no done/ok). Pass 4 clean (21/21).
+=> the known long-render completion-detection (0D/12) flake; observed ~11% here (3/28),
+STOCHASTIC and NOT family-specific (the pass-2 NE1000 read was sampling noise).
+Weak signal (n=3, likely noise): fails landed on the 3 cards run LAST in each pass
+(positions 5,6,7) at wall-clock ~17:15 / ~21:15 / ~01:15 (~4h apart, but that aliases with the
+~3.7h pass length + 1-position drift) -- possibly host/network time variance, not the card.
+CONCLUSION: keep-alive + durable resend (2b09f60) is solid across all 7 cards x {short,
+idle-reconnect} = 56/56 (100%). Sole residual = pre-existing long-render completion flake.
