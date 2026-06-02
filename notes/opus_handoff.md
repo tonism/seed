@@ -7,6 +7,39 @@ This is a focused review brief for a fresh model/chat. The durable attempt log i
 `2026-05-18T16:48+03:00` entry onward. Also read `notes/nic_timing_lanes.md`.
 This file is only a short map of the current problem and where to look first.
 
+## BUILD 8 RELEASE STATUS — RESOLVED (2026-06-02)
+
+Repeated chat-loop reliability is COMPLETE and validated across all 7 NIC profiles.
+
+Fixes that landed:
+- keep-alive reuse + durable hours-idle resend (commit 2b09f60); empty->carry (bb01581).
+- LONG-RENDER 0D FLAKE FIX (in agent_api.inc; uncommitted at this writing, validated):
+  extend `.text_seen_fallback` to ALL NICs (was family_3c501-only). On a receive/ack
+  failure after text rendered, accept the answer + invalidate the session instead of
+  reconnecting mid-exchange into Cloudflare's ~15s handshake race. Wire-confirmed root
+  cause: the long-render 0D was a completion-marker MISS -> spurious reconnect -> the
+  reconnect's ~14.8s 8088 handshake races Cloudflare's ~15s window -> 0D. The fallback
+  removes the spurious reconnect (3c501 already had it, hence 3c501 was 4/4 long).
+
+Validation: 7-card matrix {short, long, idle-reconnect}. Long 0D flake was 3/28 -> 0D=0
+across validated long runs (overnight 0/17 + a clean caffeinated re-confirm). short+idle solid.
+
+TESTING-ARTIFACT NOTE (NOT a product issue): an intermittent "no response"/hang seen during
+2026-06-01/02 testing is a HARNESS observation fault, not the ROM. The harness's window
+screencapture (tools/run-basic-bootstrap-86box.py: screenshot_86box_window ~L1297, and the
+run() wrapper ~L123) has NO timeout, so a blocked capture freezes detection mid-gate ->
+watchdog -> false "no response." The shipped ROM has no screencapture; the VM renders fine
+(observed directly by eye). Committed-stable flaked identically; NetBird + host network +
+display-sleep (caffeinate 24/7) all ruled out. Test-OBSERVATION artifact only.
+
+DEFERRED test-infra follow-ups (harden the harness; NOT release-blocking):
+1) timeout on screencapture (L1196 + L1297); 2) distinguish capture-failure from VM-no-response
+in the verdict/log (ends the harness-vs-VM ambiguity); 3) retry capture on failure;
+4) default timeout in run(); 5) log capture duration/failures.
+
+BRANCH-CLOSE cleanup: remove /etc/sudoers.d/seed-tcpdump (3c501 debug); delete the 16GB
+root-owned /private/tmp/seed-3c503-manual-*.pcap (needs sudo) + /tmp scratch scripts.
+
 ## Scope
 
 Work only on stabilizing Build 8 repeated chat loops for the original 16 KiB

@@ -58,10 +58,14 @@ agent_api_exchange:
     mov byte [handoff_addr + handoff_net_status], 0xf0
     cmp byte [api_stream_completed], 2
     jae .success
-    mov al, [handoff_addr + handoff_nic_family]
-    cmp al, family_3c501
-    je .text_seen_fallback
-    jmp .hard_failed
+    ; All NICs: a receive/ack failure after text rendered means the answer streamed but the
+    ; transport-completion marker was missed (or it cut mid-answer). Accept what rendered and
+    ; invalidate the session (clean fresh connect next prompt) instead of reconnecting
+    ; mid-exchange into the ~15s handshake race -- the reconnect was the flaky path, and a
+    ; truncated-but-clean answer + the user's reliable re-prompt beats a failure screen. A wire
+    ; capture confirmed long-render fails are completion-marker misses with the FULL answer
+    ; already delivered+rendered. (Was family_3c501-only -- which is why 3c501 went 4/4 on long
+    ; while the other NICs flaked into the reconnect race.)
 .text_seen_fallback:
     cmp byte [api_stream_text_seen], 0
     je .hard_failed

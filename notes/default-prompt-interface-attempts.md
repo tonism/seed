@@ -1095,3 +1095,59 @@ Weak signal (n=3, likely noise): fails landed on the 3 cards run LAST in each pa
 ~3.7h pass length + 1-position drift) -- possibly host/network time variance, not the card.
 CONCLUSION: keep-alive + durable resend (2b09f60) is solid across all 7 cards x {short,
 idle-reconnect} = 56/56 (100%). Sole residual = pre-existing long-render completion flake.
+
+## Long-render flake ROOT-CAUSE investigation (2026-06-01)
+Symptom: ~11% of LONG renders paint a red "agent setup failed 0D/12" over a FULLY-rendered answer,
+then the retry/restart menu (failure_action.inc), instead of returning to DPI. short+idle never hit
+it (28/28): their answers are < the ~300s keep-alive interval; long renders (600-787s) exceed it.
+DECODE: 0D/12 = net_error_tls(13) / net_status_tcp_connected(18) = a TLS *receive* error on the
+connected socket during the render TAIL (corrects the old "handshake/Certificate-receive timeout").
+MECHANISM: completion is 2-stage -- `.done`/`_text.done` SSE marker -> api_stream_completed=2;
+transport terminator `0\r\n\r\n` (zero_chunk_pattern, agent_response.inc) -> completed=3.
+agent_api_exchange loops until ==3; main.inc chat_loop declares agent_failed when
+prepare_agent_endpoint_path returns CARRY and completed!=3. => answer renders fully, but completion
+never reaches 3 and a tls_receive returns carry -> agent_failed. The RENDER succeeds; only
+completion detection fails.
+SUSPECTS (both long-only): (a) keep-alive's pipelined 404 interleaving with the chat response
+disrupts transport-completion/decrypt; (b) long renders' TLS-record volume hits a per-record/trailer
+receive edge. Disambiguate via A/B (disable keep-alive) or a pcap/instrumented repro.
+
+## Flake root-cause cont. (2026-06-01): receive path has NO loss recovery
+Code audit (agent + manual verify):
+- parse_tcp_payload (net_rx.inc:162-166): EXACT-match TCP seq; any out-of-order/retransmit/gapped
+  frame is REJECTED (.not_payload). No reordering, no gap detection, no dup-ACK.
+- tcp_receive_payload (transport.inc:1-24): on a rejected frame it does NOT re-ACK; just spins
+  tcp_payload_wait_count(=8192) then returns net_error_tcp(0C).
+- ne_read_ring_pointers (net_rx.inc:212): reads NIC ISR but never checks the OVW(0x10) overflow bit.
+- record assembly (tls_ensure_current_tls_record_complete) blindly concatenates whatever frame arrives.
+=> one lost/corrupt/out-of-order frame on a long stream desyncs TLS -> MAC/parse fail OR receive
+   timeout -> tls_fail_error(0D). Long streams (100s of records) accumulate exposure; worse on slower
+   8-bit NE1000 (RX ring 6656B vs NE2000 14848B). short/idle never hit it (few records).
+CAVEATS that block a blind fix: advertised window=256B (net_tx.inc:233) makes pure ring-overrun
+unlikely; net_error 0C is overwritten to 0D by tls_fail_error; net_status=12 indicates a
+reuse->RECONNECT CASCADE (the original mid-stream fail triggers a reconnect; the displayed 0D/12 is
+downstream). => capturing a wire pcap of one failing ne1k run to disambiguate
+clean-delivery+seed-corruption vs retransmit/loss before fixing.
+
+## Flake MECHANISM CONFIRMED via wire capture (2026-06-01) — OVERTURNS the TCP-loss theory
+Captured a failing ne1k long run on the wire (clean, post-VPN-reauth, edge-filtered, 215K).
+THE WIRE IS CLEAN: server delivered the full answer with monotonic seqs, NO retransmits, NO gaps,
+NO corruption; VM ACKed normally. The earlier "TCP no-loss-recovery" hypothesis is REFUTED here.
+Real mechanism (conn 60431 then reconnect 60483):
+1. Server delivers the full answer FAST (~14KB within ~1s, by t+78s on conn A); the 8088 RENDERS
+   it slowly (~8 min, char-by-char). Keep-alive fires mid-render (63B GET ping -> 899B 404) and
+   HOLDS conn A (so the keep-alive itself works).
+2. At the tail the VM FAILS TO DETECT COMPLETION (completed never hits 3) -> waits for data that
+   already all arrived -> times out -> ABANDONS conn A (no FIN) -> reconnects.
+3. RECONNECT (conn B) full TLS handshake ~14.8s on 8088 (ServerHello t+0; VM CKE flight +7s
+   [ECDHE scalar mult]; VM Finished flight +7.7s [key-block PRF]) RACES Cloudflare's ~15s window
+   -> server FIN+RST -> reconnect fails -> "0D/12" (c00/k00 = reconnect's reset state, NOT origin).
+=> ROOT = seed-side completion-detection MISS (forces a spurious reconnect) + the known reconnect
+   handshake RACE (~14.8s vs ~15s). NOT TCP loss/corruption. Keep-alive interleaved 404 is the prime
+   suspect for the completion miss (long-only). (This morning's EARLY fail [1 line, k00, pre-keepalive]
+   hints at a 2nd early-abandon trigger too.)
+Fix candidates: (A) accept content-complete on a post-render receive-timeout (skip the spurious
+reconnect; pcap proves the answer is fully delivered) - pragmatic, low-risk, targets the tail-fail;
+(B) fix completion detection at the root (find why it misses, ~ keep-alive interleave); (C) TLS
+session resumption so a forced reconnect skips the ~14s ECDHE and wins the race (recovers all
+variants, bigger feature).
