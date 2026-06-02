@@ -280,6 +280,23 @@ project state, and durable workspaces belong to the later user/agent
 environment unless explicitly scoped. Build 9 only needs enough continuity that
 the next prompt is not semantically fresh.
 
+Build 9 investigation TODO (carried from Build 8; no code change made yet):
+
+```text
+NIC timing unification: ~26 handoff_nic_family gates exist, but ~14-16 are inherent
+  hardware I/O (detection + per-NIC ring/register access) that cannot unify. The ~10-11
+  behavioral/timing carve-outs are the candidates, and are 3c501-dominated (render-
+  before-ACK, the el1 single-buffer receive latch, handshake-flight ordering) plus one
+  3c503 app-send-before-server-finished. NE1000/NE2000/WD8003 and most of 3c503 already
+  run the shared path. Investigate which 3c501/3c503 carve-outs the shared path can
+  subsume. Per nic_timing_lanes.md's working rule, remove a per-card rule only with a
+  documented replacement rule + cross-NIC evidence.
+memory reclaim: Build 8 tightened 16 KiB slack to 781 bytes (below the 1 KiB guard
+  target); reclaim toward the 1 KiB target.
+hot-loop floppy reads: eliminate the windowed-nucleus per-prompt phase reads (the
+  documented Build 8 blocker #4 exception); see the floppy-read-free scope item above.
+```
+
 ## Build 10
 
 Build 10 owns the first minimal tool-calling surface and is in scope for the
