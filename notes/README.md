@@ -2,10 +2,16 @@
 
 This directory is working memory for active branch design and experiments.
 
-Current files stay at the top level:
+No active per-build implementation log right now: Build 8 (the Default Prompt
+Interface chat loop) is complete and its working docs are archived in `old/`
+(the build attempt log and the Codex->Claude handoff brief). The Build 8 release
+summary lives in `docs/builds.md`. The next build opens a fresh top-level log.
+
+Top-level reference notes:
 
 ```text
-default-prompt-interface-attempts.md   current Build 8 rebuild implementation log
+nic_timing_lanes.md          per-NIC timing/order contracts and per-lane history
+net_phase_retry_draft.inc    superseded net_phase retry sketch (Build 8; kept for reference)
 ```
 
 Completed or superseded branch logs and designs live in:

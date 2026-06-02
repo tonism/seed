@@ -112,13 +112,13 @@ cells, just more densely inside them.
   │ 0x0000 │██████████  h ,,,,,,,,,,,,,,,,, │
   │ 0x1000 │▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓                │
   │ 0x2000 │                                │
-  │ 0x3000 │                tttttaaa      ||│
+  │ 0x3000 │                    tttttaaa  ||│
   └────────┴────────────────────────────────┘
 
 A + U + Q + E + R have run. seed_* loaded from AGENTS.CFG /
 USER.CFG, the HTTP POST built into api_request_plain. The K
-LINK window is still on the floppy — its 6.5 KiB slot at
-0x1800..0x3200 stands empty, the largest visible free band.
+LINK window is still on the floppy — its 7.0 KiB slot at
+0x1800..0x3400 stands empty, the largest visible free band.
 ```
 <!-- END MAP: stage-agent-prep -->
 
@@ -130,7 +130,7 @@ LINK window is still on the floppy — its 6.5 KiB slot at
   │ 0x0000 │██████████cch ,,,,,,,,,,,,,,,,cc│
   │ 0x1000 │▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒│
   │ 0x2000 │▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒│
-  │ 0x3000 │▒▒▒▒ttrrrrrrrrrrttttttaa      ||│
+  │ 0x3000 │▒▒▒▒▒▒▒▒ttrrrrrrrrrrttttttaa  ||│
   └────────┴────────────────────────────────┘
 
 Densest moment. K LINK window loaded; persistent TLS state
