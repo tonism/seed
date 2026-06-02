@@ -361,6 +361,21 @@ chat_cache_end equ chat_key_cache + seed_key_len
 %error "chat config cache overlaps 16K BASIC stack guard"
 %endif
 
+; Build 9 reconnect-safe context pool, reclaimed from the trimmed 16K stack reserve.
+; Above the pinned chat config caches, below the (RAM-relative) stack. Holds the rolling
+; conversation summary; everything from chat_arena_start up to (ram_top - stack reserve) is
+; the user/agent arena - Seed never writes past chat_context_end. Borders are compile-time
+; defaults in Build 9; publishing/moving them is Build 10. ram_top is already in the handoff
+; (offset 0x2c), so the ledger carries it and the agent derives the arena ceiling itself.
+chat_context_start equ chat_cache_end
+chat_context_len equ 128
+chat_context_end equ chat_context_start + chat_context_len
+chat_arena_start equ chat_context_end
+chat_arena_floor_min equ 64
+%if (chat_arena_start + chat_arena_floor_min) > (basic_sidecar_stack_top_16k - basic_sidecar_stack_guard_len_16k)
+%error "context pool leaves no minimum arena floor below the 16K stack reserve"
+%endif
+
 dpi_input_buf equ tls_rx_copy
 dpi_input_len_byte equ dpi_input_buf + dpi_input_max_len
 %if (dpi_input_len_byte + 1) > tls_pre_response_scratch

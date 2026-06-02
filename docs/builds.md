@@ -257,43 +257,69 @@ loop itself is still being stabilized.
 
 ## Build 9
 
-Build 9 owns minimal context management for agentic continuity. It should build
-on a stable Build 8 chat loop rather than pulling memory policy into DPI
-stabilization.
+Build 9 owns minimal context management for agentic continuity. It builds on the
+stable Build 8 chat loop. The design direction is locked and the Phase 1 memory
+layout has landed; the full working record is `notes/build9-context-attempts.md`.
+
+Each request is assembled from four layers:
+
+```text
+identity      static, on the floppy, hand-tuned     tone / self / tools
+ledger        serialized from the handoff block      machine facts: RAM top, NIC, IP, ...
+conversation  RAM, model-compacted rolling summary   recent interaction
+prompt        current user input (256 B in RX)       this turn
+```
+
+identity + ledger are the protected frame: never lossy-compacted. Only the
+conversation is compacted, and by the model (an occasional round-trip near the
+budget), never by local heuristics. The ledger is regenerated from the handoff
+block, so it costs ~0 durable RAM; Seed publishes machine facts (including the
+already-present `ram_top`) and lets the user/agent derive their own free arena
+rather than dictating one.
 
 Build 9 scope:
 
 ```text
-recent user prompt and model response can influence the next request
-small rolling session summary or equivalent compact context state
-context assembly fits the 16 KiB hot chat-loop constraints
-context state does not require floppy reads after splash in the normal prompt loop
-hot chat-loop phase loading no longer reads the floppy after splash (folds in deferred Build 8 blocker #4)
+recent user prompt and model response influence the next request
+model-compacted rolling conversation summary (no local summarization heuristics)
+context is reconnect-safe: it survives an idle/walk-away reconnect
+context lives in RAM reclaimed from the stack reserve, above the TLS scratch
 context state does not require writeable boot media
-clear truncation/summarization behavior when context space is exhausted
+clear, visible compaction when the conversation region fills
+a reserved user/agent arena floor shares the reclaimed pool with conversation
 no tool calling yet
 ```
 
-Build 9 is not full long-term agent memory. Persistent notes, preferences,
-project state, and durable workspaces belong to the later user/agent
-environment unless explicitly scoped. Build 9 only needs enough continuity that
-the next prompt is not semantically fresh.
+On the 16 KiB target Build 9 accepts bounded, documented per-turn floppy reads
+(identity loads with the existing per-turn phases): the Build 8 blocker #4 goal of
+eliminating hot-loop floppy reads is descoped here to "accept + document," trading
+hot-loop disk for the RAM that context and the arena need. Floppy-read elimination
+becomes a larger-machine quality-of-life item after Build 10.
 
-Build 9 investigation TODO (carried from Build 8; no code change made yet):
+The reclaimed pool is split conversation/arena 50/50 by default and is
+user/agent-adjustable; the arena grows with RAM on larger machines, while the
+transmitted conversation is naturally bounded (on the 8088, RAM is the binding
+limit long before the model's context window). The release guard is run thin per
+the closed-contract guard philosophy (`architecture.md`): the 16 KiB stack reserve
+is trimmed to a measured margin, confirmed by a stack high-water check in validation.
+
+Build 9 is not full long-term agent memory. Persistent notes, preferences, project
+state, and durable workspaces belong to the later user/agent environment. Build 9
+only needs enough continuity that the next prompt is not semantically fresh.
+
+Build 9 carried-TODO disposition (from Build 8):
 
 ```text
-NIC timing unification: ~26 handoff_nic_family gates exist, but ~14-16 are inherent
-  hardware I/O (detection + per-NIC ring/register access) that cannot unify. The ~10-11
-  behavioral/timing carve-outs are the candidates, and are 3c501-dominated (render-
-  before-ACK, the el1 single-buffer receive latch, handshake-flight ordering) plus one
-  3c503 app-send-before-server-finished. NE1000/NE2000/WD8003 and most of 3c503 already
-  run the shared path. Investigate which 3c501/3c503 carve-outs the shared path can
-  subsume. Per the transport contract in docs/networking.md, remove a per-card rule
-  only with a documented replacement rule + cross-NIC evidence.
-memory reclaim: Build 8 tightened 16 KiB slack to 781 bytes (below the 1 KiB guard
-  target); reclaim toward the 1 KiB target.
-hot-loop floppy reads: eliminate the windowed-nucleus per-prompt phase reads (the
-  documented Build 8 blocker #4 exception); see the floppy-read-free scope item above.
+floppy reads:  RESOLVED by decision - accept bounded documented per-turn reads on
+  16 KiB (see scope); elimination deferred to larger machines.
+memory reclaim: FOLDED into the core - the stack-reserve reclaim funds the context
+  pool; the old "toward a 1 KiB guard" target is replaced by a measured ~256 B reserve
+  run thin per the guard philosophy, confirmed by a validation tripwire.
+NIC timing unification: the one open investigation, sequenced into Build 9 validation
+  and evidence-gated. ~10-11 behavioral carve-outs (3c501-dominated: render-before-ACK,
+  the el1 single-buffer receive latch, handshake-flight ordering; one 3c503 app-send-
+  before-server-finished) are the candidates. Per docs/networking.md, remove a per-card
+  rule only with a documented replacement rule + cross-NIC evidence.
 ```
 
 ## Build 10

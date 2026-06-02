@@ -2,7 +2,7 @@
 %define LOADER_SECTORS 4
 %endif
 
-build_number equ 8
+build_number equ 9
 core_load_addr equ 0x1000
 handoff_addr equ 0x0600
 low_sha256_k equ 0x0500
@@ -14,7 +14,7 @@ net_setup_frame_scratch_len equ 512
 net_setup_phase_start equ low_scratch_start + net_setup_frame_scratch_len
 agent_response_phase_load_addr equ low_scratch_start + 0x0600
 basic_sidecar_stack_top_16k equ 0x4000
-basic_sidecar_stack_guard_len_16k equ 0x0200
+basic_sidecar_stack_guard_len_16k equ 0x0100   ; Build 9: 0x200->0x100; ~196 B static worst-case stack (Phase 4 tripwire confirms); frees 256 B -> context pool
 basic_sidecar_stack_top_24k equ 0x6000
 basic_sidecar_stack_guard_len_24k equ 0x0100
 handoff_magic equ 0
@@ -131,7 +131,7 @@ seed_row equ 12
 question_row equ seed_row + 2
 dpi_prompt_row equ 24
 dpi_prompt_col equ 0
-dpi_input_max_len equ 128
+dpi_input_max_len equ 255   ; 256 B prompt region in RX (255 chars + 1 length byte; len is a byte, max 255)
 api_response_text_max_len equ 192
 load_ticks equ 6
 type_ticks equ 1
