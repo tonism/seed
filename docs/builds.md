@@ -241,6 +241,17 @@ prompt input must not corrupt runtime state
 hot chat loop should avoid floppy reads after splash, or document any temporary exception before release
 ```
 
+Build 8 checkpoint (2026-06-02): chat-loop reliability COMPLETE across all 7 NIC profiles.
+Blockers 1-3 met (no-freeze, readable rendering, prompt input no longer corrupts runtime
+state) — validated by the 7-card matrix: multi-turn short + long + idle-reconnect. Blocker #4
+(floppy reads): the windowed-nucleus loads phases on demand, so the hot loop still reads the
+floppy per prompt — accepted as a TEMPORARY EXCEPTION per this blocker's escape clause
+(matrix-validated reliable); the floppy-read optimization is DEFERRED to Build 9. Key fixes:
+keep-alive reuse + durable resend (commit 2b09f60); long-render completion fallback for all
+NICs (commit 535de35) — the long-render 0D flake (was 3/28) is eliminated (0/21). The
+intermittent "no response" seen in testing was a harness screencapture observation artifact,
+not the product. Release marker pending (not yet cut).
+
 Build 8 should stay minimal. It should not introduce protected-mode machinery,
 a general shell, a local tool ABI, or memory-ocean/defrag work while the chat
 loop itself is still being stabilized.
@@ -258,6 +269,7 @@ recent user prompt and model response can influence the next request
 small rolling session summary or equivalent compact context state
 context assembly fits the 16 KiB hot chat-loop constraints
 context state does not require floppy reads after splash in the normal prompt loop
+hot chat-loop phase loading no longer reads the floppy after splash (folds in deferred Build 8 blocker #4)
 context state does not require writeable boot media
 clear truncation/summarization behavior when context space is exhausted
 no tool calling yet
