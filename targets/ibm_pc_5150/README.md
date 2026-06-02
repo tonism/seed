@@ -3,7 +3,7 @@
 This target is the first Seed discipline target: an original IBM PC-class boot
 path, starting from a 160 KiB 5.25-inch single-sided floppy image.
 
-Current milestone:
+Current boot flow:
 
 ```text
 BIOS loads boot sector
@@ -52,7 +52,7 @@ BIOS loads boot sector
   -> uses a normal o marker during local crypto/key setup
   -> switches to a bright o marker for agent and environment prep
   -> writes validated agent config back best-effort
-  -> otherwise types seed build 7 rightward from that column
+  -> otherwise types the seed build splash rightward from that column
   -> waits about 500 ms
   -> halts
 ```
@@ -140,8 +140,8 @@ The boot core runtime handoff block is documented in:
 targets/ibm_pc_5150/HANDOFF.md
 ```
 
-Build 5 was the internet-readiness milestone. The boot core still probes common
-ISA Ethernet I/O bases, publishes boot/video/NIC state to a low-memory handoff
+The boot core probes common
+ISA Ethernet I/O bases, publishes boot/video/NIC state to the handoff
 block, and resolves the adapter family. Known single-card bases continue
 automatically. Shared bases are resolved by station-address PROM probes when
 one family can be identified safely; `adapter?` remains a fallback question
@@ -152,7 +152,7 @@ all-zero, and all-`ff` addresses. The boot core also records IRQ 3 for the
 current 86Box IBM PC 5150 profiles once the adapter family is known; real IRQ
 discovery is later scope.
 
-The current build 5 checkpoint initializes NE1000/NE2000-family packet hardware
+The boot core initializes NE1000/NE2000-family packet hardware
 after a valid MAC read, polls the receive-ring pointers, reads one pending
 receive frame when available, sends a minimal DHCPDISCOVER, and performs a
 two-pass bounded filtered DHCPOFFER wait. When a DHCPOFFER is observed, the boot core
@@ -164,9 +164,9 @@ hop using the DHCP subnet/router data, ARPs that next hop, opens the probe TCP
 target on port 80 through the shared TCP connect path, and sends the final ACK
 after a matching SYN-ACK.
 
-Build 7 is the ROM BASIC low-memory milestone. The current checkpoint keeps the
-build 5 internet path and Build 6 agent-prep proof intact while slimming the
-same `CORE.SYS` toward a 16 KiB packed-memory layout. The boot core reads
+The target runs the full internet path and agent prep from a single `CORE.SYS`
+in a 16 KiB packed-memory layout, the smallest IBM PC 5150 configuration. The
+boot core reads
 `AGENTS.CFG`, parses up to five `agent ` declarations, reads `USER.CFG` when
 present, validates a saved `agent <id>`, asks `agent?` when the saved choice is
 missing or invalid, asks `server?` and `key?` on one form when the selected
@@ -191,13 +191,10 @@ sends ClientKeyExchange with the fixed client public point after local key
 material is ready, adds it to the live handshake transcript, sends
 ChangeCipherSpec and encrypted client Finished, adds that plaintext Finished
 handshake message to the live transcript, verifies the encrypted server
-Finished, sends a minimal OpenAI Responses API request as TLS application
-data, displays the returned `ok` answer, and writes the validated values back
-best-effort. On 1 May 2026, all seven original-speed 4.77 MHz NIC profiles
-reached that proof: `vm-net-3c501`, `vm-net-3c503`, `vm-net-ne1k`,
-`vm-net-ne2k8`, `vm-net-novell-ne1k`, `vm-net-wd8003e`, and
-`vm-net-wd8003eb`.
-Missing or invalid `AGENTS.CFG` content falls back to
+Finished, and runs the Default Prompt Interface chat loop over the established
+session as TLS application data: an initial model greeting, prompt input, and
+streamed model responses across multiple turns in one boot session. It writes
+the validated values back best-effort. Missing or invalid `AGENTS.CFG` content falls back to
 built-in `openai`, `anthropic`, and `google`; other agent setup failures still
 fail in the bright `"o"` phase as `agent setup failed`.
 
@@ -218,7 +215,7 @@ failure         current marker turns red, low descending PC speaker tone, fast-t
 question        phase-colored blinking marker, low PC speaker attention tone, bright fast-typed prompt ending with ?
 agent question  agent? with AGENTS.CFG entries or built-in big-three fallback when USER.CFG has no valid agent choice
 field question  server? and/or key? with cursor shown only while typing; Up/Down moves field focus
-success         dim "." -> dim "," -> dim "o" -> normal "o" -> bright "o" -> seed build 7
+success         dim "." -> dim "," -> dim "o" -> normal "o" -> bright "o" -> the seed build splash
 ```
 
 The splash is only the ready handoff animation. No hardware setup, network
@@ -237,7 +234,7 @@ Default display attributes:
 
 ```text
 seed       CGA white / MDA bright
-build 7    CGA dark gray / MDA normal
+build N    CGA dark gray / MDA normal
 loading    CGA dark gray / MDA normal
 crypto     CGA light gray / MDA normal
 ready      CGA white / MDA bright

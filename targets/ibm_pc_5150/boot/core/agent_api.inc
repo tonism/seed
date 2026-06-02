@@ -21,7 +21,7 @@ agent_api_exchange:
     ; 3c503 reuses the live keep-alive TLS session like the NE family and waits
     ; for true transport completion (zero chunk / close_notify). The deeper
     ; 3c503 long blocker is intermittent completion-detection in multi-large
-    ; -record trailers - see notes/nic_timing_lanes.md.
+    ; -record trailers - see docs/networking.md.
     cmp byte [api_stream_completed], 3
     jne .receive
 .success:

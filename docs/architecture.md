@@ -77,7 +77,7 @@ normal visible runtime file:
 
 `CORE.SYS` is one file-backed runtime. The build splits its source into NASM
 include files and cold phases, but the release artifact remains one visible
-`CORE.SYS`. Do not introduce a second runtime image for low-memory entry.
+`CORE.SYS`. Do not introduce a second runtime image for 16 KiB entry.
 
 ## Entry Paths
 
@@ -125,7 +125,7 @@ hardware phase "."
   -> H: display, handoff, adapter discovery
   -> I: packet I/O initialization
 
-internet phase ","
+internet phase (still ".")
   -> D: DHCP setup
   -> P: NET.CFG probe-host load/parse
   -> C: TCP connect to generic probe path
@@ -135,7 +135,7 @@ agent phase "o"
   -> U: USER.CFG load/parse
   -> Q: ask for missing agent/server/key/model/reasoning values if needed
   -> E: selected-agent endpoint and DNS name preparation
-  -> R: fixed minimal request construction
+  -> R: request construction
   -> K: load provider-critical LINK window at 0x1800
   -> L: build TLS ClientHello and low crypto constants
   -> C: TCP connect to selected provider on port 443
@@ -143,6 +143,11 @@ agent phase "o"
   -> T: parse a received application-data chunk for the returned answer
   -> S: best-effort USER.CFG save if values changed
   -> B: splash/result screen
+
+prompt loop "Default Prompt Interface"
+  -> render the model greeting, then take prompt input
+  -> per turn: build request, encrypted send, streamed application receive, render
+  -> reuse the live TLS session across turns; reconnect and resend on a real drop
 
 failure
   -> F: mark current phase red, type error, offer retry/restart
@@ -175,19 +180,28 @@ P   2        0x0700     NET.CFG probe config
 A   2        0x0700     AGENTS.CFG provider config
 U   2        0x0700     USER.CFG persisted user values
 Q   3        0x0700     agent selection and missing-value prompts
-R   1        0x0700     minimal API request construction
-T   1        0x0d0e     response chunk parse
-B   1        0x0700     final splash/result display
+R   3        0x0900     API request construction
+V   1        0x0700     agent/endpoint cache
+X   1        0x0900     application-data stream (encrypted send/receive)
+T   1        0x0d00     agent response parse
+B   1        0x0700     splash/result display
+Y   1        0x0700     Default Prompt Interface chat loop
 S   1        0x0700     best-effort USER.CFG save
 ```
 
-The table above lists the core phases; Build 8 added the chat-loop phases
-(request build, agent cache/endpoint, application stream, response render) so the
-current authoritative count is 19. Run `make inspect` / `tools/core-sys-info.py` for
-the live phase table.
+This is the live 19-phase layout; regenerate it with `make inspect` /
+`tools/core-sys-info.py`. Phases that do network I/O — `D`, `C`, `R`, `X` — load at
+`0x0900` so they coexist with the TCP/NIC scratch; the response parser `T` loads at
+`0x0d00`; every other cold phase loads at `0x0700`.
 
 Most cold phases share the low scratch/window region. The K window is different:
 it is loaded once into a larger high window before the provider-critical path.
+
+This windowed, phase-streaming design is what lets a full TLS 1.2 agent path — P-256
+ECDHE, ChaCha20-Poly1305, HTTP/1.1, and SSE streaming — run in 16 KiB on a 4.77 MHz
+8088: only the 2 KiB nucleus and the 7 KiB `K` crypto window stay permanently resident,
+while the other 18 phases stream from the floppy on demand and take turns in one small
+window. See [`memory.md`](memory.md) for the stage-by-stage memory maps.
 
 ## Provider Timing Model
 
@@ -231,55 +245,91 @@ the user or agent explicitly chooses to use the floppy, or Seed must recover
 from a dropped or rebuilt provider link. The hot prompt/response path should be
 RAM, network, and video flow rather than per-message overlay reads.
 
+The per-NIC transport timing contracts this path depends on — render-before-ACK
+pacing, the receive latch, and large-record completion handling — are documented in
+[`networking.md`](networking.md).
+
 ## Memory Layout
 
-The 16 KiB target ceiling is `0x4000`. Seed currently keeps a 1 KiB measured
-execution guard below that ceiling.
+The 16 KiB target ceiling is `0x4000`. At steady state three regions stay permanently
+resident: the 2 KiB nucleus at `0x1000`, the 7 KiB `K` crypto/TLS/API window at
+`0x1800`, and ~2.3 KiB of high-crypto plus critical TLS/API scratch above it. Cold
+phases stream through the shared low scratch at `0x0700`. Critical scratch ends at
+`0x3cf3`, leaving the measured execution guard — currently 781 bytes, below the 1 KiB
+target — under the ceiling.
 
-Generated stage-by-stage memory diagrams live in [`memory.md`](memory.md).
-Treat that file as an appendix to this architecture contract: regenerate it
-with `make memory-map` after memory-layout changes and before release checks.
+The byte-level entry-time and runtime layouts, and the per-stage maps, live in
+[`memory.md`](memory.md); regenerate them with `make memory-map` after any
+memory-layout change and before release checks.
 
-Entry-time BASIC view:
+32 KiB and larger machines use the same `CORE.SYS` and the same 16 KiB contract.
+Extra memory may be exposed later as optional arenas, caches, or tool space, but the
+base product must not require it.
 
-```text
-0000..03ff  interrupt vectors
-0400..04ff  BIOS data area
-0500..06ff  low Seed/handoff area used after CORE starts
-0700..0fff  low scratch/window area used after CORE starts
-1000..17ff  resident CORE.SYS sectors loaded by BASIC helper
-1800..39ff  ROM BASIC/program workspace until helper jumps
-3a00..3a81  temporary BASIC sidecar machine-code loader
-3a82..3fff  BASIC helper stack/top area before CORE starts
-```
+## CPU And Crypto Budget
 
-Runtime 16 KiB view after `CORE.SYS` takes over:
-
-```text
-0000..03ff  interrupt vectors
-0400..04ff  BIOS data area
-0500..05ff  low SHA-256 constants/scratch
-0600..062d  Seed handoff block
-062e..06ff  low runtime state
-0700..0fff  low scratch, filesystem sector buffer, cold phase windows
-1000..17ff  resident nucleus, 4 sectors / 2048 bytes
-1800..33ff  K provider-critical window, 14 sectors / 7168 bytes
-3400..34c1  high crypto scratch, 194 bytes
-34c2..3cf2  critical TLS/API scratch, 2097 bytes
-3cf3..3fff  slack / stack-variance guard, 781 bytes (below the 1 KiB target)
-```
-
-The important collision boundary is the end of critical scratch:
+The other half of the constraint is the processor. A 4.77 MHz 8088 is a 16-bit,
+sub-MIPS part with a slow multiply and no crypto acceleration, and the provider path
+asks it to run modern TLS 1.2 — P-256 ECDHE, ChaCha20-Poly1305, and SHA-256 — heavy
+256-bit math on a CPU built for 16-bit adds. The whole boot to first response reads as four resource tracks — one column per
+second, `░▒▓█` from light to full:
 
 ```text
-critical end       0x3cf3
-16 KiB RAM top     0x4000
-slack / guard      781 bytes (below the 1 KiB target, above the 512 B floor)
+         0    5    10   15   20      seconds
+  CPU    ▒▒    ██████████████▒
+  RAM    ░░░▒▒▒██████████████████
+  DSK    █▓▒▒▒██             ▒▒░
+  NET      ▓▓▓▓▒            ░▒▓▓▓
+
+  CPU  real computation    flat-out only during ECDHE + key schedule (s6-19)
+  RAM  16 KiB filled         climbs, then the K window lands (~s6) and stays ~98% full
+  DSK  floppy sector reads   nucleus + every cold phase; the big spike is K (14 sectors)
+  NET  packets on the wire   DHCP / DNS / TCP (s2-5), then the streamed response (s21+)
+
+The correlation is the story: the K window lands, disk spikes, RAM fills — then the
+CPU pins flat-out on the two crypto steps while disk and network fall quiet. After the
+first response the DPI loop runs near-idle, reusing the session. (Shapes approximate.)
 ```
 
-32 KiB and larger machines use the same `CORE.SYS` and the same low-memory
-contract. Extra memory may be exposed later as optional arenas, caches, or tool
-space, but the base product must not require it.
+What keeps that tractable:
+
+- **An ARX record cipher.** The negotiated suite uses ChaCha20-Poly1305, an
+  add-rotate-xor design with no S-boxes or large tables, so it needs no AES hardware
+  and stays cheap on the 8088.
+- **Field math tuned for the part.** Comba-style product accumulation for the 256-bit
+  multiplies, Jacobian coordinates to avoid per-step modular inversions in the ECDHE
+  scalar multiply, and prepared HMAC pad states reused across the TLS PRF so the
+  SHA-256 blocks are not recomputed.
+- **The scalar multiply is the bottleneck, and a known limitation.** A full P-256
+  scalar multiply runs into minutes on this CPU, so the current build uses a sparse
+  fixed development scalar to keep boot in the seconds range. A real entropy source and
+  a faster constant-time full-scalar strategy are required before the path can be
+  treated as secure TLS.
+- **Pace the stream to the renderer.** On the most constrained NICs, response text uses
+  render-before-ACK pacing so the network does not outrun the 8088's text renderer (see
+  `networking.md`).
+- **No tight remote loops.** Network and model latency on top of a slow CPU make
+  step-by-step remote hardware control unreliable, which is why the post-Seed model is
+  asynchronous (see User/Agent Environment, below).
+
+The handshake is also why the chat loop never reconnects mid-conversation — that is a
+race it cannot reliably win:
+
+```text
+  fresh TLS handshake on the 8088   ├──────────────── ~15 s ────────────────┤ done
+  provider reconnect window         ├─────────────── ~15 s ───────────────┤ ✗ closed
+
+  A mid-chat reconnect can lose this race and surface a connect error — for an
+  answer the user has already seen. So the chat loop instead:
+    · holds ONE TLS session open and reuses it for every prompt
+    · if the completion marker is missed but the text already rendered, it accepts
+      the answer rather than forcing a new (racing) handshake
+  The ~15 s handshake is paid once, at boot — never per turn.
+```
+
+The two constraints are answered the same way: do the irreducible work once, keep it
+resident only as long as it is needed, and lean on algorithm and layout choices that
+suit a small, slow machine instead of fighting them.
 
 ## Hardware And Handoff Contract
 
@@ -395,7 +445,7 @@ need to protect against unknown programs casually stepping on the runtime.
 A guard is still useful for stack depth, BIOS side effects, packet timing,
 worst-case accepted config values, emulator versus real hardware variance, and
 Seed's own mistakes. The guard should therefore be explicit, measured, and
-small enough that it does not waste the point of a low-memory target.
+small enough that it does not waste the point of a 16 KiB target.
 
 For the 16 KiB target, the release guard target is 1 KiB of measured execution
 headroom after Seed-owned resident state, scratch, window space, and stack
@@ -431,5 +481,5 @@ Those are expansions of the same contract, not alternate products.
 The long-term memory-ocean direction remains plausible: keep fixed Seed-owned
 runtime ranges, keep dynamic scratch/request/response ranges explicit, and make
 the remaining machine available to the user/agent environment. Do not reenter a
-full memory defragmentation or ocean redesign until the Build 8 chat loop is
+full memory defragmentation or ocean redesign until the chat loop is
 stable.

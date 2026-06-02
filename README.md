@@ -15,6 +15,24 @@ The same floppy image supports direct BIOS boot on larger machines and ROM
 BASIC sidecar entry on smaller machines that cannot boot from the BIOS-loaded
 sector address.
 
+## Highlights
+
+Two things make Seed unusual, and both are worth reading about in depth:
+
+- **A full agent stack in 16 KiB.** The whole TLS 1.2 path — handshake, key schedule,
+  ChaCha20-Poly1305 record crypto, HTTP, and streamed responses — fits in a 16 KiB RAM
+  budget. Only a 2 KiB resident nucleus and a 7 KiB crypto window ever stay in memory;
+  18 other phases stream from the floppy on demand and time-share one small window.
+- **…on a 4.77 MHz 8088.** That same modern crypto — P-256 ECDHE, ChaCha20-Poly1305,
+  SHA-256 — runs on a sub-MIPS 16-bit CPU with no crypto acceleration, using hand-tuned
+  field arithmetic, a reused TLS session, and an add-rotate-xor cipher that suits the
+  part.
+
+Small and slow, but it works. The full CPU and memory story is in
+[docs/architecture.md](docs/architecture.md), with stage-by-stage memory maps in
+[docs/memory.md](docs/memory.md). Target-specific boot, memory, and emulator details
+live under [targets/ibm_pc_5150/](targets/ibm_pc_5150/).
+
 ## Minimum Specs
 
 Current IBM PC 5150 target:
@@ -57,10 +75,6 @@ On the IBM PC 5150 target, Seed can:
   input, and streamed model responses across multiple turns in one boot session,
 - use shipped `AGENTS.CFG` and `NET.CFG` defaults, and
 - use optional local `USER.CFG` state when present.
-
-The product contract is described in [docs/architecture.md](docs/architecture.md).
-Target-specific boot, memory, and emulator details live under
-[targets/ibm_pc_5150/](targets/ibm_pc_5150/).
 
 ## Build
 
@@ -123,10 +137,11 @@ config/NET.CFG                     shipped generic internet probe default
 docs/architecture.md               Seed product and hardware/tooling contract
 docs/builds.md                     milestone and scope history
 docs/config.md                     agent config and optional user state policy
+docs/networking.md                 NIC and TLS-transport behavioral contract
 docs/ui.md                         text UI and fast-type rules
 notes/                             design notes and implementation logs
-targets/ibm_pc_5150/README.md      current target details
-targets/ibm_pc_5150/HANDOFF.md     current low-memory runtime handoff block
+targets/ibm_pc_5150/README.md      target details
+targets/ibm_pc_5150/HANDOFF.md     runtime handoff block
 targets/ibm_pc_5150/boot/          8088 boot sector, loader, and core wrapper
 targets/ibm_pc_5150/boot/core/     boot core include files; emitted as CORE.SYS
 targets/ibm_pc_5150/86box/         86Box profiles and NIC inventory

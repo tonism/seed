@@ -143,13 +143,11 @@ offset  size  value
 13 TLS handshake proof failed
 ```
 
-Build 4 fills the block through adapter-family resolution plus 3c501, 3c503,
+The block is filled through adapter-family resolution plus 3c501, 3c503,
 NE1000/NE2000, and WD8003 station-address PROM reads. It records IRQ 3 for the
-current 86Box IBM PC 5150 profiles after adapter family resolution; IRQ
-discovery, packet I/O, IP config, TLS, and model API connection are later
-milestones.
+current 86Box IBM PC 5150 profiles after adapter family resolution.
 
-Build 5 extends the block for internet readiness. The current checkpoint marks
+For internet readiness, the block marks
 adapter identity readiness for all resolved NICs, then advances
 NE1000/NE2000-family cards through packet hardware readiness, receive-ring poll
 readiness, one receive-frame read when a packet is already pending,
@@ -174,11 +172,11 @@ DNS response, or SYN-ACK is observed during the bounded waits, the dark `","`
 internet phase fails into the network setup error path with the corresponding
 status and network error.
 
-Build 6 starts after the dark `","` internet phase. It uses a dark `"o"` for
+The secure-connection phase follows the dark `","` internet phase. It uses a dark `"o"` for
 secure connection prep, switches to a normal `"o"` for local ECDHE/key
-material derivation, and switches to a bright `"o"` after the current TLS
-proof succeeds. On MDA, dark and normal `"o"` both render non-bright. The current checkpoint
-extends the network readiness states for TCP payload send/receive and the first
+material derivation, and switches to a bright `"o"` after the TLS
+proof succeeds. On MDA, dark and normal `"o"` both render non-bright. This phase
+covers the network readiness states for TCP payload send/receive and the
 TLS handshake proof. It parses up to five `AGENTS.CFG` `agent ` declarations and falls
 back to built-in `openai`, `anthropic`, and `google` when that file is missing
 or bad. It validates a saved `USER.CFG` selected-agent choice when present, asks

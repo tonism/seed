@@ -21,7 +21,7 @@ google
 ```
 
 When `AGENTS.CFG` parses successfully, it overrides the built-in list.
-Build 6 stores agent IDs in 12-byte slots, so IDs may use up to 11 visible
+Seed stores agent IDs in 12-byte slots, so IDs may use up to 11 visible
 characters plus the terminator. The shipped IDs fit this cap.
 
 `NET.CFG` holds generic network-readiness probe settings. It currently supports
@@ -32,7 +32,7 @@ probe <host-or-url>
 ```
 
 The default tracked value is `probe example.com`. If `NET.CFG` is missing,
-unreadable, or invalid, Seed falls back to `example.com` for the dark `","`
+unreadable, or invalid, Seed falls back to `example.com` for the dark `"."`
 internet-readiness proof.
 
 `USER.CFG` is user-local state. It should only contain values that were entered
@@ -41,12 +41,12 @@ overrides, model choices, reasoning effort, and API credentials. NIC adapter
 family hints are intentionally not stored; the current probes are cheap enough
 to rerun each boot.
 
-Build 6 caps stored API credentials at 192 bytes. Anthropic and Google document
+Seed caps stored API credentials at 192 bytes. Anthropic and Google document
 how API keys are passed to their APIs, but do not publish a longer key-string
 maximum; this is Seed's runtime policy cap for the currently supported
 OpenAI/Anthropic/Google provider surface.
 
-Build 6 stores endpoint overrides in 80-byte slots, so endpoint values may use
+Seed stores endpoint overrides in 80-byte slots, so endpoint values may use
 up to 79 visible characters plus the terminator. Reasoning effort values use an
 8-byte slot, which covers the current `low`, `medium`, `high`, and `xhigh`
 efforts.
@@ -97,7 +97,7 @@ no long filenames
 no dependency on writes succeeding
 ```
 
-The current config path inherits the Build 6 agent/API path: it parses
+The current config path parses
 up to five `agent ` declarations from `AGENTS.CFG` when that file is available
 and valid; otherwise it uses the built-in direct-vendor fallback. It reads
 `USER.CFG` when present, accepts a saved `agent <id>` only if it matches the
@@ -150,10 +150,9 @@ master secret. `openrouter.ai` therefore remains in `AGENTS.CFG`. `litellm` is
 a user-supplied endpoint, so it cannot be certified at ship time; it is
 supported only when the configured server negotiates the same path.
 
-`reasoning` is stored as a plain text effort value such as `xhigh`. The first
-OpenAI request path uses that saved value when present and sends a hardcoded
-Responses API request asking the model to reply exactly `ok`; dynamic model
-and reasoning capability fetches remain later work. The `key` value is
+`reasoning` is stored as a plain text effort value such as `xhigh`. The request
+path uses that saved value when present and drives the Default Prompt Interface
+chat loop; dynamic model and reasoning capability fetches remain later work. The `key` value is
 plaintext on the boot medium. The current ECDHE scalar is a sparse fixed
 development value so emulator boot tests do not spend minutes in the `"o"`
 secure/crypto phases. A real entropy path and a faster full-scalar strategy
@@ -163,15 +162,5 @@ is prepared, sends ChangeCipherSpec and encrypted client Finished, and can
 send the prepared API request early as TLS application data before waiting for
 the server Finished. It receives, authenticates, decrypts, and verifies the
 encrypted server Finished and TLS application records for the current
-ChaCha20-Poly1305 path. On 1 May 2026, all seven original 4.77 MHz NIC
-profiles completed the direct OpenAI Responses request/response proof and
-displayed the returned `ok`. On 4 May 2026, the 64 KiB baseline was retested
-before memory-slimming work: all valid profiles except `vm-net-3c501` reached
-`seed build 6` and displayed `ok`; `vm-net-3c501` failed at agent setup and
-remained open until the 32 KiB slimming pass. On 7 May 2026, that failure was
-repaired in representative 32 KiB NIC-family tests: `vm-net-ne2k8`,
-`vm-net-3c501`, `vm-net-3c503`, and `vm-net-wd8003e` each displayed `ok` and
-reached `seed build 6`. The Build 7 ROM BASIC sidecar path preserves the same
-API proof while measuring the 16 KiB packed-memory layout.
-Capability fetches, model selection, reasoning selection, and environment
-handoff remain later work.
+ChaCha20-Poly1305 path. Capability fetches, model selection, reasoning selection,
+and environment handoff remain later work.

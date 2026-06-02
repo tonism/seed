@@ -43,7 +43,7 @@ Floppy:  5.25" single-sided drive as A:
 Disk A:  build/ibm_pc_5150/floppy-160k.img
 ```
 
-The original-speed 4.77 MHz, 16 KiB profiles are the Build 7 low-memory
+The original-speed 4.77 MHz, 16 KiB profiles are the
 compatibility gate through the ROM BASIC sidecar bootstrap. The normal BIOS
 boot path remains part of the same floppy for 32 KiB and larger machines, while
 the tracked emulator profiles exercise the sub-32 KiB entry path. Literal
@@ -69,7 +69,7 @@ no card         current marker turns red, low descending PC speaker tone, fast-t
 question        phase-colored blinking marker, low PC speaker attention tone, bright fast-typed prompt ending with ?
 agent question  agent? with AGENTS.CFG entries or built-in big-three fallback when USER.CFG has no valid agent choice
 field question  server? and/or key? with cursor shown only while typing; Up/Down moves field focus
-success         dim "." -> dim "," -> dim "o" -> normal "o" -> bright "o" -> seed build 7
+success         dim "." -> dim "," -> dim "o" -> normal "o" -> bright "o" -> the seed build splash
 ```
 
 The splash is only the ready handoff animation. No setup work happens during
@@ -101,7 +101,7 @@ Default CGA colors:
 
 ```text
 seed       white
-build 7    dark gray
+build      dark gray
 loading    dark gray
 crypto     light gray
 ready      white
@@ -200,7 +200,7 @@ completed the direct OpenAI Responses request/response proof, displayed the
 returned `ok`, and reached `seed build 6`. Retest individual profiles when
 changing TLS timing or shared packet code.
 
-The Build 7 low-memory release path uses `tools/run-basic-bootstrap-86box.py`
+The 16 KiB path uses `tools/run-basic-bootstrap-86box.py`
 to force ROM BASIC entry and inject the generated sidecar helper while
 `make inspect` enforces the 16 KiB packed-memory layout. Before the compact
 helper release, that path

@@ -77,8 +77,8 @@ PRIORITY = [
     'free',
 ]
 
-STAGES = ['cold', 'nucleus', 'hal', 'net', 'agent-prep', 'tls', 'cleanup']
-DEFAULT_STAGES = ['cold', 'nucleus', 'hal', 'net', 'agent-prep', 'tls']
+STAGES = ['cold', 'nucleus', 'hal', 'net', 'agent-prep', 'tls', 'dpi', 'cleanup']
+DEFAULT_STAGES = ['cold', 'nucleus', 'hal', 'net', 'agent-prep', 'tls', 'dpi']
 MARKER_BEGIN = '<!-- BEGIN MAP: stage-{stage} -->'
 MARKER_END = '<!-- END MAP: stage-{stage} -->'
 
@@ -323,6 +323,19 @@ def stage_tls(ctx) -> list[str]:
     return cells
 
 
+def stage_dpi(ctx) -> list[str]:
+    """Chat loop after the first response. The K window, the derived session keys,
+    and the receive buffer (now holding the streamed response) stay resident and
+    serve every turn. The handshake-only scratch (hmac_prepared, tls_server_random,
+    master_secret, handshake_hash) is dead once the session keys exist, so the
+    steady-state chat footprint is a little lighter than the handshake peak."""
+    cells = stage_tls(ctx)
+    c = ctx.consts
+    rx_end = c['critical_scratch_start'] + c['tls_payload_buffer_len']
+    fill(cells, rx_end, rx_end + 637, 'free')
+    return cells
+
+
 def stage_cleanup(ctx) -> list[str]:
     if not ctx.cleanup_ranges:
         raise RuntimeError(
@@ -374,6 +387,7 @@ STAGE_BUILDERS = {
     'net':        stage_net,
     'agent-prep': stage_agent_prep,
     'tls':        stage_tls,
+    'dpi':        stage_dpi,
     'cleanup':    stage_cleanup,
 }
 
@@ -429,6 +443,13 @@ STAGE_FOOTER_BUILDERS = {
         "derived; receive buffer holding the encrypted response; the\n"
         "rest of pre-response scratch (hmac_prepared + tls_server_random\n"
         "/ master_secret / handshake_hash) filled by the handshake."
+    ),
+    'dpi': lambda ctx: (
+        "Chat loop after the first response. The K window, the derived session\n"
+        "keys, and the receive buffer (now the streamed response) stay resident\n"
+        "and serve every turn; the DPI phase rotates through low scratch. The\n"
+        "handshake-only scratch is freed, so the steady-state footprint is a touch\n"
+        "lighter than the handshake peak, and does not grow as the chat goes on."
     ),
     'cleanup': None,  # generated dynamically below
 }

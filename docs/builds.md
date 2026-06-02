@@ -1,11 +1,10 @@
 # Build Scope
 
-Seed's loading marker has five semantic states plus the final splash:
+Seed's loading marker has four semantic states plus the final splash:
 
 ```text
 none         boot sector, loader, CORE.SYS load
-"." dark     hardware: CORE.SYS entry, display baseline, hardware detection, adapter init, hardware handoff
-"," dark     internet: IP configuration, DNS, and plain reachability proof
+"." dark     hardware then internet: CORE.SYS entry, display baseline, hardware detection, adapter init, handoff, then IP configuration, DNS, and reachability proof
 "o" dark     secure connection: selected endpoint setup and TLS protocol proof
 "o" normal   local crypto: P-256 ECDHE and TLS key-material derivation
 "o" bright   agent/environment: API validation, model/session, and environment handoff
@@ -25,9 +24,9 @@ build 1   boot floppy proof
 build 2   minimal boot presentation: centered marker and fast-type banner
 build 3   no-marker bootstrap: loader boundary, display baseline, handoff block, retry boundary
 build 4   "." dark phase: hardware setup, adapter autodetect/fallback questions, hardware handoff
-build 5   "," dark phase: internet prep, IP config, reachability proof
+build 5   internet readiness under the "." phase: IP config, DNS, reachability proof
 build 6   "o" dark + normal + bright phases: secure connection, credentials, minimal provider API proof
-build 7   ROM BASIC low-memory entry and 16 KiB windowed-nucleus release target
+build 7   ROM BASIC 16 KiB entry and windowed-nucleus release target
 build 8   Default Prompt Interface chat loop
 build 9   minimal context management for agentic continuity
 build 10  minimal tool calling through controlled RAM access
@@ -52,7 +51,7 @@ packet hardware init, bounded receive polling, DHCPDISCOVER/OFFER,
 DHCPREQUEST/ACK, DHCP subnet/router/DNS capture, DNS-server ARP, DNS A
 resolution for the `NET.CFG` probe host, subnet-aware next-hop ARP, and a TCP
 connect handshake to port 80 through the boot-core TCP connect path. NE-family
-cards also perform the receive-ring read diagnostic. This gives the dark `","`
+cards also perform the receive-ring read diagnostic. This gives the dark `"."`
 phase a real outbound reachability proof without starting TLS, model API calls,
 or an agent session.
 
@@ -121,7 +120,7 @@ direct OpenAI Responses request/response proof on all seven original 4.77 MHz NI
 best-effort USER.CFG write of validated agent, model, reasoning, key, and endpoint values
 ```
 
-Still outside the Build 7 low-memory release scope:
+Still outside the Build 7 16 KiB release scope:
 
 ```text
 replace pseudo-random client random and fixed scalar with real entropy/scalar handling before claiming secure TLS
@@ -150,7 +149,7 @@ the released hex helper was smoke-tested through returned `ok` on
 
 ## Build 7
 
-Build 7 owns the low-memory entry contract. The user-visible packaging change
+Build 7 owns the 16 KiB entry contract. The user-visible packaging change
 is that the same Seed floppy supports two entry modes:
 
 ```text
@@ -161,10 +160,10 @@ below 32 KiB         user enters ROM BASIC and types the generated BASIC sidecar
 The BASIC helper is a sidecar entry path for the same `CORE.SYS`, not a second
 runtime. The floppy must remain one product: one image, one visible `CORE.SYS`,
 one code path after entry. The helper may be generated for emulator testing and
-documentation, but the shippable low-memory promise is that a user can type the
+documentation, but the shippable 16 KiB promise is that a user can type the
 minimal helper in ROM BASIC when BIOS boot is unavailable.
 
-The first attempted low-memory release target was 24 KiB, but literal 24 KiB
+The first attempted release target was 24 KiB, but literal 24 KiB
 IBM PC 5150 profiles in 86Box stop during POST before ROM BASIC. That makes
 24 KiB useful as an internal budgeting shape, not a releasable entry target for
 this emulator/target combination. Build 7 therefore uses the 16 KiB ROM BASIC
@@ -192,7 +191,7 @@ no-floppy provider-critical window from TLS/API start until the answer has been
 found. Historical progress and failed cuts are tracked in
 `notes/old/16kb-windowed-nucleus-attempts.md`.
 
-Current Build 7 checkpoint:
+Build 7 checkpoint:
 
 ```text
 runtime splash number moved to seed build 7
@@ -212,7 +211,7 @@ no-card CGA and MDA profiles fail cleanly with no NIC
 ## Build 8
 
 Build 8 owns the Default Prompt Interface, the first usable chat loop after the
-provider API path is alive. It starts from the Build 7 low-memory entry contract
+provider API path is alive. It starts from the Build 7 16 KiB entry contract
 rather than assuming a larger machine.
 
 DPI is a disposable starter interface, not the final user/agent environment. It
@@ -289,8 +288,8 @@ NIC timing unification: ~26 handoff_nic_family gates exist, but ~14-16 are inher
   before-ACK, the el1 single-buffer receive latch, handshake-flight ordering) plus one
   3c503 app-send-before-server-finished. NE1000/NE2000/WD8003 and most of 3c503 already
   run the shared path. Investigate which 3c501/3c503 carve-outs the shared path can
-  subsume. Per nic_timing_lanes.md's working rule, remove a per-card rule only with a
-  documented replacement rule + cross-NIC evidence.
+  subsume. Per the transport contract in docs/networking.md, remove a per-card rule
+  only with a documented replacement rule + cross-NIC evidence.
 memory reclaim: Build 8 tightened 16 KiB slack to 781 bytes (below the 1 KiB guard
   target); reclaim toward the 1 KiB target.
 hot-loop floppy reads: eliminate the windowed-nucleus per-prompt phase reads (the

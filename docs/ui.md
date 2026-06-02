@@ -20,8 +20,7 @@ message content:
 
 ```text
 none         boot sector, loader, CORE.SYS load
-"." dark     hardware and local machine setup
-"," dark     internet prep and reachability
+"." dark     hardware, local machine setup, and internet prep/reachability
 "o" dark     secure connection setup
 "o" normal   local TLS crypto/key material setup
 "o" bright   agent and environment prep

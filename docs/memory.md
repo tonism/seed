@@ -29,7 +29,7 @@ c  crypto constants
 ```
 
 The cleanup/defrag/ocean architecture is intentionally not part of the current
-Build 8 rebuild. If that work returns later, this appendix should show it as a
+rebuild. If that work returns later, this appendix should show it as a
 new stage generated from the live cleanup table.
 
 ## Stage 1 — Cold Boot
@@ -139,3 +139,22 @@ rest of pre-response scratch (hmac_prepared + tls_server_random
 / master_secret / handshake_hash) filled by the handshake.
 ```
 <!-- END MAP: stage-tls -->
+
+## Stage 7 — Chat Loop / Response Streaming
+
+<!-- BEGIN MAP: stage-dpi -->
+```text
+  ┌────────┬───────1───────2───────3───────4┐ KiB
+  │ 0x0000 │██████████cch ,,,,,,,,,,,,,,,,cc│
+  │ 0x1000 │▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒│
+  │ 0x2000 │▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒│
+  │ 0x3000 │▒▒▒▒▒▒▒▒ttrrrrrrrrrrr    aaa  ||│
+  └────────┴────────────────────────────────┘
+
+Chat loop after the first response. The K window, the derived session
+keys, and the receive buffer (now the streamed response) stay resident
+and serve every turn; the DPI phase rotates through low scratch. The
+handshake-only scratch is freed, so the steady-state footprint is a touch
+lighter than the handshake peak, and does not grow as the chat goes on.
+```
+<!-- END MAP: stage-dpi -->
