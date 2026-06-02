@@ -59,10 +59,11 @@ the boot loader and the BASIC loader can find the same runtime image.
 - Target 8088-compatible 16-bit real-mode code for `ibm_pc_5150`. Keep NASM
   sources locked to `cpu 8086` so unsupported opcodes are caught at build time.
 - Do not introduce protected mode or graphics mode unless explicitly scoped.
-- Build 7 is the current low-memory release milestone. It keeps Build 6 secure
-  connection plus the minimal OpenAI Responses proof intact while fitting the
-  same `CORE.SYS` toward 16 KiB ROM BASIC entry; do not add agent sessions or
-  environment handover unless explicitly scoped.
+- Build 8 is the current milestone: the Default Prompt Interface chat loop on the
+  16 KiB ROM BASIC entry, built on the Build 6/7 secure-connection + low-memory
+  contract. It is feature-complete and validated; do not add Build 9 context
+  management, Build 10 tool calling, or environment handover unless explicitly
+  scoped.
 - OpenAI, Anthropic, and Google define the supported agent TLS compatibility
   surface. Extra default `AGENTS.CFG` entries may stay only if they fit the
   same path; do not add alternate crypto paths just to keep a gateway.

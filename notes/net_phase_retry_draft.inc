@@ -2,7 +2,7 @@
 ; OVERFLOWS the link window by ~15-20B as-is (net_phase shares the 0x3400 crypto
 ; ceiling). Apply ONLY after reclaiming ~15-20B in the crypto/tls region. Cold-safe
 ; (first attempt == cold connect); max_reconnect_retries=8. Logic validated; blocked
-; only on byte budget. See notes/default-prompt-interface-attempts.md (2026-05-30).
+; only on byte budget. See notes/old/default-prompt-interface-attempts.md (2026-05-30).
 
 prepare_internet_path:
     call wd_enter_packet_path

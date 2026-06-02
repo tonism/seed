@@ -97,7 +97,7 @@ no long filenames
 no dependency on writes succeeding
 ```
 
-The current Build 7 checkpoint inherits the Build 6 agent/API path: it parses
+The current config path inherits the Build 6 agent/API path: it parses
 up to five `agent ` declarations from `AGENTS.CFG` when that file is available
 and valid; otherwise it uses the built-in direct-vendor fallback. It reads
 `USER.CFG` when present, accepts a saved `agent <id>` only if it matches the

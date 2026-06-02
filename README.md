@@ -53,8 +53,8 @@ On the IBM PC 5150 target, Seed can:
 - resolve hostnames with DNS,
 - open a TCP connection to the selected agent provider,
 - complete the current minimal TLS 1.2 provider path,
-- issue a minimal OpenAI Responses request,
-- display the returned model answer,
+- run the Default Prompt Interface chat loop: an initial model greeting, prompt
+  input, and streamed model responses across multiple turns in one boot session,
 - use shipped `AGENTS.CFG` and `NET.CFG` defaults, and
 - use optional local `USER.CFG` state when present.
 

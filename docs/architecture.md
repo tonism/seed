@@ -48,14 +48,14 @@ runtime file     one visible CORE.SYS
 Current measured image:
 
 ```text
-CORE.SYS total bytes:       23040
-CORE.SYS total sectors:     45
+CORE.SYS total bytes:       26112
+CORE.SYS total sectors:     51
 resident nucleus sectors:   4
 resident nucleus bytes:     2048
-phase count:                16
-provider-critical K window: 13 sectors / 6656 bytes
-16 KiB raw slack:           1293 bytes after critical scratch
-16 KiB guarded slack:       +269 bytes after the preferred 1 KiB guard
+phase count:                19
+provider-critical K window: 14 sectors / 7168 bytes
+16 KiB slack after critical: 781 bytes
+16 KiB guard:               781 bytes (below the 1 KiB target, above the 512 B floor)
 ```
 
 ## Boot Artifact
@@ -163,7 +163,7 @@ Current phase table:
 
 ```text
 id  sectors  load addr  responsibility
-K   13       0x1800     provider-critical LINK window: SHA-256, TLS, AEAD, API exchange
+K   14       0x1800     provider-critical LINK window: SHA-256, TLS, AEAD, API exchange
 F   1        0x0700     failure action UI
 H   3        0x0700     hardware/display/NIC discovery
 I   1        0x0700     packet I/O initialization
@@ -180,6 +180,11 @@ T   1        0x0d0e     response chunk parse
 B   1        0x0700     final splash/result display
 S   1        0x0700     best-effort USER.CFG save
 ```
+
+The table above lists the core phases; Build 8 added the chat-loop phases
+(request build, agent cache/endpoint, application stream, response render) so the
+current authoritative count is 19. Run `make inspect` / `tools/core-sys-info.py` for
+the live phase table.
 
 Most cold phases share the low scratch/window region. The K window is different:
 it is loaded once into a larger high window before the provider-critical path.
@@ -258,21 +263,18 @@ Runtime 16 KiB view after `CORE.SYS` takes over:
 062e..06ff  low runtime state
 0700..0fff  low scratch, filesystem sector buffer, cold phase windows
 1000..17ff  resident nucleus, 4 sectors / 2048 bytes
-1800..31ff  K provider-critical window, 13 sectors / 6656 bytes
-3200..32c1  high crypto scratch, 194 bytes
-32c2..3af2  critical TLS/API scratch, 2097 bytes
-3af3..3bff  measured guarded slack, 269 bytes
-3c00..3fff  preferred 1 KiB stack/variance guard
+1800..33ff  K provider-critical window, 14 sectors / 7168 bytes
+3400..34c1  high crypto scratch, 194 bytes
+34c2..3cf2  critical TLS/API scratch, 2097 bytes
+3cf3..3fff  slack / stack-variance guard, 781 bytes (below the 1 KiB target)
 ```
 
 The important collision boundary is the end of critical scratch:
 
 ```text
-critical end       0x3af3
-guard begins       0x3c00
+critical end       0x3cf3
 16 KiB RAM top     0x4000
-raw slack          1293 bytes
-guarded slack       269 bytes
+slack / guard      781 bytes (below the 1 KiB target, above the 512 B floor)
 ```
 
 32 KiB and larger machines use the same `CORE.SYS` and the same low-memory
