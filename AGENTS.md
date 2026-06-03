@@ -221,6 +221,24 @@ vm-net-wd8003e       auto family, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK,
 vm-net-wd8003eb      auto family, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, encrypted client Finished, server Finished verification, application data, Default Prompt Interface chat loop (model greeting, prompt input, streamed multi-turn responses), then splash
 ```
 
+## Release
+
+Releasing is a git convention, not a build artifact:
+
+1. Fast-forward `main` to the release branch tip. `main` stays linear (no merge
+   commits), so it is fast-forward-only, never a merge. If `main` is checked out in
+   a worktree, fast-forward via `git push origin HEAD:main`, then sync the local ref.
+2. Annotated tag `build-N`, message `Build N <description>`, on `main`'s tip; push
+   the tag.
+3. Prune superseded work branches (local + remote) down to just `main`. Inspect
+   each first (`git rev-list --count main..<branch>` and its worktree state) and
+   confirm before deleting any branch that still carries unmerged commits or a live
+   worktree.
+
+The build stamp is `build_number equ N` in
+`targets/ibm_pc_5150/boot/core/layout.inc`; `docs/builds.md` keeps the milestone
+history.
+
 ## Documentation
 
 Keep root `README.md` high level. Put target-specific boot and emulator details

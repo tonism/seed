@@ -412,3 +412,57 @@ raw-history split. Residual VALIDATION item (not a cap): a pathologically slow u
 provider/edge request timeout; bounded by RAM on 8088 (minutes; active send doesn't trip idle
 timeout), so likely fine - verify at the large end. Build 9 (16 K): 50/50 of the 256 B pool = the
 128/128 already built; runtime 50/50 (border from ram_top) is a bigger-machine feature, deferred.
+
+## 2026-06-03 00:14:25 - Phase 2 DONE + validated: ledger + chunked streaming end-to-end
+
+Request is now the layered `instructions`=identity+ledger / `input`=prompt split, `effort:high`.
+
+Hit + fixed B5/05 (request_too_large): the instructions+ledger prefix (~600 B) overflowed the
+440 B `api_request_plain` build buffer. The harness caught it (the build can't). FIX = chunk-by-
+chunk streaming (option B; rebalancing the receive buffer [A] was rejected - it risks the
+hard-won Build-8 receive timing and "sooner or later eats everything"). The HTTP body now goes
+as 3 TLS records, each << 440 B:
+  chunk 1 (agent_request/R): headers + {"model":"<model>
+  chunk 2 (agent_api_stream/X): ","reasoning":{"effort":"high"},"instructions":"<identity> <ledger>","input":"
+  chunk 3 (X): <prompt-from-screen>","stream":true}
+The ledger serializer + instructions/input templates MOVED R -> stream phase (the post-handshake
+send lives there; renamed agent_api_stream_ledger_*, uses the X z-append helper). R back to 3
+sectors; stream phase grew 1->2 sectors (guard 1792 B). Content-Length = total body across the 3
+records (fixed-width ledger => api_ledger_len constant), unchanged by chunking. Receive path
+UNTOUCHED.
+
+VALIDATION (vm-net-ne2k8, 16K BASIC sidecar harness, real OpenAI): boot -> "seed build 9" ->
+greeting -> typed "What IP address does this machine have? Reply with only the IP." -> model
+answered "10.0.2.15" (the SLiRP DHCP IP) -> screen oracle verdict=success. That IP is knowable
+ONLY from the ledger, so this PROVES the ledger reaches the model + the 3-chunk stream is accepted
+and reassembled. Screenshots cleaned.
+
+Uncommitted WIP on context-management. Next: Phase 3 (conversation - rolling summary in the
+reclaimed pool, model-compacted, into `input`). Identity still the seed "Concise, factual,
+professional."; tighten/expand later.
+
+## 2026-06-03 00:43:42 - Phase 3 MVP: turn-to-turn continuity WORKS (validated)
+
+The core Build 9 feature. A `chat_context` window in the reclaimed pool (chat_context_start,
+128 B) holds the recent prompt; it's prepended into the request `input` ahead of the current
+prompt, so the next turn isn't semantically fresh. New: `chat_context_used` (resident byte,
+reconnect-safe, 0 at boot); agent_api_stream_append_context (copies the window into chunk 3 before
+the prompt); agent_api_stream_append_prompt_to_context (after the send, stores the just-sent
+prompt for next turn, JSON-escaped via the screen-read, bounded to chat_context_len). R's
+compute_ready_body_lengths adds chat_context_used to Content-Length. Build clean; nucleus still
+2048 (the byte fit), stream phase still 2 sectors.
+
+VALIDATION (vm-net-ne2k8, real OpenAI, 2 prompts): turn 1 "My favorite number is 42." -> model
+"Got it, 42 is ... the answer to life ...". turn 2 "What is my favorite number? Reply with only
+the number." -> model "42". screen oracle verdict=success. That fact is NOT in the re-sent frame
+(unlike the IP), so this PROVES turn-to-turn memory: turn 1's prompt was carried into turn 2.
+
+MVP SCOPE (honest): carries only the LAST prompt (1-turn deep, replace-not-accumulate) and only
+PROMPTS (not model responses); overflow = drop (placeholder). So "set turn 1, ask turn 3" or
+"recall what you told me" would fail today - the MECHANISM is proven, depth isn't.
+ENRICHMENTS (Phase 3b): accumulate N recent turns; carry response snippets too; model-compaction
+on fill (the user's "no local heuristics" - compact via a round-trip when the window fills);
+the visible-collapse render. Also pending: long-prompt chunk-3 overflow (escaped prompt+context
+can exceed the 440 B record - generalize the chunked send), and identity tighten/expand.
+
+Uncommitted WIP on context-management. Build 9 core (continuity) now functional end-to-end.

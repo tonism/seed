@@ -28,7 +28,23 @@ agent_api_stream_phase:
     mov al, [chat_prompt_len_cache]
     push ax
     cmp word [tls_app_len], 0
-    je .tail_pending
+    je .stream_chunk2
+    phase_call_res tls_prepare_3c501_receive
+    phase_call_res tls_send_application_data_current_seq
+    jc .prefix_failed
+.stream_chunk2:
+    ; Build 9 chunk 2: ",reasoning,instructions:"<identity> <ledger>","input":" - built here (not
+    ; in the request phase) so the ledger rides a record of its own; the body spans 3 TLS records.
+    mov di, api_request_plain + tls_record_header_len
+    mov si, PHASE_LOAD_ADDR + (api_json_instructions_text - PHASE_BASE)
+    call agent_api_stream_append_z_to_buffer
+    call agent_api_stream_append_ledger
+    mov si, PHASE_LOAD_ADDR + (api_json_input_open_text - PHASE_BASE)
+    call agent_api_stream_append_z_to_buffer
+    mov ax, di
+    sub ax, api_request_plain + tls_record_header_len
+    mov [tls_app_len], ax
+    mov word [tls_app_plain_ptr], api_request_plain + tls_record_header_len
     phase_call_res tls_prepare_3c501_receive
     phase_call_res tls_send_application_data_current_seq
     jc .prefix_failed
@@ -38,6 +54,7 @@ agent_api_stream_phase:
     or al, al
     je .done
     mov di, api_request_plain + tls_record_header_len
+    call agent_api_stream_append_context
     call agent_api_stream_append_prompt_screen_to_buffer
     mov si, PHASE_LOAD_ADDR + (api_stream_json_close_text - PHASE_BASE)
     call agent_api_stream_append_z_to_buffer
@@ -55,6 +72,7 @@ agent_api_stream_phase:
     phase_call_res tls_send_application_data_current_seq
     jc .failed
     phase_call_res tls_prepare_3c501_receive
+    call agent_api_stream_append_prompt_to_context
 .done:
     mov ax, (((core_agent_response_phase_end - core_agent_response_phase_start + 511) / 512) << 8) | ((core_agent_response_phase_start - $$) / 512)
     mov bx, agent_response_phase_load_addr
@@ -188,6 +206,164 @@ agent_api_stream_append_prompt_screen_to_buffer:
     mov byte [api_http_header_match], 0
     mov byte [api_stream_delta_match], 0
     pop es
+    ret
+
+; Build 9 chunk-2 templates: identity+ledger ride in "instructions"; input opens the prompt.
+api_json_instructions_text db '","reasoning":{"effort":"high"},"instructions":"Concise, factual, professional. ', 0
+api_json_instructions_text_len equ $ - api_json_instructions_text - 1
+api_json_input_open_text db '","input":"', 0
+api_json_input_open_text_len equ $ - api_json_input_open_text - 1
+
+; Build 9 ledger field labels (terse machine facts serialized from the handoff block)
+api_ledger_ram_text db 'ram=', 0
+api_ledger_ip_text db ' ip=', 0
+api_ledger_gw_text db ' gw=', 0
+api_ledger_dns_text db ' dns=', 0
+api_ledger_mask_text db ' mask=', 0
+api_ledger_fam_text db ' fam=', 0
+api_ledger_nic_text db ' nic@', 0
+api_ledger_irq_text db ' irq=', 0
+api_ledger_mac_text db ' mac=', 0
+; Fixed-width ledger -> constant serialized length (for Content-Length). Labels (minus 9 NULs)
+; + ram hex16(4) + ip/gw/dns/mask dotted(4*15) + fam dec8(3) + nic hex16(4) + irq dec8(3) + mac(12).
+api_ledger_labels_len equ $ - api_ledger_ram_text - 9
+api_ledger_len equ api_ledger_labels_len + (4 + 4 * 15 + 3 + 4 + 3 + 12)
+
+; ---- Build 9 ledger: terse machine-facts serialization of the handoff block ----
+; Appends "ram=<hex> ip/gw/dns/mask=<dotted> fam=<dec> nic@<hex> irq=<dec> mac=<hex>" to [es:di]
+; from the resident handoff (0x0600). es must equal ds. Clobbers ax/cx/dx/si; advances di.
+agent_api_stream_append_ledger:
+    mov si, PHASE_LOAD_ADDR + (api_ledger_ram_text - PHASE_BASE)
+    call agent_api_stream_append_z_to_buffer
+    mov ax, [handoff_addr + handoff_ram_top]
+    call agent_api_stream_ledger_hex16
+    mov si, PHASE_LOAD_ADDR + (api_ledger_ip_text - PHASE_BASE)
+    call agent_api_stream_append_z_to_buffer
+    mov si, handoff_addr + handoff_ip_addr
+    call agent_api_stream_ledger_dotted
+    mov si, PHASE_LOAD_ADDR + (api_ledger_gw_text - PHASE_BASE)
+    call agent_api_stream_append_z_to_buffer
+    mov si, handoff_addr + handoff_router_addr
+    call agent_api_stream_ledger_dotted
+    mov si, PHASE_LOAD_ADDR + (api_ledger_dns_text - PHASE_BASE)
+    call agent_api_stream_append_z_to_buffer
+    mov si, handoff_addr + handoff_dns_addr
+    call agent_api_stream_ledger_dotted
+    mov si, PHASE_LOAD_ADDR + (api_ledger_mask_text - PHASE_BASE)
+    call agent_api_stream_append_z_to_buffer
+    mov si, handoff_addr + handoff_subnet_addr
+    call agent_api_stream_ledger_dotted
+    mov si, PHASE_LOAD_ADDR + (api_ledger_fam_text - PHASE_BASE)
+    call agent_api_stream_append_z_to_buffer
+    mov al, [handoff_addr + handoff_nic_family]
+    call agent_api_stream_ledger_dec8
+    mov si, PHASE_LOAD_ADDR + (api_ledger_nic_text - PHASE_BASE)
+    call agent_api_stream_append_z_to_buffer
+    mov ax, [handoff_addr + handoff_nic_base]
+    call agent_api_stream_ledger_hex16
+    mov si, PHASE_LOAD_ADDR + (api_ledger_irq_text - PHASE_BASE)
+    call agent_api_stream_append_z_to_buffer
+    mov al, [handoff_addr + handoff_nic_irq]
+    call agent_api_stream_ledger_dec8
+    mov si, PHASE_LOAD_ADDR + (api_ledger_mac_text - PHASE_BASE)
+    call agent_api_stream_append_z_to_buffer
+    mov si, handoff_addr + handoff_mac
+    mov cx, 6
+.ledger_mac_loop:
+    push cx
+    lodsb
+    call agent_api_stream_ledger_hex8
+    pop cx
+    loop .ledger_mac_loop
+    ret
+
+agent_api_stream_ledger_hex16:     ; ax -> 4 hex chars at [es:di]
+    push ax
+    mov al, ah
+    call agent_api_stream_ledger_hex8
+    pop ax
+agent_api_stream_ledger_hex8:      ; al -> 2 hex chars at [es:di]
+    push ax
+    push ax
+    mov cl, 4
+    shr al, cl
+    call agent_api_stream_ledger_nibble
+    pop ax
+    call agent_api_stream_ledger_nibble
+    pop ax
+    ret
+agent_api_stream_ledger_nibble:    ; low nibble of al -> 1 hex char at [es:di]
+    and al, 0x0f
+    add al, '0'
+    cmp al, '9'
+    jbe .nibble_emit
+    add al, 'a' - '0' - 10
+.nibble_emit:
+    stosb
+    ret
+agent_api_stream_ledger_dotted:    ; 4 bytes at ds:si -> "a.b.c.d" at [es:di]
+    mov cx, 4
+.dotted_next:
+    lodsb
+    call agent_api_stream_ledger_dec8
+    dec cx
+    jz .dotted_done
+    mov al, '.'
+    stosb
+    jmp .dotted_next
+.dotted_done:
+    ret
+agent_api_stream_ledger_dec8:      ; al (0-255) -> exactly 3 decimal digits at [es:di]
+    push cx
+    push dx
+    xor ah, ah
+    mov cl, 100
+    div cl
+    mov dl, ah
+    add al, '0'
+    stosb
+    mov al, dl
+    xor ah, ah
+    mov cl, 10
+    div cl
+    mov dl, ah
+    add al, '0'
+    stosb
+    mov al, dl
+    add al, '0'
+    stosb
+    pop dx
+    pop cx
+    ret
+
+; ---- Build 9 conversation context (Phase 3): carry the recent prompt into the next input ----
+agent_api_stream_append_context:        ; copy chat_context (prior prompt, JSON-safe) to [es:di]
+    mov cl, [chat_context_used]
+    xor ch, ch
+    jcxz .ctx_copy_done
+    mov si, chat_context_start
+    rep movsb
+.ctx_copy_done:
+    ret
+agent_api_stream_append_prompt_to_context:   ; store the just-sent prompt for the next turn
+    mov byte [chat_context_used], 0
+    mov al, [api_stream_prompt_len]
+    or al, al
+    je .ctx_store_done
+    xor ah, ah
+    mov bx, ax
+    add bx, bx                          ; prompt_len * 2 (JSON-escape worst case)
+    inc bx                              ; + separator
+    cmp bx, chat_context_len
+    ja .ctx_store_done                  ; too big for the window -> drop (MVP; model-compaction later)
+    mov di, chat_context_start
+    call agent_api_stream_append_prompt_screen_to_buffer
+    mov al, ' '
+    stosb
+    mov ax, di
+    sub ax, chat_context_start
+    mov [chat_context_used], al
+.ctx_store_done:
     ret
 
 %unmacro phase_call_res 1

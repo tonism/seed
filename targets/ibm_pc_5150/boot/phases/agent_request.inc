@@ -160,36 +160,12 @@ agent_request_phase:
     mov cx, seed_model_len
     call agent_request_phase_append_z_bounded_to_buffer
     jc .request_failed
-    mov si, PHASE_LOAD_ADDR + (api_json_ready_input_text - PHASE_BASE)
-    cmp byte [dpi_input_len_byte], api_ready_short_prompt_max
-    ja .ready_input_prefix_selected
-    mov si, PHASE_LOAD_ADDR + (api_json_ready_short_input_text - PHASE_BASE)
-    cmp byte [dpi_input_len_byte], api_ready_tiny_prompt_max
-    ja .ready_input_prefix_selected
-    mov si, PHASE_LOAD_ADDR + (api_json_ready_tiny_input_text - PHASE_BASE)
-.ready_input_prefix_selected:
-    call agent_request_phase_append_z_to_buffer
+    ; Build 9 streaming: R builds only chunk 1 = headers + {"model":"<model> . The stream phase
+    ; then builds+sends chunk 2 (",reasoning,instructions:"<identity> <ledger>","input":") and
+    ; chunk 3 (<prompt>","stream":true}), so no single record must hold the whole prefix.
+    ; Content-Length (compute_ready_body_lengths) is the total body across all 3 records.
     mov ax, di
     sub ax, api_request_plain + tls_record_header_len
-    mov bx, ax
-.ready_maybe_inline:
-    add ax, [api_response_pending_len]
-    cmp ax, api_request_plain_len
-    ja .ready_split_request
-    mov si, dpi_input_buf
-    mov cl, [dpi_input_len_byte]
-    xor ch, ch
-    call agent_request_phase_append_json_bytes_to_buffer
-    mov si, PHASE_LOAD_ADDR + (api_json_stream_close_text - PHASE_BASE)
-    call agent_request_phase_append_z_to_buffer
-    mov ax, di
-    sub ax, api_request_plain + tls_record_header_len
-    mov word [api_response_pending_len], 0
-    mov byte [chat_prompt_len_cache], 0
-    jmp .ready_len_ready
-.ready_split_request:
-    mov ax, bx
-.ready_len_ready:
     mov [tls_app_total_len], ax
     mov [tls_app_len], ax
     mov word [tls_app_plain_ptr], api_request_plain + tls_record_header_len
@@ -225,13 +201,9 @@ agent_request_phase:
     call agent_request_phase_append_z_bounded_to_buffer
     jc .body_failed
 .model_done:
-    cmp byte [handoff_addr + handoff_status], handoff_status_ready
-    jne .cold_input_prefix
-    mov si, PHASE_LOAD_ADDR + (api_json_ready_input_text - PHASE_BASE)
-    jmp .input_prefix_ready
-.cold_input_prefix:
+    ; .build_openai_body runs only on the cold (not-ready) path; the boot greeting stays bare
+    ; (no instructions/ledger). The ready chat path builds instructions+ledger inline above.
     mov si, PHASE_LOAD_ADDR + (api_json_input_text - PHASE_BASE)
-.input_prefix_ready:
     call agent_request_phase_append_z_to_buffer
     mov ax, di
     sub ax, fs_sector_buffer
@@ -280,14 +252,9 @@ agent_request_phase:
     mov ax, dx
     add ax, bx
     add ax, api_json_model_text_len + api_ready_stream_close_text_len
-    mov cx, api_json_ready_input_text_len
-    cmp byte [dpi_input_len_byte], api_ready_short_prompt_max
-    ja .ready_prefix_len_ready
-    mov cx, api_json_ready_short_input_text_len
-    cmp byte [dpi_input_len_byte], api_ready_tiny_prompt_max
-    ja .ready_prefix_len_ready
-    mov cx, api_json_ready_tiny_input_text_len
-.ready_prefix_len_ready:
+    add ax, api_json_instructions_text_len + api_ledger_len + api_json_input_open_text_len
+    mov cl, [chat_context_used]         ; Build 9: conversation history carried in the input
+    xor ch, ch
     add ax, cx
     mov [api_body_len], ax
     clc
@@ -380,12 +347,8 @@ api_json_model_text db '{"model":"', 0
 api_json_model_text_len equ $ - api_json_model_text - 1
 api_json_input_text db '","input":"', 0
 api_json_input_text_len equ $ - api_json_input_text - 1
-api_json_ready_input_text db '","reasoning":{"effort":"minimal"},"input":"Concise, factual, professional. ', 0
-api_json_ready_input_text_len equ $ - api_json_ready_input_text - 1
-api_json_ready_short_input_text db '","input":"Concise, factual, professional. ', 0
-api_json_ready_short_input_text_len equ $ - api_json_ready_short_input_text - 1
-api_json_ready_tiny_input_text db '","input":"', 0
-api_json_ready_tiny_input_text_len equ $ - api_json_ready_tiny_input_text - 1
+; Build 9: the tiered ready input-prefix templates were removed; identity+ledger + the
+; instructions/input-open templates now live in agent_api_stream.inc (built/sent as chunk 2).
 api_json_boot_prompt_text db 'Greet.', 0
 api_json_boot_stream_close_text db '","stream":true}', 0
 api_json_stream_close_text db '","stream":true}', 0

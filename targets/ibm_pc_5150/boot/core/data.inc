@@ -6,6 +6,9 @@ tls_app_plain_ptr dw 0
 ; after capturing it, which would reset a link-window byte to its file value (0) and resend an
 ; empty prompt. The nucleus is loaded once at boot and never reloaded.
 chat_resend_prompt_len db 0
+; Build 9 (Phase 3): bytes used in the chat_context conversation window (resident, reconnect-safe,
+; 0 at boot). The window itself is chat_context_start in the reclaimed pool (data below).
+chat_context_used db 0
 ne_tx_frame equ low_scratch_start
 ne_prom equ ne_tx_frame + net_frame_buffer_len
 low_packet_scratch_end equ ne_prom + ne_prom_len
