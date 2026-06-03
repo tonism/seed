@@ -17,6 +17,9 @@ hardware_setup_phase:
     jc .failed
     call resolve_network_config
     call read_network_address
+    ; Build 9 (compaction redesign): stage the keep-alive template into the persistent pool once,
+    ; here at boot, so the renderer no longer carries it (frees its last bytes for compaction).
+    call hardware_setup_stage_ka_template
     clc
     ret
 .failed:
@@ -676,5 +679,28 @@ hardware_setup_phase_speaker_off:
     and al, 0xfc
     out 0x61, al
     ret
+
+; Build 9 (compaction redesign): copy the keep-alive GET template into its persistent pool slot
+; (ka_template_persistent) once at boot. agent_api_keepalive sends it from there during long
+; renders; relocating it out of the renderer frees that one sector for the compaction capture.
+hardware_setup_stage_ka_template:
+    push es
+    push ds
+    pop es
+    cld
+    mov si, low_scratch_start + (ka_template_source - PHASE_BASE)
+    mov di, ka_template_persistent
+    mov cx, ka_request_len
+    rep movsb
+    pop es
+    ret
+ka_template_source:
+    db "GET /v1 HTTP/1.1", 13, 10
+    db "Host: api.openai.com", 13, 10
+    db 13, 10
+ka_template_source_end:
+%if (ka_template_source_end - ka_template_source) != ka_request_len
+%error "ka_request_len (layout.inc) does not match the staged keep-alive template length"
+%endif
 
 %unmacro phase_call_res 1

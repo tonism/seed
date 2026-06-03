@@ -121,7 +121,6 @@ agent_request_phase:
     clc
     ret
 .build_ready_openai_request:
-    call .capture_summary_from_screen
     call .restore_prompt_from_screen
     call .compute_ready_body_lengths
     jc .request_failed
@@ -263,7 +262,8 @@ agent_request_phase:
     cmp cl, [chat_compact_threshold]
     jb .body_not_full
     mov byte [compact_next], 1
-    add ax, api_json_compact_directive_text_len
+    mov byte [api_stream_text_seen], 1   ; recap is captured (not rendered), so pre-arm the
+    add ax, api_json_compact_directive_text_len   ; transport-completion scan (it gates on text_seen)
 .body_not_full:
     mov [api_body_len], ax
     clc

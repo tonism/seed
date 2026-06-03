@@ -377,13 +377,17 @@ chat_cache_end equ chat_key_cache + seed_key_len
 ; Build 9 reconnect-safe context pool, reclaimed from the trimmed 16K stack reserve.
 ; Above the pinned chat config caches, below the (RAM-relative) stack. Holds the rolling
 ; conversation summary; everything from chat_arena_start up to (ram_top - stack reserve) is
-; the user/agent arena - Seed never writes past chat_context_end. Borders are compile-time
+; the user/agent arena - Seed never writes past chat_arena_start. Borders are compile-time
 ; defaults in Build 9; publishing/moving them is Build 10. ram_top is already in the handoff
 ; (offset 0x2c), so the ledger carries it and the agent derives the arena ceiling itself.
 chat_context_start equ chat_cache_end
 chat_context_len equ 128
 chat_context_end equ chat_context_start + chat_context_len
-chat_arena_start equ chat_context_end
+; Build 9 (compaction redesign): the keep-alive GET template is relocated out of the maxed-out
+; (511/512 B) renderer into this persistent pool slot - staged once at boot by hardware_setup - so
+; the renderer has room for the invisible-compaction capture branch. The arena starts after it.
+ka_template_persistent equ chat_context_end
+chat_arena_start equ ka_template_persistent + ka_request_len
 chat_arena_floor_min equ 64
 %if (chat_arena_start + chat_arena_floor_min) > (basic_sidecar_stack_top_16k - basic_sidecar_stack_guard_len_16k)
 %error "context pool leaves no minimum arena floor below the 16K stack reserve"

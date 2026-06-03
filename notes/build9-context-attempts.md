@@ -660,3 +660,41 @@ to do this BEFORE chunk-3 splitting. Redesign plan (leading two-query):
 - compaction-fail (reuse fail) degrades gracefully: skip, answer with the full window, retry next.
 - NOTE: response-phase BUILD guard is <=1024 (2 sectors) and currently assembles to 1 sector;
   runtime load room before the next region still to be checked - keep the renderer delta minimal.
+
+## 2026-06-03 (at home) - Invisible compaction SHIPPED (single-query recap-first), validated
+
+PIVOTED from the two-query plan above. Two walls: (1) the two-query needed ~16-21 B of resident
+nucleus for the chat_loop orchestration, but the nucleus has only ~16 B free; (2) the renderer is
+511/512 B - 1 byte slack (measured via a temp %assign/%error probe) - so even a 27 B capture branch
+overflowed the hot one-sector window.
+
+SOLUTION (no nucleus change):
+- Freed the renderer by RELOCATING the 42 B keep-alive GET template out of it into the persistent
+  pool (ka_template_persistent = chat_context_end; chat_arena_start bumped by ka_request_len).
+  Staged once at boot by hardware_setup; agent_api.inc:107 now points at the pool slot. The crypto
+  window (reconnect re-handshake) and fs_sector_buffer (clobbered every turn by the phase load) are
+  NOT reclaimable - confirmed with the user.
+- SINGLE-QUERY recap-first (reuses compact_next): the directive asks the model to emit ONE recap
+  line FIRST (then a newline, then the answer). The renderer (.emit_char) captures that recap
+  straight into the window until the first newline (the window cap doubles as a no-newline guard),
+  then renders the answer. The recap is NEVER drawn. ~37 B branch fits the freed renderer
+  (469 + 37 = 506 <= 512). agent_api_stream clears the window after the send so the recap REPLACES
+  the history; the prompt is not accumulated on a compaction turn.
+- Directive (final): "First output ONE line (max 80 chars): ALL facts the user shared so far - NOT
+  system details already in your instructions (memory, RAM, IP, NIC) - then a newline, then answer."
+  The strip clause is the user's point: identity+ledger ride every request, so the recap must not
+  duplicate them (saves window space, esp. once the agentic loop discusses addresses).
+
+VALIDATION (ne2k8, 4-turn): run3 (weak directive) -> recall FAILED (recap was just "fav_num=42").
+run5 (final directive) -> PASS: "compacting context..." shows (dim), recap INVISIBLE (turn 3 shows
+only "42"), recall survives the collapse (turn 4 "what is my favorite city?" -> "Paris"), clean
+conversation, oracle success, screenshot confirms.
+
+RESIDUAL / TODO:
+- Keep-alive during a LONG render (~5min+, its only firing condition) not yet exercised - the
+  relocation's side-effect. Logic unchanged (same bytes, new source address), boot-verified; confirm
+  with a long-render run before any merge to main.
+- Dead code to clean up: capture_summary_from_screen + ctx_pattern (agent_request),
+  ctx_capturing/api_ctx_match (data.inc) - now unused (the call was removed).
+- Two-query is still the better recap-QUALITY architecture (a dedicated summarize query beats one
+  competing with the answer); revisit if the chat-phase memory audit (task #7) frees nucleus space.

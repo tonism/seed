@@ -147,6 +147,26 @@ agent_response_phase:
     ret
 
 .emit_char:
+    cmp byte [compact_next], 0
+    je .emit_to_screen
+    ; Build 9 (invisible compaction): on a compaction turn the reply begins with a one-line recap
+    ; (per the directive). Capture it straight into the window - which agent_api_stream cleared
+    ; after sending - until the first newline, then switch to rendering the answer. The recap is
+    ; never drawn, so the user sees only "compacting context..." then the answer. The window cap
+    ; doubles as a guard: if the model omits the newline, capture stops and the answer still shows.
+    cmp al, 10
+    je .recap_end
+    mov bl, [chat_context_used]
+    cmp bl, chat_context_len - 1
+    jae .recap_end
+    xor bh, bh
+    mov [chat_context_start + bx], al
+    inc byte [chat_context_used]
+    ret
+.recap_end:
+    mov byte [compact_next], 0
+    ret
+.emit_to_screen:
     cmp byte [api_stream_seen], 0
     jne .live_ready
     cmp byte [handoff_addr + handoff_status], handoff_status_ready
@@ -225,24 +245,10 @@ completed_pattern db '_text.done', 0
 delta_key_pattern db '"delta":"', 0
 zero_chunk_pattern db '0', 13, 10, 13, 10, 0
 
-; Keep-alive request template, sent by agent_api_keepalive during long renders. A bare
-; GET /v1 that the server answers 404 while keeping the HTTP/1.1 connection alive (measured
-; against api.openai.com; a partial/CRLF ping does NOT reset Cloudflare's idle, and GET /
-; returns 421 Misdirected Request which makes the server CLOSE the connection -> defeats
-; reuse, so the path must be a routed one like /v1 that 404s and keeps the connection alive).
-; It lives in this phase because the resident routine that sends it needs the template at a
-; fixed address that survives the whole receive loop, and this phase is the only loaded
-; code that persists there (the stream phase at net_setup_phase_start is overwritten by NIC
-; frame I/O, and the resident link window has no spare room). Referenced from the resident
-; routine as agent_response_phase_load_addr + (ka_request_template - PHASE_BASE).
-ka_request_template:
-    db "GET /v1 HTTP/1.1", 13, 10
-    db "Host: api.openai.com", 13, 10
-    db 13, 10
-ka_request_template_end:
-%if (ka_request_template_end - ka_request_template) != ka_request_len
-%error "ka_request_len (layout.inc) does not match the keep-alive template length"
-%endif
+; Keep-alive GET template relocated to the persistent pool (ka_template_persistent), staged once
+; at boot by hardware_setup. It must sit at a fixed address that survives the whole receive loop;
+; it previously lived here (the only persistent loaded phase), but this one-sector phase is now
+; full, so the pool hosts it instead. agent_api_keepalive sends it from there during long renders.
 
 agent_response_write_char_direct:
     push bx

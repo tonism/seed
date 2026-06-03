@@ -77,6 +77,11 @@ agent_api_stream_phase:
     phase_call_res tls_send_application_data_current_seq
     jc .failed
     phase_call_res tls_prepare_3c501_receive
+    cmp byte [compact_next], 0
+    je .accumulate_prompt
+    mov byte [chat_context_used], 0    ; compaction turn: clear the window; the recap (captured by
+    jmp .done                          ; the renderer until the first newline) replaces the history
+.accumulate_prompt:
     call agent_api_stream_append_prompt_to_context
 .done:
     cmp byte [compact_next], 0
@@ -230,9 +235,10 @@ api_json_instructions_text db '","reasoning":{"effort":"high"},"instructions":"C
 api_json_instructions_text_len equ $ - api_json_instructions_text - 1
 api_json_input_open_text db '","input":"', 0
 api_json_input_open_text_len equ $ - api_json_input_open_text - 1
-; Build 9 (Phase 3b): appended to instructions only when compact_next is armed; asks for a
-; SUMMARY: line the renderer diverts into the window. JSON-safe (no quotes to escape).
-api_json_compact_directive_text db 'After answering, add a final line beginning SUMMARY: then a recap (max 80 chars) of the whole conversation so far - key facts and state. ', 0
+; Build 9 (invisible compaction): appended to instructions only when compact_next is armed. Asks
+; the model to put a one-line recap FIRST (then a newline, then the answer); the renderer captures
+; that recap straight into the window until the first newline and never draws it. JSON-safe.
+api_json_compact_directive_text db 'First output ONE line (max 80 chars): ALL facts the user shared so far - NOT system details already in your instructions (memory, RAM, IP, NIC) - then a newline, then answer. ', 0
 api_json_compact_directive_text_len equ $ - api_json_compact_directive_text - 1
 
 ; Build 9 ledger field labels (terse machine facts serialized from the handoff block)
