@@ -107,8 +107,6 @@ agent_api_stream_phase:
     mov byte [api_stream_completed], 0
     mov byte [api_http_state], 0
     mov byte [api_http_header_match], 0
-    mov byte [ctx_capturing], 0
-    mov byte [api_ctx_match], 0
     clc
     ret
 

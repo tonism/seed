@@ -698,3 +698,40 @@ RESIDUAL / TODO:
   ctx_capturing/api_ctx_match (data.inc) - now unused (the call was removed).
 - Two-query is still the better recap-QUALITY architecture (a dedicated summarize query beats one
   competing with the answer); revisit if the chat-phase memory audit (task #7) frees nucleus space.
+
+## 2026-06-03 (at home, machine free) - keepalive freeze = CAPTURE ARTIFACT; cleanup done; chunk-3 design
+
+KEEPALIVE "FREEZE" RESOLVED - it was a HARNESS SCREENCAPTURE ARTIFACT, not a VM freeze. The user
+watched the long render go FINE for minutes (well past several keep-alive intervals); the count
+reproducer's final capture came back blank (non_dark=0, splash=0/0x0). So the relocated keep-alive
+WORKS - the relocation is NOT a regression. Lesson: do not trust the OCR / screencapture for long
+renders (it goes stale); the oracle/exit verdict is OCR-derived and unreliable there. Short-response
+tests (the compaction matrix) OCR fine.
+
+CLEANUP DONE (build-verified, uncommitted pending chat-validation): removed the dead
+capture_summary_from_screen + ctx_pattern (agent_request), the ctx_capturing/api_ctx_match resets
+(agent_api_stream), and the two now-unused resident flags (data.inc) - frees 2 nucleus bytes.
+
+CHUNK-3 SPLITTING DESIGN (ready to implement, validate with VM):
+Replace the truncation guard in agent_api_stream_append_prompt_screen_to_buffer with a FLUSH, so a
+long prompt sends as multiple TLS records (no truncation). Gated on the EXISTING di-limit, so the
+short-prompt path is byte-for-byte unchanged (zero regression).
+- In .screen_next, change the di-limit `jae .screen_done` -> `jae .screen_flush`.
+- .screen_flush: push es ; push si ; ax=di-(api_request_plain+tls_record_header_len) ;
+  [tls_app_len]=ax ; [tls_app_plain_ptr]=api_request_plain+tls_record_header_len ;
+  phase_call_res tls_prepare_3c501_receive ; phase_call_res tls_send_application_data_current_seq ;
+  jc .screen_flush_failed ; phase_call_res tls_prepare_3c501_receive ; pop si ; pop es ;
+  di=api_request_plain+tls_record_header_len ; jmp .screen_next.
+- .screen_flush_failed: pop si ; pop es ; stc ; ret. Normal .screen_done ends clc ; ret. Caller
+  .tail_pending adds `jc .failed` after the append_prompt_screen call (currently ignores the return).
+- Confirmed from code: tls_send_application_data_current_seq does push ds/pop es (es=ds) and reads
+  [tls_app_plain_ptr] from ds - so es-independent but CLOBBERS es; it is stack-balanced, so
+  push es/pop es around it restores the video seg. It auto-increments the client record seq (each
+  flush = next record). si is a register (save/restore); api_http_state + api_http_header_match are
+  memory (survive the send). Mirror .send_tail's tls_prepare_3c501_receive before+after (3c501).
+- First flush record = context + prompt-part-1 (append_context already filled the buffer head);
+  later records = pure prompt-parts (di reset to head each flush); the last part stays, .tail_pending
+  appends the close, .send_tail sends it. HTTP Content-Length unchanged (same body, more TLS records).
+- VALIDATE: ~255-char prompt (incl. quotes) -> splits into records, model responds, no truncation/
+  corruption; short prompts confirm the one-record path is unchanged; then re-matrix (the split
+  changes per-NIC send timing).
