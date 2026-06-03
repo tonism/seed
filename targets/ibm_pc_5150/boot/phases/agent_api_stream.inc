@@ -412,19 +412,7 @@ agent_api_stream_show_compacting:
     push es
     ; Advance to a fresh line (scrolling the text area up at the bottom, exactly like the renderer)
     ; so the status gets its own line below the prompt; the reply then renders below the status.
-    cmp byte [cursor_row], dpi_prompt_row
-    jb .compacting_move_down
-    mov ah, 0x06
-    mov al, 1
-    mov bh, 0x07
-    mov cx, 0x0100
-    mov dh, dpi_prompt_row
-    mov dl, [screen_cols]
-    dec dl
-    int 0x10
-    mov byte [cursor_row], dpi_prompt_row - 1
-.compacting_move_down:
-    inc byte [cursor_row]
+    call .compacting_advance
     mov bx, color_video_seg
     mov dl, 0x08
     test word [handoff_addr + handoff_flags], handoff_flag_mda
@@ -446,8 +434,26 @@ agent_api_stream_show_compacting:
     stosw
     jmp .compacting_next
 .compacting_done:
-    inc byte [cursor_row]    ; leave a blank line after the status so it reads as its own block
+    ; Trailing blank line that SURVIVES the renderer's scroll-at-bottom: advance the same
+    ; scroll-aware way the renderer does (a plain inc is eaten when the reply's first line
+    ; scrolls in), so a blank row stays between the status and the reply.
+    call .compacting_advance
     pop es
+    ret
+.compacting_advance:
+    cmp byte [cursor_row], dpi_prompt_row
+    jb .compacting_adv_inc
+    mov ah, 0x06
+    mov al, 1
+    mov bh, 0x07
+    mov cx, 0x0100
+    mov dh, dpi_prompt_row
+    mov dl, [screen_cols]
+    dec dl
+    int 0x10
+    mov byte [cursor_row], dpi_prompt_row - 1
+.compacting_adv_inc:
+    inc byte [cursor_row]
     ret
 api_compacting_text db 'compacting context...', 0
 

@@ -582,3 +582,81 @@ run), just an API/render stall. Clean re-run in progress.
 
 Net Build 9 Phase 3b state: capture + raw-storage + dim block all validated/validating; ledger
 knobs deferred. Compaction itself proven end-to-end (42-and-Paris recall across the collapse).
+
+## 2026-06-03 14:12:20 - Locked-machine checkpoint: design + at-home validation plan
+
+User can leave the machine caffeinated but LOCKED (office policy); cannot leave unlocked until
+home. Confirmed the harness needs UNLOCKED: screenshots use macOS window capture
+(CGWindowListCreateImage / screencapture - screenshot()/screenshot_86box_window), blocked behind
+the lock; default typing uses osascript System Events into the focused window (FOCUS_86BOX_SCRIPT).
+The earlier flakiness was the user's live interaction, not the lock. So all VM-driven validation
+is queued for an at-home unlocked session.
+
+COMMITTED so far on context-management (all local, not pushed): e88a3a7 (Phase 2 ledger+streaming +
+Phase 3 MVP), 34a6d3b (Phase 3b compaction), c99aa72 (chunk-3 overflow guard = truncation).
+
+DESIGN - proper chunk-3 splitting (replaces the truncation guard; "divide every request into
+chunks", no truncation). Goal: stream chunk 3 (conversation + prompt + close) in buffer-sized TLS
+records instead of one bounded/truncated record.
+- GATE on the existing di-limit so the SHORT-prompt path is byte-for-byte unchanged (no flush, one
+  record via .send_tail) -> zero regression for the validated path; only long prompts split.
+- In agent_api_stream_append_prompt_screen_to_buffer, replace the guard's truncate-on-di-limit
+  with a FLUSH: send the current record, reset di to api_request_plain+tls_record_header_len,
+  continue the screen read. Record 1 = conversation + prompt-chunk-1; records 2..n = prompt-chunks;
+  final partial (last chunk + close) sent by .send_tail as today.
+- GOTCHAS to handle carefully at implementation: (a) es is the VIDEO segment during the screen
+  read - the send (tls_send_application_data_current_seq) likely assumes es=ds, so save/restore es
+  (set es=ds for the send, es=video after); (b) preserve si + the screen counters (api_http_state,
+  api_http_header_match) across the send; (c) set tls_app_len/tls_app_plain_ptr before each flush;
+  (d) propagate a flush-send failure (jc) into the .failed path; (e) the send reuses the validated
+  current-seq send, so record sequencing is the same routine (low risk there). Content-Length is
+  unchanged (same total body, just more records). Keep the di-limit as the flush trigger + a final
+  backstop.
+- Validate (at home, light): type a ~255-char prompt (some quotes) -> expect it to split into
+  records and fly, model responds, no truncation, no corruption; plus the existing short-prompt
+  tests to confirm the one-record path is unchanged.
+
+AT-HOME VALIDATION MATRIX (when unlocked; keep tests light, retry on flake):
+1. Final committed compaction, clean end-to-end (4-turn): facts accumulate -> compaction turn
+   shows the dim block as its own bracketed line + SUMMARY: -> recall across the collapse; confirm
+   NO tool-call hallucination on any turn (ledger knobs are out).
+2. Implement the chunk-3 splitting (above) -> validate long-prompt split (1-turn) + short-prompt
+   unchanged.
+3. Phase 4 7-NIC matrix: chunked send + a compaction run on each adapter family (3c503, ne2000,
+   ne1000, 3c501, wd8003); 1-2 turns per NIC is enough to confirm the chunked send timing; retry
+   flakes. Watch the 3c503 pre-server-Finished send + the 3c501 carve-outs (send-pattern sensitive).
+4. NIC-timing-unification (evidence-gated): with the matrix evidence, evaluate removing per-card
+   carve-outs only with a documented replacement rule (per networking.md).
+5. Optional polish: identity tighten/expand (user hand-tunes the voice); agent-facing knob
+   advertisement returns in Build 10 with a memory-write tool.
+
+## 2026-06-03 (at home, unlocked) - At-home validation + SUMMARY-invisibility redesign greenlit
+
+run1 (ne2k8, 4 turns): FULL compaction validated end-to-end. Facts accumulate -> compaction fires
+turn 3 (dim "compacting context...") -> "42" recalled -> turn 4 "what is my favorite city?" ->
+"Paris" answered against the SUMMARY-ONLY window (verbatim history already collapsed), proving the
+summary preserves facts across the collapse. No tool-call hallucination (ledger-knob revert holds).
+Oracle success, exit 0. Validates e88a3a7 / 34a6d3b / c99aa72.
+
+Blank-line fix (agent_api_stream_show_compacting): the trailing blank after "compacting
+context..." was eaten by the renderer's scroll-at-bottom - the COMMON case once the text area is
+full, not the edge case the pre-validation inspection wrongly assumed. Fixed by making the trailing
+advance scroll-aware (shared .compacting_advance mirroring the renderer's .advance_response_line).
+run2 (3 turns) screenshot confirms a blank row now sits between the dim status and the reply; no
+regression. Committed as a checkpoint before the redesign.
+
+SUMMARY-line visibility: user confirmed they do NOT want it shown - their model is compaction as
+its own query whose compacted text goes to memory, after which normal turns just answer. Greenlit
+to do this BEFORE chunk-3 splitting. Redesign plan (leading two-query):
+- chat_loop: when chat_context_used >= chat_compact_threshold, run a COMPACTION PASS first
+  (compaction_pass=1 -> prepare_agent_endpoint_path), then the normal user turn. Reuses the
+  validated send/reconnect path (invoked twice), so the reconnect logic is called, not rewritten.
+- request build: compaction_pass swaps in a "summarize, reply with ONLY the summary" instruction
+  and sends context-only (no user prompt).
+- renderer (Phase T): compaction_pass routes the reply straight into chat_context (window) instead
+  of video - a small route-to-window flag, NOT the marker-in-renderer that overflowed before.
+  Clear the window first so the summary REPLACES the verbatim history.
+- remove the old answer-turn SUMMARY directive + capture_summary_from_screen (screen-scan capture).
+- compaction-fail (reuse fail) degrades gracefully: skip, answer with the full window, retry next.
+- NOTE: response-phase BUILD guard is <=1024 (2 sectors) and currently assembles to 1 sector;
+  runtime load room before the next region still to be checked - keep the renderer delta minimal.
