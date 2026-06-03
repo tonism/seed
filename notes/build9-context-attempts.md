@@ -466,3 +466,119 @@ the visible-collapse render. Also pending: long-prompt chunk-3 overflow (escaped
 can exceed the 440 B record - generalize the chunked send), and identity tighten/expand.
 
 Uncommitted WIP on context-management. Build 9 core (continuity) now functional end-to-end.
+
+## 2026-06-03 07:56:30 - Phase 2 + 3-MVP committed; Phase 3b accumulation works (validated)
+
+Committed the working slice as e88a3a7 (Phase 2 ledger + chunked streaming + Phase 3-MVP
+continuity + the AGENTS.md release-note fold) and pushed to origin/context-management.
+
+Phase 3b step 1 = multi-turn accumulation: agent_api_stream_append_prompt_to_context now appends
+at the used-offset (accumulate) instead of resetting each turn; resets only on window-full
+(eviction placeholder; model-compaction-on-fill still TODO). Build clean, stream phase still 2
+sectors.
+
+VALIDATION (vm-net-ne2k8, 3 prompts): turn 1 "My favorite number is 42." -> turn 2 "My favorite
+color is blue." -> model replied "Noted: your favorite number is 42 AND your favorite color is
+blue" (referenced BOTH -> turn 1 still in context at turn 2) -> turn 3 "What is my favorite
+number?" -> "42" (recalled past the intervening color turn). verdict=success. Proves the window
+accumulates multiple turns, not just the last.
+
+Uncommitted (the accumulation change). Remaining Phase 3b: response-capture (carry model replies,
+not just prompts; watch the 512 B render-phase cap), model-compaction-on-fill (round-trip summary
+instead of drop), the long-prompt chunk-3 overflow (generalize the chunked send), identity
+tighten/expand.
+
+## 2026-06-03 09:09:00 - Phase 3b: model-compaction request-side built; capture is the crux
+
+Direction (user): TRUE model-driven compaction (B). Bigger machines naturally hold more verbatim
+context + compact less often once the window itself is RAM-sized (deferred runtime pool-sizing).
+
+BUILT + GREEN (request side):
+- Trigger MEASURED BEFORE SENDING (compute_ready_body_lengths, R): if chat_context_used >=
+  chat_compact_threshold, set compact_next + add the directive's length to Content-Length. The
+  "measure before send so the reply has room to land" rule (user).
+- chat_compact_threshold: resident byte, default (chat_context_len*3)/4 = 96 (the 3/4 rule),
+  TUNABLE by user/agent (read every request -> instant effect).
+- compact_next -> chunk 2 (X) appends api_json_compact_directive_text ("After answering, add a
+  final line beginning SUMMARY: then a <=80-char recap..."). So the model emits the summary.
+
+CAPTURE (PENDING - the crux): divert the model's rendered "SUMMARY: <recap>" into the window.
+- Inline-in-renderer FAILED: the render phase T is a hard 512 B one-sector phase (load region
+  0x0d00..0x1000 abuts the nucleus; can't grow), and the resident nucleus has ~12 B free. These
+  are FIXED low-memory regions - they do NOT scale with RAM (correcting the earlier "scales with
+  machines" - that holds for the window SIZE, not the capture CODE).
+- HOME = R (request phase): already does a screen-read (.restore_prompt_from_screen), runs per
+  turn, has sectors. At request-build, scan the PRIOR response's rendered SUMMARY: line ->
+  window (replace, reset chat_context_used), gated on compact_next (still set from last turn) so
+  it never false-matches a normal reply. One-turn lag is fine (the model got the verbatim window
+  in the compaction turn's chunk 3; the summary lands next R). ~40-line screen-scan (cell loop +
+  marker match + de-wrap + bounded copy) - the focused remaining build.
+
+ALSO PENDING:
+- Dim "compacting..." status (dark attr) shown while the compaction reply is in flight (user:
+  explains the sudden slowness; cheap for us).
+- HANDOFF-ADVERTISE the adjustment points (user, NEW): publish chat_compact_threshold + the
+  context/arena pool borders in the handoff so the agent can DISCOVER + TUNE them. Fits "handoff
+  publishes facts the agent reads and rewrites" (21:10 bordered-pool entry). Borders tie to the
+  still-deferred bordered-pool; threshold address is concrete now.
+
+CAVEAT of the current green state: request-side is active but capture is pending, so a window-
+FILLING conversation would show an un-captured "SUMMARY:" line (transient until capture lands);
+short conversations never fill the window, so they're unaffected. Accumulation + drop-on-overflow
+(validated) is still the effective behavior until the capture + dim + handoff-advertise land.
+
+## 2026-06-03 10:06:08 - Phase 3b COMPLETE: model-driven compaction works end-to-end (validated)
+
+The capture landed in R (.capture_summary_from_screen): when compact_next is still set from the
+prior turn, it linearly scans the rendered response area (rows 0..dpi_prompt_row-1; dpi_prompt_col=0
+so a flat scan is already de-wrapped) for the LAST "SUMMARY:" and copies the recap into the window,
+replacing the verbose history. Inline-in-renderer was impossible (T is a hard 512 B phase, nucleus
+~12 B free, both fixed low-memory); R already screen-reads + runs per turn + has room.
+
+RAW-STORAGE REWORK (fixed a real bug found while planning validation): the window now stores RAW
+text and is JSON-escaped only at send (append_context -> json-bytes escaper). Before, the
+accumulation fit-check used prompt*2 (worst-case escaping), capping the window at ~half and making
+the 3/4 threshold barely reachable for normal prompts. Raw storage = full capacity + simpler
+capture (no escape in the scan). Accumulation reads the raw prompt from dpi_input_buf (intact:
+accumulation runs before the receive).
+
+VALIDATION (vm-net-ne2k8, real OpenAI, 4 turns): facts accumulated turns 1-2; turn 3 (window past
+threshold) -> answered "pizza" AND emitted "SUMMARY: User facts: #42, blue, pizza, Paris..." with
+the dim "compacting context..." status shown; turn 4 "favorite number and city?" -> "42 and Paris"
+recalled from the CAPTURED recap (verbose history was replaced). verdict=success. Full chain
+proven: measure-before-send trigger -> SUMMARY: directive -> screen-scan capture -> window=recap ->
+continuity across the collapse.
+
+DIM STATUS: shown (dark-gray 0x08 CGA / 0x07 MDA) but v1 overprinted the prompt line; FIXED to
+advance one line first (scroll-at-bottom mirroring the renderer) so it gets its own line below the
+prompt, reply below that. (Re-validating.)
+
+HANDOFF-ADVERTISE (user btw): the ledger now publishes 3 context-management knobs so the agent can
+find/tune them - win@<hex> (window addr), arena@<hex> (arena addr), compact@<hex>=<dec> (threshold
+addr=value). Documented in HANDOFF.md (## Context-management knobs). api_ledger_len 129 -> 166
+(fixed-width, Content-Length stays exact); chunk 2 still fits 440. (Re-validating with the dim fix.)
+
+Uncommitted on context-management (capture + raw-rework + dim-fix + ledger-knobs + HANDOFF.md +
+this log). Ready to commit when asked.
+
+## 2026-06-03 10:32:37 - dim block polish + ledger-knobs REVERTED (premature for Build 9)
+
+Two iterations after user feedback on the validation screenshot:
+- DIM STATUS BLOCK: v1 overprinted the prompt; v2 advanced a line (scroll-at-bottom mirroring the
+  renderer) -> own line + blank before; user wanted it bracketed -> v3 adds inc cursor_row after
+  the status so the reply lands below a blank too. "compacting context..." now reads as its own
+  block (blank / status / blank / reply).
+- LEDGER KNOBS REVERTED: advertising win@/arena@/compact@<addr>=<val> in the ledger made the model
+  hallucinate a memory-WRITE tool call (validation OCR turn 2: '...should_write_memory "yes",
+  memory_to_write:"User favorites..."}'; the prior run WITHOUT knobs never did this). Root cause:
+  advertising ACTIONABLE addresses before any memory-write tool exists (Build 10) nudges the agent
+  to act on memory it can't write -> hallucination. So the agent-facing ledger advertisement is
+  DEFERRED to Build 10 (lands with the write tool). The knobs stay fully documented in HANDOFF.md
+  (## Context-management knobs) as the contract. api_ledger_len back to 129.
+
+One transient hiccup seen: a re-run stuck on turn 1 (no response, screen unchanged) - not code
+(the only diff, the dim blank-after, runs only on compaction turns; the same ledger flew the prior
+run), just an API/render stall. Clean re-run in progress.
+
+Net Build 9 Phase 3b state: capture + raw-storage + dim block all validated/validating; ledger
+knobs deferred. Compaction itself proven end-to-end (42-and-Paris recall across the collapse).

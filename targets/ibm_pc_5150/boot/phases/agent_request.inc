@@ -121,6 +121,7 @@ agent_request_phase:
     clc
     ret
 .build_ready_openai_request:
+    call .capture_summary_from_screen
     call .restore_prompt_from_screen
     call .compute_ready_body_lengths
     jc .request_failed
@@ -256,6 +257,14 @@ agent_request_phase:
     mov cl, [chat_context_used]         ; Build 9: conversation history carried in the input
     xor ch, ch
     add ax, cx
+    ; Build 9 (Phase 3b): measured before sending - if the window is past the (tunable) threshold,
+    ; arm model-compaction for this request (chunk 2 adds the SUMMARY: directive; +its length here).
+    mov byte [compact_next], 0
+    cmp cl, [chat_compact_threshold]
+    jb .body_not_full
+    mov byte [compact_next], 1
+    add ax, api_json_compact_directive_text_len
+.body_not_full:
     mov [api_body_len], ax
     clc
     ret
@@ -308,6 +317,97 @@ agent_request_phase:
     pop es
     ret
 
+; Build 9 (Phase 3b) capture: when the prior turn requested a SUMMARY: (compact_next still set),
+; scan the rendered response area (rows 0..dpi_prompt_row-1, col 0, so a linear cell scan is
+; already de-wrapped) for the marker and copy the recap after the LAST match into the window,
+; JSON-escaped, trailing spaces trimmed. Replaces the verbose window with the model's summary.
+; Reuses api_ctx_match (match index) and api_http_state (trim length) as scratch (idle at build).
+.capture_summary_from_screen:
+    cmp byte [compact_next], 0
+    je .csum_ret
+    push es
+    mov ax, color_video_seg
+    test word [handoff_addr + handoff_flags], handoff_flag_mda
+    jz .csum_seg
+    mov ax, 0xb000
+.csum_seg:
+    mov es, ax
+    mov byte [api_ctx_match], 0
+    mov byte [ctx_capturing], 0
+    xor si, si
+    mov al, [screen_cols]
+    mov bl, dpi_prompt_row
+    mul bl
+    mov cx, ax
+    or cx, cx
+    jz .csum_done
+.csum_next:
+    mov al, [es:si]
+    push si
+    mov bl, [api_ctx_match]
+    xor bh, bh
+    mov si, PHASE_LOAD_ADDR + (ctx_pattern - PHASE_BASE)
+    cmp al, [si + bx]
+    jne .csum_m_restart
+    inc bl
+    cmp bl, 8
+    jb .csum_m_save
+    mov byte [api_ctx_match], 0
+    mov byte [ctx_capturing], 1
+    mov byte [chat_context_used], 0
+    mov byte [api_http_state], 0
+    pop si
+    jmp .csum_advance
+.csum_m_save:
+    mov [api_ctx_match], bl
+    jmp .csum_m_after
+.csum_m_restart:
+    cmp al, [si]
+    jne .csum_m_zero
+    mov byte [api_ctx_match], 1
+    jmp .csum_m_after
+.csum_m_zero:
+    mov byte [api_ctx_match], 0
+.csum_m_after:
+    pop si
+    cmp byte [ctx_capturing], 0
+    je .csum_advance
+    mov bl, [chat_context_used]
+    xor bh, bh
+    cmp bl, chat_context_len - 1
+    jae .csum_advance
+    push si
+    mov si, chat_context_start
+    cmp al, 32
+    jae .csum_cap_store
+    mov al, 32                  ; control char -> space (stored raw; escaped only at send)
+.csum_cap_store:
+    mov [si + bx], al
+    inc bl
+    cmp al, 32
+    je .csum_cap_commit
+    mov [api_http_state], bl    ; trim length = last non-space position
+.csum_cap_commit:
+    mov [chat_context_used], bl
+    pop si
+.csum_advance:
+    inc si
+    inc si
+    dec cx
+    jnz .csum_next
+.csum_done:
+    cmp byte [ctx_capturing], 0
+    je .csum_clear
+    mov al, [api_http_state]
+    mov [chat_context_used], al
+.csum_clear:
+    mov byte [ctx_capturing], 0
+    mov byte [api_ctx_match], 0
+    mov byte [api_http_state], 0
+    pop es
+.csum_ret:
+    ret
+
 .append_u16_decimal:
     xor cx, cx
     mov bx, 100
@@ -336,6 +436,7 @@ agent_request_phase:
     stosb
     ret
 
+ctx_pattern db 'SUMMARY:'   ; Build 9 (Phase 3b) compaction marker, matched in the rendered reply
 http_post_text db 'POST ', 0
 http_openai_path_text db '/v1/responses', 0
 http_version_text db ' HTTP/1.1', 13, 10, 0

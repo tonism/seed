@@ -207,3 +207,28 @@ encrypted server Finished, and only then finishes writing the validated values
 back best-effort.
 If agent endpoint reachability fails, status is set to 5 and Seed enters the
 agent setup error path before the ready splash.
+
+## Context-management knobs (Build 9)
+
+Build 9 adds a conversation context window with model-driven compaction, governed by three knobs:
+
+```text
+window      conversation window address. Recent turns accumulate here (raw, JSON-escaped only at
+            send) and ride in the request "input" ahead of the prompt.
+arena       user/agent arena address - the free RAM Seed leaves for the agent to build in.
+threshold   the compaction-threshold byte: address + value, default 3/4 of the window.
+```
+
+Compaction is **measured before each request**: when the window is past the threshold (default
+3/4) Seed appends a directive asking the model to end its reply with a `SUMMARY:` line, shows a dim
+`compacting context...` status during that reply, and on the next request scans the rendered
+summary back into the window - replacing the verbatim history with the model's recap. Measuring
+before send guarantees the reply has room to land. The window scales with RAM on larger machines,
+so a bigger machine holds more verbatim context and compacts less often with no mechanism change.
+
+These knobs are intended to be advertised to the agent in the ledger (the model-facing text
+serialization of this block) as `win@<hex> arena@<hex> compact@<hex>=<dec>` so the agent can
+discover and tune them - writing the threshold byte retunes when compaction fires (higher = less
+often, lower = sooner). **Deferred to Build 10:** advertising actionable addresses in Build 9,
+before any memory-write tool exists, makes the model try to act on them and hallucinate
+memory-write tool calls; the ledger advertisement lands with the Build 10 write tool.

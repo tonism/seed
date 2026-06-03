@@ -9,6 +9,16 @@ chat_resend_prompt_len db 0
 ; Build 9 (Phase 3): bytes used in the chat_context conversation window (resident, reconnect-safe,
 ; 0 at boot). The window itself is chat_context_start in the reclaimed pool (data below).
 chat_context_used db 0
+; Build 9 (Phase 3b) model-compaction-on-fill: compact_next is armed when the window nears full;
+; the next request asks the model for a "SUMMARY:" line and the renderer diverts everything after
+; that marker into the window (ctx_capturing), matched via api_ctx_match. Resident, 0 at boot.
+compact_next db 0
+ctx_capturing db 0
+api_ctx_match db 0
+; Build 9 (Phase 3b): window-fill threshold (bytes) that triggers model-compaction, measured
+; before each request so the reply has room to land. Default 3/4 of the window; resident so a
+; user/agent can tune it (read every request, so changes take effect immediately).
+chat_compact_threshold db (chat_context_len * 3) / 4
 ne_tx_frame equ low_scratch_start
 ne_prom equ ne_tx_frame + net_frame_buffer_len
 low_packet_scratch_end equ ne_prom + ne_prom_len

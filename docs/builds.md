@@ -258,8 +258,10 @@ loop itself is still being stabilized.
 ## Build 9
 
 Build 9 owns minimal context management for agentic continuity. It builds on the
-stable Build 8 chat loop. The design direction is locked and the Phase 1 memory
-layout has landed; the full working record is `notes/build9-context-attempts.md`.
+stable Build 8 chat loop. The layered request, chunked streaming, conversation
+accumulation, and model-driven compaction are implemented and validated end-to-end -
+the model recalls a fact across a compaction collapse; the full working record is
+`notes/build9-context-attempts.md`.
 
 Each request is assembled from four layers:
 
@@ -276,6 +278,20 @@ budget), never by local heuristics. The ledger is regenerated from the handoff
 block, so it costs ~0 durable RAM; Seed publishes machine facts (including the
 already-present `ram_top`) and lets the user/agent derive their own free arena
 rather than dictating one.
+
+Implementation (Phases 2-3b, validated): the request is streamed as separate TLS
+records (headers+model / instructions+ledger / conversation+prompt), so the layered
+prefix never has to fit one send buffer. The conversation accumulates recent turns raw
+(JSON-escaped only at send) and, when it passes a tunable threshold (default 3/4,
+measured before each request so the reply has room to land), the model is asked to end
+its reply with a `SUMMARY:` line that the next request scans back into the window -
+model-driven compaction, shown as a dim `compacting context...` status block. The
+adjustment knobs (window / arena / threshold addresses) are documented in `HANDOFF.md`
+(Context-management knobs); their agent-facing advertisement in the ledger is deferred
+to Build 10, since advertising actionable addresses before a memory-write tool exists
+makes the model hallucinate tool calls. Known debt: a long escaped prompt+conversation
+can still exceed one chunk-3 record; generalizing the chunked send to split chunk 3 too
+is pending.
 
 Build 9 scope:
 

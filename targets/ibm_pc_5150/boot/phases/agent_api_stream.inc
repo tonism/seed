@@ -39,6 +39,11 @@ agent_api_stream_phase:
     mov si, PHASE_LOAD_ADDR + (api_json_instructions_text - PHASE_BASE)
     call agent_api_stream_append_z_to_buffer
     call agent_api_stream_append_ledger
+    cmp byte [compact_next], 0
+    je .no_compact_directive
+    mov si, PHASE_LOAD_ADDR + (api_json_compact_directive_text - PHASE_BASE)
+    call agent_api_stream_append_z_to_buffer
+.no_compact_directive:
     mov si, PHASE_LOAD_ADDR + (api_json_input_open_text - PHASE_BASE)
     call agent_api_stream_append_z_to_buffer
     mov ax, di
@@ -74,6 +79,10 @@ agent_api_stream_phase:
     phase_call_res tls_prepare_3c501_receive
     call agent_api_stream_append_prompt_to_context
 .done:
+    cmp byte [compact_next], 0
+    je .done_load_response
+    call agent_api_stream_show_compacting
+.done_load_response:
     mov ax, (((core_agent_response_phase_end - core_agent_response_phase_start + 511) / 512) << 8) | ((core_agent_response_phase_start - $$) / 512)
     mov bx, agent_response_phase_load_addr
     phase_call_res load_core_sectors_at
@@ -93,6 +102,8 @@ agent_api_stream_phase:
     mov byte [api_stream_completed], 0
     mov byte [api_http_state], 0
     mov byte [api_http_header_match], 0
+    mov byte [ctx_capturing], 0
+    mov byte [api_ctx_match], 0
     clc
     ret
 
@@ -213,6 +224,10 @@ api_json_instructions_text db '","reasoning":{"effort":"high"},"instructions":"C
 api_json_instructions_text_len equ $ - api_json_instructions_text - 1
 api_json_input_open_text db '","input":"', 0
 api_json_input_open_text_len equ $ - api_json_input_open_text - 1
+; Build 9 (Phase 3b): appended to instructions only when compact_next is armed; asks for a
+; SUMMARY: line the renderer diverts into the window. JSON-safe (no quotes to escape).
+api_json_compact_directive_text db 'After answering, add a final line beginning SUMMARY: then a recap (max 80 chars) of the whole conversation so far - key facts and state. ', 0
+api_json_compact_directive_text_len equ $ - api_json_compact_directive_text - 1
 
 ; Build 9 ledger field labels (terse machine facts serialized from the handoff block)
 api_ledger_ram_text db 'ram=', 0
@@ -224,6 +239,9 @@ api_ledger_fam_text db ' fam=', 0
 api_ledger_nic_text db ' nic@', 0
 api_ledger_irq_text db ' irq=', 0
 api_ledger_mac_text db ' mac=', 0
+; Build 9 (Phase 3b): the context-management knobs (window/arena/threshold) are documented in
+; HANDOFF.md but NOT advertised in the ledger yet - doing so before a memory-write tool exists
+; (Build 10) makes the model hallucinate memory-write tool calls. Deferred to Build 10.
 ; Fixed-width ledger -> constant serialized length (for Content-Length). Labels (minus 9 NULs)
 ; + ram hex16(4) + ip/gw/dns/mask dotted(4*15) + fam dec8(3) + nic hex16(4) + irq dec8(3) + mac(12).
 api_ledger_labels_len equ $ - api_ledger_ram_text - 9
@@ -337,27 +355,43 @@ agent_api_stream_ledger_dec8:      ; al (0-255) -> exactly 3 decimal digits at [
     ret
 
 ; ---- Build 9 conversation context (Phase 3): carry the recent prompt into the next input ----
-agent_api_stream_append_context:        ; copy chat_context (prior prompt, JSON-safe) to [es:di]
+agent_api_stream_append_context:        ; copy the window (stored RAW) into [es:di], JSON-escaped
     mov cl, [chat_context_used]
     xor ch, ch
-    jcxz .ctx_copy_done
     mov si, chat_context_start
-    rep movsb
-.ctx_copy_done:
+    call agent_api_stream_append_json_bytes_to_buffer
     ret
-agent_api_stream_append_prompt_to_context:   ; store the just-sent prompt for the next turn
-    mov byte [chat_context_used], 0
+agent_api_stream_append_prompt_to_context:   ; accumulate the just-sent prompt (RAW) for later turns
     mov al, [api_stream_prompt_len]
     or al, al
     je .ctx_store_done
+    ; Stored raw (escaped only at send), so the real length is the prompt length + separator.
     xor ah, ah
     mov bx, ax
-    add bx, bx                          ; prompt_len * 2 (JSON-escape worst case)
-    inc bx                              ; + separator
+    inc bx
+    mov al, [chat_context_used]
+    xor ah, ah
+    add bx, ax
     cmp bx, chat_context_len
-    ja .ctx_store_done                  ; too big for the window -> drop (MVP; model-compaction later)
+    jbe .ctx_fits
+    ; Window full: drop the history and start over with this prompt (overflow fallback; model-
+    ; compaction fires earlier at the threshold). Re-check the lone prompt fits.
+    mov byte [chat_context_used], 0
+    mov al, [api_stream_prompt_len]
+    xor ah, ah
+    mov bx, ax
+    inc bx
+    cmp bx, chat_context_len
+    ja .ctx_store_done                  ; single prompt too big for the window -> skip
+.ctx_fits:
     mov di, chat_context_start
-    call agent_api_stream_append_prompt_screen_to_buffer
+    mov al, [chat_context_used]
+    xor ah, ah
+    add di, ax                          ; append at the used offset (accumulate, don't replace)
+    mov si, dpi_input_buf               ; raw prompt (intact: accumulation runs before the receive)
+    mov cl, [api_stream_prompt_len]
+    xor ch, ch
+    rep movsb
     mov al, ' '
     stosb
     mov ax, di
@@ -365,5 +399,50 @@ agent_api_stream_append_prompt_to_context:   ; store the just-sent prompt for th
     mov [chat_context_used], al
 .ctx_store_done:
     ret
+
+; Build 9 (Phase 3b): dim status shown while a compaction reply is in flight - explains the slow
+; turn to the user. Dark-gray on CGA (0x08); MDA falls back to normal (0x08 can be invisible there).
+agent_api_stream_show_compacting:
+    push es
+    ; Advance to a fresh line (scrolling the text area up at the bottom, exactly like the renderer)
+    ; so the status gets its own line below the prompt; the reply then renders below the status.
+    cmp byte [cursor_row], dpi_prompt_row
+    jb .compacting_move_down
+    mov ah, 0x06
+    mov al, 1
+    mov bh, 0x07
+    mov cx, 0x0100
+    mov dh, dpi_prompt_row
+    mov dl, [screen_cols]
+    dec dl
+    int 0x10
+    mov byte [cursor_row], dpi_prompt_row - 1
+.compacting_move_down:
+    inc byte [cursor_row]
+    mov bx, color_video_seg
+    mov dl, 0x08
+    test word [handoff_addr + handoff_flags], handoff_flag_mda
+    jz .compacting_seg
+    mov bx, 0xb000
+    mov dl, 0x07
+.compacting_seg:
+    mov es, bx
+    mov al, [screen_cols]
+    mul byte [cursor_row]
+    shl ax, 1
+    mov di, ax
+    mov ah, dl
+    mov si, PHASE_LOAD_ADDR + (api_compacting_text - PHASE_BASE)
+.compacting_next:
+    lodsb
+    or al, al
+    jz .compacting_done
+    stosw
+    jmp .compacting_next
+.compacting_done:
+    inc byte [cursor_row]    ; leave a blank line after the status so it reads as its own block
+    pop es
+    ret
+api_compacting_text db 'compacting context...', 0
 
 %unmacro phase_call_res 1
