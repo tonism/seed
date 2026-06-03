@@ -735,3 +735,31 @@ short-prompt path is byte-for-byte unchanged (zero regression).
 - VALIDATE: ~255-char prompt (incl. quotes) -> splits into records, model responds, no truncation/
   corruption; short prompts confirm the one-record path is unchanged; then re-matrix (the split
   changes per-NIC send timing).
+
+## 2026-06-03 (at home) - 7-NIC compaction matrix results + JSON/memory-tool-call finding
+
+Matrix (committed cleanup build 6dcacf8, 4-turn compaction per NIC): 5/6 GREEN on recall (42 + Paris):
+3c503, novell-ne1k, 3c501, wd8003e, wd8003eb all recalled correctly (compaction on turn 3, invisible
+recap). ne1k FAILED (exit=2): turn 1 OK, turn 2 (the first context-bearing turn) rendered no response,
+turn 3 hung -> gate timeout, with a stray ", " leaked before turn 3's prompt. The ne1k SIBLING
+novell-ne1k PASSED, which points to ne1k being a FLAKE, not a systematic context-turn bug. Re-running
+ne1k x3 to confirm (b3tpr8j83). NOTE: verdict=success in the logs is only a not-blank-screen check -
+unreliable for correctness; always read the OCR'd answers. Dim "compacting context..." is NOT OCR-
+visible (attribute 0x08), so the log and a screenshot disagree on layout - cost me a misread earlier.
+
+JSON / MEMORY-TOOL-CALL (user spotted on wd8003eb turn 1): response came back as
+{"should_write_memory":"yes","memory_to_write":"Favorite number is 42"} instead of prose. Root:
+NOT ChatGPT product memory (the /v1/responses API returns only generated text, never injects product-
+memory tool calls), NOT our prompt (schema is in neither our code/config nor AGENTS.CFG; AGENTS.CFG is
+pure endpoint routing, identity is just the hardcoded "Concise, factual, professional."). It's the
+MODEL inventing a memory-write tool-call by reflex, primed by "remember these facts about me".
+Intermittent = sampling variance (1 of 6 NICs, NIC-coincidental). Same loose-format root also showed
+as markdown bullets ("- Favorite city: Paris") on several NICs - our instruction pinned tone, not
+format. FIX (wired, uncommitted, syntax-checked, X still 3 sectors): appended "Reply in plain text,
+never JSON or lists." to api_json_instructions_text. Tunable (product voice). Pending VM validation.
+FORWARD-LOOKING: the model WANTS to write memory - thematically central to Build 9 ("first build with
+actual memory"). Future discussion: support a real memory-write tool vs. keep suppressing. For now: suppress.
+
+UNCOMMITTED PILE (all syntax-checked, X=3 sectors, pending VM validation): chunk-3 splitting (feature)
++ fast-type compacting status (cosmetic) + plain-text instruction (JSON/list fix). Validate together
+once the ne1k flake check resolves - don't layer validation on an unstable base.

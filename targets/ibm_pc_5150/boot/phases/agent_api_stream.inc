@@ -61,6 +61,7 @@ agent_api_stream_phase:
     mov di, api_request_plain + tls_record_header_len
     call agent_api_stream_append_context
     call agent_api_stream_append_prompt_screen_to_buffer
+    jc .failed
     mov si, PHASE_LOAD_ADDR + (api_stream_json_close_text - PHASE_BASE)
     call agent_api_stream_append_z_to_buffer
     mov ax, di
@@ -179,11 +180,12 @@ agent_api_stream_append_prompt_screen_to_buffer:
 .screen_next:
     cmp byte [api_http_state], 0
     je .screen_done
-    ; Build 9 guard: stop before the prompt overflows the chunk-3 record buffer (leave room for one
-    ; escaped pair + the closing JSON). A long prompt is truncated, never allowed to corrupt
-    ; adjacent scratch. Proper fix (split chunk 3 into more records, no truncation) is pending.
+    ; Build 9 chunk-3 splitting: when the record buffer is about to overflow (leave room for one
+    ; escaped pair + the closing JSON), FLUSH it as a TLS record and keep reading into a fresh
+    ; buffer - so a long prompt sends as multiple records instead of truncating. Gated here, so a
+    ; short prompt (di never reaches the limit) takes the unchanged single-record path.
     cmp di, api_request_plain + tls_record_header_len + api_request_plain_len - api_stream_json_close_text_len - 2
-    jae .screen_done
+    jae .screen_flush
     mov al, [es:si]
     cmp al, '"'
     je .screen_escape
@@ -226,10 +228,40 @@ agent_api_stream_append_prompt_screen_to_buffer:
     mov byte [api_http_header_match], 0
     mov byte [api_stream_delta_match], 0
     pop es
+    clc
+    ret
+.screen_flush:
+    ; Record buffer full mid-prompt: send what's built (context + prompt-so-far on the first flush,
+    ; pure prompt-parts after) as a TLS record, then keep reading into a fresh buffer. The send
+    ; reuses the current-seq path (auto-increments the record seq) and reads plaintext from ds, but
+    ; CLOBBERS es (push ds/pop es internally) - so save si (a register) and re-point es at video
+    ; after; api_http_state / api_http_header_match are memory and survive the send. di is reset.
+    push si
+    mov ax, di
+    sub ax, api_request_plain + tls_record_header_len
+    mov [tls_app_len], ax
+    mov word [tls_app_plain_ptr], api_request_plain + tls_record_header_len
+    phase_call_res tls_prepare_3c501_receive
+    phase_call_res tls_send_application_data_current_seq
+    jc .screen_flush_failed
+    phase_call_res tls_prepare_3c501_receive
+    pop si
+    mov ax, color_video_seg
+    test word [handoff_addr + handoff_flags], handoff_flag_mda
+    jz .screen_flush_seg
+    mov ax, 0xb000
+.screen_flush_seg:
+    mov es, ax
+    mov di, api_request_plain + tls_record_header_len
+    jmp .screen_next
+.screen_flush_failed:
+    pop si
+    pop es
+    stc
     ret
 
 ; Build 9 chunk-2 templates: identity+ledger ride in "instructions"; input opens the prompt.
-api_json_instructions_text db '","reasoning":{"effort":"high"},"instructions":"Concise, factual, professional. ', 0
+api_json_instructions_text db '","reasoning":{"effort":"high"},"instructions":"Concise, factual, professional. ASCII only; no smart quotes, em-dashes, JSON, or lists. ', 0
 api_json_instructions_text_len equ $ - api_json_instructions_text - 1
 api_json_input_open_text db '","input":"', 0
 api_json_input_open_text_len equ $ - api_json_input_open_text - 1
@@ -436,6 +468,14 @@ agent_api_stream_show_compacting:
     or al, al
     jz .compacting_done
     stosw
+    ; Fast-type the status like the splash: wait_ticks is the same resident primitive the splash
+    ; typewriter uses, so this adds no new code besides the per-char pause. Runs after the send
+    ; while the model generates, so the ~1s overlaps response latency. wait_ticks clobbers ax/cx/dx
+    ; - only ah (the attribute) needs saving; si/di are untouched and cx is re-set each char.
+    push ax
+    mov cx, type_ticks
+    phase_call_res wait_ticks
+    pop ax
     jmp .compacting_next
 .compacting_done:
     ; Trailing blank line that SURVIVES the renderer's scroll-at-bottom: advance the same
@@ -459,6 +499,6 @@ agent_api_stream_show_compacting:
 .compacting_adv_inc:
     inc byte [cursor_row]
     ret
-api_compacting_text db 'compacting context...', 0
+api_compacting_text db 'compacting context', 0
 
 %unmacro phase_call_res 1
