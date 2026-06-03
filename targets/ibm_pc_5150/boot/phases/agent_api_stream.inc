@@ -114,6 +114,7 @@ agent_api_stream_phase:
     ret
 
 api_stream_json_close_text db '","stream":true}', 0
+api_stream_json_close_text_len equ $ - api_stream_json_close_text - 1
 
 agent_api_stream_append_z_to_buffer:
     lodsb
@@ -175,6 +176,11 @@ agent_api_stream_append_prompt_screen_to_buffer:
 .screen_next:
     cmp byte [api_http_state], 0
     je .screen_done
+    ; Build 9 guard: stop before the prompt overflows the chunk-3 record buffer (leave room for one
+    ; escaped pair + the closing JSON). A long prompt is truncated, never allowed to corrupt
+    ; adjacent scratch. Proper fix (split chunk 3 into more records, no truncation) is pending.
+    cmp di, api_request_plain + tls_record_header_len + api_request_plain_len - api_stream_json_close_text_len - 2
+    jae .screen_done
     mov al, [es:si]
     cmp al, '"'
     je .screen_escape

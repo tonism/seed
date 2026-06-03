@@ -289,9 +289,11 @@ model-driven compaction, shown as a dim `compacting context...` status block. Th
 adjustment knobs (window / arena / threshold addresses) are documented in `HANDOFF.md`
 (Context-management knobs); their agent-facing advertisement in the ledger is deferred
 to Build 10, since advertising actionable addresses before a memory-write tool exists
-makes the model hallucinate tool calls. Known debt: a long escaped prompt+conversation
-can still exceed one chunk-3 record; generalizing the chunked send to split chunk 3 too
-is pending.
+makes the model hallucinate tool calls. A long escaped prompt+conversation past one
+chunk-3 record is now bounded (the prompt is truncated at the record boundary rather than
+overflowing the send buffer into adjacent scratch); splitting chunk 3 into more records
+(no truncation - the full "divide every request into chunks" goal) is the pending
+enhancement, to land with validation.
 
 Build 9 scope:
 
