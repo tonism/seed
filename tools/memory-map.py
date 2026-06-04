@@ -52,9 +52,12 @@ GLYPH = {
     'tls_state':    't',
     'crypto_const': 'c',
     'rx_buffer':    'r',
+    'reconnect_scratch': ':',
     'agent_config': 'a',
     'handoff':      'h',
     'wire_state':   'w',
+    'context':      'm',
+    'arena':        '+',
     'cleaned':      '.',
     'phase_local':  ',',
     'free':         ' ',
@@ -69,8 +72,11 @@ PRIORITY = [
     'tls_state',
     'crypto_const',
     'rx_buffer',
+    'reconnect_scratch',
     'handoff',
     'wire_state',
+    'arena',
+    'context',
     'agent_config',
     'cleaned',
     'phase_local',
@@ -239,6 +245,12 @@ def stage_hal(ctx) -> list[str]:
     cursor/colour-attribute slots are populated in low_phase_state."""
     cells = stage_nucleus(ctx)
     c = ctx.consts
+    # Resident persistent runtime state, packed right up to the cold-phase
+    # scratch (0 B free after it): NIC TX/RX page tracking now, plus
+    # arp_target_mac + tcp seq/ack from the net stage. NOT the free band the
+    # map used to imply between the handoff and low_scratch_start.
+    fill(cells, c['low_runtime_state_start'], c['low_runtime_state_end'],
+         'wire_state')
     fill(cells, c['low_scratch_start'], c['low_file_scratch_end'],
          'phase_local')
     return cells
@@ -320,6 +332,14 @@ def stage_tls(ctx) -> list[str]:
     pre_response_end = rx_end + 637
     fill(cells, rx_end, pre_response_end, 'tls_state')
 
+    # Build 9 context pool above critical scratch - reconnect-safe, so it is
+    # reserved the moment the agent path is up: the caches are already live,
+    # the window fills as the chat runs, the arena stays reserved. Painting it
+    # here (not just in the chat-loop stage) keeps the densest moment honest -
+    # there is no free band waiting below the stack.
+    fill(cells, c['critical_scratch_end'], c['chat_context_start'], 'agent_config')
+    fill(cells, c['chat_context_start'], c['chat_context_end'], 'context')
+    fill(cells, c['chat_arena_start'], STACK_START, 'arena')
     return cells
 
 
@@ -332,7 +352,16 @@ def stage_dpi(ctx) -> list[str]:
     cells = stage_tls(ctx)
     c = ctx.consts
     rx_end = c['critical_scratch_start'] + c['tls_payload_buffer_len']
-    fill(cells, rx_end, rx_end + 637, 'free')
+    # The handshake scratch (hmac_prepared, tls_server_random, master_secret,
+    # handshake_hash) holds no live data once the session keys exist - but it is
+    # NOT free: a reconnect re-runs the handshake and reuses it, and it sits
+    # below critical scratch (the reconnect-safe line), so it can never become
+    # permanent pool. Paint it reserved, not free, so the map doesn't imply the
+    # pool is leaving usable space on the table.
+    fill(cells, rx_end, rx_end + 637, 'reconnect_scratch')
+    # The context pool (a / m / +) is painted in stage_tls - it is reserved
+    # from the first response onward, not new to the chat loop. What changes
+    # here is only the handshake scratch: it goes dormant/reserved (above).
     return cells
 
 
@@ -440,16 +469,26 @@ STAGE_FOOTER_BUILDERS = {
     ),
     'tls': lambda ctx: (
         "Densest moment. K LINK window loaded; persistent TLS state\n"
-        "derived; receive buffer holding the encrypted response; the\n"
-        "rest of pre-response scratch (hmac_prepared + tls_server_random\n"
-        "/ master_secret / handshake_hash) filled by the handshake."
+        "derived; receive buffer holding the encrypted response; the rest\n"
+        "of pre-response scratch (hmac_prepared + tls_server_random /\n"
+        "master_secret / handshake_hash) filled by the handshake. The\n"
+        "context pool above critical scratch (caches a, window m, arena +)\n"
+        "is already reserved. Nothing is free here - 16 KiB at full pack."
     ),
     'dpi': lambda ctx: (
-        "Chat loop after the first response. The K window, the derived session\n"
-        "keys, and the receive buffer (now the streamed response) stay resident\n"
-        "and serve every turn; the DPI phase rotates through low scratch. The\n"
-        "handshake-only scratch is freed, so the steady-state footprint is a touch\n"
-        "lighter than the handshake peak, and does not grow as the chat goes on."
+        "Chat loop after the first response. The K window, session keys, and\n"
+        "receive buffer (the streamed response) stay resident and serve every\n"
+        "turn. The ':' band is the TLS handshake scratch (HMAC pads, server\n"
+        "random, master secret, transcript hash): dormant once the session keys\n"
+        "exist, but reserved - a reconnect re-runs the handshake and reuses it,\n"
+        "and it sits below critical scratch (the reconnect-safe line), so it can\n"
+        "never be permanent pool. The Build 9 context pool therefore lives ABOVE\n"
+        "that line - reconnect-safe caches + keepalive (a), conversation window\n"
+        "(m), user/agent arena (+) - so it survives an idle/walk-away reconnect.\n"
+        "The pool is small here only because the reconnect-safe gap to the stack\n"
+        "is ~256 B on 16 KiB; it scales with RAM, so larger machines get a far\n"
+        "bigger window and arena. (Consolidating the dormant scratch into the\n"
+        "pool would need a memory defrag, sequenced into Build 10.)"
     ),
     'cleanup': None,  # generated dynamically below
 }

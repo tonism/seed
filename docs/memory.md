@@ -21,8 +21,11 @@ h  handoff block
 t  TLS / crypto state
 w  wire / TCP / NIC state
 r  TLS receive buffer
-a  agent config
+:  handshake scratch, reserved for the reconnect handshake (dormant in chat)
+a  agent config (and reconnect-safe caches)
 c  crypto constants
+m  conversation window (model-compacted context, Build 9)
++  user/agent arena (Build 9)
 ,  currently loaded cold phase / phase-local scratch
    free RAM
 |  stack guard region
@@ -72,7 +75,7 @@ boot_drive + ram_top into the handoff (the tiny 'h' cell).
 <!-- BEGIN MAP: stage-hal -->
 ```text
   ┌────────┬───────1───────2───────3───────4┐ KiB
-  │ 0x0000 │██████████  h ,,,,,,,,,,,,,,,,, │
+  │ 0x0000 │██████████  hw,,,,,,,,,,,,,,,,, │
   │ 0x1000 │▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓                │
   │ 0x2000 │                                │
   │ 0x3000 │                              ||│
@@ -90,7 +93,7 @@ attrs sit in low_phase_state.
 <!-- BEGIN MAP: stage-net -->
 ```text
   ┌────────┬───────1───────2───────3───────4┐ KiB
-  │ 0x0000 │██████████  h ,,,,,,,,,,,,,,,,, │
+  │ 0x0000 │██████████  hw,,,,,,,,,,,,,,,,, │
   │ 0x1000 │▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓                │
   │ 0x2000 │                                │
   │ 0x3000 │                              ||│
@@ -109,7 +112,7 @@ cells, just more densely inside them.
 <!-- BEGIN MAP: stage-agent-prep -->
 ```text
   ┌────────┬───────1───────2───────3───────4┐ KiB
-  │ 0x0000 │██████████  h ,,,,,,,,,,,,,,,,, │
+  │ 0x0000 │██████████  hw,,,,,,,,,,,,,,,,, │
   │ 0x1000 │▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓                │
   │ 0x2000 │                                │
   │ 0x3000 │                    tttttaaa  ||│
@@ -127,16 +130,18 @@ LINK window is still on the floppy — its 7.0 KiB slot at
 <!-- BEGIN MAP: stage-tls -->
 ```text
   ┌────────┬───────1───────2───────3───────4┐ KiB
-  │ 0x0000 │██████████cch ,,,,,,,,,,,,,,,,cc│
+  │ 0x0000 │██████████cchw,,,,,,,,,,,,,,,,cc│
   │ 0x1000 │▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒│
   │ 0x2000 │▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒│
-  │ 0x3000 │▒▒▒▒▒▒▒▒ttrrrrrrrrrrttttttaa  ||│
+  │ 0x3000 │▒▒▒▒▒▒▒▒ttrrrrrrrrrrttttttaam+||│
   └────────┴────────────────────────────────┘
 
 Densest moment. K LINK window loaded; persistent TLS state
-derived; receive buffer holding the encrypted response; the
-rest of pre-response scratch (hmac_prepared + tls_server_random
-/ master_secret / handshake_hash) filled by the handshake.
+derived; receive buffer holding the encrypted response; the rest
+of pre-response scratch (hmac_prepared + tls_server_random /
+master_secret / handshake_hash) filled by the handshake. The
+context pool above critical scratch (caches a, window m, arena +)
+is already reserved. Nothing is free here - 16 KiB at full pack.
 ```
 <!-- END MAP: stage-tls -->
 
@@ -145,16 +150,24 @@ rest of pre-response scratch (hmac_prepared + tls_server_random
 <!-- BEGIN MAP: stage-dpi -->
 ```text
   ┌────────┬───────1───────2───────3───────4┐ KiB
-  │ 0x0000 │██████████cch ,,,,,,,,,,,,,,,,cc│
+  │ 0x0000 │██████████cchw,,,,,,,,,,,,,,,,cc│
   │ 0x1000 │▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒│
   │ 0x2000 │▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒│
-  │ 0x3000 │▒▒▒▒▒▒▒▒ttrrrrrrrrrrr    aaa  ||│
+  │ 0x3000 │▒▒▒▒▒▒▒▒ttrrrrrrrrrrr:::::aam+||│
   └────────┴────────────────────────────────┘
 
-Chat loop after the first response. The K window, the derived session
-keys, and the receive buffer (now the streamed response) stay resident
-and serve every turn; the DPI phase rotates through low scratch. The
-handshake-only scratch is freed, so the steady-state footprint is a touch
-lighter than the handshake peak, and does not grow as the chat goes on.
+Chat loop after the first response. The K window, session keys, and
+receive buffer (the streamed response) stay resident and serve every
+turn. The ':' band is the TLS handshake scratch (HMAC pads, server
+random, master secret, transcript hash): dormant once the session keys
+exist, but reserved - a reconnect re-runs the handshake and reuses it,
+and it sits below critical scratch (the reconnect-safe line), so it can
+never be permanent pool. The Build 9 context pool therefore lives ABOVE
+that line - reconnect-safe caches + keepalive (a), conversation window
+(m), user/agent arena (+) - so it survives an idle/walk-away reconnect.
+The pool is small here only because the reconnect-safe gap to the stack
+is ~256 B on 16 KiB; it scales with RAM, so larger machines get a far
+bigger window and arena. (Consolidating the dormant scratch into the
+pool would need a memory defrag, sequenced into Build 10.)
 ```
 <!-- END MAP: stage-dpi -->
