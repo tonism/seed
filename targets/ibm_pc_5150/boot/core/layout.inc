@@ -2,7 +2,7 @@
 %define LOADER_SECTORS 4
 %endif
 
-build_number equ 9
+build_number equ 10
 core_load_addr equ 0x1000
 handoff_addr equ 0x0600
 low_sha256_k equ 0x0500

@@ -276,6 +276,23 @@ core_splash_phase_end:
 
 times 512 - (core_splash_phase_end - core_splash_phase_start) db 0
 
+core_tool_phase_start:
+%define PHASE_BASE core_tool_phase_start
+%define PHASE_LOAD_ADDR net_setup_phase_start
+%include "phases/tool_call.inc"
+%undef PHASE_LOAD_ADDR
+%undef PHASE_BASE
+core_tool_phase_end:
+
+; Loaded at net_setup_phase_start (0x0900) by dpi and run between turns. Keep it
+; clear of low_phase_state (cursor/colour bytes dpi reads after) - those sit near
+; the top of low scratch, so cap well under the full 0x0900..low_scratch_end span.
+%if (core_tool_phase_end - core_tool_phase_start) > 1024
+%error "tool phase exceeds its between-turns budget"
+%endif
+
+align 512, db 0
+
 core_dpi_phase_start:
 %define PHASE_BASE core_dpi_phase_start
 %include "phases/dpi.inc"
@@ -384,6 +401,11 @@ core_phase_table:
     dw (core_dpi_phase_start - $$) / 512
     dw (core_dpi_phase_end - core_dpi_phase_start + 511) / 512
     dw low_scratch_start
+    dw 0
+    db 'M', 0
+    dw (core_tool_phase_start - $$) / 512
+    dw (core_tool_phase_end - core_tool_phase_start + 511) / 512
+    dw net_setup_phase_start
     dw 0
     db 'S', 0
     dw (core_save_phase_start - $$) / 512

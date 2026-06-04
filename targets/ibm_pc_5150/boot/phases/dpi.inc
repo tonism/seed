@@ -17,6 +17,17 @@
 %endmacro
 
 dpi_phase:
+    ; Build 10: run any tool directives the previous turn's response left in the
+    ; conversation window, before drawing this prompt. Best-effort: a load failure
+    ; just skips tools (never breaks the chat loop). Loaded at net_setup_phase_start
+    ; (0x0900), above dpi's own 0x0700 sector; returns here when done.
+    mov ax, (((core_tool_phase_end - core_tool_phase_start + 511) / 512) << 8) | ((core_tool_phase_start - $$) / 512)
+    mov bx, net_setup_phase_start
+    phase_call_res load_core_sectors_at
+    jc .tools_skipped
+    mov bx, net_setup_phase_start
+    call bx
+.tools_skipped:
     cmp byte [api_stream_event_ready], 1
     je .request_phase_ready
     mov ax, (((core_agent_request_phase_end - core_agent_request_phase_start + 511) / 512) << 8) | ((core_agent_request_phase_start - $$) / 512)

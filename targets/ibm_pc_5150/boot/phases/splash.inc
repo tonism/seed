@@ -49,6 +49,7 @@ splash_phase_type_char:
     ret
 
 seed_text db 'seed', 0
-build_text db 'build ', '0' + build_number, 0
+; Two-digit build number (Build 10+). Single '0'+N broke at 10 ('0'+10 = ':').
+build_text db 'build ', '0' + (build_number / 10), '0' + (build_number % 10), 0
 
 %unmacro phase_call_res 1
