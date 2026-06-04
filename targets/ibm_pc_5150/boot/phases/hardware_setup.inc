@@ -46,6 +46,23 @@ hardware_setup_phase_init_handoff:
     mov word [handoff_addr + handoff_ram_top], bp
     mov byte [handoff_addr + handoff_status], handoff_status_booting
     mov byte [blink_state], 0
+    ; Build 9: size the conversation window from ram_top so it scales with RAM. The context pool
+    ; (window + arena) spans chat_context_start .. (ram_top - stack reserve); split it 50/50 and set
+    ; the compaction threshold to 3/4 of the window. The 0x100 reserve covers the ~196 B worst-case
+    ; static stack; the compile-time floor %if keeps pool/2 above the arena floor on 16K (bigger
+    ; machines only widen both). NOTE: ram_top is fixed 0x8000 on BIOS boot, so scaling currently
+    ; tops out near 32K until RAM detection lands (see HANDOFF.md context-management knobs).
+    mov ax, [handoff_addr + handoff_ram_top]
+    sub ax, 0x100
+    sub ax, chat_context_start
+    shr ax, 1
+    mov [chat_context_len_var], ax
+    mov bx, ax
+    shr ax, 1          ; window/2
+    shr bx, 1
+    shr bx, 1          ; window/4 (two single-bit shifts; 8086 has no shr-by-immediate)
+    add ax, bx         ; window*3/4
+    mov [chat_compact_threshold], ax
     ret
 
 hardware_setup_phase_display:

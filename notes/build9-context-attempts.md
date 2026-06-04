@@ -763,3 +763,93 @@ actual memory"). Future discussion: support a real memory-write tool vs. keep su
 UNCOMMITTED PILE (all syntax-checked, X=3 sectors, pending VM validation): chunk-3 splitting (feature)
 + fast-type compacting status (cosmetic) + plain-text instruction (JSON/list fix). Validate together
 once the ne1k flake check resolves - don't layer validation on an unstable base.
+
+## 2026-06-04 - RAM-scaling window + BOTH-SIDES capture BUILT (uncommitted); ram_top cap is a fork
+
+Build 9's core gap (user-flagged in manual testing): the window accumulated only the user's PROMPTS,
+not the model's RESPONSES, so the agent couldn't recall its own prior answers. User's framing for the
+fix: best-effort on 16K (we WILL spill - can't fit pages in ~100 B) but it MUST auto-scale with RAM
+(bigger machine -> bigger window -> better memory, no mechanism change); 16K is the worst case but must
+functionally work. User chose VERBATIM-recent + compact (not a running summary) and SCALE NOW (Build 9).
+Prior to this: committed the keepalive-before-pool relayout (8732d4a) so the window+arena are one
+contiguous block, plus the Concise/ASCII-map/no-lists instruction tweaks.
+
+BUILT (source only, uncommitted, syntax-clean; phases fit H=3/T=1/X=3/R=3, total 53 sectors):
+- data.inc: chat_context_used db->dw, chat_compact_threshold db->dw, + chat_context_len_var dw (runtime
+  window length, inits to the 128 floor). The window can now exceed 255 B, so used-count + threshold
+  became words.
+- hardware_setup.inc (init_handoff, once at boot, ram_top in bp): window = (ram_top - 0x100 reserve -
+  chat_context_start) / 2 (50/50 pool split); threshold = window*3/4 (two shr-by-1; 8086 has no
+  shr-by-imm). window + arena + threshold all derive from ram_top.
+- agent_response.inc (.emit_char): the BOTH-SIDES capture. Unified to ALWAYS append the rendered char
+  into the window (one shared store, up to the cap); a compaction turn just SUPPRESSES the render until
+  the recap newline (recap-first invisible compaction unchanged). The model's responses now accumulate
+  alongside prompts. ~neutral in the 512 B T phase (reused the store). Cap-hit ends the recap so a
+  newline-less recap can't swallow the answer.
+- agent_request.inc (compute_ready): Content-Length now counts the window JSON-ESCAPED (like the prompt),
+  keeping the RAW count for the fill threshold.
+- agent_api_stream.inc: append_prompt_to_context byte->word + chat_context_len_var bound; compaction
+  clear word; append_context made FLUSH-AWARE (bug #1); dead bulk append_json_bytes_to_buffer removed.
+
+TWO LATENT BUGS the bigger window EXPOSED (pre-existing, harmless at 128 B, fixed here):
+1. append_context bulk-copied the whole window into the 440 B api_request_plain buffer with NO di-limit
+   check - only the PROMPT append flushed. At 128 B it fit (the "383 < 440" assumption); an 8 KB window
+   would overrun the buffer before the prompt flush ran. FIX: append_context now has its own flush-aware
+   loop mirroring .screen_flush, sending full TLS records as it fills. es stays =ds (window source is the
+   buffer via lodsb, not video; tls_send leaves es=ds, so no re-point). Added the jc .failed the caller
+   was missing.
+2. Content-Length folded in the window's RAW count while the wire sends it ESCAPED -> a quote/backslash
+   window under-counts CL -> server truncates the body -> malformed JSON. Latent because old windows were
+   short, mostly-plain prompts; a big window holding the model's quote/code responses makes it real.
+
+ADVERSARIAL REVIEW (independent agent, 7 categories): NO bugs found. It also assembled the core itself
+(nasm exit 0) + ran core-sys-info --check (exit 0). Two non-bug notes:
+- 16K: window computes to ~107 B (50/50 of the ~214 B pool), arena gets the rest; both > the 64 B %if
+  floor; memory-safe, slightly under the old fixed 128 (the 50/50 rebalance gives the arena more).
+- The runtime window grows PAST the nominal chat_arena_start (equs still 128-based). FINE in Build 9
+  (the arena is NOT advertised to the agent yet - Build 10), but a BUILD-10 NOTE: advertise the arena at
+  the runtime window end (chat_context_start + chat_context_len_var), not the static equ, or a grown
+  window collides with the advertised arena.
+
+THE FORK (user's architectural call): ram_top is FIXED 0x8000 (32K) for any BIOS boot (main.inc:20,
+runtime_stack_top); only the ROM-BASIC sidecar uses a lower value. So the window scales 16K -> 32K
+(~107 B -> ~8 KB) then CAPS - 64K/640K get the same ~8 KB as 32K. True "better with ANY added RAM" needs
+RAM DETECTION (int 0x12 -> park the stack at actual RAM, capped at the ~64K segment-0 limit), a separate
+riskier boot change. The window-compute reads ram_top regardless of what sets it, so this work is
+forward-compatible either way. Decide: accept the 32K cap for Build 9, or add RAM detection.
+
+VALIDATION CHECKLIST (VM, when free; all UNCOMMITTED until validated + user's go):
+- BOTH-SIDES recall: multi-turn, then ask the model to recall something IT said (not just a user fact) -
+  proves response capture, the actual gap. (16K window is tiny -> compacts fast.)
+- Invisible compaction still clean (recap-first, dim "compacting context", no SUMMARY leak, recall across
+  the collapse) with the both-sides window.
+- BIG-WINDOW send: on 32K, grow the window past ~440 B over several turns -> append_context flush must
+  chunk it across TLS records, no truncation/corruption; short turns unchanged.
+- Content-Length: a window with double-quotes -> no truncated/malformed body.
+- Scaling visible: 16K vs 32K -> 32K window holds more (more turns before compaction).
+- 7-NIC matrix: chunked send + a compaction run per family (esp. 3c501/3c503 send timing).
+- Reconnect: window survives an idle walk-away reconnect.
+- Keepalive: long-render keepalive still fires (earlier relocation; OCR goes stale on long renders -
+  watch the VM, not the screenshot).
+
+## 2026-06-04 (uninterrupted machine, ~30 min) - both-sides + scaling VALIDATED; 2 polish follow-ups
+
+Ran on vm-net-ne2k8 (16K sidecar, real OpenAI).
+- BOTH-SIDES RECALL: PASS. "invent a nonsense word" -> model "Graxiloon"; "what nonsense word did you
+  invent?" -> "Graxiloon". A nonsense word is un-re-derivable from the prompt, so the model's RESPONSE
+  genuinely entered the window - the core gap is fixed. Boot came up clean as "build 9" (the boot-time
+  window-compute runs fine). Screenshot was /tmp/seed-bs.png.
+- BONUS (same run): turn 2 fired "compacting context" and STILL recalled -> recap-first invisible
+  compaction + recall-across-collapse re-validated WITH both sides in the window.
+- GREETING IN CONTEXT: CONFIRMED (user's catch). The cold greeting (~31 B) is captured; on the 16K
+  ~107 B window that is ~29% waste + it tipped turn 2 into early compaction.
+
+TWO POLISH FOLLOW-UPS (both hit the tight byte budget; NOT blocking the validated core):
+1. Exclude the greeting. A status-gate in the renderer (skip capture when status!=ready) is +7 B but
+   the T renderer is FULL (overflows). Clearing the window at chat-loop start (main.inc, +6 B) overflows
+   the RESIDENT (pushes the LINK phase-load window into the high crypto scratch). Both natural spots are
+   out of bytes -> needs a small byte-reclaim. (Option considered + deferred: drop the recap no-newline
+   guard [-6] to fund the gate, but that trades a real UX safety.)
+2. Double blank line between "compacting context" and the reply (show_compacting's trailing advance +
+   the renderer's own line-advance). show_compacting is in the X phase (3 sectors, has room), so this is
+   an easy fix - just needs a compaction-turn re-test to confirm the resulting count.

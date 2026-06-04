@@ -147,21 +147,25 @@ agent_response_phase:
     ret
 
 .emit_char:
+    ; Build 9 (both-sides capture): always append the rendered char into the window (up to the cap),
+    ; so the model's own responses accumulate alongside the prompts - that is what the next request
+    ; carries forward. One shared store serves both turn kinds. bx holds the pre-store used count.
+    mov bx, [chat_context_used]
+    cmp bx, [chat_context_len_var]
+    jae .emit_char_stored               ; window full: stop accumulating (compaction fires next request)
+    mov [chat_context_start + bx], al
+    inc word [chat_context_used]
+.emit_char_stored:
     cmp byte [compact_next], 0
-    je .emit_to_screen
-    ; Build 9 (invisible compaction): on a compaction turn the reply begins with a one-line recap
-    ; (per the directive). Capture it straight into the window - which agent_api_stream cleared
-    ; after sending - until the first newline, then switch to rendering the answer. The recap is
-    ; never drawn, so the user sees only "compacting context..." then the answer. The window cap
-    ; doubles as a guard: if the model omits the newline, capture stops and the answer still shows.
+    je .emit_to_screen                  ; normal turn: render (response already stored above)
+    ; Compaction turn: the reply opens with a one-line recap (per the directive). It is captured above
+    ; (into the window agent_api_stream cleared after sending) but NOT drawn - suppress the render until
+    ; the recap's first newline, then fall through to rendering the answer. Cap-hit also ends the recap,
+    ; so a newline-less recap cannot swallow the answer (bx>=len means this char did not fit).
     cmp al, 10
     je .recap_end
-    mov bl, [chat_context_used]
-    cmp bl, chat_context_len - 1
+    cmp bx, [chat_context_len_var]
     jae .recap_end
-    xor bh, bh
-    mov [chat_context_start + bx], al
-    inc byte [chat_context_used]
     ret
 .recap_end:
     mov byte [compact_next], 0

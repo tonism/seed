@@ -253,13 +253,21 @@ agent_request_phase:
     add ax, bx
     add ax, api_json_model_text_len + api_ready_stream_close_text_len
     add ax, api_json_instructions_text_len + api_ledger_len + api_json_input_open_text_len
-    mov cl, [chat_context_used]         ; Build 9: conversation history carried in the input
-    xor ch, ch
-    add ax, cx
-    ; Build 9 (Phase 3b): measured before sending - if the window is past the (tunable) threshold,
-    ; arm model-compaction for this request (chunk 2 adds the SUMMARY: directive; +its length here).
+    ; Build 9: the window rides in the input JSON-ESCAPED, so Content-Length must count it ESCAPED
+    ; (like the prompt above) - else a quote/backslash-bearing window under-counts and truncates the
+    ; sent body. Keep the RAW count for the fill threshold. (WORD throughout.)
+    mov si, chat_context_start
+    mov cx, [chat_context_used]
+    push ax                             ; body-so-far
+    push cx                             ; raw window count
+    call agent_request_phase_json_bytes_len   ; ax = window length JSON-escaped (clc; cx->0; bx kept)
+    pop cx                              ; raw window count (the fill measure)
+    pop dx                             ; body-so-far
+    add ax, dx                          ; body + escaped window
+    ; measured before sending - if the window is past the (tunable) threshold, arm model-compaction
+    ; for this request (chunk 2 adds the recap directive; its length is added below).
     mov byte [compact_next], 0
-    cmp cl, [chat_compact_threshold]
+    cmp cx, [chat_compact_threshold]
     jb .body_not_full
     mov byte [compact_next], 1
     mov byte [api_stream_text_seen], 1   ; recap is captured (not rendered), so pre-arm the

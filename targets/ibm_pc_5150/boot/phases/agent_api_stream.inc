@@ -60,6 +60,7 @@ agent_api_stream_phase:
     je .done
     mov di, api_request_plain + tls_record_header_len
     call agent_api_stream_append_context
+    jc .failed
     call agent_api_stream_append_prompt_screen_to_buffer
     jc .failed
     mov si, PHASE_LOAD_ADDR + (api_stream_json_close_text - PHASE_BASE)
@@ -80,7 +81,7 @@ agent_api_stream_phase:
     phase_call_res tls_prepare_3c501_receive
     cmp byte [compact_next], 0
     je .accumulate_prompt
-    mov byte [chat_context_used], 0    ; compaction turn: clear the window; the recap (captured by
+    mov word [chat_context_used], 0    ; compaction turn: clear the window; the recap (captured by
     jmp .done                          ; the renderer until the first newline) replaces the history
 .accumulate_prompt:
     call agent_api_stream_append_prompt_to_context
@@ -129,33 +130,8 @@ agent_api_stream_append_z_to_buffer:
 .append_done:
     ret
 
-agent_api_stream_append_json_bytes_to_buffer:
-    jcxz .json_done
-.json_next:
-    lodsb
-    cmp al, '"'
-    je .json_escape
-    cmp al, '\'
-    je .json_escape
-    cmp al, 32
-    jb .json_space
-    stosb
-    loop .json_next
-    ret
-.json_escape:
-    mov ah, al
-    mov al, '\'
-    stosb
-    mov al, ah
-    stosb
-    loop .json_next
-    ret
-.json_space:
-    mov al, ' '
-    stosb
-    loop .json_next
-.json_done:
-    ret
+; The window's JSON-escaping copy is folded into the flush-aware agent_api_stream_append_context
+; below (its only caller): a big-RAM window can exceed one TLS record, so it must flush as it goes.
 
 agent_api_stream_append_prompt_screen_to_buffer:
     push es
@@ -397,11 +373,57 @@ agent_api_stream_ledger_dec8:      ; al (0-255) -> exactly 3 decimal digits at [
     ret
 
 ; ---- Build 9 conversation context (Phase 3): carry the recent prompt into the next input ----
-agent_api_stream_append_context:        ; copy the window (stored RAW) into [es:di], JSON-escaped
-    mov cl, [chat_context_used]
-    xor ch, ch
-    mov si, chat_context_start
-    call agent_api_stream_append_json_bytes_to_buffer
+agent_api_stream_append_context:        ; copy the window (RAW) into [es:di], JSON-escaped, FLUSHING
+    mov cx, [chat_context_used]          ; full TLS records as the buffer fills - a big-RAM window can
+    jcxz .ctx_ok                         ; exceed one record. es=ds (buffer in ds); the source is ds:si
+    mov si, chat_context_start           ; (not video like the prompt flush), and tls_send leaves es=ds.
+.ctx_next:
+    cmp di, api_request_plain + tls_record_header_len + api_request_plain_len - 2
+    jae .ctx_flush                       ; leave room for one escaped pair before the payload cap
+    lodsb
+    cmp al, '"'
+    je .ctx_escape
+    cmp al, '\'
+    je .ctx_escape
+    cmp al, 32
+    jb .ctx_space
+    stosb
+    loop .ctx_next
+    jmp .ctx_ok
+.ctx_escape:
+    mov ah, al
+    mov al, '\'
+    stosb
+    mov al, ah
+    stosb
+    loop .ctx_next
+    jmp .ctx_ok
+.ctx_space:
+    mov al, ' '
+    stosb
+    loop .ctx_next
+.ctx_ok:
+    clc
+    ret
+.ctx_flush:                              ; buffer full mid-window: send it as a record, reset di, resume
+    push cx
+    push si
+    mov ax, di
+    sub ax, api_request_plain + tls_record_header_len
+    mov [tls_app_len], ax
+    mov word [tls_app_plain_ptr], api_request_plain + tls_record_header_len
+    phase_call_res tls_prepare_3c501_receive
+    phase_call_res tls_send_application_data_current_seq
+    jc .ctx_flush_failed
+    phase_call_res tls_prepare_3c501_receive
+    pop si
+    pop cx
+    mov di, api_request_plain + tls_record_header_len
+    jmp .ctx_next
+.ctx_flush_failed:
+    pop si
+    pop cx
+    stc
     ret
 agent_api_stream_append_prompt_to_context:   ; accumulate the just-sent prompt (RAW) for later turns
     mov al, [api_stream_prompt_len]
@@ -411,24 +433,22 @@ agent_api_stream_append_prompt_to_context:   ; accumulate the just-sent prompt (
     xor ah, ah
     mov bx, ax
     inc bx
-    mov al, [chat_context_used]
-    xor ah, ah
+    mov ax, [chat_context_used]
     add bx, ax
-    cmp bx, chat_context_len
+    cmp bx, [chat_context_len_var]
     jbe .ctx_fits
     ; Window full: drop the history and start over with this prompt (overflow fallback; model-
     ; compaction fires earlier at the threshold). Re-check the lone prompt fits.
-    mov byte [chat_context_used], 0
+    mov word [chat_context_used], 0
     mov al, [api_stream_prompt_len]
     xor ah, ah
     mov bx, ax
     inc bx
-    cmp bx, chat_context_len
+    cmp bx, [chat_context_len_var]
     ja .ctx_store_done                  ; single prompt too big for the window -> skip
 .ctx_fits:
     mov di, chat_context_start
-    mov al, [chat_context_used]
-    xor ah, ah
+    mov ax, [chat_context_used]
     add di, ax                          ; append at the used offset (accumulate, don't replace)
     mov si, dpi_input_buf               ; raw prompt (intact: accumulation runs before the receive)
     mov cl, [api_stream_prompt_len]
@@ -438,7 +458,7 @@ agent_api_stream_append_prompt_to_context:   ; accumulate the just-sent prompt (
     stosb
     mov ax, di
     sub ax, chat_context_start
-    mov [chat_context_used], al
+    mov [chat_context_used], ax
 .ctx_store_done:
     ret
 
