@@ -304,7 +304,9 @@ tool_phase:
     call .scr_putc
 .out_putc_done:
     ret
-; .scr_putc : al -> [es:di] with the dim attribute, di+=2, then fast-type one tick.
+; .scr_putc : al -> [es:di] with the dim attribute, di+=2. No per-char pacing: an agent
+; writing a large program emits many tool lines, and a typewriter pause per char would
+; drag badly on faster/bigger machines. Dim, but instant.
 .scr_putc:
     mov ah, 0x08
     test word [handoff_addr + handoff_flags], handoff_flag_mda
@@ -312,10 +314,6 @@ tool_phase:
     mov ah, 0x07
 .sp_store:
     stosw
-    push cx                          ; wait_ticks loops on cx - preserve callers' counters
-    mov cx, type_ticks
-    phase_call_res wait_ticks
-    pop cx
     ret
 
 .out_hex16:                          ; ax -> 4 hex chars (window + screen)

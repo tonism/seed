@@ -237,7 +237,12 @@ agent_api_stream_append_prompt_screen_to_buffer:
     ret
 
 ; Build 9 chunk-2 templates: identity+ledger ride in "instructions"; input opens the prompt.
-api_json_instructions_text db '","reasoning":{"effort":"high"},"instructions":"Concise: a few sentences unless asked for detail. Factual, professional. ASCII only - map non-ASCII to nearest ASCII (hyphens for dashes, straight quotes); no JSON. ', 0
+; Build 10: the RAM tool grammar is advertised here so the model can call tools on its
+; own (not only when the user spells the syntax). Terse on purpose - chunk 2 (this +
+; ledger + the compaction directive + input-open) must stay under ~616 B so it does not
+; overflow the record buffer into critical scratch on a compaction turn (measured: ~603 B
+; worst case, ~13 B margin). Each call on its own line keeps the streamed command tidy.
+api_json_instructions_text db '","reasoning":{"effort":"high"},"instructions":"Concise: a few sentences unless asked for detail. Factual, professional. ASCII only - map non-ASCII to nearest ASCII (hyphens for dashes, straight quotes); no JSON. RAM tools, hex: $r ADDR LEN read, $w ADDR BYTES write, $x ADDR run. ', 0
 api_json_instructions_text_len equ $ - api_json_instructions_text - 1
 api_json_input_open_text db '","input":"', 0
 api_json_input_open_text_len equ $ - api_json_input_open_text - 1
