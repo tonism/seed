@@ -160,6 +160,9 @@ Run the ROM BASIC sidecar harness:
 tools/run-basic-bootstrap-86box.py --profile vm-net-ne2k8
 ```
 
+Boot modes (16 KiB ROM BASIC sidecar vs 32 KiB direct-from-A:), harness flags,
+validation recipes, and the OCR/cfg/screenshot gotchas live in `docs/testing.md`.
+
 Useful expected screens:
 
 The 16 KiB checkpoint for these IBM PC 5150 profiles is expected
@@ -251,6 +254,7 @@ README.md
 docs/architecture.md
 docs/builds.md
 docs/config.md
+docs/testing.md
 docs/ui.md
 targets/ibm_pc_5150/README.md
 targets/ibm_pc_5150/HANDOFF.md

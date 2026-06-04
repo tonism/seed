@@ -2503,6 +2503,20 @@ def main() -> int:
             com_passthrough=com_passthrough,
             muted=not args.sound,
         )
+    elif args.entry == "direct":
+        # Direct BIOS floppy boot: main floppy in A: (rom_basic=False), no sidecar.
+        # A >=32K machine boots Seed straight from A:, giving ram_top 0x8000 and the
+        # full-size context window - the only way to exercise the big-window send path.
+        config = vm_path / "86box.cfg"
+        restore_config = (config, config.read_bytes())
+        rewrite_vm_config(
+            config,
+            args.ram_kib,
+            floppy,
+            False,
+            com_passthrough=com_passthrough,
+            muted=not args.sound,
+        )
 
     com_capture: ComCapture | None = None
     if args.com_capture is not None:
