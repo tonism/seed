@@ -48,8 +48,8 @@ runtime file     one visible CORE.SYS
 Current measured image:
 
 ```text
-CORE.SYS total bytes:       26112
-CORE.SYS total sectors:     51
+CORE.SYS total bytes:       27136
+CORE.SYS total sectors:     53
 resident nucleus sectors:   4
 resident nucleus bytes:     2048
 phase count:                19
@@ -182,7 +182,7 @@ U   2        0x0700     USER.CFG persisted user values
 Q   3        0x0700     agent selection and missing-value prompts
 R   3        0x0900     API request construction
 V   1        0x0700     agent/endpoint cache
-X   1        0x0900     application-data stream (encrypted send/receive)
+X   3        0x0900     application-data stream (encrypted send/receive)
 T   1        0x0d00     agent response parse
 B   1        0x0700     splash/result display
 Y   1        0x0700     Default Prompt Interface chat loop
@@ -255,8 +255,11 @@ The 16 KiB target ceiling is `0x4000`. At steady state three regions stay perman
 resident: the 2 KiB nucleus at `0x1000`, the 7 KiB `K` crypto/TLS/API window at
 `0x1800`, and ~2.3 KiB of high-crypto plus critical TLS/API scratch above it. Cold
 phases stream through the shared low scratch at `0x0700`. Critical scratch ends at
-`0x3cf3`, leaving the measured execution guard — currently 781 bytes, below the 1 KiB
-target — under the ceiling.
+`0x3cf3`; Build 9 reclaims the former stack-reserve slack above it into a small
+reconnect-safe context pool — a model-compacted conversation window plus a user/agent arena
+(~256 B split by default, the arena growing with RAM on larger machines) — and runs the
+remaining execution guard thin per the guard philosophy, confirmed by a stack high-water
+check in validation.
 
 The byte-level entry-time and runtime layouts, and the per-stage maps, live in
 [`memory.md`](memory.md); regenerate them with `make memory-map` after any
@@ -366,9 +369,10 @@ trusted bare-metal tooling.
 The Default Prompt Interface is Seed's disposable starter UI. It is useful
 enough to prove repeated chat after boot, but it is not the future environment
 and should not accumulate terminal, shell, or operating-system responsibilities.
-The first DPI release may send each prompt as a fresh provider request; the next
-roadmap step is minimal context assembly so recent interaction state can shape
-the following request.
+The first DPI release (Build 8) sent each prompt as a fresh provider request; Build 9
+adds minimal context assembly - a model-compacted rolling conversation summary plus the
+current prompt shape each request, so prompts are no longer semantically fresh. Tool-result
+slots flowing back through this context path are the Build 10 step.
 
 Seed-owned context management should be compact and volatile on the 16 KiB
 target: recent prompt/response state, a small rolling summary or equivalent

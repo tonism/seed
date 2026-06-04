@@ -220,9 +220,10 @@ threshold   the compaction-threshold byte: address + value, default 3/4 of the w
 ```
 
 Compaction is **measured before each request**: when the window is past the threshold (default
-3/4) Seed appends a directive asking the model to end its reply with a `SUMMARY:` line, shows a dim
-`compacting context...` status during that reply, and on the next request scans the rendered
-summary back into the window - replacing the verbatim history with the model's recap. Measuring
+3/4) Seed appends a directive asking the model to emit a one-line recap FIRST, then its answer. The
+renderer captures that recap straight into the window and never draws it (recap-first invisible
+compaction); the user sees only a dim, fast-typed `compacting context` status line and then the
+answer, while the recap silently replaces the verbatim history. Measuring
 before send guarantees the reply has room to land. The window scales with RAM on larger machines,
 so a bigger machine holds more verbatim context and compacts less often with no mechanism change.
 

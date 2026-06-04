@@ -58,3 +58,14 @@ Text fields, including `key?`, render plain typed characters. Long values stay
 inside the field row by showing the visible tail without wrapping.
 
 The cursor stays hidden unless a field is actively accepting typed input.
+
+## Default Prompt Interface
+
+After boot, Seed renders a model greeting and takes prompts at a `>` marker. User input
+shows in bright text and streamed model responses in normal text; turns reuse one live TLS
+session.
+
+When the rolling conversation window fills (Build 9), Seed compacts it: a dim status line,
+fast-typed like the boot banner, reads `compacting context`. The one-line recap the model
+emits to drive that compaction is captured silently and never drawn — the user sees only the
+status line, then the answer.

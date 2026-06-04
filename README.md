@@ -73,6 +73,8 @@ On the IBM PC 5150 target, Seed can:
 - complete the current minimal TLS 1.2 provider path,
 - run the Default Prompt Interface chat loop: an initial model greeting, prompt
   input, and streamed model responses across multiple turns in one boot session,
+- carry recent conversation across turns — a model-compacted rolling summary that keeps
+  prompts from being semantically fresh (Build 9),
 - use shipped `AGENTS.CFG` and `NET.CFG` defaults, and
 - use optional local `USER.CFG` state when present.
 

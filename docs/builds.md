@@ -283,17 +283,21 @@ Implementation (Phases 2-3b, validated): the request is streamed as separate TLS
 records (headers+model / instructions+ledger / conversation+prompt), so the layered
 prefix never has to fit one send buffer. The conversation accumulates recent turns raw
 (JSON-escaped only at send) and, when it passes a tunable threshold (default 3/4,
-measured before each request so the reply has room to land), the model is asked to end
-its reply with a `SUMMARY:` line that the next request scans back into the window -
-model-driven compaction, shown as a dim `compacting context...` status block. The
+measured before each request so the reply has room to land), the model is asked to emit a
+one-line recap of the facts so far FIRST, then a newline, then its answer; the renderer
+captures that recap straight into the conversation window and never draws it (recap-first
+invisible compaction), so the user sees only a dim, fast-typed `compacting context` status
+line and then the answer - the recap silently replaces the prior history. The
 adjustment knobs (window / arena / threshold addresses) are documented in `HANDOFF.md`
 (Context-management knobs); their agent-facing advertisement in the ledger is deferred
 to Build 10, since advertising actionable addresses before a memory-write tool exists
-makes the model hallucinate tool calls. A long escaped prompt+conversation past one
-chunk-3 record is now bounded (the prompt is truncated at the record boundary rather than
-overflowing the send buffer into adjacent scratch); splitting chunk 3 into more records
-(no truncation - the full "divide every request into chunks" goal) is the pending
-enhancement, to land with validation.
+makes the model hallucinate tool calls. A long escaped prompt+conversation that would
+overflow one chunk-3 record now FLUSHES across multiple TLS records instead of truncating
+(the small send buffer is reused; gated on the record-buffer limit, so ordinary prompts
+take the unchanged single-record path) - the full no-truncation chunking goal, validated by
+a quote-heavy split test. The model is also held to plain ASCII (no JSON or tool calls): the CP437 text terminal
+cannot render UTF-8 typographic punctuation, and the model otherwise occasionally emits a
+memory-write tool-call JSON. (Lists are fine - they render as ASCII.)
 
 Build 9 scope:
 
@@ -333,12 +337,27 @@ floppy reads:  RESOLVED by decision - accept bounded documented per-turn reads o
 memory reclaim: FOLDED into the core - the stack-reserve reclaim funds the context
   pool; the old "toward a 1 KiB guard" target is replaced by a measured ~256 B reserve
   run thin per the guard philosophy, confirmed by a validation tripwire.
-NIC timing unification: the one open investigation, sequenced into Build 9 validation
-  and evidence-gated. ~10-11 behavioral carve-outs (3c501-dominated: render-before-ACK,
-  the el1 single-buffer receive latch, handshake-flight ordering; one 3c503 app-send-
-  before-server-finished) are the candidates. Per docs/networking.md, remove a per-card
-  rule only with a documented replacement rule + cross-NIC evidence.
+NIC timing unification: EVALUATED, deferred. The 7-NIC matrix came back green, so the
+  per-NIC timing differences are confirmed hardware-driven (mostly 3c501's single-buffer
+  carve-outs, one 3c503 app-send-before-Finished), not unifiable behavior. The only safe
+  move is structural DRY (a shared poll-with-timeout helper, ~8-15 B), not a behavioral
+  collapse - marginal, so deferred. Byte-reclaim for the context arena (TLS Finished /
+  HMAC pads, ~128 B) is real but island-shaped; reaching the arena needs a defrag pass,
+  sequenced into the Build 10 tool-calling layout rework. Analysis in
+  notes/build9-context-attempts.md.
 ```
+
+Build 9 checkpoint (2026-06-04): context management COMPLETE and validated. The four-layer
+request (identity / ledger / conversation / prompt) streams as chunked TLS records; the
+conversation is a model-compacted rolling window using recap-first invisible compaction;
+chunk 3 flushes across records with no truncation; and the model is held to plain ASCII
+prose. Validated: the 7-NIC compaction matrix - 3c503, ne1k, novell-ne1k, 3c501, wd8003e,
+wd8003eb plus the ne2k8 baseline - 5/6 green on first pass, with ne1k a confirmed flake (3/3
+on recheck); the chunk-3 flush carried a quote-heavy split prompt through intact; recall
+survives a compaction collapse (the model answers a fact from before the window cleared);
+the keep-alive held a 20-minute render; and the ASCII instruction produced clean prose with
+no CP437 garbage or tool-call JSON. The full working record is
+`notes/build9-context-attempts.md`. Release marker pending (not yet cut).
 
 ## Build 10
 

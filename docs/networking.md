@@ -31,6 +31,10 @@ These hold for every supported adapter:
   user already read.
 - **Durable prompt tail.** Hold the prompt tail in memory that TLS setup cannot
   overwrite, so it survives a reconnect-and-resend.
+- **Chunked request (Build 9).** Send the provider request as several TLS application
+  records (headers+model / instructions+ledger / conversation+prompt). When the
+  conversation+prompt would overflow the send buffer, flush across further records rather
+  than truncating — one HTTP request, more TLS records, transparent to the adapter.
 
 ## Per-NIC contracts
 
