@@ -25,6 +25,12 @@ core_header_magic_off equ 3
 core_header_version_off equ 11
 core_header_resident_sectors_off equ 15
 core_header_magic_len equ 8
+; Build 10: hand CORE.SYS a real RAM top via the same AX + BX/CX-magic contract the
+; ROM BASIC sidecar uses (layout.inc basic_boot_magic_bx/cx), so the conversation
+; window + user/agent arena scale to the machine instead of the old fixed 0x8000.
+basic_magic_bx equ 0x5345
+basic_magic_cx equ 0x4544
+seg0_stack_cap equ 0xfff0
 
 start:
     cli
@@ -42,10 +48,22 @@ start:
     call load_core
     jc load_failed
 
+    ; Detect conventional memory (int 0x12 -> KB) and convert to a segment-0 byte
+    ; ceiling for CORE.SYS's stack/pool. KB<64 -> KB*1024 (<=0xFC00, no overflow);
+    ; KB>=64 -> cap at top of segment 0 (KB*1024 would overflow 16 bits). Direct boot
+    ; only happens at >=32 KiB, so 32 KiB still yields 0x8000 exactly (no regression).
+    int 0x12                    ; ax = KB conventional memory
+    cmp ax, 64
+    jb .ram_shift
+    mov ax, seg0_stack_cap
+    jmp .ram_ready
+.ram_shift:
+    mov cl, 10
+    shl ax, cl                  ; KB * 1024
+.ram_ready:
+    mov bx, basic_magic_bx      ; signal "RAM top in AX" to CORE.SYS start (== BASIC path)
+    mov cx, basic_magic_cx
     mov dl, [boot_drive]
-    xor ax, ax
-    xor bx, bx
-    xor cx, cx
     jmp 0x0000:core_offset
 
 missing_core:
