@@ -384,6 +384,30 @@ published machine contract, and first controlled tool hook, then leaves local
 tool formats, loaders, ABIs, workspaces, and result handling to the user/agent
 environment.
 
+Build 10 carried-in context (deferred from Build 9):
+
+```text
+memory/layout re-evaluation: tool calling needs resident room the current 16 KiB
+  layout does not have, so Build 10 opens with a deliberate resident/memory rework
+  rather than squeezing tools into the existing map. The items below fold into it.
+RAM detection: deferred from Build 9. ram_top is hardwired 0x8000 (32 KiB) on any
+  BIOS boot, so the context window scales 16K->32K then caps; scaling past that
+  needs int 0x12 + parking the stack at detected RAM (~64 KiB segment-0 cap),
+  about +15 resident bytes. Funding it has no clean home without shrinking the
+  context pool (ruled out): ~+7 B is safely reclaimable (drop the tls_app_plain_ptr
+  store - constant except for the keepalive - plus a shared out_ax_port_pair NIC
+  helper); the remainder would need a risky hot-NIC wait-loop fold at ~0 margin, so
+  do it inside the rework. The boot window-compute already reads ram_top regardless
+  of what sets it, so it stays forward-compatible.
+context-arena byte-reclaim + defrag: see the Build 9 carried-TODO above;
+  docs/memory.md (chat-loop stage) shows the dormant reconnect-reserved handshake
+  scratch a defrag would consolidate into the reconnect-safe pool.
+ledger knob advertisement: the context-management knobs live in HANDOFF.md but are
+  deliberately NOT advertised as actionable addresses in the ledger - doing so
+  before a memory-write tool exists makes the model hallucinate tool calls.
+  Advertise them once the Build 10 tool surface exists.
+```
+
 ## Public Release Gate
 
 The first public release should include Builds 8, 9, and 10, not Build 8 alone.
