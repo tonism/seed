@@ -58,13 +58,11 @@ ne_transmit_frame:
     jmp .frame_loaded
 
 .remote_dma:
-    mov bx, [handoff_addr + handoff_nic_base]
+    ; bx still holds the NIC base from the top of ne_transmit_frame (only the wd/3c503
+    ; branches clobber it, and neither was taken to reach here), so no reload needed.
     lea dx, [bx + ne_rbcr0]
     mov ax, bp
-    out dx, al
-    inc dx
-    mov al, ah
-    out dx, al
+    call out_dx_word
 
     lea dx, [bx + ne_rsar0]
     xor al, al
@@ -104,10 +102,7 @@ ne_transmit_frame:
 
     lea dx, [bx + ne_tbcr0]
     mov ax, bp
-    out dx, al
-    inc dx
-    mov al, ah
-    out dx, al
+    call out_dx_word
 
     lea dx, [bx + ne_cr]
     mov al, ne_cmd_transmit

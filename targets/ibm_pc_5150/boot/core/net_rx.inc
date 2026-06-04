@@ -271,17 +271,11 @@ ne_remote_read_bytes:
 
     lea dx, [bx + ne_rbcr0]
     mov ax, [ne_dma_count]
-    out dx, al
-    inc dx
-    mov al, ah
-    out dx, al
+    call out_dx_word
 
     lea dx, [bx + ne_rsar0]
     mov ax, [ne_dma_addr]
-    out dx, al
-    inc dx
-    mov al, ah
-    out dx, al
+    call out_dx_word
 
     lea dx, [bx + ne_cr]
     mov al, ne_cmd_remote_read
@@ -391,10 +385,7 @@ c503_begin_dma_al:
     lea dx, [bx + el2_da_high]
     mov ax, [ne_dma_addr]
     xchg al, ah
-    out dx, al
-    inc dx
-    mov al, ah
-    out dx, al
+    call out_dx_word
     ret
 
 c503_read_chipmem_bytes:

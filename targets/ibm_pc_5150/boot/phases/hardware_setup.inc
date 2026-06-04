@@ -71,6 +71,14 @@ hardware_setup_phase_display:
     mov [handoff_addr + handoff_video_mode], al
     mov [handoff_addr + handoff_video_cols], ah
     mov [screen_cols], ah
+    ; Build 10 rework: precompute the scroll bottom-right corner for scroll_text_area
+    ; (dh = last text row, dl = cols-1) so that shared BIOS-scroll helper stays tiny.
+    push ax
+    mov al, ah
+    dec al
+    mov ah, dpi_prompt_row
+    mov [scroll_br], ax
+    pop ax
     sub ah, seed_len
     shr ah, 1
     mov [seed_col], ah

@@ -157,11 +157,20 @@ agent_response_phase:
     inc word [chat_context_used]
 .emit_char_stored:
     cmp byte [compact_next], 0
-    je .emit_to_screen                  ; normal turn: render (response already stored above)
-    ; Compaction turn: the reply opens with a one-line recap (per the directive). It is captured above
-    ; (into the window agent_api_stream cleared after sending) but NOT drawn - suppress the render until
-    ; the recap's first newline, then fall through to rendering the answer. Cap-hit also ends the recap,
-    ; so a newline-less recap cannot swallow the answer (bx>=len means this char did not fit).
+    jne .suppress_active                 ; compaction recap OR a tool line already in progress
+    ; Build 10: a '$' begins a tool directive - suppress that whole line from the screen (it
+    ; is already captured in the window above; the tool phase executes it between turns, and
+    ; shows its own dim "read from .." line). Reuse the recap suppress-to-newline below;
+    ; compact_next is reset every request, so a trailing-newline-less tool line cannot leak
+    ; into the next turn's compaction.
+    cmp al, '$'
+    jne .emit_to_screen                  ; normal char: render (already stored in the window)
+    mov byte [compact_next], 1
+    ret
+.suppress_active:
+    ; Compaction turn: the reply opens with a one-line recap (captured into the window, not
+    ; drawn) - suppress until its first newline (or the window cap), then render the answer.
+    ; Same path now also hides a tool-directive line until its newline.
     cmp al, 10
     je .recap_end
     cmp bx, [chat_context_len_var]
@@ -207,25 +216,16 @@ agent_response_phase:
 .advance_response_line:
     cmp byte [cursor_row], dpi_prompt_row
     jb .move_down
-    call .scroll_response
+    push cx                              ; cx is the outer record byte-counter - preserve it
+    mov ax, 0x0601                       ; scroll up 1 line
+    mov cx, 0x0100                       ; top-left (row 1, col 0)
+    phase_call_res scroll_text_area
+    pop cx
     mov byte [cursor_row], dpi_prompt_row - 1
 .move_down:
     inc byte [cursor_row]
     mov byte [cursor_col], dpi_prompt_col
     call .sync_response_video_offset
-    ret
-
-.scroll_response:
-    push cx
-    mov ah, 0x06
-    mov al, 1
-    mov bh, 0x07
-    mov cx, 0x0100
-    mov dh, dpi_prompt_row
-    mov dl, [screen_cols]
-    dec dl
-    int 0x10
-    pop cx
     ret
 
 .sync_response_video_offset:

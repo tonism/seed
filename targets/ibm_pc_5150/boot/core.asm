@@ -32,6 +32,13 @@ core_header_end:
 
 core_resident_end:
 
+; The resident nucleus is loaded at 0x1000 and the K crypto window is pinned at 0x1800,
+; so the nucleus must fit the 2 KiB below it. The checks below compare against the much
+; higher crypto/critical scratch and would NOT directly flag a spill into the K window.
+%if (core_resident_end - $$) > 0x0800
+%error "resident nucleus exceeds the 2KB window below the K crypto window at 0x1800"
+%endif
+
 %if (core_resident_end - $$) > (critical_scratch_start - core_load_addr)
 %error "resident nucleus overlaps critical scratch"
 %endif

@@ -22,6 +22,9 @@ chat_compact_threshold dw (chat_context_len * 3) / 4
 ; Build 9: conversation-window length, computed at boot from ram_top (50/50 pool split) so it scales
 ; with RAM. Inits to the compile-time floor; hardware_setup overwrites it. WORD (can exceed 255).
 chat_context_len_var dw chat_context_len
+; Build 10 rework: precomputed bottom-right corner (dh=last row, dl=cols-1) for the shared
+; scroll_text_area BIOS scroll. Set once by hardware_setup so the helper stays tiny.
+scroll_br dw 0
 ne_tx_frame equ low_scratch_start
 ne_prom equ ne_tx_frame + net_frame_buffer_len
 low_packet_scratch_end equ ne_prom + ne_prom_len
