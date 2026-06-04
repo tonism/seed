@@ -1,6 +1,6 @@
 # Agent And User Config
 
-Seed now has three configuration files on the boot floppy:
+Seed has three configuration files on the boot floppy:
 
 ```text
 AGENTS.CFG  optional shipped override for agent interface declarations
@@ -107,27 +107,10 @@ both values, they are shown on one form panel with Up and Down moving between
 fields. Saved `model` and `reasoning` values are preserved when present, but
 Seed should not ask the user to type those by hand. Model and reasoning choices
 belong after the selected agent endpoint can be reached and its capabilities
-can be fetched. Seed proves
-selected-agent TCP reachability by resolving the selected provider host,
-receiving a SYN-ACK on port 443, sending the final ACK, then sending a minimal
-TLS 1.2 ClientHello with SNI offering only P-256
-ECDHE-ECDSA-CHACHA20-POLY1305 without extended master secret for the current
-crypto path, parsing ServerHello
-version, random, cipher-suite, session-id, known extension flags, selected
-cipher path, and the following Certificate handshake header before draining
-that Certificate handshake to the next handshake boundary. It then parses the
-ECDHE ServerKeyExchange header, captures the uncompressed P-256 public point,
-converts X/Y into 16-bit little-endian field words, range-checks them below
-the P-256 prime, provides Jacobian point double, mixed-add, scalar
-multiplication helpers, and Comba-style field product accumulation, parses
-ServerHelloDone, maintains a
-live SHA-256 handshake transcript context through ServerHelloDone, computes the
-sparse fixed-scalar ECDHE shared point, and converts the Jacobian result into
-the affine X-coordinate pre-master secret. It then derives the TLS master
-secret and ChaCha20-Poly1305 client/server write keys and IVs with the TLS 1.2
-SHA-256 PRF while preserving the live transcript hash context and reusing
-prepared HMAC pad states for repeated PRF calls. Seed writes
-validated values back on a best-effort basis:
+can be fetched. Seed then proves selected-agent reachability and runs the full
+TLS 1.2 / application-data path (ClientHello through encrypted application data),
+documented once in [architecture.md](architecture.md), "Provider Timing Model".
+Seed writes validated values back on a best-effort basis:
 
 ```text
 agent <id>

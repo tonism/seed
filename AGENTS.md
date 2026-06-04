@@ -1,5 +1,10 @@
 # AGENTS
 
+> Operating instructions for coding agents and human contributors working **on**
+> Seed — scope discipline, constraints, build/test, and release process. This is
+> not documentation of Seed's AI-agent runtime; for that, start at the
+> [README](README.md) and [docs/architecture.md](docs/architecture.md).
+
 This project is still intentionally small. Keep changes scoped to the milestone
 the user is asking for, and prefer preserving the current shape over adding
 general OS infrastructure early.
@@ -65,10 +70,11 @@ the boot loader and the BASIC loader can find the same runtime image.
 - Target 8088-compatible 16-bit real-mode code for `ibm_pc_5150`. Keep NASM
   sources locked to `cpu 8086` so unsupported opcodes are caught at build time.
 - Do not introduce protected mode or graphics mode unless explicitly scoped.
-- The current capability is the Default Prompt Interface chat loop on the
-  16 KiB ROM BASIC entry, built on the secure-connection + 16 KiB contract.
-  It is feature-complete and validated; do not add context management, tool
-  calling, or environment handover unless explicitly scoped.
+- The current capability is the Default Prompt Interface chat loop plus Build 9
+  minimal context management (a model-compacted rolling conversation window), on
+  the 16 KiB ROM BASIC + 32 KiB direct-boot entry contract. Do not add tool
+  calling or environment handover unless explicitly scoped; those are the
+  Build 10+ steps.
 - OpenAI, Anthropic, and Google define the supported agent TLS compatibility
   surface. Extra default `AGENTS.CFG` entries may stay only if they fit the
   same path; do not add alternate crypto paths just to keep a gateway.
@@ -104,16 +110,8 @@ field labels
 button labels
 ```
 
-Small status markers may appear immediately because they represent state:
-
-```text
-none         boot sector, loader, CORE.SYS load
-"." dark     hardware, local machine setup, and internet prep/reachability
-"o" dark     secure connection setup
-"o" normal   local TLS crypto/key material setup
-"o" bright   agent and environment prep
-red marker   fatal error state; keep the current phase glyph
-```
+Small status markers may appear immediately because they represent state.
+The marker-state table is documented once in [docs/ui.md](docs/ui.md).
 
 Fatal errors should turn the current marker red, play the low failure tone,
 fast-type the error text, then offer `retry` and `restart`. Retry should return
@@ -185,26 +183,9 @@ The current runtime provides FAT12 `AGENTS.CFG` and `NET.CFG` parsing, built-in
 fallback agent interfaces, optional `USER.CFG` persistence for selected
 agent/model/reasoning/key/endpoint values, with `server?` shown for LiteLLM's
 stored endpoint value on the same form panel as `key?`, selected-agent DNS/TCP
-443 connection, minimal TLS 1.2 ClientHello with SNI offering only P-256
-ECDHE-ECDSA-CHACHA20-POLY1305 without extended master secret for the current
-crypto path, ServerHello proof with
-parsed version, random, cipher-suite, session-id, extension flags, and selected
-cipher path, Certificate handshake
-header parsing and draining, ServerKeyExchange header parsing with
-uncompressed P-256 public-point capture, 16-bit field-word conversion and
-coordinate range checks, P-256 field add/sub/mul/reduction helpers, P-256
-public-point curve-equation validation in the dependency-free checker, P-256
-Jacobian point double and mixed-add helpers, P-256 scalar multiplication helper
-for mixed affine points
-with leading-zero skip, ServerHelloDone proof, live SHA-256 TLS handshake
-transcript context through ServerHelloDone, sparse fixed-scalar ECDHE
-shared-point generation, Jacobian shared point conversion into the affine
-X-coordinate pre-master secret, TLS 1.2 SHA-256 PRF key schedule deriving the
-master secret and ChaCha20-Poly1305 client/server write keys and IVs,
-prepared HMAC-SHA256 states for repeated PRF calls,
-fixed-scalar ClientKeyExchange transmit with live transcript update,
-ChangeCipherSpec + encrypted client Finished transmit, encrypted server
-Finished authentication/decryption/verify_data check, early TLS
+443 connection, the full TLS 1.2 / application-data path (ClientHello through
+encrypted application data) documented once in
+[docs/architecture.md](docs/architecture.md), "Provider Timing Model", early TLS
 application-data send/receive carrying the Default Prompt Interface chat loop
 (model greeting, prompt input, and streamed multi-turn responses in one boot
 session) on all seven original-speed NIC profiles, and

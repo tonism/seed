@@ -60,15 +60,9 @@ BIOS loads boot sector
 The floppy image is a minimal FAT12 filesystem with a stable reserved loader
 and a visible file-backed runtime. On machines with at least 32 KiB of RAM,
 the normal BIOS boot path starts at `0000:7c00` and reaches Seed
-automatically:
-
-```text
-sector 1       boot sector with FAT12 BPB
-sectors 2-5    reserved FAT12 loader
-sectors 6-7    FAT copies
-sectors 8-11   root directory
-sector 12+     file data, starting with CORE.SYS
-```
+automatically. The FAT12 sector map (boot sector, reserved loader, FAT copies,
+root directory, and the `CORE.SYS`-first data area) is documented once in
+[../../docs/architecture.md](../../docs/architecture.md), "Boot Artifact".
 
 `CORE.SYS` is shipped in the FAT12 root directory and contains the current Seed
 runtime. Normal runtime updates can replace that file without rewriting the
@@ -172,26 +166,10 @@ present, validates a saved `agent <id>`, asks `agent?` when the saved choice is
 missing or invalid, asks `server?` and `key?` on one form when the selected
 agent needs both values, preserves saved model and reasoning values when
 present, resolves the selected agent host, proves TCP 443 connection through
-the same TCP connect path, sends a minimal TLS 1.2
-ClientHello with SNI offering only P-256 ECDHE-ECDSA-CHACHA20-POLY1305 without
-extended master secret for the current crypto path, parses and stores
-ServerHello version, random,
-cipher-suite, session-id, known extension flags, and selected cipher path,
-parses the following Certificate handshake header, drains that Certificate
-handshake to the next handshake boundary, parses the ECDHE ServerKeyExchange
-header, captures the uncompressed P-256 public point, converts X/Y into 16-bit
-little-endian field words, range-checks them below the P-256 prime, and parses
-ServerHelloDone,
-maintains a live SHA-256 TLS handshake transcript context through
-ServerHelloDone, computes the sparse fixed-scalar ECDHE shared point, converts
-the Jacobian result into the affine X-coordinate pre-master secret, derives
-the TLS master secret and ChaCha20-Poly1305 client/server write keys and IVs
-with the TLS 1.2 SHA-256 PRF using prepared HMAC states for repeated PRF calls,
-sends ClientKeyExchange with the fixed client public point after local key
-material is ready, adds it to the live handshake transcript, sends
-ChangeCipherSpec and encrypted client Finished, adds that plaintext Finished
-handshake message to the live transcript, verifies the encrypted server
-Finished, and runs the Default Prompt Interface chat loop over the established
+the same TCP connect path, and runs the full TLS 1.2 / application-data path
+(ClientHello through encrypted application data), documented once in
+[../../docs/architecture.md](../../docs/architecture.md), "Provider Timing
+Model". It then runs the Default Prompt Interface chat loop over the established
 session as TLS application data: an initial model greeting, prompt input, and
 streamed model responses across multiple turns in one boot session. It writes
 the validated values back best-effort. Missing or invalid `AGENTS.CFG` content falls back to

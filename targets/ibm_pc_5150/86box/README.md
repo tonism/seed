@@ -110,10 +110,10 @@ error      red
 menu       selected white, inactive dark gray
 ```
 
-The floppy is a minimal FAT12 filesystem. Sector 1 is the boot sector with a
-FAT12 BPB. Sectors 2-5 are the fixed reserved-sector loader, sectors 6-7 are
-FAT copies, sectors 8-11 are the root directory, and sector 12 onward contains
-file data starting with `CORE.SYS`.
+The floppy is a minimal FAT12 filesystem. The sector map (boot sector,
+reserved loader, FAT copies, root directory, and the `CORE.SYS`-first data
+area) is documented once in
+[../../../docs/architecture.md](../../../docs/architecture.md), "Boot Artifact".
 
 This launcher builds the floppy and starts a VM profile:
 

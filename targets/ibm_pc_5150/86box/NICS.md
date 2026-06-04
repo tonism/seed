@@ -21,21 +21,10 @@ FAT12 root `AGENTS.CFG` file or the built-in `openai`, `anthropic`, and
 `google` fallback, and that selected agent and connection values came from
 either valid `USER.CFG` state or the question flow. With valid saved `USER.CFG`, the
 Build 6 path also resolves the selected agent host and proves TCP 443
-connection, then sends a minimal TLS 1.2 ClientHello with SNI offering only
-P-256 ECDHE-ECDSA-CHACHA20-POLY1305 without extended master secret for the
-current crypto path, parses
-ServerHello version, random, cipher-suite, session-id, known extension flags,
-selected cipher path, and the following Certificate handshake header, drains
-the Certificate handshake to the next handshake boundary, parses
-ServerKeyExchange, captures the uncompressed P-256 public point, converts X/Y
-into 16-bit little-endian field words, range-checks them below the P-256 prime,
-parses ServerHelloDone, maintains a live SHA-256 TLS handshake transcript
-context through ServerHelloDone, computes the sparse fixed-scalar ECDHE shared
-point, converts the Jacobian result into the affine X-coordinate pre-master
-secret, derives the TLS master secret and ChaCha20-Poly1305 client/server
-write keys and IVs with the TLS 1.2 SHA-256 PRF, sends ClientKeyExchange,
-sends ChangeCipherSpec and encrypted client Finished, receives and verifies
-encrypted server Finished, then begins the minimal hardcoded OpenAI Responses
+connection, then runs the full TLS 1.2 / application-data path (ClientHello
+through encrypted application data) documented once in
+[../../../docs/architecture.md](../../../docs/architecture.md), "Provider
+Timing Model", then begins the minimal hardcoded OpenAI Responses
 API request path. On 1 May 2026, all seven original-speed NIC profiles
 completed that request/response proof and displayed the returned `ok`:
 `vm-net-3c501`, `vm-net-3c503`, `vm-net-ne1k`, `vm-net-ne2k8`,

@@ -1,5 +1,7 @@
 # Build Scope
 
+Status: latest is Build 9 (minimal context management), validated; not yet released.
+
 Seed's loading marker has four semantic states plus the final splash:
 
 ```text
