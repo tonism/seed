@@ -261,7 +261,7 @@ agent_api_stream_append_prompt_screen_to_buffer:
     ret
 
 ; Build 9 chunk-2 templates: identity+ledger ride in "instructions"; input opens the prompt.
-api_json_instructions_text db '","reasoning":{"effort":"high"},"instructions":"Concise, factual, professional. ASCII only; no smart quotes, em-dashes, JSON, or lists. ', 0
+api_json_instructions_text db '","reasoning":{"effort":"high"},"instructions":"Concise: a few sentences unless asked for detail. Factual, professional. ASCII only - map non-ASCII to nearest ASCII (hyphens for dashes, straight quotes); no JSON. ', 0
 api_json_instructions_text_len equ $ - api_json_instructions_text - 1
 api_json_input_open_text db '","input":"', 0
 api_json_input_open_text_len equ $ - api_json_input_open_text - 1
