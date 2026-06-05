@@ -165,6 +165,12 @@ agent_response_phase:
     ; into the next turn's compaction.
     cmp al, '$'
     jne .emit_to_screen                  ; normal char: render (already stored in the window)
+    ; Build 10 fix: a tool directive is suppressed from the screen but IS reply content. Mark
+    ; text_seen (like the compaction recap pre-arm, agent_request.inc) so the transport-completion
+    ; scan runs (it gates on text_seen) and a tool-ONLY reply (no prose - e.g. an obedient
+    ; write-then-run) is NOT misread by agent_api_exchange as an empty/dead-socket response ->
+    ; spurious reconnect -> clobbered auto-continue directive -> dead agentic loop.
+    mov byte [api_stream_text_seen], 1
     mov byte [compact_next], 1
     ret
 .suppress_active:
