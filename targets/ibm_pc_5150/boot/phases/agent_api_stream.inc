@@ -48,10 +48,7 @@ agent_api_stream_phase:
     call agent_api_stream_append_z_to_buffer
     mov ax, di
     sub ax, api_request_plain + tls_record_header_len
-    mov [tls_app_len], ax
-    mov word [tls_app_plain_ptr], api_request_plain + tls_record_header_len
-    phase_call_res tls_prepare_3c501_receive
-    phase_call_res tls_send_application_data_current_seq
+    call .send_app_record
     jc .prefix_failed
 .tail_pending:
     pop ax
@@ -73,10 +70,7 @@ agent_api_stream_phase:
     jz .done
     cmp ax, api_request_plain_len
     ja .failed
-    mov [tls_app_len], ax
-    mov word [tls_app_plain_ptr], api_request_plain + tls_record_header_len
-    phase_call_res tls_prepare_3c501_receive
-    phase_call_res tls_send_application_data_current_seq
+    call .send_app_record
     jc .failed
     phase_call_res tls_prepare_3c501_receive
     cmp byte [compact_next], 0
@@ -121,6 +115,15 @@ agent_api_stream_phase:
     stc
     ret
 
+; Shared by the chunk-2 and tail sends (ax = record body length): set the record length + the
+; plaintext pointer (always the request buffer), prepare the 3c501 receive, send. CF = send failure.
+.send_app_record:
+    mov [tls_app_len], ax
+    mov word [tls_app_plain_ptr], api_request_plain + tls_record_header_len
+    phase_call_res tls_prepare_3c501_receive
+    phase_call_res tls_send_application_data_current_seq
+    ret
+
 api_stream_json_close_text db '","stream":true}', 0
 api_stream_json_close_text_len equ $ - api_stream_json_close_text - 1
 
@@ -141,9 +144,9 @@ agent_api_stream_append_prompt_screen_to_buffer:
     je .from_screen
     ; Build 10 (agentic loop): auto-continue turn - append the fixed continue directive (clean
     ; ASCII, no escaping needed) straight from dpi_input_buf instead of the blank screen prompt.
+    ; The directive is always exactly agent_continue_len bytes (dpi set dpi_input_len_byte to it).
     mov si, dpi_input_buf
-    mov cl, [api_stream_prompt_len]
-    xor ch, ch
+    mov cx, agent_continue_len
     rep movsb
     clc
     ret
@@ -276,13 +279,15 @@ api_ledger_fam_text db ' fam=', 0
 api_ledger_nic_text db ' nic@', 0
 api_ledger_irq_text db ' irq=', 0
 api_ledger_mac_text db ' mac=', 0
-; Build 9 (Phase 3b): the context-management knobs (window/arena/threshold) are documented in
-; HANDOFF.md but NOT advertised in the ledger yet - doing so before a memory-write tool exists
-; (Build 10) makes the model hallucinate memory-write tool calls. Deferred to Build 10.
-; Fixed-width ledger -> constant serialized length (for Content-Length). Labels (minus 9 NULs)
-; + ram hex16(4) + ip/gw/dns/mask dotted(4*15) + fam dec8(3) + nic hex16(4) + irq dec8(3) + mac(12).
-api_ledger_labels_len equ $ - api_ledger_ram_text - 9
-api_ledger_len equ api_ledger_labels_len + (4 + 4 * 15 + 3 + 4 + 3 + 12)
+; Build 10: now that the $w write tool exists, advertise the runtime arena base so the agent can
+; $w a routine there and $x it. The arena spans a@ .. (ram - stack reserve); the window scales
+; with RAM, so a@ = the window base + the live window length. (Deferred in Build 9: advertising
+; addresses with no write tool made the model hallucinate tool calls; safe + useful now.)
+api_ledger_arena_text db ' a@', 0
+; Upper-bound serialized length (dotted assumed max width). Labels (minus 10 NULs) + ram hex16(4)
+; + ip/gw/dns/mask dotted(4*15) + fam dec8(3) + nic hex16(4) + irq dec8(3) + mac(12) + arena hex16(4).
+api_ledger_labels_len equ $ - api_ledger_ram_text - 10
+api_ledger_len equ api_ledger_labels_len + (4 + 4 * 15 + 3 + 4 + 3 + 12 + 4)
 
 ; ---- Build 9 ledger: terse machine-facts serialization of the handoff block ----
 ; Appends "ram=<hex> ip/gw/dns/mask=<dotted> fam=<dec> nic@<hex> irq=<dec> mac=<hex>" to [es:di]
@@ -330,6 +335,12 @@ agent_api_stream_append_ledger:
     call agent_api_stream_ledger_hex8
     pop cx
     loop .ledger_mac_loop
+    ; Build 10: runtime arena base = window base (constant) + the live window length.
+    mov si, PHASE_LOAD_ADDR + (api_ledger_arena_text - PHASE_BASE)
+    call agent_api_stream_append_z_to_buffer
+    mov ax, chat_context_start
+    add ax, [chat_context_len_var]
+    call agent_api_stream_ledger_hex16
     ret
 
 agent_api_stream_ledger_hex16:     ; ax -> 4 hex chars at [es:di]
