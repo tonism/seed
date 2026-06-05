@@ -168,3 +168,47 @@ endpoint separates net flakes from product bugs (now in docs/testing.md Gotchas)
     the reconnect path resets ALL of it (vs the pristine setup path).
   Cross-ref the Build 8 reconnect work (keep-alive 2b09f60, completion fallback 535de35) + memory
   `project_reconnect_reliability_byte_wall`.
+
+## Build 11 curiosity items (user-flagged 2026-06-05)
+
+- **TLS 1.3.** NOT a memory play: Cloudflare honors neither max_fragment_length nor record_size_limit
+  on 1.2 OR 1.3 (verified - ServerHello/EncryptedExtensions echoes neither), so it buys zero buffer
+  bytes, and it is a large risky rewrite of the hand-rolled 1.2 handshake. Park as a someday
+  modern-stack/security item only.
+- **Drop floppy reads during the chat loop on 32K+ machines.** Cache the cold phases in RAM (room
+  exists at 32K+) so the loop doesn't re-read the floppy each turn - faster + quieter.
+- **Detect a fast-enough machine -> turn on real (authenticated) crypto.** Seed skips the expensive
+  server cert-chain + signature verification because the 4.77MHz CPU can't afford the EC verify - so
+  the channel is ENCRYPTED but NOT AUTHENTICATED (MITM-exposed). RAM tier is already detected; add a
+  CPU-speed probe and, on a fast enough machine (286/386 or a higher clock), enable full verification
+  for a genuinely secure connection.
+
+## Record-size flake - likely the chat-loop de-sync ROOT CAUSE (user hypothesis 2026-06-05, STRONG)
+
+User asked: Cloudflare sends records bigger than our 1460 buffer - is THAT the chat flake (prompt left
+with no response, de-synced)? Very likely YES. The early structural SSE records
+(response.created/in_progress/output_item.added) measure ~1393 B - only **67 B under** the 1460
+buffer. A slightly bigger one (Seed's system prompt echoed in the response object, more metadata)
+tips over 1460; the receive HARD-fails (tls.inc:261/288, AEAD needs the whole record) ->
+tls_fail_error -> response lost AND the TLS stream left mid-record -> de-sync -> next prompt fails too
+until a clean reconnect. Matches the symptoms; "flaky not always" because the structural records sit
+at the cliff edge. Plus rarer large records on long responses (server dynamic record sizing grows
+with the congestion window). REFRAMES the buffer: razor-thin reliability margin, not a shrink
+candidate. Fixes: (a) bigger buffer where RAM allows (costs pool; tight at 16K); (b) clean reconnect
+on oversized record instead of de-syncing hard-fail (works everywhere - the error-recovery work);
+(c) trim Seed's request so the echoed structural events stay small. VALIDATE FIRST: (a) host-side -
+replicate Seed's exact request (system prompt included) via openssl, measure the structural-event
+record size; (b) definitive - instrument the receive to log the max record across real chats, read
+via $r. Likely the root cause behind tasks #11 (error recovery) + #12 (reconnect asymmetry).
+
+MEASURED UPDATE (replicated Seed's exact request incl. the echoed instructions): the structural
+records (response.created/in_progress) come in at ~1393 B - the server CHUNKS the response object
+into ~1-MSS (~1393) records, so even instructions-bloated response.created is split; no single
+structural record exceeds 1393. They FIT (67 B under 1460) - which is why Seed mostly works + the
+1460 essay was rendering fine. The >1460 records appear only LATE (pos ~3000+) and only on FAST
+connections (server grows records with the cwnd); Seed's slow 4.77MHz drain keeps the cwnd small, so
+it likely stays ~1393. NET: the mechanism is real but the data leans AGAINST this being the PRIMARY
+flake cause - it's a thin-margin fragility (a very long response or a smaller network MSS could tip a
+late record over 1460), not a smoking gun. Primary chat flakes more likely the keep-alive/reconnect
+path (#11/#12). DEFINITIVE test if ever needed: instrument the receive to log the max record across a
+long chat, read via $r.
