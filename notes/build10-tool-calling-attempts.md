@@ -91,10 +91,27 @@ advertises no TCP MSS so the server uses the 536-byte default, and TLS records f
 It sits below the pool floor, so shrinking it grows the pool 1:1 everywhere. Decoupled to **640**
 (floor 592 = the dns_qname overlay at tls_rx_copy+512). Frees **820 B -> 16K pool 256 -> 1076
 (4.2x), +820 B at every RAM level.** Failure mode = a server TLS record (cert/response) > 635 ->
-receive fails (tls.inc:261). Gate boot at 640 ✓ (handshake Certificate + greeting fit); 7-NIC
-matrix validating; one long-response check to follow. Caveat: only the configured agent's (OpenAI)
-cert is exercised — other providers' handshake records untested; response records are tiny SSE
+receive fails (tls.inc:261). **Validated: gate boot ✓ + 7-NIC matrix 7/7 PASS at 640** (handshake
+Certificate + streamed greeting on every NIC family). A separate long-response test was deemed
+redundant (and skipped): the greeting is a real streamed response through the same buffer-bounded
+receive path, and the server chunks SSE into same-sized records regardless of total length — a
+longer response is just more records of the same size. A hypothetical >640 record would fail
+gracefully (carry -> reuse-fail/reconnect), not crash. Caveat: only the configured agent's (OpenAI)
+cert is exercised; other providers' handshake records untested; response records are tiny SSE
 chunks, safe for all.
+
+**NOT committed yet — keep-alive risk on a LONG render (caught the redundancy claim being wrong).**
+The keep-alive gate keys off `tls_payload_buffer_len` (the constant I changed): it skips the ping
+when (current record + buffered tail) reaches the buffer size, i.e. when the receive buffer is
+~full. At 1460 that's rare (records <=640 << 1460, fires reliably); at 640 the buffer can be full,
+so a long render's connection-hold could degrade -> 0D/F0. The matrix only ran short greetings (no
+keep-alive), so it could NOT catch this. User ran into repeated 0D/F0 + "network setup failed" on
+retries — but home internet is flaky, and "network setup failed" is the DHCP/ARP/DNS/TCP layer
+(BEFORE TLS, the buffer plays no part), and the matrix proved the splash/handshake at 640 — so the
+splash failures are very likely the internet, not 640. The long-render keep-alive remains the one
+real, untested 640 risk. Plan: validate one long render at 640 on a stable connection; if the
+keep-alive degrades, fix it with a dedicated ~70 B ping buffer carved FROM the 820 B win (user's
+steer: "not everything needs to go to the pool" — spend some win on features/safety, rest to pool).
 
 ## Remaining
 
@@ -115,3 +132,22 @@ chunks, safe for all.
   $x AX/CF) via a window-only sink flag.
 - Layout invariant: phases loaded at net_setup_phase_start (0x0900) must be <= 3 sectors (1536 B)
   or they clobber the resident at 0x1000. Assertions now check loaded sectors, not raw size.
+
+## Future avenues (user-flagged 2026-06-05, PARKED — not Build 10 scope)
+
+- **Error recovery UX.** The 0D/F0 failure currently dumps to "network setup failed" / a frozen
+  splash on retry. A graceful retry/backoff or a clearer state would help. Future.
+- **Reconnect asymmetry: setup 100%, mid-chat flaky.** User observation: the TLS handshake /
+  re-handshake succeeds ~100% during the initial splash-phase setup, but is markedly less reliable
+  mid-chat (after a long render / a drop). The user's read — and it's a good one — is that this is
+  a QUALITATIVE difference, not merely the ~15s Cloudflare-window race (else setup would also lose
+  sometimes). Worth a real investigation later. Initial hypotheses to test:
+  - Old-connection state: at setup there's no prior socket; mid-chat the dropped connection leaves
+    server-side / TCP teardown state (TIME_WAIT, stale seq, half-open) the reconnect collides with.
+  - Different trigger: setup is a clean cold start; mid-chat reconnect fires reactively after a
+    failure (keep-alive missed / server idle-close / mid-render drop) — it may inherit that
+    condition (e.g. the socket is already half-dead, or buffers hold stale cipher state).
+  - Scratch reuse: mid-chat, more cross-turn state is live (window, caches, cipher seqs); confirm
+    the reconnect path resets ALL of it (vs the pristine setup path).
+  Cross-ref the Build 8 reconnect work (keep-alive 2b09f60, completion fallback 535de35) + memory
+  `project_reconnect_reliability_byte_wall`.
