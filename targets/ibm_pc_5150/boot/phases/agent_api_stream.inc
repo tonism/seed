@@ -259,14 +259,14 @@ agent_api_stream_append_prompt_screen_to_buffer:
 ; ledger + the compaction directive + input-open) must stay under ~616 B so it does not
 ; overflow the record buffer into critical scratch on a compaction turn (measured: ~603 B
 ; worst case, ~13 B margin). Each call on its own line keeps the streamed command tidy.
-api_json_instructions_text db '","reasoning":{"effort":"high"},"instructions":"Concise: a few sentences unless asked for detail. Factual, professional. No trailing blank lines. ASCII only - map non-ASCII to nearest ASCII; no JSON. RAM tools, hex: $r ADDR LEN read, $w ADDR BYTES write, $x ADDR run. ', 0
+api_json_instructions_text db '","reasoning":{"effort":"high"},"instructions":"Concise: a few sentences unless asked for detail. Factual, professional. No trailing blank lines. ASCII only - map non-ASCII to nearest ASCII; no JSON. RAM tools, hex: $r ADDR LEN read, $w ADDR BYTES write, $x ADDR run. They reach all RAM of the PC you run on, including the code running them; a bad write or jump hangs it until reboot.', 0
 api_json_instructions_text_len equ $ - api_json_instructions_text - 1
 api_json_input_open_text db '","input":"', 0
 api_json_input_open_text_len equ $ - api_json_input_open_text - 1
 ; Build 9 (invisible compaction): appended to instructions only when compact_next is armed. Asks
 ; the model to put a one-line recap FIRST (then a newline, then the answer); the renderer captures
 ; that recap straight into the window until the first newline and never draws it. JSON-safe.
-api_json_compact_directive_text db 'First output ONE line (max 80 chars): ALL facts the user shared so far - NOT system details already in your instructions (memory, RAM, IP, NIC) - then a newline, then answer. ', 0
+api_json_compact_directive_text db 'ONE line (max 80) of user facts, newline, then answer. ', 0
 api_json_compact_directive_text_len equ $ - api_json_compact_directive_text - 1
 
 ; Build 9 ledger field labels (terse machine facts serialized from the handoff block)
@@ -288,6 +288,13 @@ api_ledger_arena_text db ' a@', 0
 ; + ip/gw/dns/mask dotted(4*15) + fam dec8(3) + nic hex16(4) + irq dec8(3) + mac(12) + arena hex16(4).
 api_ledger_labels_len equ $ - api_ledger_ram_text - 10
 api_ledger_len equ api_ledger_labels_len + (4 + 4 * 15 + 3 + 4 + 3 + 12 + 4)
+
+; Build 10: enforce the chunk-2 worst-case budget described above (was a comment only - which let
+; the situational-map edit silently creep toward overflow). Worst case is a compaction turn:
+; instructions + ledger + compaction directive + input-open, built into one record.
+%if (api_json_instructions_text_len + api_ledger_len + api_json_compact_directive_text_len + api_json_input_open_text_len) > 616
+%error "chunk 2 worst-case exceeds the 616 B record-buffer budget (trim instructions/compaction)"
+%endif
 
 ; ---- Build 9 ledger: terse machine-facts serialization of the handoff block ----
 ; Appends "ram=<hex> ip/gw/dns/mask=<dotted> fam=<dec> nic@<hex> irq=<dec> mac=<hex>" to [es:di]
