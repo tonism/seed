@@ -99,16 +99,19 @@ agent_api_stream_phase:
     mov ax, [0x046c]
     mov [ka_last_tick], ax
     mov byte [ka_sent_count], 0
-    mov word [api_response_pending_len], 0
-    mov word [api_body_len], 0
-    mov byte [chat_prompt_len_cache], 0
-    mov byte [api_stream_state], 0
-    mov byte [api_stream_delta_match], 0
-    mov byte [api_stream_seen], 0
-    mov byte [api_stream_text_seen], 0
-    mov byte [api_stream_completed], 0
-    mov byte [api_http_state], 0
-    mov byte [api_http_header_match], 0
+    ; Per-turn state reset, golfed to one zero source + word writes (saves ~24 B so the loop
+    ; additions keep this phase inside its 3-sector load window). The pairs are adjacent in
+    ; low_phase_state/low_runtime_state, so each word write clears two bytes at once:
+    ;   api_stream_state+api_stream_delta_match / api_stream_seen+api_stream_completed /
+    ;   api_http_state+api_http_header_match. Functionally identical to the byte-wise resets.
+    xor ax, ax
+    mov word [api_response_pending_len], ax
+    mov word [api_body_len], ax
+    mov [chat_prompt_len_cache], al
+    mov word [api_stream_state], ax
+    mov word [api_stream_seen], ax
+    mov word [api_http_state], ax
+    mov [api_stream_text_seen], al
     clc
     ret
 
@@ -134,6 +137,17 @@ agent_api_stream_append_z_to_buffer:
 ; below (its only caller): a big-RAM window can exceed one TLS record, so it must flush as it goes.
 
 agent_api_stream_append_prompt_screen_to_buffer:
+    cmp byte [agent_loop_pending], 0
+    je .from_screen
+    ; Build 10 (agentic loop): auto-continue turn - append the fixed continue directive (clean
+    ; ASCII, no escaping needed) straight from dpi_input_buf instead of the blank screen prompt.
+    mov si, dpi_input_buf
+    mov cl, [api_stream_prompt_len]
+    xor ch, ch
+    rep movsb
+    clc
+    ret
+.from_screen:
     push es
     mov al, [api_stream_prompt_len]
     mov [api_http_state], al
@@ -431,6 +445,8 @@ agent_api_stream_append_context:        ; copy the window (RAW) into [es:di], JS
     stc
     ret
 agent_api_stream_append_prompt_to_context:   ; accumulate the just-sent prompt (RAW) for later turns
+    cmp byte [agent_loop_pending], 0
+    jne .ctx_store_done                       ; auto-continue: don't bloat the window with "continue"
     mov al, [api_stream_prompt_len]
     or al, al
     je .ctx_store_done

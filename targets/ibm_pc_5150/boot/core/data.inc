@@ -89,7 +89,13 @@ menu_selected_attr equ error_attr + 1
 menu_idle_attr equ menu_selected_attr + 1
 load_marker_char equ menu_idle_attr + 1
 load_marker_attr equ load_marker_char + 1
-low_phase_state_end equ load_marker_attr + 1
+; Build 10 (agentic loop): live in low_phase_state (persists across phase loads, no resident
+; nucleus cost). Not boot-cleared, so the tool phase clears agent_loop_pending at its entry
+; each run and agent_loop_count self-heals (reset to 0 on the first no-tool turn, e.g. the
+; greeting). pending=1 + budget left -> dpi auto-submits the continue directive next turn.
+agent_loop_pending equ load_marker_attr + 1
+agent_loop_count equ agent_loop_pending + 1
+low_phase_state_end equ agent_loop_count + 1
 low_runtime_state_start equ handoff_addr + handoff_size_bytes
 sha256_state equ low_runtime_state_start
 sha256_a equ sha256_state + 32

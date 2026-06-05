@@ -40,6 +40,15 @@ dpi_phase:
     call .drain_kbd
     call .render_prompt
 
+    ; Build 10 (agentic loop): the tool phase set agent_loop_pending and staged the continue
+    ; directive in dpi_input_buf when a tool fired (and the budget was not spent). Submit it
+    ; immediately instead of waiting for the user; the model acts on the tool results and
+    ; either calls more tools (loop continues) or answers (no tool -> pending clears).
+    cmp byte [agent_loop_pending], 0
+    je .read_key
+    mov byte [dpi_input_len_byte], agent_continue_len
+    jmp .enter
+
 .read_key:
     call .sync_cursor
     mov ah, 0x00
@@ -166,30 +175,13 @@ dpi_phase:
 .erase_done:
     ret
 
-.scroll_screen:
-    push ax
-    push bx
-    push cx
-    push dx
-    mov ah, 0x06
-    mov al, 1
-    mov bh, 0x07
-    mov cx, 0x0100
-    mov dh, dpi_prompt_row
-    mov dl, [screen_cols]
-    dec dl
-    int 0x10
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
-
 .advance_line:
     mov al, [cursor_row]
     cmp al, dpi_prompt_row
     jb .move_down
-    call .scroll_screen
+    mov ax, 0x0601                       ; scroll up 1 line (shared helper; callers reload regs)
+    mov cx, 0x0100
+    phase_call_res scroll_text_area
     mov byte [cursor_row], dpi_prompt_row
     ret
 .move_down:
@@ -203,7 +195,9 @@ dpi_phase:
     mov al, [cursor_row]
     cmp al, dpi_prompt_row
     jb .reuse_prompt_row
-    call .scroll_screen
+    mov ax, 0x0601                       ; scroll up 1 line (shared helper)
+    mov cx, 0x0100
+    phase_call_res scroll_text_area
     mov al, [dpi_prompt_marker_row]
     test al, 0x80
     jnz .marker_ready

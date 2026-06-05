@@ -79,6 +79,11 @@ hardware_setup_phase_display:
     mov ah, dpi_prompt_row
     mov [scroll_br], ax
     pop ax
+    ; Build 10 (agentic loop): the loop flags live in low_phase_state (persists across phase
+    ; loads -> no resident cost) but are NOT boot-cleared, and the cold greeting runs before the
+    ; tool phase's per-turn reset. Clear both here (one word write, count is adjacent) so the
+    ; greeting reads pending=0 and takes the normal request path (restore_prompt_from_screen).
+    mov word [agent_loop_pending], 0
     sub ah, seed_len
     shr ah, 1
     mov [seed_col], ah

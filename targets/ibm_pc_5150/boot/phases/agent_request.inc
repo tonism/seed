@@ -121,7 +121,10 @@ agent_request_phase:
     clc
     ret
 .build_ready_openai_request:
+    cmp byte [agent_loop_pending], 0
+    jne .skip_prompt_restore             ; agentic auto-continue: dpi_input_buf holds the directive
     call .restore_prompt_from_screen
+.skip_prompt_restore:
     call .compute_ready_body_lengths
     jc .request_failed
     mov al, [dpi_input_len_byte]

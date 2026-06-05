@@ -3,6 +3,13 @@
 %endif
 
 build_number equ 10
+; Build 10 (agentic loop): max consecutive auto-continue turns before handing back to the
+; user, so a model that keeps emitting tool calls cannot loop forever.
+agent_loop_max equ 8
+; Length of the fixed auto-continue directive the tool phase writes into dpi_input_buf. A bare
+; "continue" made the model keep calling tools or fall silent; this directive tells it to act on
+; the tool output and answer. tool_call.inc asserts its .continue_text is exactly this many bytes.
+agent_continue_len equ 45
 core_load_addr equ 0x1000
 handoff_addr equ 0x0600
 low_sha256_k equ 0x0500

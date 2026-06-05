@@ -51,6 +51,7 @@ tool_sink equ fs_sector_buffer
 
 tool_phase:
     push bp
+    mov byte [agent_loop_pending], 0     ; not boot-cleared; clear each run, set on a tool fire
     cld
     mov si, chat_context_start
     mov bx, si
@@ -68,8 +69,31 @@ tool_phase:
     inc si
     jmp .scan
 .scan_done:
+    ; Agentic-loop decision: a tool fired this turn -> if the budget is not spent, keep
+    ; pending=1 (dpi auto-continues next) and stage the fixed continue directive into
+    ; dpi_input_buf; else stop and reset the count. count self-heals from boot garbage here
+    ; (no tool fired on the greeting -> .loop_reset).
+    cmp byte [agent_loop_pending], 0
+    je .loop_reset
+    cmp byte [agent_loop_count], agent_loop_max
+    jae .loop_stop
+    inc byte [agent_loop_count]
+    mov si, PHASE_LOAD_ADDR + (.continue_text - PHASE_BASE)
+    mov di, dpi_input_buf
+    mov cx, agent_continue_len
+    rep movsb
     pop bp
     ret
+.loop_stop:
+    mov byte [agent_loop_pending], 0     ; budget spent -> hand back to the user
+.loop_reset:
+    mov byte [agent_loop_count], 0
+    pop bp
+    ret
+.continue_text db 'Continue; answer using the tool output above.'   ; clean ASCII (no escaping)
+%if ($ - .continue_text) != agent_continue_len
+%error "tool_call .continue_text length must equal agent_continue_len (layout.inc)"
+%endif
 
 ; si -> '$'. Validate "$<verb> " with verb in r/w/x. If invalid, step past the
 ; '$' and return (left intact, never executes). If valid: neutralize the '$',
@@ -102,6 +126,7 @@ tool_phase:
     jc .verb_revert                  ; no valid address -> not a tool; leave '$' intact
     mov bp, ax                       ; bp = target address
     mov byte [bx], ' '               ; neutralize sentinel ONLY on a real call (no prose damage)
+    mov byte [agent_loop_pending], 1 ; a tool fired -> candidate for an auto-continue turn
     mov al, dh                       ; verb
     cmp al, 'r'
     je .do_read
@@ -262,6 +287,10 @@ tool_phase:
 ;             Preserves bp (the addr lives there); the scan si must be saved by exec.
 .res_line:
     push ax                          ; verb-word ptr
+    ; A tool result is visible content on screen, just like a model response. Flag it so dpi's
+    ; render_prompt leaves a gap and draws the next prompt BELOW the tool output (and the
+    ; auto-continue turn's reply renders cleanly under it) instead of orphaning the cursor.
+    mov byte [api_stream_seen], 1
     mov byte [tool_sink], 0          ; the action prefix shows on screen + window
     mov al, 10
     call .win_putc                   ; window newline

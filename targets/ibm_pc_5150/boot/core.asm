@@ -119,8 +119,8 @@ core_dhcp_setup_phase_start:
 %undef PHASE_BASE
 core_dhcp_setup_phase_end:
 
-%if (core_dhcp_setup_phase_end - core_dhcp_setup_phase_start) > (low_scratch_end - net_setup_phase_start)
-%error "dhcp setup phase exceeds net setup phase window"
+%if (((core_dhcp_setup_phase_end - core_dhcp_setup_phase_start + 511) / 512) * 512) > (low_scratch_end - net_setup_phase_start)
+%error "dhcp setup phase rounds to too many sectors for the net setup window (would clobber the resident nucleus at 0x1000)"
 %endif
 
 align 512, db 0
@@ -133,8 +133,8 @@ core_tcp_connect_phase_start:
 %undef PHASE_BASE
 core_tcp_connect_phase_end:
 
-%if (core_tcp_connect_phase_end - core_tcp_connect_phase_start) > (low_scratch_end - net_setup_phase_start)
-%error "tcp connect phase exceeds net setup phase window"
+%if (((core_tcp_connect_phase_end - core_tcp_connect_phase_start + 511) / 512) * 512) > (low_scratch_end - net_setup_phase_start)
+%error "tcp connect phase rounds to too many sectors for the net setup window (would clobber the resident nucleus at 0x1000)"
 %endif
 
 align 512, db 0
@@ -243,8 +243,8 @@ core_agent_api_stream_phase_start:
 %undef PHASE_BASE
 core_agent_api_stream_phase_end:
 
-%if (core_agent_api_stream_phase_end - core_agent_api_stream_phase_start) > (low_scratch_end - net_setup_phase_start)
-%error "agent api stream phase exceeds net setup phase window"
+%if (((core_agent_api_stream_phase_end - core_agent_api_stream_phase_start + 511) / 512) * 512) > (low_scratch_end - net_setup_phase_start)
+%error "agent api stream phase rounds to too many sectors for the net setup window (would clobber the resident nucleus at 0x1000)"
 %endif
 
 align 512, db 0
