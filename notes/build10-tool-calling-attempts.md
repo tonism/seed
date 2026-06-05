@@ -113,6 +113,23 @@ real, untested 640 risk. Plan: validate one long render at 640 on a stable conne
 keep-alive degrades, fix it with a dedicated ~70 B ping buffer carved FROM the 820 B win (user's
 steer: "not everything needs to go to the pool" — spend some win on features/safety, rest to pool).
 
+## 2026-06-05 (later) — 640 DISPROVEN; client record-size cap is dead on TLS 1.2 -> 1460 stands
+
+640 passed the greeting matrix but FAILED a long essay: no response rendered, on a steady connection
+(0 ICMP drops + an OpenAI-path probe). Cause is RECORD-SIZE, not keep-alive (the failure was at the
+first chunk, before the keep-alive interval even engages); A/B confirmed it (1460 renders the essay,
+640 does not). Measured the server's records directly with openssl/gnutls `s_client` to the real
+endpoint: Cloudflare sends TLS records up to **~13 KB** to a fast reader — Seed only survives at 1460
+because the 4.77 MHz drain flow-controls the server down to <=~1460. Tried to force a server-side cap
+via a client extension; **DEAD on TLS 1.2**: openssl `-maxfraglen 512` ignored (still 13 KB records);
+gnutls `--recordsize 512` (record_size_limit / RFC 8449) was NOT echoed in Cloudflare's ServerHello
+(so not negotiated) and the connection was dropped right after the POST. record_size_limit only works
+on TLS 1.3, which Seed's hand-rolled 1.2 stack doesn't speak. CONCLUSION: **1460 is the buffer floor;
+the TLS-buffer pool lever yields no safe win.** Reverted to tcp_payload_max_len; finding written into
+layout.inc so it is never re-chased. The essay test earned its keep (caught a latent correctness bug
+the greeting-only matrix missed). Tooling: a background ping + an openssl/curl probe to the real
+endpoint separates net flakes from product bugs (now in docs/testing.md Gotchas).
+
 ## Remaining
 
 - **ESC-stop** (user-requested): stop the streaming render, drain to a TLS-safe point -> "stopped";

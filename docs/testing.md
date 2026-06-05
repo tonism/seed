@@ -81,6 +81,13 @@ individual profiles when changing TLS timing or shared packet/NIC code.
 - `config/USER.CFG` holds the API key - never print or commit it.
 - A transient "agent setup failed" red screen is usually a network/TLS flake -
   re-run before investigating.
+- The test network can be intermittently spotty, and a network drop looks
+  identical to a product bug. To tell them apart, run a background connectivity
+  monitor during the test and correlate it against the failure point: `ping -i 2
+  1.1.1.1` (general reachability) **plus** a probe to the *actual* endpoint
+  (`curl`/`openssl s_client` to `api.openai.com:443` - ICMP to 1.1.1.1/8.8.8.8
+  does not exercise the OpenAI path). Drops at the failure point => network;
+  a clean ping straight through the failure => the product.
 - A very long single reply can render for >20 min on the PC (render-rate, not
   network); the keep-alive holds the session. Force a long render with an essay
   prompt, not "count to N" (the Concise directive makes the model answer short).

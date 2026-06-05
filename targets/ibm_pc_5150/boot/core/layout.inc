@@ -280,6 +280,16 @@ tcp_offset equ eth_header_len + ipv4_header_len
 tcp_payload_offset equ tcp_offset + 20
 tcp_payload_max_len equ 1460
 tcp_payload_read_len equ tcp_payload_offset + tcp_payload_max_len
+; TLS record receive buffer: tls_rx_copy accumulates one full TLS record here, and the receive
+; fails any record larger than this (tls.inc:261/288) - AEAD decrypts a record as a unit, so the
+; buffer must hold the server's largest record WHOLE. MUST stay MSS-sized (tcp_payload_max_len).
+; A streamed response batches into TLS records far over 640 (measured 2026-06 via openssl/gnutls
+; s_client to the real endpoint: Cloudflare sends records up to ~13 KB to a fast reader; Seed
+; survives at 1460 only because the 4.77 MHz drain flow-controls the server down to <=~1460).
+; Shrinking to 640 passed the greeting matrix but FAILED a long essay (a record > 635 -> receive
+; fail -> no response). A client record-size cap does NOT help: Cloudflare honors neither
+; max_fragment_length (RFC 6066) nor record_size_limit (RFC 8449) on TLS 1.2 - its ServerHello
+; echoes neither, so neither is negotiated. 1460 is the floor unless/until Seed speaks TLS 1.3.
 tls_payload_buffer_len equ tcp_payload_max_len
 tls_pre_response_tail_len equ tls_app_record_buffer_len + (16 * 2) + (16 * 2) + tls_random_len + tls_master_secret_len + sha256_digest_len
 tls_stream_buffer_len equ tls_payload_buffer_len + tls_pre_response_tail_len
