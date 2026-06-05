@@ -259,7 +259,7 @@ agent_api_stream_append_prompt_screen_to_buffer:
 ; ledger + the compaction directive + input-open) must stay under ~616 B so it does not
 ; overflow the record buffer into critical scratch on a compaction turn (measured: ~603 B
 ; worst case, ~13 B margin). Each call on its own line keeps the streamed command tidy.
-api_json_instructions_text db '","reasoning":{"effort":"high"},"instructions":"Concise: a few sentences unless asked for detail. Factual, professional. ASCII only - map non-ASCII to nearest ASCII (hyphens for dashes, straight quotes); no JSON. RAM tools, hex: $r ADDR LEN read, $w ADDR BYTES write, $x ADDR run. ', 0
+api_json_instructions_text db '","reasoning":{"effort":"high"},"instructions":"Concise: a few sentences unless asked for detail. Factual, professional. No trailing blank lines. ASCII only - map non-ASCII to nearest ASCII; no JSON. RAM tools, hex: $r ADDR LEN read, $w ADDR BYTES write, $x ADDR run. ', 0
 api_json_instructions_text_len equ $ - api_json_instructions_text - 1
 api_json_input_open_text db '","input":"', 0
 api_json_input_open_text_len equ $ - api_json_input_open_text - 1
