@@ -182,6 +182,28 @@ endpoint separates net flakes from product bugs (now in docs/testing.md Gotchas)
   the channel is ENCRYPTED but NOT AUTHENTICATED (MITM-exposed). RAM tier is already detected; add a
   CPU-speed probe and, on a fast enough machine (286/386 or a higher clock), enable full verification
   for a genuinely secure connection.
+- **TLS receive buffer as a draining FIFO (incremental decrypt).** ChaCha20 is a stream cipher, so
+  decrypt + drain plaintext as ciphertext arrives instead of buffering the whole record -> the buffer
+  becomes a small rolling FIFO, sidestepping the "fit the largest record whole" constraint (a bigger
+  shrink than the dead 640 idea). Helped by Seed already having a cross-record streaming parser (SSE
+  spans records). Catches: (a) drain BEFORE Poly1305 verify (tag covers the whole record) -> render
+  unauthenticated plaintext; a rare corrupted record flashes garbage before detection (a robustness
+  trade, smaller since we already skip cert auth); (b) incremental ChaCha20/Poly1305 state + FIFO
+  plumbing, and the parser must tolerate arbitrary mid-token split points - in the delicate
+  receive/render path; (c) handshake (Certificate parse, transcript hash) needs the same. CPU-neutral.
+  Verdict: most promising buffer-shrink path - prototype to size the win vs the code cost; the decider
+  is whether it beats leaving 1460. ALSO apply it to the SEND side - arguably higher value:
+  chunk 2 (instructions+ledger+compaction-directive+input-open) is built whole + sent as ONE record,
+  which is the ~616 B wall (agent_api_stream.inc:258, ~13 B margin) that blocks per-record features
+  like the tunable split knob. Stream chunk 2 across records (Seed ALREADY multi-record-sends the
+  window via Build 9 append_context, so the machinery exists) -> the wall dissolves + the build buffer
+  shrinks; unblocks features, not just raw bytes. Build 11 theme: "stream the two buffer-whole spots
+  (receive + send)." NOT streamable: the crypto scratch / key schedule (fixed by the algorithms).
+- **Reach beyond segment 0.** Seed is real-mode seg-0 only (DS=ES=SS=0), so the WHOLE pool caps at
+  0xFFF0 (~64KB) regardless of installed RAM - a 4MB machine gets the same ~49KB pool / ~24.5KB
+  50/50 window as a 64KB one. Scaling past that needs far pointers (real-mode, for conventional
+  64-640KB) or a 286+ with unreal-mode/XMS (for extended >1MB). Major rework; biggest possible
+  context-window win but a deep change to the seg-0 assumption baked through the code.
 
 ## Record-size flake - likely the chat-loop de-sync ROOT CAUSE (user hypothesis 2026-06-05, STRONG)
 
