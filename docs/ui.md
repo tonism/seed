@@ -69,3 +69,14 @@ When the rolling conversation window fills (Build 9), Seed compacts it: a dim st
 fast-typed like the boot banner, reads `compacting context`. The one-line recap the model
 emits to drive that compaction is captured silently and never drawn — the user sees only the
 status line, then the answer.
+
+## Tool Calls
+
+When the model emits a tool command mid-stream — `$r`/`$w`/`$x` (read, write, or execute
+memory, Build 10) — Seed never draws the raw command. It suppresses the `$`-line from the
+bright screen and renders one dim action line in its place: `read from <addr>`, `write to
+<addr>`, or `jump to <addr>`, so the user sees *what* the agent touched, never the syntax.
+The full result — the bytes read, or `ax`/`cf` after an execute — is written back only into
+the model's conversation window, not the screen: the agent acts on its own output while the
+user's view stays clean. The agentic loop auto-continues until the model stops calling
+tools, then control returns to the `>` prompt.

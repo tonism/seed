@@ -1,6 +1,8 @@
 # Build Scope
 
-Status: latest is Build 9 (minimal context management), validated; not yet released.
+Status: latest is Build 10 (minimal tool calling: `$r/$w/$x` + the agentic loop),
+validated (7-NIC chat matrix 7/7 + the write-machine-code/run/read-AX capstone); release
+pending the final docs pass + a curated demo.
 
 Seed's loading marker has four semantic states plus the final splash:
 
@@ -48,7 +50,7 @@ TCP or chosen transport reachability proof
 ```
 
 Current build 5 checkpoints completed for the current 5150 NIC families:
-3c501, 3c503, NE1000/NE2000, and WD8003. The shared internet path performs
+3c501, 3c503, NE1000/NE2000, Novell NE1000, and WD8003. The shared internet path performs
 packet hardware init, bounded receive polling, DHCPDISCOVER/OFFER,
 DHCPREQUEST/ACK, DHCP subnet/router/DNS capture, DNS-server ARP, DNS A
 resolution for the `NET.CFG` probe host, subnet-aware next-hop ARP, and a TCP
@@ -363,50 +365,59 @@ no CP437 garbage or tool-call JSON. The full working record is
 
 ## Build 10
 
-Build 10 owns the first minimal tool-calling surface and is in scope for the
-first public release. It should build on a stable Build 9 context path rather
-than making stateless tool calls from isolated prompts.
+Build 10 ships the first minimal tool-calling surface, in scope for the first
+public release. It builds on the Build 9 context path.
 
-Build 10 scope:
+Shipped:
 
 ```text
-agent can read RAM through a narrow controlled mechanism
-agent can write RAM through a narrow controlled mechanism
-agent can jump to or execute controlled RAM entrypoints
-agent gets enough success/failure feedback for Seed-observable failures
-published memory and hardware contract is sufficient for tool decisions
-tool results can flow back through the Build 9 context path
+$r ADDR LEN   - read up to 32 B of RAM (seg 0); the bytes flow back into the window
+$w ADDR BYTES - write RAM (seg 0)
+$x ADDR       - CALL a seg-0 address; AX/CF flow back into the window
+RAM detection - int 0x12 in the loader, so the pool scales with the machine and
+  caps at the 0xFFF0 seg-0 ceiling (~49 KiB pool at 64 KiB+)
+arena advert  - the ledger carries a@ = the free seg-0 arena base, so the agent
+  knows where it can safely $w a routine and $x it
+agentic loop  - a fired tool auto-continues (the model acts on the result), capped
+  at 8 hops, then control returns to the user
+suppression   - the streamed $-command is hidden on screen (kept in the window for
+  the tool phase), shown once as a dim "read from/write to/jump to <addr>" echo
 ```
+
+Validated: the 7-NIC chat matrix 7/7, and the capstone - the model wrote
+`b8 34 12 c3` (x86 `mov ax,0x1234; ret`) into the arena, ran it with `$x`, and read
+back `AX=0x1234`. See docs/architecture.md "Demo: A Tool-Called Request".
 
 This is still not a general OS milestone. Seed remains the bootstrapping control
 plane: it provides the trusted recovery boundary, working provider API path,
-published machine contract, and first controlled tool hook, then leaves local
+published machine contract, and the first controlled tool hook, then leaves local
 tool formats, loaders, ABIs, workspaces, and result handling to the user/agent
-environment.
+environment. `$x` is a bare CALL with no sandbox - the agent owns the crash
+(Authority Model); reboot from trusted media recovers (Recovery Boundary).
 
-Build 10 carried-in context (deferred from Build 9):
+Build 10 outcome (the carried-in memory/layout rework):
 
 ```text
-memory/layout re-evaluation: tool calling needs resident room the current 16 KiB
-  layout does not have, so Build 10 opens with a deliberate resident/memory rework
-  rather than squeezing tools into the existing map. The items below fold into it.
-RAM detection: deferred from Build 9. ram_top is hardwired 0x8000 (32 KiB) on any
-  BIOS boot, so the context window scales 16K->32K then caps; scaling past that
-  needs int 0x12 + parking the stack at detected RAM (~64 KiB segment-0 cap),
-  about +15 resident bytes. Funding it has no clean home without shrinking the
-  context pool (ruled out): ~+7 B is safely reclaimable (drop the tls_app_plain_ptr
-  store - constant except for the keepalive - plus a shared out_ax_port_pair NIC
-  helper); the remainder would need a risky hot-NIC wait-loop fold at ~0 margin, so
-  do it inside the rework. The boot window-compute already reads ram_top regardless
-  of what sets it, so it stays forward-compatible.
-context-arena byte-reclaim + defrag: see the Build 9 carried-TODO above;
-  docs/memory.md (chat-loop stage) shows the dormant reconnect-reserved handshake
-  scratch a defrag would consolidate into the reconnect-safe pool.
-ledger knob advertisement: the context-management knobs live in HANDOFF.md but are
-  deliberately NOT advertised as actionable addresses in the ledger - doing so
-  before a memory-write tool exists makes the model hallucinate tool calls.
-  Advertise them once the Build 10 tool surface exists.
+RAM detection - SHIPPED: int 0x12 in the loader scales the pool with the machine.
+buffer-shrink lever - NO pool win. The TLS receive buffer is the only relocatable
+  lever, and it must stay MSS-sized (1460): a streamed response batches into TLS
+  records over 640, and Cloudflare honors neither max_fragment_length (RFC 6066)
+  nor record_size_limit (RFC 8449) on TLS 1.2, so the server can't be told to cap
+  them. The pool therefore stays at the Build 9 RAM-scaling levels.
+ledger knob - the arena base (a@) is advertised (a need). The window/arena split
+  knob was DROPPED: it is a preference, the agent retunes it with a single $w to
+  chat_context_len_var, and the chunk-2 budget is tight.
+ESC-to-stop - DEFERRED to Build 11 (needs ~10 B in the maxed resident receive path).
+smart linebreaking - render-side cap DEFERRED to Build 11; Build 10 mitigates the
+  uneven blank lines with a "No trailing blank lines" instruction (the source is
+  the model's variable trailing newlines).
 ```
+
+Build 11 curiosity items (parked, see notes/build10-tool-calling-attempts.md): a
+draining-FIFO receive + streamed send (the real buffer-shrink path); TLS 1.3 (not a
+memory play - record-size caps are ignored on 1.2 AND 1.3); drop floppy reads in the
+32K+ chat loop; detect a fast machine to enable authenticated crypto; reach beyond
+segment 0 (>64 KiB); stream the model's reasoning summary.
 
 ## Public Release Gate
 

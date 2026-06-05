@@ -17,18 +17,24 @@ so recovery is always a reboot away.
 
 ## Why it's interesting
 
-Two things make Seed unusual:
+Three things make Seed unusual:
 
 - **A full agent stack in 16 KiB.** The entire TLS 1.2 path — handshake, key
   schedule, ChaCha20-Poly1305 record crypto, HTTP, and streamed responses — fits
   a 16 KiB RAM budget. It works by *not* keeping it all resident: a 2 KiB nucleus
-  and a 7 KiB crypto window stay in memory, while 18 other **phases** (chunks of
+  and a 7 KiB crypto window stay in memory, while 19 other **phases** (chunks of
   code) stream off the floppy on demand and time-share one small RAM **window**.
 - **…on a 4.77 MHz 8088.** That same modern crypto — P-256 ECDHE,
   ChaCha20-Poly1305, SHA-256 — runs on a sub-MIPS 16-bit CPU with no crypto
   acceleration, using hand-tuned field arithmetic, a reused TLS session, and an
   add-rotate-xor cipher that suits the part. Boot to first response is seconds,
   not minutes.
+- **The cloud model can run code on the machine.** Build 10 gives the model three
+  tools — read, write, and execute memory (`$r`/`$w`/`$x`) — that it calls inline in
+  its replies. It can poke 8088 machine code into a free RAM arena and run it: a
+  frontier model authoring code, shipping it over TLS to a 1981 PC, and reading back
+  the result. Seed feeds each tool result into the model's context — an agentic loop —
+  with the reboot floppy as the only safety net.
 
 One honest caveat up front: the current build uses a **fixed development scalar**
 for the ECDHE step (a real constant-time full scalar runs into minutes on this
@@ -87,6 +93,10 @@ On the IBM PC 5150 target, Seed can:
   one boot session,
 - carry recent conversation across turns — a model-compacted rolling summary that
   keeps prompts from being semantically fresh (Build 9),
+- run model-authored code in the machine's RAM (Build 10): the model issues inline
+  `$r`/`$w`/`$x` calls to read, write, and execute segment-0 memory, and Seed feeds
+  each result back into its context (the agentic loop, capped at 8 hops per turn),
+- detect installed RAM and scale the conversation pool to it (Build 10),
 - use shipped `AGENTS.CFG` / `NET.CFG` defaults and optional local `USER.CFG`
   state when present.
 

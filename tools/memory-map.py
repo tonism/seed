@@ -201,14 +201,29 @@ def read_core_sys(path: Path):
 
 def extract_cleanup_table(data: bytes, cleanup_sector: int,
                           table_offset: int = 0x1c):
+    """Read the cleanup phase's (addr, size) table, or return None.
+
+    The table is a run of little-endian u16 (addr, size) pairs ending
+    in (0, 0). Every range targets the 16 KiB low-RAM image, so a valid
+    entry has 0 < size and addr + size <= TOTAL_BYTES.
+
+    Callers locate the table by the phase id 'M'. That id was the
+    cleanup phase through Build 9, but Build 10 reuses 'M' for the
+    `$r/$w/$x` tool phase and ships no cleanup phase at all. Rather than
+    trust the id, validate the bytes: if they don't decode to an
+    in-range, terminated table, this isn't a cleanup phase — return None
+    so the caller drops the cleanup stage instead of mis-rendering (or,
+    as before, crashing on the missing terminator)."""
     base = cleanup_sector * 512 + table_offset
     ranges = []
     for i in range(64):
         addr, size = struct.unpack('<HH', data[base + i * 4:base + i * 4 + 4])
         if addr == 0 and size == 0:
             return ranges
+        if size == 0 or addr + size > TOTAL_BYTES:
+            return None
         ranges.append((addr, size))
-    raise RuntimeError('cleanup table missing terminator')
+    return None
 
 
 def fill(cells, start, end, kind):
@@ -608,8 +623,12 @@ def main() -> int:
     data, resident_sectors, phases = read_core_sys(args.core_sys)
     cleanup_ranges = []
     if 'M' in phases:
+        # 'M' is the cleanup phase only on builds that ship one; Build 10
+        # reuses the id for the tool phase. extract_cleanup_table returns
+        # None when the sector isn't a valid cleanup table, so a reused id
+        # simply leaves cleanup_ranges empty (no cleanup stage).
         cleanup_sector = phases['M'][0]
-        cleanup_ranges = extract_cleanup_table(data, cleanup_sector)
+        cleanup_ranges = extract_cleanup_table(data, cleanup_sector) or []
     ctx = Ctx(consts=consts, phases=phases,
               resident_sectors=resident_sectors,
               cleanup_ranges=cleanup_ranges)

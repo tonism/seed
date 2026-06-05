@@ -5,7 +5,7 @@ provider over the TLS 1.2 ChaCha20-Poly1305 path: the shared transport rules tha
 apply to every adapter, and the per-NIC carve-outs that exist because of real
 hardware differences. These are durable behavioral requirements, not status notes.
 The lane-validation history and per-card evidence behind these contracts are
-recorded in `docs/builds.md` (the Build 8 checkpoint).
+recorded in `docs/builds.md` (the Build 6 and Build 8 checkpoints).
 
 ## Shared transport rules
 
@@ -35,6 +35,13 @@ These hold for every supported adapter:
   records (headers+model / instructions+ledger / conversation+prompt). When the
   conversation+prompt would overflow the send buffer, flush across further records rather
   than truncating — one HTTP request, more TLS records, transparent to the adapter.
+- **Receive-buffer floor (Build 10).** The TLS receive buffer must hold the largest
+  application record whole — AEAD decrypts a record as a unit. A streamed response batches
+  into records far larger than one MSS, and Cloudflare honors neither `max_fragment_length`
+  (RFC 6066) nor `record_size_limit` (RFC 8449) on TLS 1.2, so the client cannot negotiate a
+  smaller cap. The buffer therefore stays MSS-sized (1460 B) — the floor for receiving a
+  streamed answer at all, and the reason the pool can't reclaim it. See `docs/builds.md`
+  (Build 10).
 
 ## Per-NIC contracts
 

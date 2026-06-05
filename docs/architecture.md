@@ -48,14 +48,14 @@ runtime file     one visible CORE.SYS
 Current measured image:
 
 ```text
-CORE.SYS total bytes:       27136
-CORE.SYS total sectors:     53
+CORE.SYS total bytes:       28672
+CORE.SYS total sectors:     56
 resident nucleus sectors:   4
 resident nucleus bytes:     2048
-phase count:                19
+phase count:                20
 provider-critical K window: 14 sectors / 7168 bytes
 16 KiB slack after critical: 781 bytes
-16 KiB guard:               781 bytes (below the 1 KiB target, above the 512 B floor)
+16 KiB guard:               ~256 B stack reserve, run thin (Build 9; see Guard Philosophy)
 ```
 
 ## Boot Artifact
@@ -146,7 +146,12 @@ agent phase "o"
 
 prompt loop "Default Prompt Interface"
   -> render the model greeting, then take prompt input
-  -> per turn: build request, encrypted send, streamed application receive, render
+  -> per turn: build request (+ RAM-tool grammar + machine-facts/arena ledger),
+     encrypted send, streamed application receive, render ($-commands hidden on screen)
+  -> between turns: cold tool phase scans the window for $r/$w/$x, executes each in
+     seg 0, appends the result into the window + a dim on-screen echo
+  -> a fired tool auto-continues the loop (the model acts on the output), up to 8 hops,
+     then control returns to the user
   -> reuse the live TLS session across turns; reconnect and resend on a real drop
 
 failure
@@ -157,6 +162,34 @@ failure
 The same TCP connect phase is used for the internet probe and for the selected
 agent provider. It is loaded into the network setup window each time it is
 needed.
+
+## Demo: A Tool-Called Request
+
+What every part of the machine touches when the cloud model runs code on the 1981 PC
+(Build 10):
+
+```text
+user types a prompt -> DPI captures it into the conversation window
+R  build request: instructions (RAM-tool grammar $r/$w/$x) + ledger (RAM size, IP, NIC,
+     and a@ = the free seg-0 arena base) + the JSON-escaped window + the prompt
+X  application-data stream: encrypt with the resident K crypto window (ChaCha20-Poly1305)
+     and send over the live (reused) TLS session, then receive the streamed reply - the
+     renderer draws prose but HIDES any $-command (kept in the window for the tool phase,
+     shown once as a dim echo)
+M  tool phase (cold, loaded between turns at 0x0900): scan the window for
+     $r ADDR LEN / $w ADDR BYTES / $x ADDR; execute each in segment 0 -
+     read bytes / poke bytes / CALL the address; append a readable result line back
+     INTO the window (model-facing) + a dim "read from / write to / jump to <addr>" line (screen)
+   loop: a fired tool arms auto-continue - the next turn carries the tool result and the
+     model acts on it, up to 8 hops, then control returns to the user
+```
+
+Worked example (validated): the model is asked to write `b8 34 12 c3` (x86 `mov ax,0x1234;
+ret`) to the arena and run it. It `$w`s the bytes, `$x`es the address, and `AX=0x1234` returns
+through the window - a frontier model wrote machine code, shipped it over TLS to a 1981 IBM PC,
+ran it, and read back the result. The agent owns the crash: `$x` is a bare CALL with no sandbox
+(Authority Model); a jump to bad code hangs the machine and reboot from trusted media recovers
+(Recovery Boundary).
 
 ## Phase Windows
 
@@ -186,13 +219,15 @@ X   3        0x0900     application-data stream (encrypted send/receive)
 T   1        0x0d00     agent response parse
 B   1        0x0700     splash/result display
 Y   1        0x0700     Default Prompt Interface chat loop
+M   2        0x0900     minimal tool calling ($r/$w/$x): scan window, execute in seg 0
 S   1        0x0700     best-effort USER.CFG save
 ```
 
-This is the live 19-phase layout; regenerate it with `make inspect` /
+This is the live 20-phase layout; regenerate it with `make inspect` /
 `tools/core-sys-info.py`. Phases that do network I/O — `D`, `C`, `R`, `X` — load at
-`0x0900` so they coexist with the TCP/NIC scratch; the response parser `T` loads at
-`0x0d00`; every other cold phase loads at `0x0700`.
+`0x0900` so they coexist with the TCP/NIC scratch; the `M` tool phase shares that
+`0x0900` window, since it runs between turns when the network scratch is idle; the
+response parser `T` loads at `0x0d00`; every other cold phase loads at `0x0700`.
 
 Most cold phases share the low scratch/window region. The K window is different:
 it is loaded once into a larger high window before the provider-critical path.
@@ -200,7 +235,7 @@ it is loaded once into a larger high window before the provider-critical path.
 This windowed, phase-streaming design is what lets a full TLS 1.2 agent path — P-256
 ECDHE, ChaCha20-Poly1305, HTTP/1.1, and SSE streaming — run in 16 KiB on a 4.77 MHz
 8088: only the 2 KiB nucleus and the 7 KiB `K` crypto window stay permanently resident,
-while the other 18 phases stream from the floppy on demand and take turns in one small
+while the other 19 phases stream from the floppy on demand and take turns in one small
 window. See [`memory.md`](memory.md) for the stage-by-stage memory maps.
 
 ## Provider Timing Model
@@ -257,7 +292,7 @@ resident: the 2 KiB nucleus at `0x1000`, the 7 KiB `K` crypto/TLS/API window at
 phases stream through the shared low scratch at `0x0700`. Critical scratch ends at
 `0x3cf3`; Build 9 reclaims the former stack-reserve slack above it into a small
 reconnect-safe context pool — a model-compacted conversation window plus a user/agent arena
-(~256 B split by default, the arena growing with RAM on larger machines) — and runs the
+(~214 B, split ~107/107 window/arena by default, both growing with RAM on larger machines) — and runs the
 remaining execution guard thin per the guard philosophy, confirmed by a stack high-water
 check in validation.
 
@@ -371,8 +406,10 @@ enough to prove repeated chat after boot, but it is not the future environment
 and should not accumulate terminal, shell, or operating-system responsibilities.
 The first DPI release (Build 8) sent each prompt as a fresh provider request; Build 9
 adds minimal context assembly - a model-compacted rolling conversation summary plus the
-current prompt shape each request, so prompts are no longer semantically fresh. Tool-result
-slots flowing back through this context path are the Build 10 step.
+current prompt shape each request, so prompts are no longer semantically fresh. Build 10 ships this tool-result path: the model emits `$r/$w/$x`
+directives, a cold tool phase executes them in segment 0 between turns, and the
+results flow back through this same context window so the model acts on them - the
+agentic loop. See "Demo: A Tool-Called Request" above.
 
 Seed-owned context management should be compact and volatile on the 16 KiB
 target: recent prompt/response state, a small rolling summary or equivalent
@@ -451,12 +488,12 @@ worst-case accepted config values, emulator versus real hardware variance, and
 Seed's own mistakes. The guard should therefore be explicit, measured, and
 small enough that it does not waste the point of a 16 KiB target.
 
-For the 16 KiB target, the release guard target is 1 KiB of measured execution
-headroom after Seed-owned resident state, scratch, window space, and stack
-needs are accounted for. A 512-byte guard may be accepted as an intermediate
-milestone only with stronger collision detection, such as explicit bound
-checks, visible loader failure, and runtime canaries for the stack or scratch
-areas that are most likely to collide.
+For the 16 KiB target, the guard is a measured, thin execution reserve, not a fixed
+block. Build 7 aimed for 1 KiB of headroom; Build 9 found that 16 KiB cannot fund both
+that and a useful context pool, so the stack reserve was trimmed to a measured ~256 B
+margin run thin. That is accepted only because the collision risk is covered actively —
+explicit bound checks, visible loader failure, and a runtime stack high-water tripwire
+in validation — rather than by leaving a large idle cushion.
 
 Unused low memory is not reserved for future features by default. Future
 features should either fit the published contract or belong to the user/agent

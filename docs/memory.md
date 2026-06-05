@@ -166,8 +166,11 @@ never be permanent pool. The Build 9 context pool therefore lives ABOVE
 that line - reconnect-safe caches + keepalive (a), conversation window
 (m), user/agent arena (+) - so it survives an idle/walk-away reconnect.
 The pool is small here only because the reconnect-safe gap to the stack
-is ~256 B on 16 KiB; it scales with RAM, so larger machines get a far
-bigger window and arena. (Consolidating the dormant scratch into the
-pool would need a memory defrag, sequenced into Build 10.)
+is ~214 B on 16 KiB (split ~107/107 window/arena); it scales with RAM, so
+larger machines get a far bigger window and arena. (Consolidating the dormant
+scratch into the pool would need a memory defrag; Build 10 investigated it and
+the TLS-buffer lever and found no safe win - the scratch is reconnect-reserved,
+and the buffer must stay MSS-sized because Cloudflare ignores client record-size
+caps on TLS 1.2. The pool stays at the RAM-scaling levels. See builds.md Build 10.)
 ```
 <!-- END MAP: stage-dpi -->

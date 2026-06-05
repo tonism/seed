@@ -204,6 +204,12 @@ endpoint separates net flakes from product bugs (now in docs/testing.md Gotchas)
   50/50 window as a 64KB one. Scaling past that needs far pointers (real-mode, for conventional
   64-640KB) or a 286+ with unreal-mode/XMS (for extended >1MB). Major rework; biggest possible
   context-window win but a deep change to the seg-0 assumption baked through the code.
+- **Stream the model's reasoning summary.** The Responses API can stream a reasoning summary
+  (reasoning.summary: auto/concise) - the model's own gist of its thinking (NOT raw chain-of-thought,
+  which OpenAI doesn't expose). Render it dim (like the tool echoes) so the user sees WHY the agent
+  acts (e.g. "I'll also probe 0x0add to see what's there" before it does). Cost: extra streamed text
+  (window + render time on the 64KB machine) + a little chunk-2 budget. HIGH narrative value - the
+  literal "watch it think" feature for the "it has its own mind" story + a strong demo beat.
 
 ## Record-size flake - likely the chat-loop de-sync ROOT CAUSE (user hypothesis 2026-06-05, STRONG)
 

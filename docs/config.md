@@ -133,9 +133,11 @@ master secret. `openrouter.ai` therefore remains in `AGENTS.CFG`. `litellm` is
 a user-supplied endpoint, so it cannot be certified at ship time; it is
 supported only when the configured server negotiates the same path.
 
-`reasoning` is stored as a plain text effort value such as `xhigh`. The request
-path uses that saved value when present and drives the Default Prompt Interface
-chat loop; dynamic model and reasoning capability fetches remain later work. The `key` value is
+`reasoning` is stored as a plain text effort value such as `xhigh`, but it is not yet
+applied: the chat-loop request pins `"reasoning":{"effort":"high"}` rather than reading
+the saved value back. The saved `model`, by contrast, IS substituted into the request.
+Honoring the stored reasoning effort, and dynamic model/reasoning capability fetches,
+remain later work. The `key` value is
 plaintext on the boot medium. The current ECDHE scalar is a sparse fixed
 development value so emulator boot tests do not spend minutes in the `"o"`
 secure/crypto phases. A real entropy path and a faster full-scalar strategy
