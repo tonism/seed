@@ -21,7 +21,7 @@ message content:
 ```text
 none         boot sector, loader, CORE.SYS load
 "." dark     hardware, local machine setup, and internet prep/reachability
-"o" dark     secure connection setup
+"o" dark     TLS handshake setup
 "o" normal   local TLS crypto/key material setup
 "o" bright   agent and environment prep
 red marker   fatal error state; keep the current phase glyph

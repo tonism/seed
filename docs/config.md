@@ -138,14 +138,14 @@ applied: the chat-loop request pins `"reasoning":{"effort":"high"}` rather than 
 the saved value back. The saved `model`, by contrast, IS substituted into the request.
 Honoring the stored reasoning effort, and dynamic model/reasoning capability fetches,
 remain later work. The `key` value is
-plaintext on the boot medium. The current ECDHE scalar is a sparse fixed
-development value so emulator boot tests do not spend minutes in the `"o"`
-secure/crypto phases. A real entropy path and a faster full-scalar strategy
-are required before this can be treated as secure TLS. Seed currently sends
-ClientKeyExchange with the fixed-scalar public point after local key material
-is prepared, sends ChangeCipherSpec and encrypted client Finished, and can
-send the prepared API request early as TLS application data before waiting for
-the server Finished. It receives, authenticates, decrypts, and verifies the
-encrypted server Finished and TLS application records for the current
-ChaCha20-Poly1305 path. Capability fetches, model selection, reasoning selection,
+plaintext on the boot medium. The shipped build does not perform real key agreement: the P-256 scalar multiply
+is compiled out (a full one is minutes on this CPU), so the premaster is taken from
+the server's public value rather than a Diffie-Hellman exchange, and client
+randomness is a placeholder LCG. Seed still runs the rest of the path for real — it
+sends ClientKeyExchange, ChangeCipherSpec, and an encrypted client Finished, can send
+the API request early as TLS application data before the server Finished, and
+receives, authenticates, decrypts, and verifies the server Finished and application
+records on the ChaCha20-Poly1305 path — but because the key exchange is stubbed, the
+session is not confidential. A real entropy source and a constant-time scalar
+multiply that fits the budget are required before this can be treated as secure TLS. Capability fetches, model selection, reasoning selection,
 and environment handoff remain later work.

@@ -1,7 +1,7 @@
 # Memory Layout
 
 This appendix records how Seed fits inside the 16 KiB IBM PC 5150 target at
-important points during boot and hydration. The diagrams are generated from the
+important points during boot and the stage-by-stage fill-in below. The diagrams are generated from the
 assembled `CORE.SYS` plus layout constants, not by hand.
 
 Refresh this file after memory-layout changes:
@@ -13,6 +13,10 @@ make memory-map
 Each character represents 128 bytes. Each row is 4 KiB. Four rows cover the
 16 KiB target.
 
+Most of the story is in five bands — BIOS-owned memory, the resident nucleus, the
+K crypto window, the conversation window, and the arena. The other symbols are
+scratch/state detail you can skim on a first read.
+
 ```text
 █  BIOS-owned low memory
 ▓  CORE.SYS resident nucleus
@@ -21,19 +25,15 @@ h  handoff block
 t  TLS / crypto state
 w  wire / TCP / NIC state
 r  TLS receive buffer
-:  handshake scratch, reserved for the reconnect handshake (dormant in chat)
+:  dormant reconnect-handshake scratch
 a  agent config (and reconnect-safe caches)
 c  crypto constants
-m  conversation window (model-compacted context, Build 9)
-+  user/agent arena (Build 9)
+m  conversation window (model-compacted context)
++  user/agent arena
 ,  currently loaded cold phase / phase-local scratch
    free RAM
 |  stack guard region
 ```
-
-The cleanup/defrag/ocean architecture is intentionally not part of the current
-rebuild. If that work returns later, this appendix should show it as a
-new stage generated from the live cleanup table.
 
 ## Stage 1 — Cold Boot
 
@@ -156,21 +156,15 @@ is already reserved. Nothing is free here - 16 KiB at full pack.
   │ 0x3000 │▒▒▒▒▒▒▒▒ttrrrrrrrrrrr:::::aam+||│
   └────────┴────────────────────────────────┘
 
-Chat loop after the first response. The K window, session keys, and
-receive buffer (the streamed response) stay resident and serve every
-turn. The ':' band is the TLS handshake scratch (HMAC pads, server
-random, master secret, transcript hash): dormant once the session keys
-exist, but reserved - a reconnect re-runs the handshake and reuses it,
-and it sits below critical scratch (the reconnect-safe line), so it can
-never be permanent pool. The Build 9 context pool therefore lives ABOVE
-that line - reconnect-safe caches + keepalive (a), conversation window
-(m), user/agent arena (+) - so it survives an idle/walk-away reconnect.
-The pool is small here only because the reconnect-safe gap to the stack
-is ~214 B on 16 KiB (split ~107/107 window/arena); it scales with RAM, so
-larger machines get a far bigger window and arena. (Consolidating the dormant
-scratch into the pool would need a memory defrag; Build 10 investigated it and
-the TLS-buffer lever and found no safe win - the scratch is reconnect-reserved,
-and the buffer must stay MSS-sized because Cloudflare ignores client record-size
-caps on TLS 1.2. The pool stays at the RAM-scaling levels. See builds.md Build 10.)
+Chat loop after the first response. The K window, session keys, and receive buffer
+(the streamed response) stay resident and serve every turn. The ':' band is the TLS
+handshake scratch (HMAC pads, server random, master secret, transcript hash): dormant
+once the session keys exist, but reserved — a reconnect re-runs the handshake and
+reuses it. Because it sits below the reconnect-safe line it can never become pool, so
+the context pool lives above it: reconnect-safe caches and keep-alive (a), the
+conversation window (m), and the user/agent arena (+), which survive an idle reconnect.
+That pool is only ~214 B on 16 KiB (split ~107/107) but scales with RAM, so larger
+machines get a far bigger window and arena. (Build 10 confirmed the dormant scratch
+can't be reclaimed into it — see builds.md.)
 ```
 <!-- END MAP: stage-dpi -->

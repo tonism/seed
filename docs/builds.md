@@ -1,16 +1,17 @@
 # Build Scope
 
 Status: latest is Build 10 (minimal tool calling: `$r/$w/$x` + the agentic loop),
-validated (7-NIC chat matrix 7/7 + the write-machine-code/run/read-AX capstone); release
-pending the final docs pass + a curated demo.
+validated (7-NIC chat matrix 7/7 — per-NIC flake history in the checkpoints below) plus
+the write-machine-code/run/read-AX capstone; release pending the final docs pass + a
+curated demo.
 
 Seed's loading marker has four semantic states plus the final splash:
 
 ```text
 none         boot sector, loader, CORE.SYS load
 "." dark     hardware then internet: CORE.SYS entry, display baseline, hardware detection, adapter init, handoff, then IP configuration, DNS, and reachability proof
-"o" dark     secure connection: selected endpoint setup and TLS protocol proof
-"o" normal   local crypto: P-256 ECDHE and TLS key-material derivation
+"o" dark     TLS handshake: selected endpoint setup and the TLS 1.2 handshake
+"o" normal   local crypto: TLS key schedule and key-material derivation
 "o" bright   agent/environment: API validation, model/session, and environment handoff
 splash       ready handoff animation; no loading work happens here
 ```
@@ -29,7 +30,7 @@ build 2   minimal boot presentation: centered marker and fast-type banner
 build 3   no-marker bootstrap: loader boundary, display baseline, handoff block, retry boundary
 build 4   "." dark phase: hardware setup, adapter autodetect/fallback questions, hardware handoff
 build 5   internet readiness under the "." phase: IP config, DNS, reachability proof
-build 6   "o" dark + normal + bright phases: secure connection, credentials, minimal provider API proof
+build 6   "o" dark + normal + bright phases: TLS handshake, credentials, minimal provider API proof
 build 7   ROM BASIC 16 KiB entry and windowed-nucleus release target
 build 8   Default Prompt Interface chat loop
 build 9   minimal context management for agentic continuity
@@ -61,7 +62,7 @@ or an agent session.
 
 ## Build 6
 
-Build 6 owns the dark `"o"` secure-connection phase, the normal `"o"` local
+Build 6 owns the dark `"o"` TLS-handshake phase, the normal `"o"` local
 crypto phase, and the bright `"o"` agent/API-prep phase. It starts after
 internet readiness is proven and ends when Seed can connect to a selected
 provider, complete the current TLS/API path, and display the minimal returned
@@ -123,6 +124,13 @@ direct OpenAI TLS 1.2 server-Finished proof on `vm-net-ne2k8`
 direct OpenAI Responses request/response proof on all seven original 4.77 MHz NIC profiles, displaying returned `ok`
 best-effort USER.CFG write of validated agent, model, reasoning, key, and endpoint values
 ```
+
+The P-256 field, point, and scalar-multiply primitives above are implemented and
+cross-checked against OpenSSL (`tools/check-p256.py`), but the shipped boot path
+substitutes a scalar-1 stub for the scalar multiply — the premaster becomes the
+server's public X coordinate — so no real key agreement runs and the session is not
+secure. That tradeoff keeps boot in seconds; closing it is tracked below and in the
+README security status.
 
 Still outside the Build 7 16 KiB release scope:
 
@@ -265,7 +273,7 @@ Build 9 owns minimal context management for agentic continuity. It builds on the
 stable Build 8 chat loop. The layered request, chunked streaming, conversation
 accumulation, and model-driven compaction are implemented and validated end-to-end -
 the model recalls a fact across a compaction collapse; the full working record is
-`notes/build9-context-attempts.md`.
+`notes/old/build9-context-attempts.md`.
 
 Each request is assembled from four layers:
 
@@ -348,7 +356,7 @@ NIC timing unification: EVALUATED, deferred. The 7-NIC matrix came back green, s
   collapse - marginal, so deferred. Byte-reclaim for the context arena (TLS Finished /
   HMAC pads, ~128 B) is real but island-shaped; reaching the arena needs a defrag pass,
   sequenced into the Build 10 tool-calling layout rework. Analysis in
-  notes/build9-context-attempts.md.
+  notes/old/build9-context-attempts.md.
 ```
 
 Build 9 checkpoint (2026-06-04): context management COMPLETE and validated. The four-layer
@@ -361,7 +369,7 @@ on recheck); the chunk-3 flush carried a quote-heavy split prompt through intact
 survives a compaction collapse (the model answers a fact from before the window cleared);
 the keep-alive held a 20-minute render; and the ASCII instruction produced clean prose with
 no CP437 garbage or tool-call JSON. The full working record is
-`notes/build9-context-attempts.md`. Release marker pending (not yet cut).
+`notes/old/build9-context-attempts.md`. Release marker pending (not yet cut).
 
 ## Build 10
 

@@ -70,11 +70,12 @@ the boot loader and the BASIC loader can find the same runtime image.
 - Target 8088-compatible 16-bit real-mode code for `ibm_pc_5150`. Keep NASM
   sources locked to `cpu 8086` so unsupported opcodes are caught at build time.
 - Do not introduce protected mode or graphics mode unless explicitly scoped.
-- The current capability is the Default Prompt Interface chat loop plus Build 9
-  minimal context management (a model-compacted rolling conversation window), on
-  the 16 KiB ROM BASIC + 32 KiB direct-boot entry contract. Do not add tool
-  calling or environment handover unless explicitly scoped; those are the
-  Build 10+ steps.
+- The current capability is the Default Prompt Interface chat loop, Build 9
+  minimal context management (a model-compacted rolling conversation window), and
+  Build 10 minimal tool calling (`$r`/`$w`/`$x` RAM read/write/execute with an
+  agentic loop), on the 16 KiB ROM BASIC + 32 KiB direct-boot entry contract. Do
+  not add environment handover or a general local-tool ABI unless explicitly
+  scoped; those are the next steps.
 - OpenAI, Anthropic, and Google define the supported agent TLS compatibility
   surface. Extra default `AGENTS.CFG` entries may stay only if they fit the
   same path; do not add alternate crypto paths just to keep a gateway.

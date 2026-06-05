@@ -7,6 +7,11 @@ hardware differences. These are durable behavioral requirements, not status note
 The lane-validation history and per-card evidence behind these contracts are
 recorded in `docs/builds.md` (the Build 6 and Build 8 checkpoints).
 
+**Security note:** this path is not yet a secure channel — the ECDH key exchange is
+stubbed (the premaster is the server's public value) and client randomness is a
+placeholder. See [`architecture.md`](architecture.md), "CPU And Crypto Budget." The
+contracts below are about transport *reliability*, not confidentiality.
+
 ## Shared transport rules
 
 These hold for every supported adapter:

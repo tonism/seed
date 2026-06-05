@@ -1,17 +1,19 @@
 # Seed
 
-**Seed runs a full modern AI-agent stack — real TLS 1.2 (P-256 ECDHE,
-ChaCha20-Poly1305, SHA-256), HTTP, and streamed responses — in 16 KiB of RAM on
-a 4.77 MHz Intel 8088.** It boots from a 5.25-inch floppy on a 1981-class IBM PC,
-dials a cloud model directly over the network, and drops you into a chat loop.
-Small and slow, but it works.
+**A frontier cloud model writes 8088 machine code, ships it over the network to a
+1981 IBM PC, and runs it there — then reads the result back into its own context.**
+Seed is the 16 KiB real-mode runtime that makes that loop possible. It boots a
+4.77 MHz Intel 8088 from a 5.25-inch floppy, hand-rolls a TLS 1.2 record layer
+(ChaCha20-Poly1305, SHA-256, the full handshake state machine) to reach a cloud
+model, drops you into a chat loop, and hands that model three tools: read, write,
+and *execute* the machine's own memory. The executed programs are tiny so far — the
+validated proof is four bytes, `mov ax,0x1234; ret`, written into a RAM arena, run, and
+read back — but the loop is real end to end. Small and slow, but it works.
 
-Seed is a boot-first *agent runtime*: a small, trusted control plane — not an
-operating system and not a sandbox. Its job is to bring a memory-constrained
-machine far enough to reach a cloud model, publish a clear hardware and memory
-contract, then get out of the way and leave the rest of the machine open for
-user- and agent-built local tooling. The boot floppy stays the reset boundary,
-so recovery is always a reboot away.
+It's a small, trusted control plane — not an OS, not a sandbox — that brings a
+memory-constrained machine to a cloud model, publishes a clear hardware and memory
+contract, then gets out of the way and leaves the rest open for user- and agent-built
+tooling. The boot floppy is the reset boundary, so recovery is always a reboot away.
 
 ![Seed booting and answering a prompt on a 16 KiB IBM PC 5150 under 86Box](docs/images/seed-chat.png)
 
@@ -19,37 +21,38 @@ so recovery is always a reboot away.
 
 Three things make Seed unusual:
 
-- **A full agent stack in 16 KiB.** The entire TLS 1.2 path — handshake, key
-  schedule, ChaCha20-Poly1305 record crypto, HTTP, and streamed responses — fits
-  a 16 KiB RAM budget. It works by *not* keeping it all resident: a 2 KiB nucleus
-  and a 7 KiB crypto window stay in memory, while 19 other **phases** (chunks of
-  code) stream off the floppy on demand and time-share one small RAM **window**.
-- **…on a 4.77 MHz 8088.** That same modern crypto — P-256 ECDHE,
-  ChaCha20-Poly1305, SHA-256 — runs on a sub-MIPS 16-bit CPU with no crypto
-  acceleration, using hand-tuned field arithmetic, a reused TLS session, and an
-  add-rotate-xor cipher that suits the part. Boot to first response is seconds,
-  not minutes.
-- **The cloud model can run code on the machine.** Build 10 gives the model three
-  tools — read, write, and execute memory (`$r`/`$w`/`$x`) — that it calls inline in
-  its replies. It can poke 8088 machine code into a free RAM arena and run it: a
-  frontier model authoring code, shipping it over TLS to a 1981 PC, and reading back
-  the result. Seed feeds each tool result into the model's context — an agentic loop —
-  with the reboot floppy as the only safety net.
+- **A frontier model runs code on the machine.** Build 10 gives the cloud model
+  three tools — read, write, and *execute* memory (`$r`/`$w`/`$x`) — that it calls
+  inline in its replies. It pokes 8088 machine code into a free RAM arena, runs
+  it, and reads the result; Seed loops each result back into the model's context, so
+  the model acts on what it finds. The only safety net is the reboot floppy.
+- **A TLS stack in 16 KiB.** The TLS 1.2 record path — handshake state machine,
+  SHA-256 transcript, key schedule, ChaCha20-Poly1305 record crypto, HTTP/1.1, and
+  SSE (server-sent events) streaming — fits a 16 KiB RAM budget. It works by *not*
+  keeping it all resident: a 2 KiB nucleus and a 7 KiB crypto window stay in memory,
+  while 19 other **phases** (chunks of code) stream off the floppy on demand and
+  time-share one small RAM **window**.
+- **…on a 4.77 MHz 8088.** That symmetric crypto — ChaCha20-Poly1305 and SHA-256 —
+  runs on a sub-MIPS 16-bit CPU with no crypto acceleration, using hand-tuned field
+  arithmetic, prepared HMAC pads, and an add-rotate-xor cipher that suits the part.
+  Boot to first token is seconds, not minutes.
 
-One honest caveat up front: the current build uses a **fixed development scalar**
-for the ECDHE step (a real constant-time full scalar runs into minutes on this
-CPU), so **this is not yet secure TLS** — a real entropy source and a faster
-scalar path are required first. The full CPU/crypto story, with a boot timing
-diagram, is in [docs/architecture.md](docs/architecture.md).
+**Status — what's real, and what isn't.** The record layer genuinely runs —
+ChaCha20-Poly1305, SHA-256, and the full TLS 1.2 handshake, over a live session — but
+it is **not a secure channel yet.** The shipped build skips the ECDH key exchange (a
+stub takes the server's public value as the premaster, and client randomness is a
+placeholder), so a passive observer could derive the keys. The full P-256 is written
+and OpenSSL-checked, just compiled out — a real scalar multiply is minutes of work and
+several KB the 8088 can't spare — so wiring in a secure exchange (ephemeral scalar plus
+real entropy) is the headline open problem. Full story:
+[docs/architecture.md](docs/architecture.md).
 
 ## How to read these docs
 
-New here? **[README](README.md) → [architecture.md](docs/architecture.md)** (how
-it works) **→ [memory.md](docs/memory.md)** (the stage-by-stage picture), then
-stop. Everything else — `docs/{builds,config,networking,testing,ui}.md`,
-`AGENTS.md`, and the files under `targets/` — is contributor and
-runtime-contract reference. That includes the dated test logs in `notes/` and the
-target docs, which record how this was actually built, mistakes and all.
+New here? Read **[architecture.md](docs/architecture.md)** (how it works), then
+**[memory.md](docs/memory.md)** (the stage-by-stage memory picture), and stop.
+Everything else is contributor and runtime-contract reference — including the dated
+logs in `notes/`, which record how this was actually built, mistakes and all.
 
 ## Minimum Specs
 

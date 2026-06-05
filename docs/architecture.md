@@ -145,14 +145,11 @@ agent phase "o"
   -> B: splash/result screen
 
 prompt loop "Default Prompt Interface"
-  -> render the model greeting, then take prompt input
-  -> per turn: build request (+ RAM-tool grammar + machine-facts/arena ledger),
-     encrypted send, streamed application receive, render ($-commands hidden on screen)
-  -> between turns: cold tool phase scans the window for $r/$w/$x, executes each in
-     seg 0, appends the result into the window + a dim on-screen echo
-  -> a fired tool auto-continues the loop (the model acts on the output), up to 8 hops,
-     then control returns to the user
-  -> reuse the live TLS session across turns; reconnect and resend on a real drop
+  -> render the model greeting, then take prompts on the live (reused) TLS session
+  -> each turn builds the request, streams the reply, then a cold tool phase runs any
+     $r/$w/$x and loops the result back to the model - traced in full under
+     "Demo: A Tool-Called Request" below
+  -> reconnect and resend only on a real drop
 
 failure
   -> F: mark current phase red, type error, offer retry/restart
@@ -184,12 +181,13 @@ M  tool phase (cold, loaded between turns at 0x0900): scan the window for
      model acts on it, up to 8 hops, then control returns to the user
 ```
 
-Worked example (validated): the model is asked to write `b8 34 12 c3` (x86 `mov ax,0x1234;
-ret`) to the arena and run it. It `$w`s the bytes, `$x`es the address, and `AX=0x1234` returns
-through the window - a frontier model wrote machine code, shipped it over TLS to a 1981 IBM PC,
-ran it, and read back the result. The agent owns the crash: `$x` is a bare CALL with no sandbox
-(Authority Model); a jump to bad code hangs the machine and reboot from trusted media recovers
-(Recovery Boundary).
+Worked example (the Build 10 capstone, validated): asked to write `b8 34 12 c3` (x86
+`mov ax,0x1234; ret`) into the arena and run it, the model `$w`s the four bytes, `$x`es the
+address, and `AX=0x1234` comes back through the window. It is deliberately minimal — four
+hand-aimed bytes, not a general code-generation result — but the loop is real end to end: a
+cloud model authored machine code and a 1981 PC ran it. There is no sandbox; a `$x` into bad
+code hangs the machine, and recovery is a reboot from trusted media (see Authority Model and
+Recovery Boundary below).
 
 ## Phase Windows
 
@@ -203,7 +201,7 @@ Current phase table:
 id  sectors  load addr  responsibility
 K   14       0x1800     provider-critical LINK window: SHA-256, TLS, AEAD, API exchange
 F   1        0x0700     failure action UI
-H   3        0x0700     hardware/display/NIC discovery
+H   4        0x0700     hardware/display/NIC discovery
 I   1        0x0700     packet I/O initialization
 D   3        0x0900     DHCP setup
 C   3        0x0900     TCP connect
@@ -232,11 +230,13 @@ response parser `T` loads at `0x0d00`; every other cold phase loads at `0x0700`.
 Most cold phases share the low scratch/window region. The K window is different:
 it is loaded once into a larger high window before the provider-critical path.
 
-This windowed, phase-streaming design is what lets a full TLS 1.2 agent path — P-256
-ECDHE, ChaCha20-Poly1305, HTTP/1.1, and SSE streaming — run in 16 KiB on a 4.77 MHz
+This windowed, phase-streaming design is what lets the TLS 1.2 record path —
+ChaCha20-Poly1305, SHA-256, HTTP/1.1, and SSE streaming — run in 16 KiB on a 4.77 MHz
 8088: only the 2 KiB nucleus and the 7 KiB `K` crypto window stay permanently resident,
 while the other 19 phases stream from the floppy on demand and take turns in one small
-window. See [`memory.md`](memory.md) for the stage-by-stage memory maps.
+window. (The P-256 ECDH key agreement that real TLS also needs is the one piece that
+doesn't fit — it is stubbed; see CPU And Crypto Budget.) See [`memory.md`](memory.md)
+for the stage-by-stage memory maps.
 
 ## Provider Timing Model
 
@@ -261,7 +261,7 @@ provider TCP connection and drive TLS/application data:
 TCP connect to provider
 send ClientHello
 receive ServerHello / Certificate / ServerKeyExchange / ServerHelloDone
-derive ECDHE shared secret and TLS keys
+derive the premaster (ECDH stubbed - see CPU And Crypto Budget) and TLS keys
 send ClientKeyExchange / ChangeCipherSpec / encrypted client Finished
 verify encrypted server Finished
 send encrypted application request
@@ -286,15 +286,12 @@ pacing, the receive latch, and large-record completion handling — are document
 
 ## Memory Layout
 
-The 16 KiB target ceiling is `0x4000`. At steady state three regions stay permanently
-resident: the 2 KiB nucleus at `0x1000`, the 7 KiB `K` crypto/TLS/API window at
-`0x1800`, and ~2.3 KiB of high-crypto plus critical TLS/API scratch above it. Cold
-phases stream through the shared low scratch at `0x0700`. Critical scratch ends at
-`0x3cf3`; Build 9 reclaims the former stack-reserve slack above it into a small
-reconnect-safe context pool — a model-compacted conversation window plus a user/agent arena
-(~214 B, split ~107/107 window/arena by default, both growing with RAM on larger machines) — and runs the
-remaining execution guard thin per the guard philosophy, confirmed by a stack high-water
-check in validation.
+The 16 KiB target ceiling is `0x4000`. Three regions stay permanently resident: the
+2 KiB nucleus at `0x1000`, the 7 KiB `K` crypto window at `0x1800`, and ~2.3 KiB of
+TLS/API scratch above it; cold phases stream through the shared low scratch at `0x0700`.
+Above the critical scratch sits a small, reconnect-safe context pool — the conversation
+window plus the user/agent arena — running the execution guard thin and scaling with RAM
+(~214 B on a 16 KiB machine, far larger on bigger ones).
 
 The byte-level entry-time and runtime layouts, and the per-stage maps, live in
 [`memory.md`](memory.md); regenerate them with `make memory-map` after any
@@ -308,47 +305,84 @@ base product must not require it.
 
 The other half of the constraint is the processor. A 4.77 MHz 8088 is a 16-bit,
 sub-MIPS part with a slow multiply and no crypto acceleration, and the provider path
-asks it to run modern TLS 1.2 — P-256 ECDHE, ChaCha20-Poly1305, and SHA-256 — heavy
-256-bit math on a CPU built for 16-bit adds. The whole boot to first response reads as four resource tracks — one column per
-second, `░▒▓█` from light to full:
+asks it to run modern TLS 1.2. That splits into two very different costs. The
+*symmetric* crypto — ChaCha20-Poly1305 record encryption and SHA-256 (the handshake
+transcript and the PRF key schedule) — runs for real on the 8088. The *asymmetric*
+step — a P-256 scalar multiply for the ECDH key exchange — is the killer: a full
+constant-time one runs into minutes here, so the shipped build skips it (the security
+gap below). That omission keeps boot in the tens of seconds instead of the tens of
+minutes a real scalar multiply would cost — but, as the measured timeline below shows,
+even the symmetric crypto that remains pins this CPU flat-out for ~14 seconds.
+
+The resource profile, measured by packet-capture timing across two boots (the gaps
+between the VM's packets *are* the 8088's compute), holds a surprise about which
+resource dominates:
 
 ```text
-         0    5    10   15   20      seconds
-  CPU    ▒▒    ██████████████▒
-  RAM    ░░░▒▒▒██████████████████
-  DSK    █▓▒▒▒██             ▒▒░
-  NET      ▓▓▓▓▒            ░▒▓▓▓
+FIRST BOOT  -  power-on to first response     (handshake + reply measured, 2 boots)
 
-  CPU  real computation    flat-out only during ECDHE + key schedule (s6-19)
-  RAM  16 KiB filled         climbs, then the K window lands (~s6) and stays ~98% full
-  DSK  floppy sector reads   nucleus + every cold phase; the big spike is K (14 sectors)
-  NET  packets on the wire   DHCP / DNS / TCP (s2-5), then the streamed response (s21+)
+       |setup|------TLS 1.2 handshake------|reply
+  t/s  0   2   4   6   8   10  12  14  16  18  20
+  CPU  ░░▒▒▒▓██████████████████████████████   ░▒░
+  NET  ░▒▓▓▒░▓                          ▒▒ ░ ▓▓▒░
+  NIC   ░▒░  ▒                               ░▓▓▒
+  DSK  ▒██▓░                                 ░▒  
+  RAM  ░▒▓███████████████████████████████████████
+       (blank) idle   ░ light   ▒ medium   ▓ busy   █ saturated     NIC = 8088 PIO
 
-The correlation is the story: the K window lands, disk spikes, RAM fills — then the
-CPU pins flat-out on the two crypto steps while disk and network fall quiet. After the
-first response the DPI loop runs near-idle, reusing the session. (Shapes approximate.)
+  ──────────────────────────────
+
+CHAT / TOOL-CALL TURN  -  session reused, no handshake     (model-wait bound)
+
+       -thinks--reply
+  t/s  0 1 2 3 4 5 6 
+  CPU            ░▓▒ 
+  NET  ░        ▓▓▓▒ 
+  NIC           ░▓▓▒ 
+  DSK           ▒    
+  RAM  ██████████████
 ```
 
-What keeps that tractable:
+The TLS handshake is 14.5 s of the CPU pinned flat-out - SHA-256 hashing the 2.8 KB
+certificate into the transcript, the PRF key schedule, and ChaCha - in two ~7 s halves
+that come out identical run to run (fixed arithmetic on fixed input). Everything else is
+small: the model thinks + replies in ~2.5 s, a network round trip is 7 ms, the
+ClientHello takes 0.27 s to build. Setup (hardware detect, DHCP/DNS, and the floppy
+phase loads including the 14-sector K window) is a few seconds before the handshake -
+drawn approximately, since it cannot be cleanly separated from the emulator's own boot.
 
-- **An ARX record cipher.** The negotiated suite uses ChaCha20-Poly1305, an
+The contrast is the point: the expensive crypto is paid **once**, at boot. Every turn
+after reuses the open session, so a chat or tool-call turn is mostly the 8088 idle while
+the model thinks, then a quick ChaCha-decrypt, a render, and - for a tool call - a CALL
+into the arena. On a 4.77 MHz part, modern TLS is not a network or key-exchange cost (the
+key exchange is stubbed) - it is a symmetric-arithmetic cost, and that is the single
+biggest line item in the whole boot.
+
+What keeps the symmetric side tractable:
+
+- **An ARX record cipher.** The negotiated suite is ChaCha20-Poly1305, an
   add-rotate-xor design with no S-boxes or large tables, so it needs no AES hardware
   and stays cheap on the 8088.
-- **Field math tuned for the part.** Comba-style product accumulation for the 256-bit
-  multiplies, Jacobian coordinates to avoid per-step modular inversions in the ECDHE
-  scalar multiply, and prepared HMAC pad states reused across the TLS PRF so the
-  SHA-256 blocks are not recomputed.
-- **The scalar multiply is the bottleneck, and a known limitation.** A full P-256
-  scalar multiply runs into minutes on this CPU, so the current build uses a sparse
-  fixed development scalar to keep boot in the seconds range. A real entropy source and
-  a faster constant-time full-scalar strategy are required before the path can be
-  treated as secure TLS.
+- **Reused HMAC state.** Prepared HMAC-SHA256 ipad/opad pads are kept across the TLS
+  PRF, so the key schedule does not recompute SHA-256 blocks it already has.
 - **Pace the stream to the renderer.** On the most constrained NICs, response text uses
   render-before-ACK pacing so the network does not outrun the 8088's text renderer (see
   `networking.md`).
 - **No tight remote loops.** Network and model latency on top of a slow CPU make
   step-by-step remote hardware control unreliable, which is why the post-Seed model is
   asynchronous (see User/Agent Environment, below).
+
+And the part that is *not* tractable — the honest gap:
+
+- **The P-256 key exchange is skipped.** Real ECDHE needs a 256-bit scalar multiply,
+  and a full constant-time one runs into minutes on this CPU. Seed's implementation
+  (Comba accumulation, Jacobian coordinates) is written and cross-checked against
+  OpenSSL, but it is **compiled out** of the shipped build. The boot path substitutes a
+  scalar-1 stub: it takes the server's public X coordinate as the premaster, so **no
+  key agreement happens** and the session is not confidential. Client randomness is a
+  placeholder too (a BIOS-tick LCG). Wiring in real, secure key agreement — a
+  constant-time scalar multiply that is both fast enough *and* small enough for the
+  16 KiB budget, plus a real entropy source — is the headline open crypto problem.
 
 The handshake is also why the chat loop never reconnects mid-conversation — that is a
 race it cannot reliably win:
