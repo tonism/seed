@@ -23,8 +23,8 @@ tool_sink equ fs_sector_buffer
 ; the model emitted on their own line, executes them, and appends a single
 ; human-readable result line per call back INTO the window - so the result rides
 ; the Build 9 context path into the next request AND shows on screen as a dim,
-; indented, fast-typed sub-result (the dark typewriter look of `compacting
-; context`). The raw "$..." command itself is NOT echoed here; the renderer
+; "> "-prefixed sub-result (the dark look of "> compacting context"). The raw "$..."
+; command itself is NOT echoed here; the renderer
 ; suppresses it from the model's streamed text, so it appears exactly once, as
 ; this readable line.
 ;
@@ -296,10 +296,10 @@ tool_phase:
     call .win_putc                   ; window newline
     call .scr_newline                ; screen fresh line (scroll-aware; may touch es)
     call .scr_set_video              ; then point es at video
+    mov al, '>'
+    call .scr_putc                   ; Build 10: screen-only "> " system-line prefix (matches the DPI
     mov al, ' '
-    call .out_putc                   ; two-space indent (window + screen)
-    mov al, ' '
-    call .out_putc
+    call .scr_putc                   ; prompt + "> compacting context"); window stays clean for the model
     pop si                           ; verb-word ptr -> si
     add si, PHASE_LOAD_ADDR - PHASE_BASE
     call .out_str                    ; "read "/"wrote "/"ran "

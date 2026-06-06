@@ -94,14 +94,35 @@ On the IBM PC 5150 target, Seed can:
 - run the **chat loop** (the "Default Prompt Interface", DPI): an initial model
   greeting, prompt input, and streamed model responses across multiple turns in
   one boot session,
-- carry recent conversation across turns — a model-compacted rolling summary that
-  keeps prompts from being semantically fresh (Build 9),
+- carry recent conversation across turns — a rolling window of recent turns,
+  trimmed to fit the machine's RAM (Build 10; see Known Limitations),
 - run model-authored code in the machine's RAM (Build 10): the model issues inline
   `$r`/`$w`/`$x` calls to read, write, and execute segment-0 memory, and Seed feeds
   each result back into its context (the agentic loop, capped at 8 hops per turn),
 - detect installed RAM and scale the conversation pool to it (Build 10),
 - use shipped `AGENTS.CFG` / `NET.CFG` defaults and optional local `USER.CFG`
   state when present.
+
+## Known Limitations
+
+Seed is a working agent on real 1981 hardware, with the rough edges that implies:
+
+- **Memory is tight on small machines.** The conversation window scales with RAM;
+  on a 16 KiB machine it is only ~100 bytes and the sliding-window trim is
+  aggressive, so the agent forgets recent turns quickly — it may not recall an
+  action (e.g. a tool call) it took a few turns earlier. More RAM means a larger
+  window and longer memory. Model-driven summary compaction (more context per
+  byte) is planned.
+- **Reconnect after a long idle.** The TLS session is held open across a response,
+  but a long idle at the prompt lets the server close it. The next message
+  reconnects, and if that single attempt loses the ~15 s handshake race it returns
+  to the prompt with no answer — re-send and it reconnects. Automatic multi-attempt
+  reconnect is planned.
+- **Long replies render slowly.** Drawing to the text screen is the bottleneck,
+  not the network; a very long reply can take minutes to fully render.
+- **The TLS path is not a secure channel.** The hand-rolled handshake does no real
+  key agreement — enough to reach the provider, not to protect the traffic. See
+  [docs/networking.md](docs/networking.md).
 
 ## Build
 
