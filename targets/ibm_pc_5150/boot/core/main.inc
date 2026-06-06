@@ -56,9 +56,11 @@ hal_start:
 chat_loop:
     call_core_phase core_dpi_phase_start, core_dpi_phase_end
     call prepare_agent_endpoint_path
-    jnc chat_loop
-    cmp byte [api_stream_completed], 3
-    je chat_loop
+    ; Build 10 soft-fail: a chat turn ALWAYS returns to DPI. prepare_agent_endpoint_path tries reuse
+    ; then a reconnect; if it still fails the user just re-asks (a fresh attempt) instead of hitting
+    ; the fatal retry/restart screen. The fatal path below now serves only the cold setup sequence
+    ; (jc agent_setup_error above), never a mid-chat turn.
+    jmp chat_loop
 
 agent_setup_error:
     mov al, handoff_status_agent_failed

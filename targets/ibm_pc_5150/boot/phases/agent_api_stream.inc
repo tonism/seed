@@ -88,7 +88,7 @@ agent_api_stream_phase:
 .accumulate_prompt:
     call agent_api_stream_append_prompt_to_context
 .done:
-    cmp byte [compact_next], 0
+    cmp byte [compacting_msg], 0          ; Build 10: the sliding-window trim shows the status line
     je .done_load_response
     call agent_api_stream_show_compacting
 .done_load_response:
@@ -570,6 +570,6 @@ agent_api_stream_show_compacting:
 .compacting_adv_inc:
     inc byte [cursor_row]
     ret
-api_compacting_text db 'compacting context', 0
+api_compacting_text db '> compacting context', 0
 
 %unmacro phase_call_res 1

@@ -10,11 +10,15 @@ chat_resend_prompt_len db 0
 ; 0 at boot). The window itself is chat_context_start in the reclaimed pool (data below). WORD: the
 ; window scales with RAM (chat_context_len_var), so the used count can exceed 255 on machines >16K.
 chat_context_used dw 0
-; Build 9 (invisible compaction): compact_next is armed when the window nears full; the request
-; then asks the model for a one-line recap FIRST, which the renderer captures straight into the
-; window (until the first newline) instead of drawing it. Resident, 0 at boot.
+; compact_next: suppress-to-newline flag for the renderer. Build 10 removed the invisible model-recap
+; compaction (it ate answers in longer open-ended turns); compact_next is now raised ONLY by a
+; streamed tool '$' line (agent_response.inc) to hide that line. Resident, 0 at boot.
 compact_next db 0
-; Build 9 (Phase 3b): window-fill threshold (bytes) that triggers model-compaction, measured
+; compacting_msg: set by agent_request.compute_ready_body_lengths when the sliding window trims
+; (>=75% -> 25%); agent_api_stream then shows the dim "> compacting context" line for that turn.
+; Decoupled from compact_next so the trim's status line never triggers renderer suppression.
+compacting_msg db 0
+; Build 9 (Phase 3b): window-fill threshold (bytes) that triggers the sliding-window trim, measured
 ; before each request so the reply has room to land. Default 3/4 of the window; resident so a
 ; user/agent can tune it (read every request, so changes take effect immediately). WORD + runtime:
 ; hardware_setup recomputes it and chat_context_len_var from ram_top, so both scale with RAM.

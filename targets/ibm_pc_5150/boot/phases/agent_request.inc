@@ -240,6 +240,32 @@ agent_request_phase:
     ret
 
 .compute_ready_body_lengths:
+    ; Build 10 sliding-window context retention (replaces the removed model-recap compaction): when
+    ; the carried window reaches the 75% trigger (chat_compact_threshold), drop the OLDEST bytes down
+    ; to the 25% target (cap/4), keeping the most recent conversation. No model recap and no render
+    ; suppression, so the reply ALWAYS renders (the long-discussion no-response cannot recur) while
+    ; recent context still rides forward. rep movsb shifts the kept tail to the front (es=ds, cld;
+    ; src>dst so the forward copy never clobbers an unread byte).
+    push ds
+    pop es
+    cld
+    mov byte [compacting_msg], 0          ; default: no trim this turn
+    mov ax, [chat_context_used]
+    cmp ax, [chat_compact_threshold]
+    jb .ctx_trimmed
+    mov bx, [chat_context_len_var]
+    shr bx, 1
+    shr bx, 1                             ; bx = cap/4 = 25% target
+    mov cx, ax
+    sub cx, bx                            ; drop = used - target (oldest bytes)
+    mov si, chat_context_start
+    add si, cx
+    mov di, chat_context_start
+    mov cx, bx                            ; keep = target (most-recent) bytes
+    rep movsb
+    mov [chat_context_used], bx
+    mov byte [compacting_msg], 1          ; trimmed -> show "> compacting context" this turn
+.ctx_trimmed:
     mov si, chat_model_cache
     mov cx, seed_model_len
     call agent_request_phase_strlen_z_bounded
@@ -267,15 +293,15 @@ agent_request_phase:
     pop cx                              ; raw window count (the fill measure)
     pop dx                             ; body-so-far
     add ax, dx                          ; body + escaped window
-    ; measured before sending - if the window is past the (tunable) threshold, arm model-compaction
-    ; for this request (chunk 2 adds the recap directive; its length is added below).
+    ; Build 10: model-recap compaction REMOVED. On a compaction turn the renderer used to suppress
+    ; the reply's first line (an invisible "recap") until the first newline; but a longer open-ended
+    ; reply lacks that recap+newline shape, so the WHOLE answer got suppressed -> a real ~1.5 KB
+    ; answer arrived on the wire yet the screen stayed blank -> silent return to DPI (reproduced
+    ; 2026-06-06 on "tell me more about that" turns). The directive also provoked history-repeating.
+    ; Now the window simply grows to its cap and resets on overflow (agent_api_stream_append_prompt_
+    ; to_context); the reply always renders. compact_next stays 0 here; only a tool '$' line raises
+    ; it (agent_response.inc), never compaction. cx (raw window count) is now unused here.
     mov byte [compact_next], 0
-    cmp cx, [chat_compact_threshold]
-    jb .body_not_full
-    mov byte [compact_next], 1
-    mov byte [api_stream_text_seen], 1   ; recap is captured (not rendered), so pre-arm the
-    add ax, api_json_compact_directive_text_len   ; transport-completion scan (it gates on text_seen)
-.body_not_full:
     mov [api_body_len], ax
     clc
     ret
