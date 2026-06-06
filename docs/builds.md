@@ -1,9 +1,10 @@
 # Build Scope
 
-Status: latest is Build 10 (minimal tool calling: `$r/$w/$x` + the agentic loop),
-validated (7-NIC chat matrix 7/7 — per-NIC flake history in the checkpoints below) plus
-the write-machine-code/run/read-AX capstone; release pending the final docs pass + a
-curated demo.
+Status: latest is Build 10 (minimal tool calling: `$r/$w/$x` + the agentic loop), tagged
+`build-10` at `2eee16d` after the post-release patches — the long-discussion no-response
+fix, sliding-window context, reconnect soft-fail, and the tool-call `> ` prefix, plus an
+honest Known Limitations section in the README. Build 11 (release hardening) is planned;
+see the Build 11 section below.
 
 Seed's loading marker has four semantic states plus the final splash:
 
@@ -35,6 +36,7 @@ build 7   ROM BASIC 16 KiB entry and windowed-nucleus release target
 build 8   Default Prompt Interface chat loop
 build 9   minimal context management for agentic continuity
 build 10  minimal tool calling through controlled RAM access
+build 11  release hardening: FIFO memory budget, robust reconnect, real compaction, situational awareness
 ```
 
 Build 5 is intentionally broad. It should end when Seed can bring up a network
@@ -421,11 +423,68 @@ smart linebreaking - render-side cap DEFERRED to Build 11; Build 10 mitigates th
   the model's variable trailing newlines).
 ```
 
-Build 11 curiosity items (parked, see notes/build10-tool-calling-attempts.md): a
-draining-FIFO receive + streamed send (the real buffer-shrink path); TLS 1.3 (not a
-memory play - record-size caps are ignored on 1.2 AND 1.3); drop floppy reads in the
-32K+ chat loop; detect a fast machine to enable authenticated crypto; reach beyond
-segment 0 (>64 KiB); stream the model's reasoning summary.
+Build 11 curiosity items surfaced during Build 10 (draining-FIFO receive + streamed
+send; TLS 1.3; drop floppy reads in the 32K+ chat loop; detect a fast machine for
+authenticated crypto; reach beyond segment 0; stream the reasoning summary; see
+notes/build10-tool-calling-attempts.md) are folded into the prioritized Build 11 plan
+below.
+
+## Build 11
+
+Build 11 hardens the first public release: transport robustness, real context quality,
+and a sharper situational-awareness pass, all on top of the Build 10 tool-calling
+surface. The sequencing is deliberate — the FIFO redesign leads because it frees the
+memory budget the rest of the work depends on.
+
+P1 — memory budget and robustness:
+
+```text
+1  draining-FIFO receive + streamed send - the real buffer-shrink path (parked from
+   Build 10). Frees ~800 B in the contested hot-crypto section: the budget that funds
+   the rest of Build 11. Do it FIRST - it unblocks everything downstream.
+2  reconnect 3x-auto - automatic retries with a dim "> reconnecting" line, then
+   soft-fail to DPI (user re-asks -> fresh loop). Closes the last blank-turn-after-idle
+   path. Build 10 shipped the soft-fail; the auto-retry + the ~15 s handshake-race fix
+   land here. (Absorbs the old 0D/F0 retry UX and the reconnect-asymmetry investigation.)
+3  7-NIC matrix re-validation + splash bump to "seed build 11" + release sign-off - the
+   Build 10 no-response / sliding / soft-fail fixes were validated on vm-net-ne2k8;
+   confirm across all seven NIC families.
+```
+
+P2 — core experience:
+
+```text
+4  real LLM-driven compaction - a model-written summary (dim-rendered, never suppressed)
+   replaces the Build 10 sliding-window trim: more context per byte, fixing the
+   small-machine amnesia. The "> compacting context" line is already in place to reuse.
+5  ESC to interrupt - stop a long render / break a runaway agentic loop (~10 B in the
+   resident receive path; the FIFO budget helps).
+6  history-echo fix - give the carried conversation window clear turn/role structure so
+   the model stops repeating prior answers (the flat-window artifact).
+```
+
+P3 — polish and consistency:
+
+```text
+7  smart linebreaking - cursor-aware wrapping + collapse the loop-hop blank lines.
+8  apostrophe glyph - "'" renders as a garbage glyph in replies.
+9  situational awareness - strengthen the situational map (curb the 0ADD doodle) AND
+   review/expand the identity prompt so the agent better understands where it lives, its
+   opportunities, and its risks. Build 10 kept this deliberately minimal.
+10 dead-code cleanup - remove the now-dead recap-compaction remnants (the directive
+   text, the dead compact_next branches in agent_api_stream).
+```
+
+P4 — bigger bets and research:
+
+```text
+11 stream the model's reasoning summary to screen.
+12 secure the key exchange - real ECDH; today's path substitutes a scalar-1 stub
+   (premaster = the server public X), so the session is not secure (documented honestly).
+13 reach / perf - beyond segment 0 (>64 KiB); render-rate optimization for very long
+   replies; drop floppy reads in the 32K+ chat loop; TLS 1.3 (not a memory play -
+   record-size caps are ignored on 1.2 and 1.3).
+```
 
 ## Public Release Gate
 
