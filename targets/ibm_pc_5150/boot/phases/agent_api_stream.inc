@@ -33,11 +33,19 @@ agent_api_stream_phase:
     phase_call_res tls_send_application_data_current_seq
     jc .prefix_failed
 .stream_chunk2:
-    ; Build 9 chunk 2: ",reasoning,instructions:"<identity> <ledger>","input":" - built here (not
-    ; in the request phase) so the ledger rides a record of its own; the body spans 3 TLS records.
+    ; Build 9 chunk 2: ",reasoning,instructions:"<identity> <ledger>","input":". Build 10 fix:
+    ; instructions ride their OWN record, then ledger+directive+input-open ride a second, so
+    ; neither overflows the 440 B api_request_plain body. A compaction turn's COMBINED chunk 2
+    ; (~586 B) overflowed it into TLS/config scratch and hung the send (16K freeze). Splitting
+    ; keeps each record well under the cap; the body now spans 4 TLS records.
     mov di, api_request_plain + tls_record_header_len
     mov si, PHASE_LOAD_ADDR + (api_json_instructions_text - PHASE_BASE)
     call agent_api_stream_append_z_to_buffer
+    mov ax, di
+    sub ax, api_request_plain + tls_record_header_len
+    call .send_app_record
+    jc .prefix_failed
+    mov di, api_request_plain + tls_record_header_len
     call agent_api_stream_append_ledger
     cmp byte [compact_next], 0
     je .no_compact_directive
@@ -255,10 +263,10 @@ agent_api_stream_append_prompt_screen_to_buffer:
 
 ; Build 9 chunk-2 templates: identity+ledger ride in "instructions"; input opens the prompt.
 ; Build 10: the RAM tool grammar is advertised here so the model can call tools on its
-; own (not only when the user spells the syntax). Terse on purpose - chunk 2 (this +
-; ledger + the compaction directive + input-open) must stay under ~616 B so it does not
-; overflow the record buffer into critical scratch on a compaction turn (measured: ~603 B
-; worst case, ~13 B margin). Each call on its own line keeps the streamed command tidy.
+; own (not only when the user spells the syntax). Build 10 fix: instructions and the
+; (ledger+directive+input-open) tail are sent as TWO separate records (.stream_chunk2), so
+; each must stay under the 440 B api_request_plain body - NOT their sum. The old single-record
+; build summed them (~586 B on a compaction turn), overflowed the buffer, and hung the send.
 api_json_instructions_text db '","reasoning":{"effort":"high"},"instructions":"Concise: a few sentences unless asked for detail. Factual, professional. No trailing blank lines. ASCII only - map non-ASCII to nearest ASCII; no JSON. RAM tools, hex: $r ADDR LEN read, $w ADDR BYTES write, $x ADDR run. They reach all RAM of the PC you run on, including the code running them; a bad write or jump hangs it until reboot.', 0
 api_json_instructions_text_len equ $ - api_json_instructions_text - 1
 api_json_input_open_text db '","input":"', 0
@@ -289,11 +297,15 @@ api_ledger_arena_text db ' a@', 0
 api_ledger_labels_len equ $ - api_ledger_ram_text - 10
 api_ledger_len equ api_ledger_labels_len + (4 + 4 * 15 + 3 + 4 + 3 + 12 + 4)
 
-; Build 10: enforce the chunk-2 worst-case budget described above (was a comment only - which let
-; the situational-map edit silently creep toward overflow). Worst case is a compaction turn:
-; instructions + ledger + compaction directive + input-open, built into one record.
-%if (api_json_instructions_text_len + api_ledger_len + api_json_compact_directive_text_len + api_json_input_open_text_len) > 616
-%error "chunk 2 worst-case exceeds the 616 B record-buffer budget (trim instructions/compaction)"
+; Build 10: chunk 2 is sent as two records (instructions; then ledger+directive+input-open),
+; so enforce that EACH record fits the api_request_plain body. The old single-record build
+; summed them (~586 B on a compaction turn) and overflowed the 440 B buffer, corrupting TLS
+; scratch and hanging the send -> the 16K compaction-turn freeze.
+%if api_json_instructions_text_len > api_request_plain_len
+%error "chunk 2 record A (instructions) exceeds the api_request_plain body - trim the map"
+%endif
+%if (api_ledger_len + api_json_compact_directive_text_len + api_json_input_open_text_len) > api_request_plain_len
+%error "chunk 2 record B (ledger+directive+input-open) exceeds the api_request_plain body"
 %endif
 
 ; ---- Build 9 ledger: terse machine-facts serialization of the handoff block ----
