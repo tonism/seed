@@ -186,3 +186,36 @@ after tls_clear_buffered_payload), moving the payload into tls_rx_copy before an
 mismatch -> .failed -> reconnect/never-blank). Confirmed: a verify-on boot reaches DPI and accepts a
 prompt - which only happens if the greeting's first (multi-chunk) record now VERIFIES. Tools kept in
 tools/ for future wire debugging (poly1305-port-check, pcap-tag-search, verify-aead-tag).
+
+## 2026-06-08 01:30:00 - recall scare -> the REAL bug: chacha_block clobbered between chunks
+
+User flagged degraded recall ("forgets the last part of the invented word") + suspected we weren't
+sending the full context. Investigated:
+
+(1) Storage is correct: a window dump showed the EXACT word + full history stored.
+(2) Send is correct - but I CHASED MY OWN PROBE for several runs first. My debug dumps teletype'd to
+the screen, which SCROLLS it, and the current prompt is read FROM the screen
+(append_prompt_screen_to_buffer at dpi_prompt_marker_row). So my dump scrolled the prompt out from
+under the read -> the model got a garbled prompt. Tell: WITH the dump -> brand-new words; WITHOUT ->
+exact/partial recall. Lesson saved to memory (feedback_screen_dump_pitfall). Use non-scrolling
+(fixed-row direct video) dumps or the wire on screen-read paths.
+(3) Recall itself is FINE: 4 clean samples gave exact recall (brivox->brivox, blplix->blplix,
+zindleorp->zindleorp; zoren one partial = small-model flake).
+(4) THE REAL BUG (found in the clean samples): ~50% (2/4) of turn-1 (exchange-2) responses decrypt to
+GARBAGE - control chars + a hex id, recovering by the delta tail (e.g. "...04f23e15...equint"). The
+greeting always decrypts clean (its visible deltas are single-chunk); only the multi-chunk
+exchange-2 records garble. The per-record MAC PASSES (verify is fatal, didn't reject) -> not a MAC
+failure -> a DECRYPT KEYSTREAM DESYNC.
+
+ROOT CAUSE. tls_xor_large_app_chunk only regenerates chacha_block when offset >= block_len. chacha_block
+(critical_chacha_block ~0x0780) sits in low_crypto_work == ne_tx_frame (0x0700). The inter-chunk NIC
+receive overwrites it; the counter+offset survive (resident low_runtime_state) but the 64-byte block
+does not. When a chunk resumes MID-block (offset < block_len) it XORs against the clobbered block ->
+garbage. Intermittent: depends on whether the TCP segmentation aligns to a 64-byte keystream boundary.
+Same bug family as the verify fix (0x0700 aliasing), different victim: keystream block vs MAC state.
+
+FIX. At the top of tls_xor_large_app_chunk, if offset < block_len (mid-block resume), call
+chacha20_block to regenerate the keystream at the surviving counter before the XOR loop. Aligned
+resumes regenerate in the loop as before. ~5 instructions; K window held. Verifying across samples
+(the ~50% garble should vanish). The user's "recall" symptom was really these corrupted response
+words being rendered + carried into the window.

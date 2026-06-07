@@ -1127,6 +1127,16 @@ tls_xor_large_app_chunk:
     push bx
     push cx
     push si
+    ; Build 11 FIX: chacha_block (the keystream, in low_crypto_work @0x0700) is clobbered by the
+    ; inter-chunk NIC receive between draining-FIFO chunks - the counter+offset survive (resident
+    ; low_runtime_state) but the 64-byte block does not. Resuming a chunk MID-block (offset <
+    ; block_len) would XOR ciphertext against the clobbered block -> garbage plaintext, while the MAC
+    ; still passes (it uses the saved otk), so the per-record verify can't catch it. Regenerate the
+    ; block at the surviving counter on a mid-block resume; an aligned resume regenerates in the loop.
+    mov bl, [tls_large_chacha_offset]
+    cmp bl, chacha_block_len
+    jae .next_byte
+    call chacha20_block
 .next_byte:
     or cx, cx
     jz .done
