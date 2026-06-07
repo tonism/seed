@@ -52,13 +52,13 @@ real entropy) is the headline open problem. Full story:
 ## Authorship
 
 Every line of seed's code — the 8088 assembly, the hand-rolled TLS stack, the build
-tooling — was written by AI coding agents, not by me. The build relayed across four
-frontier models as each hit its limits: Codex (GPT-5.4) → Claude Code (Opus 4.7) →
-Codex (GPT-5.5) → Claude Code (Opus 4.8); twice, the unlock was a new model landing at
-just the right moment. One Codex session logged 28h 25m of work. I worked one level up —
-product, architecture, and algorithm decisions, often proposing the approach that got us
-unstuck — but never the implementation itself. The agent that runs *on* the machine is a
-frontier model too: GPT-5 in the demo.
+tooling — was written by AI coding agents. The build was a deliberate relay across four
+frontier models — not one-shot prompting — steered and coordinated as each hit its limits
+(Codex GPT-5.4 → Claude Code Opus 4.7 → Codex GPT-5.5 → Claude Code Opus 4.8); twice, the
+unlock was a new model landing at just the right moment. One Codex session logged 28h 25m
+of work. I worked a level up — product, architecture, and the algorithm calls, often
+proposing the approach that got us unstuck — and left the implementation to the agents.
+The model that runs *on* the machine is a frontier model too: GPT-5.5 in the demo.
 
 ## How to read these docs
 
