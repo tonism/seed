@@ -301,6 +301,18 @@ seed_reasoning equ seed_endpoint + seed_endpoint_len
 tls_server_random equ seed_agent_id
 tls_master_secret equ tls_server_random + tls_random_len
 tls_handshake_hash equ tls_master_secret + tls_master_secret_len
+; Build 11 streaming-Poly1305 receive accumulator: the receive MAC's running state (poly_acc +
+; partial poly_block, 33 contiguous bytes) lives here between per-chunk MAC steps so it survives the
+; interleaved decrypt AND a mid-receive keep-alive SEND - both of which clobber the shared poly_acc.
+; Reuses tls_master_secret (48 B), which is handshake-only: derived during the handshake and idle
+; during the chat receive; the send/ping uses the derived keys + poly_acc, never the master secret.
+poly_rx_save equ tls_master_secret
+; The one-time key (poly_r+poly_s, 32 B) ALSO lives in low_crypto_work, which the inter-chunk NIC
+; receive reuses - so stash the (constant) otk here too and restore it before each MAC step. Spans
+; the tail of tls_master_secret into tls_handshake_hash (also handshake-only); 33+32 = 65 B of the
+; 80 B master_secret+handshake_hash window. The decrypt re-derives its keystream each block so it
+; never needed the otk to persist - which is why the old streamed path masked this.
+poly_rx_otk equ poly_rx_save + poly1305_acc_len + 16
 critical_chacha_state equ low_crypto_work
 critical_chacha_work equ critical_chacha_state + chacha_block_len
 critical_chacha_block equ critical_chacha_work + chacha_block_len
@@ -371,6 +383,14 @@ tls_app_content_type equ tls_app_chunk_len + 2
 tls_transcript_certificate_remaining equ tls_app_content_type + 1
 tls_large_chacha_offset equ tls_transcript_certificate_remaining
 dns_tx_len equ tls_transcript_certificate_remaining + 2
+; Build 11 streaming Poly1305 (FIFO receive) state. Reuses scratch that is provably dead during the
+; streamed application-data receive: tls_app_chunk_len + tls_app_total_len are touched only by the
+; old all-at-once decrypt (tls_xor_app_data) / the whole-record MAC and the
+; standard whole-record (now alert-only) path - none of which run inside
+; tls_receive_large_application_record. They hold the running ciphertext length and the 0..15
+; partial-block fill carried across chunk absorptions so the tag can be verified at record-end.
+tls_poly_app_cipher_len equ tls_app_chunk_len
+tls_poly_app_fill equ tls_app_total_len
 ; The first TLS handshake and ready-loop state reuse the AGENTS/USER config
 ; arena. Preserve the chat-loop values that every request still needs.
 ; Keep DNS/TCP setup state intact through run_tcp_connect; the hot chat loop

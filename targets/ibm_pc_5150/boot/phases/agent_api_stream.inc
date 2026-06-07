@@ -47,11 +47,9 @@ agent_api_stream_phase:
     jc .prefix_failed
     mov di, api_request_plain + tls_record_header_len
     call agent_api_stream_append_ledger
-    cmp byte [compact_next], 0
-    je .no_compact_directive
-    mov si, PHASE_LOAD_ADDR + (api_json_compact_directive_text - PHASE_BASE)
-    call agent_api_stream_append_z_to_buffer
-.no_compact_directive:
+    ; Build 11 cleanup: the recap-compaction directive was dead (Build 10 removed model-recap
+    ; compaction; agent_request resets compact_next to 0 before this build, and it is only raised
+    ; later by the renderer for tool-line suppression). Removing it frees X-phase bytes.
     mov si, PHASE_LOAD_ADDR + (api_json_input_open_text - PHASE_BASE)
     call agent_api_stream_append_z_to_buffer
     mov ax, di
@@ -81,11 +79,8 @@ agent_api_stream_phase:
     call .send_app_record
     jc .failed
     phase_call_res tls_prepare_3c501_receive
-    cmp byte [compact_next], 0
-    je .accumulate_prompt
-    mov word [chat_context_used], 0    ; compaction turn: clear the window; the recap (captured by
-    jmp .done                          ; the renderer until the first newline) replaces the history
-.accumulate_prompt:
+    ; Build 11 cleanup: the compaction-turn window-clear was dead (compact_next is always 0 here);
+    ; always accumulate the just-sent prompt into the window for the next turn.
     call agent_api_stream_append_prompt_to_context
 .done:
     cmp byte [compacting_msg], 0          ; Build 10: the sliding-window trim shows the status line
@@ -271,11 +266,19 @@ api_json_instructions_text db '","reasoning":{"effort":"high"},"instructions":"C
 api_json_instructions_text_len equ $ - api_json_instructions_text - 1
 api_json_input_open_text db '","input":"', 0
 api_json_input_open_text_len equ $ - api_json_input_open_text - 1
-; Build 9 (invisible compaction): appended to instructions only when compact_next is armed. Asks
-; the model to put a one-line recap FIRST (then a newline, then the answer); the renderer captures
-; that recap straight into the window until the first newline and never draws it. JSON-safe.
-api_json_compact_directive_text db 'ONE line (max 80) of user facts, newline, then answer. ', 0
-api_json_compact_directive_text_len equ $ - api_json_compact_directive_text - 1
+; Build 11 recall fix: vendor-agnostic role labels for the carried conversation window (the
+; compactable layer; identity+ledger stay in "instructions"). Plain JSON-safe text - no escaping,
+; no newlines (append_context flattens controls to spaces anyway) - so they pass through unchanged
+; and work across providers. Each stored turn becomes " User: <prompt> You: <response>". "You:" is
+; deliberately identity-neutral (not "Assistant") - the agent's role/identity lives in the identity
+; layer, chosen by identity/the user, not dictated by the transcript format.
+api_json_user_label_text db ' User: ', 0
+api_json_user_label_text_len equ $ - api_json_user_label_text - 1
+api_json_you_label_text db ' You: ', 0
+api_json_you_label_text_len equ $ - api_json_you_label_text - 1
+; Build 11 cleanup: the Build 9 invisible-compaction recap directive was removed along with the
+; dead compact_next request-build branches (recap compaction is gone since Build 10; the sliding
+; window in agent_request replaced it).
 
 ; Build 9 ledger field labels (terse machine facts serialized from the handoff block)
 api_ledger_ram_text db 'ram=', 0
@@ -304,8 +307,8 @@ api_ledger_len equ api_ledger_labels_len + (4 + 4 * 15 + 3 + 4 + 3 + 12 + 4)
 %if api_json_instructions_text_len > api_request_plain_len
 %error "chunk 2 record A (instructions) exceeds the api_request_plain body - trim the map"
 %endif
-%if (api_ledger_len + api_json_compact_directive_text_len + api_json_input_open_text_len) > api_request_plain_len
-%error "chunk 2 record B (ledger+directive+input-open) exceeds the api_request_plain body"
+%if (api_ledger_len + api_json_input_open_text_len) > api_request_plain_len
+%error "chunk 2 record B (ledger+input-open) exceeds the api_request_plain body"
 %endif
 
 ; ---- Build 9 ledger: terse machine-facts serialization of the handoff block ----
@@ -480,33 +483,38 @@ agent_api_stream_append_prompt_to_context:   ; accumulate the just-sent prompt (
     mov al, [api_stream_prompt_len]
     or al, al
     je .ctx_store_done
-    ; Stored raw (escaped only at send), so the real length is the prompt length + separator.
+    ; Build 11 recall fix: store the turn as " User: <prompt> You: " so the carried window is
+    ; role-labeled (the response is captured right after the " You: " cue by the renderer).
+    ; Vendor-agnostic, JSON-safe; stored RAW (escaped only at send). The separator is now the two
+    ; labels instead of one space, so account for both lengths in the fit check.
     xor ah, ah
     mov bx, ax
-    inc bx
+    add bx, api_json_user_label_text_len + api_json_you_label_text_len
     mov ax, [chat_context_used]
     add bx, ax
     cmp bx, [chat_context_len_var]
     jbe .ctx_fits
-    ; Window full: drop the history and start over with this prompt (overflow fallback; model-
-    ; compaction fires earlier at the threshold). Re-check the lone prompt fits.
+    ; Window full: drop the history and start over with this labeled turn (overflow fallback;
+    ; model-compaction fires earlier at the threshold). Re-check the lone labeled turn fits.
     mov word [chat_context_used], 0
     mov al, [api_stream_prompt_len]
     xor ah, ah
     mov bx, ax
-    inc bx
+    add bx, api_json_user_label_text_len + api_json_you_label_text_len
     cmp bx, [chat_context_len_var]
-    ja .ctx_store_done                  ; single prompt too big for the window -> skip
+    ja .ctx_store_done                  ; single labeled turn too big for the window -> skip
 .ctx_fits:
     mov di, chat_context_start
     mov ax, [chat_context_used]
     add di, ax                          ; append at the used offset (accumulate, don't replace)
+    mov si, PHASE_LOAD_ADDR + (api_json_user_label_text - PHASE_BASE)
+    call agent_api_stream_append_z_to_buffer
     mov si, dpi_input_buf               ; raw prompt (intact: accumulation runs before the receive)
     mov cl, [api_stream_prompt_len]
     xor ch, ch
     rep movsb
-    mov al, ' '
-    stosb
+    mov si, PHASE_LOAD_ADDR + (api_json_you_label_text - PHASE_BASE)
+    call agent_api_stream_append_z_to_buffer
     mov ax, di
     sub ax, chat_context_start
     mov [chat_context_used], ax

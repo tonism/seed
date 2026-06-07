@@ -479,8 +479,21 @@ P4 — bigger bets and research:
 
 ```text
 11 stream the model's reasoning summary to screen.
-12 secure the key exchange - real ECDH; today's path substitutes a scalar-1 stub
-   (premaster = the server public X), so the session is not secure (documented honestly).
+12 true security on larger / faster machines (SEPARATE exploration, later) - the
+   4.77 MHz / 16 KiB target makes deliberate, documented security sacrifices; real
+   confidentiality + authenticity are their own work-item, gated on a CPU-speed probe
+   (286/386+ or a higher clock) on top of the existing RAM tier. What "true security"
+   would restore - all sacrificed today and CPU-bound, not just RAM-bound, which is why
+   they wait for a faster machine:
+   - real ECDHE key agreement (today a scalar-1 stub takes the server's public X as the
+     premaster - no key agreement; the constant-time P-256 primitives exist and are
+     OpenSSL-cross-checked, just compiled out for speed).
+   - real entropy for the client random + ephemeral scalar (today a BIOS-tick LCG).
+   - server authentication: certificate-chain + signature verification (today skipped, so
+     the channel is unauthenticated / MITM-exposed even before the key-exchange gap).
+   - per-record application-data AEAD verification (the Build 11 P1 draining-FIFO collapse
+     drops Poly1305 on app-data records to win the buffer; a fast machine restores it).
+   The small-machine product stays honestly "encrypted but not secure."
 13 reach / perf - beyond segment 0 (>64 KiB); render-rate optimization for very long
    replies; drop floppy reads in the 32K+ chat loop; TLS 1.3 (not a memory play -
    record-size caps are ignored on 1.2 and 1.3).
