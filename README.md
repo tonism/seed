@@ -1,5 +1,7 @@
 # Seed
 
+![A frontier model reads the BIOS clock on a 32 KiB IBM PC 5150 (4.77 MHz 8088), then works out the system time from the raw timer ticks — in 86Box, sped up 8x](docs/images/seed-demo.gif)
+
 **A frontier cloud model writes 8088 machine code, ships it over the network to a
 1981 IBM PC, and runs it there — then reads the result back into its own context.**
 Seed is the 16 KiB real-mode runtime that makes that loop possible. It boots a
@@ -46,6 +48,17 @@ and OpenSSL-checked, just compiled out — a real scalar multiply is minutes of 
 several KB the 8088 can't spare — so wiring in a secure exchange (ephemeral scalar plus
 real entropy) is the headline open problem. Full story:
 [docs/architecture.md](docs/architecture.md).
+
+## Authorship
+
+Every line of seed's code — the 8088 assembly, the hand-rolled TLS stack, the build
+tooling — was written by AI coding agents, not by me. The build relayed across four
+frontier models as each hit its limits: Codex (GPT-5.4) → Claude Code (Opus 4.7) →
+Codex (GPT-5.5) → Claude Code (Opus 4.8); twice, the unlock was a new model landing at
+just the right moment. One Codex session logged 28h 25m of work. I worked one level up —
+product, architecture, and algorithm decisions, often proposing the approach that got us
+unstuck — but never the implementation itself. The agent that runs *on* the machine is a
+frontier model too: GPT-5 in the demo.
 
 ## How to read these docs
 
