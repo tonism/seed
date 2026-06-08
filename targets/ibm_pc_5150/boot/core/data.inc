@@ -417,7 +417,12 @@ chat_context_used equ compacting_msg + 1
 chat_compact_threshold equ chat_context_used + 2
 chat_context_len_var equ chat_compact_threshold + 2
 scroll_br equ chat_context_len_var + 2
-reconnect_state_end equ scroll_br + 2
+; Build 11 slice 3a: saved tcp_local_seq for the ClientHello retransmit (handshake loss recovery).
+; Homed here -- low_runtime_state is full to the phase load window, and this block has headroom. It
+; is handshake-scoped (used + rewound within one tls_probe), so it does not need this block's
+; survive-the-handshake property; it just needs a 4-byte home idle during the handshake.
+tls_retransmit_seq equ scroll_br + 2
+reconnect_state_end equ tls_retransmit_seq + 4
 ka_template_persistent equ reconnect_state_end
 chat_context_start equ ka_template_persistent + ka_request_len
 chat_context_len equ 128

@@ -10,14 +10,38 @@ tls_probe_server:
     sub cx, 5
     call tls_transcript_update
     jc .failed
+    ; Build 11 slice 3a: retransmit the ClientHello if the ServerHello does not arrive (a lost
+    ; ClientHello, or a lost server flight not yet recovered). The ClientHello stays intact in
+    ; tls_client_hello_buffer through the wait (the receive reads into ne_tx_frame), so we save its
+    ; send seq and, on a wait failure, rewind tcp_local_seq + resend the same buffer, bounded by
+    ; tcp_syn_retry_count. The retry count is pushed so it survives tcp_send_payload +
+    ; tls_wait_for_server_hello (both clobber cx). A duplicate ClientHello is deduped by the server.
+    mov ax, [tcp_local_seq]
+    mov [tls_retransmit_seq], ax
+    mov ax, [tcp_local_seq + 2]
+    mov [tls_retransmit_seq + 2], ax
+    mov cx, tcp_syn_retry_count
+.send_client_hello:
+    push cx
     call tls_prepare_3c501_receive
     mov si, tls_client_hello_buffer
     mov cx, [tls_tx_len]
     call tcp_send_payload
-    jc .failed
-.wait_for_record:
+    jc .client_hello_send_failed
     call tls_wait_for_server_hello
-    jc .failed
+    pop cx
+    jnc .server_hello_received
+    dec cx
+    jz .failed
+    mov ax, [tls_retransmit_seq]
+    mov [tcp_local_seq], ax
+    mov ax, [tls_retransmit_seq + 2]
+    mov [tcp_local_seq + 2], ax
+    jmp .send_client_hello
+.client_hello_send_failed:
+    pop cx
+    jmp .failed
+.server_hello_received:
     cmp word [tls_buffered_payload_len], 0
     jne .parse_certificate
     call ne_transmit_tcp_ack
