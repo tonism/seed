@@ -457,9 +457,12 @@ P1 — memory budget and robustness:
    is now byte-identical to the proven reuse path. Wire+screen confirmed: chunk 1 once, full SSE
    answer, the dim "> reconnect" line now precedes the REAL reply. tools/tls-flow.py added for
    reconnect wire analysis. (The whole warm-up line of work was moot - no timeout existed.)
-3  [matrix done; splash bump next] 7-NIC matrix re-validation + splash bump to
-   "seed build 11" + release sign-off - re-validated across the NIC families (Build 11's
-   changes are NIC-independent; ne2k8 deep-validated each step).
+3  [DONE 2026-06-09] 7-NIC matrix re-validation + splash bump to "seed build 11" + release
+   sign-off - the FINAL state (reconnect double-send fix + probe removal + SYN/ClientHello/
+   flight retransmit) re-validated 7/7 across ALL NIC families (boot+greeting) on clean home
+   wifi; splash bumped (b078269). Connectivity changes are NIC-common (connect/handshake control
+   flow); ne2k8 deep-validated each step + the matrix confirms no cold-path regression on any NIC.
+   (3c501/3c503's earlier matrix flakes were 5G/harness noise - both pass clean on home wifi.)
 ```
 
 P2 — core experience:
