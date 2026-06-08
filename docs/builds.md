@@ -446,8 +446,17 @@ P1 — memory budget and robustness:
 2  [DONE 929479f] reconnect 3x-auto - on a dropped session, a single dim "> reconnect"
    line, then up to 3 silent rebuild+connect retries; on exhaustion " failed" is appended
    ("> reconnect failed") and it soft-fails to DPI (user re-asks -> fresh loop). Closes the
-   last blank-turn-after-idle path. (Absorbed the old 0D/F0 retry UX + the reconnect
-   asymmetry.) Needed a full-nucleus reorg to fund - see notes/build11-hardening-attempts.md.
+   last blank-turn-after-idle path. (Absorbed the old 0D/F0 retry UX.) Needed a full-nucleus
+   reorg to fund - see notes/build11-hardening-attempts.md.
+2b [DONE] reconnect SUCCESS (the asymmetry's real root cause) - a wire capture of an authentic
+   idle-close reconnect found it was a deterministic chunk-1 DOUBLE-SEND, not a handshake race or
+   a fresh-connection timeout (both retired). The handshake's prebuilt already ships chunk 1 (the
+   POST headers), and the X phase's .ready_tail re-sent it (tls_app_len still set) -> a duplicated
+   "POST" the server reads as the body and 400s + FINs. Fix: clear tls_app_len at tls_probe.done
+   (one instruction) so .ready_tail streams only chunk 2 + context + prompt - the reconnect's send
+   is now byte-identical to the proven reuse path. Wire+screen confirmed: chunk 1 once, full SSE
+   answer, the dim "> reconnect" line now precedes the REAL reply. tools/tls-flow.py added for
+   reconnect wire analysis. (The whole warm-up line of work was moot - no timeout existed.)
 3  [matrix done; splash bump next] 7-NIC matrix re-validation + splash bump to
    "seed build 11" + release sign-off - re-validated across the NIC families (Build 11's
    changes are NIC-independent; ne2k8 deep-validated each step).
@@ -469,7 +478,11 @@ P2 — core experience:
 P3 — polish and consistency:
 
 ```text
-7  smart linebreaking - cursor-aware wrapping + collapse the loop-hop blank lines.
+7  smart linebreaking - cursor-aware wrapping + collapse the loop-hop blank lines. Design
+   (user, 2026-06-08): the screen has four render GROUPS - dpi (user-written prompt), model
+   response, tool calling, and system messages (e.g. "> reconnect", "> compacting context").
+   Consecutive lines WITHIN one group get NO blank line between them; DIFFERENT groups are
+   separated by exactly one empty line.
 8  apostrophe glyph - "'" renders as a garbage glyph in replies.
 9  situational awareness - strengthen the situational map (curb the 0ADD doodle) AND
    review/expand the identity prompt so the agent better understands where it lives, its

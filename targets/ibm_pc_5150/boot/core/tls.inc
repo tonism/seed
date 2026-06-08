@@ -74,6 +74,17 @@ tls_probe_server:
     call tls_send_prebuilt_before_server_finished
     jc .failed
 .done:
+    ; Build 11 reconnect double-send fix (wire-proven). The handshake just prebuilt + sent the
+    ; request from tls_app_len. On a RECONNECT that prebuilt is only chunk 1 (POST line + headers +
+    ; Content-Length + {"model"), and the X phase's .ready_tail would re-send chunk 1 because
+    ; tls_app_len is still set -> TWO POST prefixes in one request: the server reads the duplicate
+    ; "POST ..." as the first request's body, 400s it, and FINs -> every reconnect failed (a clean
+    ; idle-close capture showed client AppData [293,293,400,...] and a 400+Alert+FIN). Clearing
+    ; tls_app_len here makes .ready_tail skip the prefix and stream only chunk 2 + context + prompt,
+    ; matching the working REUSE path (which never runs tls_probe, so it is untouched). The COLD
+    ; greeting sent its whole request as the prebuilt and takes the splash branch (never reads
+    ; tls_app_len), so clearing is harmless there; the receive resets tls_app_len regardless.
+    mov word [tls_app_len], 0
     clc
     ret
 .failed:

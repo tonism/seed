@@ -300,3 +300,277 @@ agent_request.restore_prompt_from_screen. A forced reuse-fail-then-reconnect tes
 orphaning that request server-side; a real dead-socket reuse-fail has no such artifact). 7-NIC matrix =
 final regression confirmation (changes are NIC-independent: SYN building, RAM layout, control flow,
 print_char render - so ne2k8 covers the product).
+
+## 2026-06-08 14:30:00 - never-blank gating fix (real idle-close) + reconnect failure ROOT-CAUSED on the wire
+
+GATING FIX (committed b078269). The forced-fail test PASSED but masked a bug the AUTHENTIC idle-close
+demo caught: "> reconnect" was gated on tls_key_schedule_ready==1, but a real idle-close's TLS
+close_notify CLEARS key_ready during the failed reuse, BEFORE the reconnect's endpoint phase -> the
+line silently skipped and exhaustion left an orphaned " failed" (no "> reconnect"). The forced test
+hard-failed before any close_notify, so it never hit this. Fixed by gating on handoff_status==ready
+(we are in the chat loop => a prior session => a reconnect, not the cold greeting); survives the
+close_notify, same signal the endpoint phase already uses for provider routing, 0 nucleus B. Re-
+validated on a real 470s idle-close: "> reconnect failed" now renders as ONE dim line. Plus the splash
+bump build_number 10->11 ("seed build 11" confirmed) and a docs sync. Lesson: "validated" means the
+REAL path, not a convenient forced proxy.
+
+RECONNECT-FAILURE ROOT CAUSE (corrects the 2026-06-07 19:28 entry's "CPU starvation" theory). User
+watched the emulator on a second screen across THREE runs: it held 99-100% speed the WHOLE time and
+the reconnect still failed -> NOT CPU starvation, NOT the OCR loop, NOT macOS background-throttling.
+Captured the wire (whole-host pcap is noisy - SLiRP NAT shares the host IP and the VM/host even hit the
+same CDN IPs - but the reconnect's 3 attempts to the VM's Cloudflare IP 162.159.140.245, ~28s apart,
+were cleanly isolable). Attempt-1 timeline: SYN/SYN-ACK instant; ClientHello (102 B) at +1s; server
+ServerHello+Cert (2793 B) at +1s; then the VM emits its handshake records ~7 SECONDS APART (t+553 ->
++560 -> +567) -> those gaps are the 8088 grinding the TLS-PRF (master secret, then key block; SHA-256/
+HMAC is the cost); client flight done ~+19s; server FIN ~+20s. All 3 attempts identical -> "> reconnect
+failed". So: a GENUINE handshake-too-slow race at FULL 8088 speed - the handshake is ~20s (the docs'
+~14.5s was optimistic), the provider's patience (~20s here) runs out. The "~14.5s" + "CPU starvation"
+framing is retired: the crypto is simply ~20s, CPU-bound, on a 4.77 MHz part.
+
+ASYMMETRY (initial connect succeeds, mid-chat reconnect fails - the long-standing observation): both
+run the IDENTICAL ~20s handshake (the PRF crypto is independent of the request), so it is NOT a Seed-
+side speed difference between them - it is a razor-edge race (~20s handshake vs ~20s window) that the
+reconnect loses and the initial usually wins. Likely tipping factor: provider patience (a fresh
+connection may get slightly more handshake grace than an immediate reconnect from the same IP) or pure
+edge variance. Pinning it needs a clean initial-connect capture to compare; OPEN. Also open: whether
+the server's final ~1.6 KB-then-FIN means the handshake JUST completed and the exchange then failed vs
+a pure timeout (needs TLS-record-type parsing). The real FIX to make reconnect SUCCEED is a faster
+handshake (optimize PRF/SHA-256 or cut a round-trip) - a perf work-item, not a quick patch; never-blank
+covers the symptom gracefully meanwhile.
+
+## 2026-06-08 17:30:00 - warm-up attempt (GET-ping) FAILED - the fresh connection RSTs the ping
+
+Implemented the warm-up: agent_api_warmup_reconnect helper (link window, 0 nucleus) that, gated to
+mid-chat (handoff_status==ready), sends the keep-alive GET ping + drains its 401, called from net_phase
+after tls_probe (before .stream_and_exchange); freed the 3 net_phase bytes by relocating tls_app_data_ptr
+/tls_app_plain_ptr STORAGE into reconnect_state_* (nucleus 2046/2048). Built clean. Tested a real 470s
+idle-close reconnect: STILL "> reconnect failed". Wire (port 65488 -> 162.159.140.245, by TCP seq):
+  ClientHello -> ServerHello+Cert -> CKE(seq103) -> CCS+Finished(seq178) -> server CCS+Finished
+  seq221 VM 298B   (request prefix)
+  seq519 VM 63B    (the 42B GET ping)
+  seq2838 SERVER RST  (no response at all)
+TWO problems: (1) the ping went AFTER the prefix (seq 519 > 221) - the warm-up did NOT prepend as
+intended (gate skipped it, or a flow bug - unresolved). (2) MORE FUNDAMENTAL: the GET ping got NO 401
+- the server RST'd the connection with no data. So a bare "GET /" on a FRESH connection is REJECTED
+(RST), even though the SAME ping 401s fine on a WARM connection (keep-alive) and the boot's valid POST
+greeting is accepted on its fresh connection. => the warm-up cannot use the GET ping; it needs a VALID
+small POST to prove a fresh connection (a deeper change - a real minimal request whose response must be
+drained/suppressed), OR the fix is to speed up the real request itself (PRF/ChaCha/Poly perf, or fewer
+records) so it beats the fresh-connection timeout without warming. The GET-ping warm-up is a dead end.
+Note also: the warm-up made it WORSE on the wire (RST+nothing vs the pre-warm-up FIN+1.6KB), so it must
+not ship as-is. Reverted (kept the committed never-blank graceful "> reconnect failed" + re-prompt).
+The reconnect-SUCCESS fix needs a fresh focused session; never-blank remains the shipped safety net.
+
+## 2026-06-08 18:00:00 - CORRECTION: the send is ~2.4s back-to-back (NOT ~5s/3s-gap); mechanism = fresh-connection STRICT first-request timeout
+
+Read the actual send path (agent_api_stream.inc .ready_tail -> .stream_chunk2 -> .send_tail) to chase
+the "~3s gap between records" the 15:30 entry claimed. The code DISPROVES it: the 4 records are sent
+BACK-TO-BACK via .send_app_record (build -> tls_send_application_data_current_seq) with NOTHING between
+them - no wait_ticks, no phase load. The only post-send delays are AFTER the last record: the optional
+"> compacting context" typewriter (wait_ticks, compaction turns only) and the response-phase floppy
+load (load_core_sectors_at). So the reconnect request takes ~2.4s (4 x ~0.6s per-record ChaCha/Poly) -
+EXACTLY the warm-reuse timing (949-1015 B over 2.2-2.4s, 16:30 entry), which SUCCEEDS. The "~3s apart /
+~5s+ total" in the 15:30 entry was a pcap MISREAD (likely handshake PRF gaps or mis-grouped records).
+=> The failure is NOT "the send is too slow" - the warm path sends the identical ~2.4s request fine.
+The real mechanism (consistent with all data): a FRESH connection's FIRST request has a STRICT timeout
+(< ~2.4s); the tiny boot greeting (no context, well under 1s) fits and "proves" the connection, after
+which big requests get the lenient warm timeout. The reconnect's first request is the big ~2.4s context
+request -> exceeds the strict fresh-first timeout -> server errors/FIN/RST. IMPLICATIONS for the fix:
+(a) request-speed (user's preferred) would need to get the big request UNDER the strict fresh timeout -
+i.e. roughly halve ~2.4s - a ~2x ChaCha/Poly speedup, large effort, likely not viable as a quick win;
+(b) the warm-up (small valid FIRST request to prove the connection, like the greeting) is the right
+shape, BUT it must be a VALID minimal POST - the bare GET keep-alive ping is RST'd by a fresh connection
+(17:30 entry) - and its response must be drained. Best done in a fresh focused session that opens with
+ONE clean VM-isolated capture to re-confirm the strict-first-timeout mechanism before building on it.
+
+## 2026-06-08 18:45:00 - warm-up RE-ATTEMPT hits the BYTE WALL; correct architecture = warm-up INSIDE the X phase
+
+Re-implemented the GET-ping warm-up (agent_api_warmup_reconnect: gate on handoff_status==ready, save
+tls_app_len/total/plain_ptr, send ka ping, drain its 401 via tls_receive_application_data, ack, restore)
+called from net_phase after tls_probe. Does NOT BUILD: BOTH regions are full (core.asm:39 "resident
+nucleus exceeds the 2KB window" from the 3B net_phase call AND core.asm:72 "LINK window overlaps high
+crypto scratch" from the ~50B helper). Reverted (tree builds, nucleus 2043). Two things learned:
+
+1. handoff_status flips to ready at main.inc:54 BEFORE chat_loop, so it's true for EVERY chat_loop fresh
+   connect (greeting + reconnect) - it does NOT distinguish them. The gate is fine (greeting tolerates a
+   warm-up ping) but it is NOT "reconnect-only".
+2. The prior (reverted) warm-up's ping went SECOND on the wire (prefix at seq221, ping at seq519) even
+   though net_phase calls it BEFORE .stream_and_exchange and tls_send transmits immediately (tls.inc:824
+   build->tcp_send_payload, no buffering). That means the helper's ping-send did NOT execute before the
+   X phase on the reconnect - an unexplained control-flow/state issue with the separate-call structure.
+
+CORRECT ARCHITECTURE (fresh session, sidesteps BOTH the byte wall placement AND the ordering mystery):
+put the warm-up (ping + drain) at the START of the X phase's .ready_tail (agent_api_stream.inc:27),
+BEFORE the prefix send. This GUARANTEES ping-before-prefix (sequential, same phase - no separate-call
+timing) and reuses the phase's send/receive machinery. Gate it on a FRESH-CONNECTION flag in
+low_phase_state (0 nucleus B): set it in the fresh-path-only run_tcp_connect_phase (or tls_probe), read
++ clear it at .ready_tail (so a warm reuse, which skips tcp_connect, never warms). Budget: the X phase
+is a tight 3-sector overlay (~24B was golfed to fit the Build-10 loop) so ~40B of warm-up may need it to
+grow to 4 sectors (check the load window) OR more golf. The net_phase-call approach needs a nucleus
+reorg (relocate the hot tls_app_data_ptr/tls_app_plain_ptr to reconnect_state_*, +4B) AND ~50B freed
+from the crypto window (no clean relief per the golf scan) - so the X-phase placement is preferred.
+
+STILL UNVERIFIED (verify FIRST, before any of the above): does a FRESH connection accept the GET /v1
+ka ping (quick 401, proving the connection) or RST it? The boot greeting is an authed POST and IS
+accepted; the GET ping's fate on a fresh connection was never cleanly captured (the prior test had the
+big request going first). If the GET ping is RST'd, the warm-up must build a small authed POST instead.
+Open the fresh session with ONE clean VM-isolated reconnect capture that sends the ping FIRST.
+
+## 2026-06-08 20:30:00 - X-phase warm-up BUILT + VM-tested: TWO blockers (multi-record 4xx drain + path)
+
+Built the warm-up INSIDE the X phase (agent_api_stream .ready_tail), gated on a reconnect_warm_pending
+flag set by tcp_reopen_cached_target (low_phase_state). Builds clean (nucleus untouched, 2043; the ~49B
+fit the X-phase overlay). VM-tested on ne2k8 (premise pre-verified by curl: GET /v1 -> 404 + keep-alive,
+NOT RST). Findings from the wire (162.159.140.245, gap+IP isolation; host SLiRP noise filtered):
+
+GATED (Test A): NO warm-up ping before the greeting request (330B@t+15) -> the flag did not fire on the
+fresh greeting (clobber or path; reconnect_warm_pending lands ~0x0F00 area, the X phase loads 0x0900-
+0x0F00, so the X-phase LOAD may clobber a flag SET before it - agent_loop_pending survives only because
+it is set AFTER the load, never tested across it). Effectively a no-op -> reconnect still failed.
+
+UNCONDITIONAL (Test B, gate removed to isolate code-vs-flag): the warm-up ping fired on the REUSE turn
+(63B@t+71.3 -> SRV 337 + 23) but STILL NOT on the greeting (330B@t+15, no ping) - an unresolved PATH
+puzzle (both paths reach .ready_tail with handoff_status==ready, yet only reuse warmed). And the REUSE
+then RECONNECTED: the 4xx response is TWO records (337 + 23B) and the warm-up's SINGLE
+tls_receive_application_data drains only the 337, leaving the 23B -> the stream desyncs -> the next
+receive fails -> reconnect. This is the SAME under-drain the keep-alive has (agent_api.inc .success
+".drain_one" does one receive per ping and "Under-drain self-heals via the reuse->reconnect path") -
+the keep-alive TOLERATES it by reconnecting, but a warm-up CANNOT (reconnecting is what it exists to
+avoid). User watching live confirmed: quick back-and-forth produced a fast reconnect (the unconditional
+warm-up desyncing the warm reuse) - correctly NOT product behaviour; reverted to never-blank.
+
+TWO BLOCKERS for the warm-up, both needing careful fresh-session work:
+  1. ROBUST DRAIN: the warm-up must FULLY consume the multi-record 4xx (loop tls_receive_application_data
+     until the SSE zero-chunk sets api_stream_completed==3, like agent_api_exchange's main loop, with a
+     stream-state reset before+after) - a single receive under-drains -> desync. ~25-30B in a tight phase.
+  2. PATH/FLAG: the warm-up fired on reuse but not the fresh greeting (the OPPOSITE of what's needed -
+     fresh is exactly where it must fire). Resolve why .ready_tail's warm-up runs on reuse but not the
+     fresh path, and put the flag in load-safe memory (e.g. the reconnect_state high-scratch block, not
+     low_phase_state which the X-phase load region overlaps).
+
+SIMPLER ALTERNATIVE to weigh: DEFER-CONTEXT. On a reconnect, send the request WITHOUT the carried window
+(greeting-sized) -> fits the strict fresh-first-request timeout (the boot greeting PROVES a small request
+succeeds on a fresh connection) -> normal SSE response (drained by the existing machinery, no special
+drain, no ping, no path puzzle). Cost: that one post-reconnect turn loses conversation context (recovers
+next turn on the now-warm connection). Sidesteps BOTH warm-up blockers; the trade-off is context, which
+is exactly what the warm-up was trying to preserve. A product call for the user.
+
+## 2026-06-08 19:05:00 - PREMISE VERIFIED (curl): a fresh connection ACCEPTS the GET ping (4xx + keep-alive), NOT RST
+
+Probed the provider directly with the EXACT seed ping on a fresh connection (real TLS, HTTP/1.1, no auth):
+  curl --http1.1 -isS https://api.openai.com/v1  ->  HTTP/1.1 404 Not Found  + "Connection: keep-alive"
+  curl --http1.1 -isS https://api.openai.com/    ->  HTTP/1.1 421 Misdirected + "Connection: keep-alive"
+So the server returns a QUICK 4xx and KEEPS THE CONNECTION ALIVE - it does NOT RST a bare GET on a fresh
+connection. This DISPROVES the 17:30/18:45 "fresh connection RSTs the GET ping" claim: that RST was the
+big-request timeout in the mis-ordered warm-up test, never the ping. => the warm-up can use the GET ka
+ping AS-IS (no authed-POST build needed). HTTP-layer response is decided post-handshake, and the seed's
+handshake completes (boot greeting works), so the seed's ping should get the same 404+keep-alive.
+Two caveats for the build's VM validation: (a) curl uses modern TLS; Cloudflare *could* fingerprint the
+seed's weak TLS differently - but the handshake completing argues against it. (b) the 404 sets __cf_bm /
+_cfuvid cookies; the seed does not echo cookies, so if Cloudflare's first-request-timeout relaxation is
+cookie-based (not connection/TCP-based) the ping might not relax the big request's timeout. The SUFFICIENCY
+(does ping-first actually let the big request beat the strict timeout?) is the one thing curl can't test -
+it is the VM validation when the X-phase warm-up is built. Net: GET-ping warm-up is GO; build it next.
+
+## 2026-06-08 15:30:00 - reconnect failure RE-ROOT-CAUSED on the wire (TLS records): NOT the handshake - the slow request
+
+CORRECTION of the entry just above (and the old CPU-starvation theory). User escalated reconnect to
+CRITICAL: walk away -> idle close -> every reconnect fails -> stuck. Parsed the TLS RECORD TYPES off
+the captured wire (tools-style python at /tmp/tls_flow.py, reconnect connection = port 64147 ->
+162.159.140.245, the SAME IP the boot used at port 64084). Both the boot AND the reconnect handshake
+COMPLETE: ClientHello -> ServerHello+Cert -> ClientKeyExchange -> CCS+Finished, and the SERVER sends
+its own CCS+Finished back (= it accepted the session). So it is NOT a handshake race; the ~7s gaps are
+the PRF but the handshake finishes (~15s) and is accepted on BOTH paths.
+
+The failure is the APPLICATION exchange AFTER the handshake. The request is split into 4 TLS app
+records (agent_api_stream .stream_chunk2: instructions / ledger+input-open / context+prompt+close,
+because api_request_plain caps the plaintext at 440 B), each built + ChaCha20-Poly1305-encrypted +
+sent sequentially -> on the wire the request records come out ~3s apart (~5s+ total for the bigger
+reconnect request). The fresh server gives the first request ~5s, then returns a ~1.6 KB error and
+FINs - WHILE the VM is still transmitting (168 B + 100 B go out AFTER the server FIN). You cannot get
+a valid chat answer to an incomplete request, so the ~1.6 KB is an error/timeout, not a response.
+Compare the boot: tiny greeting request (no context) sent fast -> server streams ~10 KB back. So the
+ASYMMETRY is resolved: boot request tiny -> fits the read-timeout; reconnect request big (carries the
+whole conversation context) -> too slow -> server times out. Same handshake on both. (Implies long-
+conversation REUSE turns trend toward the same edge as the context grows.)
+
+The lever is the per-record crypto (ChaCha20-Poly1305; Poly1305's 130-bit multiply is the likely hot
+spot on the 8088, and it is also hot on the Build-11 per-record receive verify). FIX OPTIONS (open,
+user to steer - meaty perf with trade-offs): (a) confirm the per-record bottleneck (encrypt vs JSON
+build) by instrumenting the send, then optimize the hot op; (b) send the request in FEWER/bigger TLS
+records (cuts per-record overhead + round-trips) - helps if overhead dominates, not if it is per-byte;
+(c) optimize ChaCha20/Poly1305 inner loops (broadest - helps send AND receive verify, biggest effort);
+(d) pragmatic: on reconnect resend a SMALLER request (trim/drop context) so it beats the timeout, at
+the cost of carried context. never-blank still covers the symptom while this is worked.
+
+## 2026-06-08 16:30:00 - warm-vs-fresh CONFIRMED on the wire; fix = warm the reconnect with a small first request
+
+User escalated reconnect to CRITICAL (walk-away -> stuck) and proposed: send a small request first to
+"prove" the fresh connection, then the big real request. Validated the underlying hypothesis directly
+with a no-idle REUSE capture (/tmp/seed-reuse.pcap, VM session port 64797 -> 162.159.140.245, parsed
+TLS record bursts). Result, on ONE reused connection:
+  boot greeting:  330 B request (no context) -> 9328 B response   [small first request -> OK]
+  say apple:      949 B req over 2.2s -> 8327 B response          [warm: big req OK]
+  say banana:     977 B req over 2.4s -> 9197 B response          [warm: big req OK]
+  say cherry:    1015 B req over 2.4s -> 9799 B response over 30.9s [warm: big req + 30s stream OK]
+So a WARM connection handles the very ~1 KB request the fresh reconnect FIN'd at ~5s, and tolerates
+30s+ streamed responses. The asymmetry is fully explained: BOOT's FIRST request is the tiny greeting
+(no context) -> fits the strict fresh-connection (anti-slowloris) timeout -> the connection becomes
+"proven" and every later big request gets the lenient timeout. RECONNECT's FIRST request is the big
+context request -> exceeds the strict fresh timeout -> FIN. (So it was never the handshake NOR the
+absolute request size - it is the strict timeout on a fresh connection's FIRST request.)
+
+FIX (chosen direction, user's idea, confirmed): on a reconnect, after the handshake, send a small
+first request (reuse the keep-alive GET ping, ka_template_persistent / ka_request_len) and FULLY drain
+its 401/421, THEN send the real big request on the now-proven connection - exactly mirroring the boot's
+greeting-first pattern. Placement: net_phase reconnect path (after tls_probe, before .stream_and_
+exchange), gated to mid-chat (handoff_status==ready) so cold boot stays fast. Cost: ~10-28 resident B
+(gate + ping-send + one-receive drain) -> needs another small nucleus reorg; the drain is one
+tls_receive_application_data (the keep-alive drains a ping response in one receive). NOT yet implemented.
+
+## 2026-06-08 21:15:00 - RECONNECT FIXED: it was a chunk-1 DOUBLE-SEND, not a timeout (wire-proven)
+
+Fresh session, "continue the warm-up". Traced the send architecture end-to-end BEFORE building it - the
+warm-up premise collapsed, and a clean capture then found the REAL bug. Reconnect now SUCCEEDS.
+
+ARCHITECTURE (corrects the handoff). The cold greeting does NOT reach the X phase .ready_tail: at
+greeting time handoff_status is not yet ready (main.inc sets it AFTER prepare_agent_path returns), so the
+X phase takes the SPLASH branch, which sends nothing. The greeting's request is shipped by the HANDSHAKE
+itself - tls_probe_server prebuilds it and sends it via tls_send_prebuilt_after_server_finished right
+after the client Finished. Only READY turns (reuse + reconnect) reach .ready_tail. So the greeting was an
+INVALID warm-up test proxy: the "path puzzle" (warm-up fired on reuse but not the greeting) was simply
+that the greeting never reaches .ready_tail; and tcp_reopen_cached_target is the reconnect-ONLY signal
+(cold uses tcp_connect_target; reuse skips connect). A warm-up at .ready_tail is also architecturally too
+late on a reconnect: the POST headers (chunk 1) already rode the handshake prebuilt before .ready_tail
+loads, so a ping there injects mid-request.
+
+CAPTURE (user chose "capture a reconnect first" over building). Authentic 470s idle-close reconnect on
+ne2k8 @ 32K; whole-host pcap filtered to the provider IP; parsed with a new tools/tls-flow.py (pure-
+stdlib TCP reassembly + TLS-record walk, both directions, timestamped). The failing reconnect's client
+AppData records were [293, 293, 400, 163, 101] - chunk 1 (293 B = POST line + Host + Authorization +
+Content-Length + {"model") sent TWICE: once as the handshake prebuilt (t+14.88, right after the server
+Finished), then AGAIN by .ready_tail (t+17.7) because tls_app_len was still set. The server read the
+duplicate "POST ..." as the first request's BODY, returned a 400 (a 1244 B record) + Alert + FIN. All 3
+never-blank retries identical. DECISIVE: the server sent its CCS+Finished in every attempt -> the
+HANDSHAKE WAS ACCEPTED. So it is NOT a handshake race and NOT a fresh-connection request timeout (both
+theories retired) - it is a DETERMINISTIC double-send, which fits "reconnect almost always fails" far
+better than any race. Greeting sends chunk 1 ONCE (prebuilt only; splash; no .ready_tail) -> works; reuse
+sends chunk 1 ONCE (.ready_tail only; no handshake) -> works; only RECONNECT did both -> 400.
+
+FIX (6 B, K-window slack, resident nucleus untouched at 2048 B). `mov word [tls_app_len], 0` at
+tls_probe_server.done - all 3 NIC app-send paths converge there, after the prebuilt send. .ready_tail
+then sees tls_app_len==0, skips the chunk-1 prefix, and streams only chunk 2 + context + prompt - i.e.
+the reconnect's send becomes byte-identical to the proven REUSE path. Reuse never runs tls_probe
+(untouched); the cold greeting takes the splash branch (never reads tls_app_len) and the receive resets
+it regardless, so the clear is harmless on both. (The old net_phase "Do NOT reset tls_app_len here ... no
+answer" comment was a DIFFERENT experiment that also zeroed chat_prompt_len_cache, which skips the prompt
+send - not evidence against clearing tls_app_len alone.)
+
+VALIDATED (ne2k8, authentic idle-close, wire + screen). Same 470s idle reconnect: client AppData now
+[293, 400, 163, 101] - chunk 1 ONCE - and the server replies with a real ~8 KB SSE stream (1385/1385/
+1263/253/...) instead of 400+FIN. Screen: the dim "> reconnect" line followed by the answer "4", then the
+DPI prompt - so never-blank's "> reconnect" became a brief honest status before the REAL answer rather
+than "> reconnect failed". 7-NIC matrix (boot+greeting, the cold-path regression surface for the
+tls_probe.done change): RESULT_PENDING. The entire warm-up line of work (GET-ping, defer-context, the
+byte-wall placements) is now moot - there was no timeout to defeat. Tool tools/tls-flow.py kept for
+future reconnect wire analysis.
