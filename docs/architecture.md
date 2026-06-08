@@ -384,19 +384,23 @@ And the part that is *not* tractable — the honest gap:
   constant-time scalar multiply that is both fast enough *and* small enough for the
   16 KiB budget, plus a real entropy source — is the headline open crypto problem.
 
-The handshake is also why the chat loop never reconnects mid-conversation — that is a
-race it cannot reliably win:
+The handshake race is also why the chat loop reuses one session instead of reconnecting
+per turn — a fresh mid-chat handshake can lose the race:
 
 ```text
   fresh TLS handshake on the 8088   ├──────────────── ~15 s ────────────────┤ done
   provider reconnect window         ├─────────────── ~15 s ───────────────┤ ✗ closed
 
-  A mid-chat reconnect can lose this race and surface a connect error — for an
-  answer the user has already seen. So the chat loop instead:
-    · holds ONE TLS session open and reuses it for every prompt
-    · if the completion marker is missed but the text already rendered, it accepts
-      the answer rather than forcing a new (racing) handshake
-  The ~15 s handshake is paid once, at boot — never per turn.
+  So the chat loop:
+    · holds ONE TLS session open and reuses it for every prompt; a keep-alive ping holds
+      it open through long renders, so an engaged session reuses snappily, no reconnect
+    · if the completion marker is missed but the text already rendered, accepts the answer
+      rather than forcing a new (racing) handshake
+    · when reuse DOES fail — idle long enough that the provider closed the socket — it
+      reconnects behind a single dim "> reconnect" line and silently retries the rebuild-
+      and-connect up to 3x; if all three lose the race it appends " failed" and drops to
+      the prompt for a fresh attempt (never a blank turn)
+  The ~15 s handshake is normally paid once, at boot — never per reused turn.
 ```
 
 The two constraints are answered the same way: do the irreducible work once, keep it

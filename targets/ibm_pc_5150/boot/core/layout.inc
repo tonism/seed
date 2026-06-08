@@ -2,7 +2,7 @@
 %define LOADER_SECTORS 4
 %endif
 
-build_number equ 10
+build_number equ 11
 ; Build 10 (agentic loop): max consecutive auto-continue turns before handing back to the
 ; user, so a model that keeps emitting tool calls cannot loop forever.
 agent_loop_max equ 8

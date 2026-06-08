@@ -14,17 +14,22 @@ agent_endpoint_phase:
     ;   retries==0            : the 3x loop is exhausted -> append " failed" to the parked
     ;                           "> reconnect" line, advance a line, and RETURN (this is net_phase's one
     ;                           sacrificial endpoint call; the DNS body is skipped -- we fail out to DPI).
-    ;   retries==3 + live TLS  : a reconnect's FIRST attempt (tls_key_schedule_ready==1 excludes the
-    ;                           cold first connect) -> draw "> reconnect" ONCE and park the cursor after
-    ;                           it so the answer (or " failed") appends in place. Retries 2/1 re-enter
-    ;                           here silently (the ==3 gate), so the line shows exactly once.
+    ;   retries==3 + mid-chat : a reconnect's FIRST attempt (handoff_status==ready means we are in the
+    ;                           chat loop, so a prior session existed -> a reconnect, NOT the cold first
+    ;                           connect) -> draw "> reconnect" ONCE and park the cursor after it so the
+    ;                           answer (or " failed") appends in place. Retries 2/1 re-enter here
+    ;                           silently (the ==3 gate), so the line shows exactly once. Gate on
+    ;                           handoff_status, NOT tls_key_schedule_ready: a real idle-close sends a
+    ;                           close_notify that clears key_ready during the failed reuse BEFORE this
+    ;                           runs, so a key_ready gate MISSES the real reconnect (the bug the
+    ;                           authentic idle demo caught); handoff_status stays ready across the chat.
     ;   otherwise             : cold connect or a silent retry -> no status; fall through to the body.
     mov al, [reconnect_retries]
     or al, al
     jz .render_reconnect_failed
     cmp al, 3
     jne .endpoint_body
-    cmp byte [tls_key_schedule_ready], 1
+    cmp byte [handoff_addr + handoff_status], handoff_status_ready
     jne .endpoint_body
     mov byte [cursor_col], dpi_prompt_col
     mov si, low_scratch_start + (reconnect_msg_text - PHASE_BASE)

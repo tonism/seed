@@ -127,10 +127,10 @@ Seed is a working agent on real 1981 hardware, with the rough edges that implies
   window and longer memory. Model-driven summary compaction (more context per
   byte) is planned.
 - **Reconnect after a long idle.** The TLS session is held open across a response,
-  but a long idle at the prompt lets the server close it. The next message
-  reconnects, and if that single attempt loses the ~15 s handshake race it returns
-  to the prompt with no answer — re-send and it reconnects. Automatic multi-attempt
-  reconnect is planned.
+  but a long idle at the prompt lets the server close it. The next message reconnects
+  automatically — a dim `> reconnect` line, then up to three silent retries; if all
+  three lose the ~15 s handshake race it shows `> reconnect failed` and returns to the
+  prompt, where re-sending runs the reconnect loop again. Never a blank turn.
 - **Long replies render slowly.** Drawing to the text screen is the bottleneck,
   not the network; a very long reply can take minutes to fully render.
 - **The TLS path is not a secure channel.** The hand-rolled handshake does no real

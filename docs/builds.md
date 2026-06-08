@@ -439,16 +439,18 @@ memory budget the rest of the work depends on.
 P1 — memory budget and robustness:
 
 ```text
-1  draining-FIFO receive + streamed send - the real buffer-shrink path (parked from
-   Build 10). Frees ~800 B in the contested hot-crypto section: the budget that funds
-   the rest of Build 11. Do it FIRST - it unblocks everything downstream.
-2  reconnect 3x-auto - automatic retries with a dim "> reconnecting" line, then
-   soft-fail to DPI (user re-asks -> fresh loop). Closes the last blank-turn-after-idle
-   path. Build 10 shipped the soft-fail; the auto-retry + the ~15 s handshake-race fix
-   land here. (Absorbs the old 0D/F0 retry UX and the reconnect-asymmetry investigation.)
-3  7-NIC matrix re-validation + splash bump to "seed build 11" + release sign-off - the
-   Build 10 no-response / sliding / soft-fail fixes were validated on vm-net-ne2k8;
-   confirm across all seven NIC families.
+1  [DONE 49fc3f9 / ffaf80f / 422697a] draining-FIFO receive + streamed send - collapsed
+   to one streamed receive path that KEEPS incremental per-record Poly1305 (app-data stays
+   MAC-verified), plus the RX buffer shrink 1460->592 via a SYN MSS option. Freed the
+   hot-crypto budget that funds the rest of Build 11.
+2  [DONE 929479f] reconnect 3x-auto - on a dropped session, a single dim "> reconnect"
+   line, then up to 3 silent rebuild+connect retries; on exhaustion " failed" is appended
+   ("> reconnect failed") and it soft-fails to DPI (user re-asks -> fresh loop). Closes the
+   last blank-turn-after-idle path. (Absorbed the old 0D/F0 retry UX + the reconnect
+   asymmetry.) Needed a full-nucleus reorg to fund - see notes/build11-hardening-attempts.md.
+3  [matrix done; splash bump next] 7-NIC matrix re-validation + splash bump to
+   "seed build 11" + release sign-off - re-validated across the NIC families (Build 11's
+   changes are NIC-independent; ne2k8 deep-validated each step).
 ```
 
 P2 — core experience:
@@ -459,8 +461,9 @@ P2 — core experience:
    small-machine amnesia. The "> compacting context" line is already in place to reuse.
 5  ESC to interrupt - stop a long render / break a runaway agentic loop (~10 B in the
    resident receive path; the FIFO budget helps).
-6  history-echo fix - give the carried conversation window clear turn/role structure so
-   the model stops repeating prior answers (the flat-window artifact).
+6  [DONE 49fc3f9] history-echo fix - the carried conversation window now stores each turn
+   role-labeled (" User: <prompt> You: <response>"), so the model can tell its own prior
+   answers from user text instead of inventing/repeating (the flat-window artifact).
 ```
 
 P3 — polish and consistency:
@@ -471,8 +474,9 @@ P3 — polish and consistency:
 9  situational awareness - strengthen the situational map (curb the 0ADD doodle) AND
    review/expand the identity prompt so the agent better understands where it lives, its
    opportunities, and its risks. Build 10 kept this deliberately minimal.
-10 dead-code cleanup - remove the now-dead recap-compaction remnants (the directive
-   text, the dead compact_next branches in agent_api_stream).
+10 [DONE] dead-code cleanup - the now-dead recap-compaction remnants (the directive text,
+   the dead compact_next request-build branches in agent_api_stream) were removed during the
+   FIFO/recall work; only explanatory comments remain.
 ```
 
 P4 — bigger bets and research:
@@ -491,8 +495,10 @@ P4 — bigger bets and research:
    - real entropy for the client random + ephemeral scalar (today a BIOS-tick LCG).
    - server authentication: certificate-chain + signature verification (today skipped, so
      the channel is unauthenticated / MITM-exposed even before the key-exchange gap).
-   - per-record application-data AEAD verification (the Build 11 P1 draining-FIFO collapse
-     drops Poly1305 on app-data records to win the buffer; a fast machine restores it).
+   (Per-record application-data AEAD verification is NO longer on this list — Build 11's
+   draining-FIFO collapse keeps incremental Poly1305, so app-data records are MAC-verified
+   on the small machine too. That is record integrity within the session, not a secure
+   channel: the keys are still handshake-derived, and the handshake is the broken part.)
    The small-machine product stays honestly "encrypted but not secure."
 13 reach / perf - beyond segment 0 (>64 KiB); render-rate optimization for very long
    replies; drop floppy reads in the 32K+ chat loop; TLS 1.3 (not a memory play -
