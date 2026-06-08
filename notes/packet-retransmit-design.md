@@ -58,11 +58,18 @@ SEND (client->server) — the actual work:
 
 ## Verdict: doable, a real but bounded project
 Tractable because flight-stop-and-wait fits the seed's send-then-receive rhythm -- "buffer + timer +
-resend-in-the-poll-loop," not a TCP rewrite. Build incrementally, each slice netcond-testable + shippable:
-  1. Receive-wait bump + dup-ACK — finishes the server->client side. Cheap, high value.
-  2. SYN-retransmit — smallest send slice; fixes connect-loss.
-  3. Handshake-flight retransmit (ClientHello/CKE/CCS+Finished) — small buffer; fixes the BOOT/RECONNECT
-     loss-fragility (the thing we hit at 3-8% loss).
-  4. Request-flight retransmit (~2KB buffer) — mid-chat request loss; the RAM-hungry tail, a 32KB+ feature.
-Slices 1-3 are the high-leverage, lower-cost core; slice 4 is the tail. Pairs with a handshake-speed
-item (faster PRF/SHA-256) which independently helps the patience margin.
+resend-in-the-poll-loop," not a TCP rewrite. OUTCOME (Build 11, 2026-06-09):
+  1. Receive-wait — NOT built as planned. The receive (server->client) was already resilient at moderate
+     loss (server retransmit + the seed's existing wait; boot 4/4 at 5%). REFRAMED as the heavy-loss lever
+     (roadmap P4 #16): at 15% the Certificate RECEIVE is the bottleneck (the seed's wait gives up before
+     the server's retransmits all land), so a BIGGER receive wait is the real heavy-loss fix.
+  2. SYN-retransmit — SHIPPED (156135a): resend the SYN up to 3x with the same port/seq.
+  3. Handshake-flight retransmit — SHIPPED: 3a ClientHello (e3c55c8) + 3b CKE+CCS+Finished flight (69799b4,
+     held raw in tls_client_hello_buffer, NE/WD). Every handshake client send now retransmits.
+  4. Request-flight retransmit — DROPPED (user, 2026-06-09): the reconnect already recovers a dropped
+     request, handshake-speed (#15) makes that recovery fast, and it is not worth the ~2KB buffer.
+KEY FINDING (loss test, 5% + 15%, netcond + tls-flow.py retransmit counter): the client-retransmit
+(2/3a/3b) is correct insurance but NOT the loss bottleneck -- the RECEIVE (download) is. Moderate loss is
+handled (server retransmit + the existing wait; 0 client retransmits needed; boot 4/4 @ 5%); heavy loss
+(15%) fails in the cert RECEIVE (boot 1/4). The real levers: handshake-SPEED (#15, the observed
+patience-race) + a bigger receive wait (#16). See docs/builds.md P4 #14-16.
