@@ -32,11 +32,8 @@ tcp_connect_phase:
 
 tcp_reopen_cached_target:
     call ne_flush_receive_frames
-    call ne_transmit_tcp_syn
-    jc .done
-    call ne_wait_for_tcp_synack
-    cmp byte [handoff_addr + handoff_net_status], net_status_tcp_synack_received
-    jne .failed
+    call ne_tcp_syn_handshake
+    jc .failed
     phase_call_res ne_transmit_tcp_ack
     jc .done
     cmp byte [handoff_addr + handoff_net_status], net_status_tcp_connected
@@ -103,11 +100,8 @@ tcp_open_resolved_target:
     jc .done
     cmp byte [handoff_addr + handoff_net_status], net_status_next_hop_arp_resolved
     jne .failed
-    call ne_transmit_tcp_syn
-    jc .done
-    call ne_wait_for_tcp_synack
-    cmp byte [handoff_addr + handoff_net_status], net_status_tcp_synack_received
-    jne .failed
+    call ne_tcp_syn_handshake
+    jc .failed
     phase_call_res ne_transmit_tcp_ack
     jc .done
     cmp byte [handoff_addr + handoff_net_status], net_status_tcp_connected
@@ -119,8 +113,33 @@ tcp_open_resolved_target:
 .done:
     ret
 
-ne_transmit_tcp_syn:
+; Build 11 slice 2 (SYN retransmit): reset the connection state ONCE, then (re)send the SYN and
+; wait for the SYN-ACK up to tcp_syn_retry_count times. A dropped SYN or SYN-ACK no longer fails
+; the whole connect -- the resend reuses the same source port + ISN (tcp_reset_state runs only
+; once), so it is a true retransmit the server dedups, not a new connection. CF clear = connected
+; (SYN-ACK received); CF set = exhausted. Used by both the cold connect and the mid-chat reopen.
+ne_tcp_syn_handshake:
     call tcp_reset_state
+    mov cx, tcp_syn_retry_count
+.try:
+    push cx
+    call ne_send_tcp_syn_frame
+    jc .next
+    call ne_wait_for_tcp_synack
+    cmp byte [handoff_addr + handoff_net_status], net_status_tcp_synack_received
+    je .ok
+.next:
+    pop cx
+    loop .try
+    stc
+    ret
+.ok:
+    pop cx
+    clc
+    ret
+
+; Build + transmit the SYN with the CURRENT state (no reset), so ne_tcp_syn_handshake can retransmit.
+ne_send_tcp_syn_frame:
     mov al, 0x02
     ; The 4-byte MSS option rides as the SYN "payload": build_tcp_segment_frame counts it in the IP
     ; length + TCP checksum. Build 11 reorg: it emits data-offset 0x50 (20-byte header) for EVERY

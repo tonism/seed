@@ -220,7 +220,7 @@ build_tcp_segment_frame:
     mov ah, dl
     mov al, 0x50                        ; data offset 5 (20-byte header) for every segment; the SYN's
     stosw                               ; 24-byte header (4-byte MSS option) is patched in + checksum-
-                                        ; corrected by ne_transmit_tcp_syn, keeping that cost out of
+                                        ; corrected by ne_send_tcp_syn_frame, keeping that cost out of
                                         ; the resident nucleus (Build 11 never-blank reorg).
     ; Uniform 256-byte advertised window. Under SLiRP (the emulated test path) the
     ; VM<->proxy link is local, so the window has no real effect on throughput; the

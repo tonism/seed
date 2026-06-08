@@ -308,6 +308,11 @@ tcp_port_https_word equ 0xbb01
 tcp_wait_count equ 4
 tcp_wait_count_3c501 equ 128
 tcp_payload_wait_count equ 8192
+; Build 11 slice 2 (SYN retransmit): how many times the connect (re)sends the SYN, waiting
+; tcp_wait_count for a SYN-ACK each time, before giving up. A lost SYN or SYN-ACK is then a fast
+; in-place resend (the server dedups the duplicate SYN) instead of failing the whole connect. 3
+; attempts make the connect robust to a single dropped SYN/SYN-ACK on spotty links.
+tcp_syn_retry_count equ 3
 ; Keep-alive: during a long (~11min) render the connection would otherwise idle past
 ; Cloudflare's measured ~400s HTTP-idle timeout and be closed, forcing the next prompt to
 ; reconnect (a handshake that races the ~15s window). Ping the server with a lightweight
