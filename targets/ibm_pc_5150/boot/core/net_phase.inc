@@ -1,14 +1,12 @@
 prepare_internet_path:
     call wd_enter_packet_path
     call_core_phase_at core_dhcp_setup_phase_start, core_dhcp_setup_phase_end, net_setup_phase_start
-    jc .done
-    call_core_phase core_probe_cfg_phase_start, core_probe_cfg_phase_end
-    jc .done
-    mov word [tcp_dest_port_word], tcp_port_http_word
-    call run_tcp_connect_phase
-.done:
-    ; Share the identical packet-path-exit epilogue with prepare_agent_endpoint_path.restore
-    ; (pushf; wd_restore_dp8390_base; popf; ret) to reclaim nucleus bytes for the probe glue.
+    ; DHCP is the whole internet bring-up now. The old port-80 connectivity probe + its NET.CFG
+    ; parse (probe_cfg) were removed (Build 11): they were a single-shot, un-retried connect to
+    ; example.com that (a) was the dominant spotty-network boot failure, (b) could FALSE-FAIL when
+    ; the agent host was reachable but the probe host was not, and (c) duplicated the real test --
+    ; the agent connect (port 443) already proves connectivity and is wrapped in the shared 3x
+    ; reconnect retry. DHCP's CF propagates through .restore to network_setup_error.
     jmp prepare_agent_endpoint_path.restore
 
 prepare_agent_path:

@@ -37,7 +37,6 @@ IMAGE_BUILDER := tools/build-fat12-image.py
 BASIC_BOOT_BUILDER := tools/build-basic-bootstrap.py
 CORE_SYS_INFO := tools/core-sys-info.py
 AGENT_CFG := $(wildcard config/AGENTS.CFG)
-NET_CFG := $(wildcard config/NET.CFG)
 USER_CFG := $(wildcard config/USER.CFG)
 INCLUDE_USER_CFG ?= 1
 NASM_FLAGS := -DLOADER_SECTORS=$(LOADER_SECTORS) -Itargets/$(TARGET)/boot/ -I$(BUILD_DIR)/
@@ -45,10 +44,6 @@ FAT_FILES := --file $(CORE_SYS):CORE.SYS
 
 ifneq ($(AGENT_CFG),)
 FAT_FILES += --file $(AGENT_CFG):AGENTS.CFG
-endif
-
-ifneq ($(NET_CFG),)
-FAT_FILES += --file $(NET_CFG):NET.CFG
 endif
 
 ifeq ($(INCLUDE_USER_CFG),1)
@@ -110,7 +105,7 @@ $(BASIC_BOOT_B_BAS): $(BASIC_BOOT_B_BIN) $(BASIC_BOOT_BUILDER) | $(BUILD_DIR)
 		--clear-top $(BASIC_BOOTSTRAP_CLEAR_TOP) \
 		--max-addr $(BASIC_BOOTSTRAP_MAX_ADDR)
 
-$(FLOPPY_IMG): $(BOOT_BIN) $(LOADER_BIN) $(CORE_SYS) $(AGENT_CFG) $(NET_CFG) $(USER_CFG) $(IMAGE_BUILDER) | $(BUILD_DIR)
+$(FLOPPY_IMG): $(BOOT_BIN) $(LOADER_BIN) $(CORE_SYS) $(AGENT_CFG) $(USER_CFG) $(IMAGE_BUILDER) | $(BUILD_DIR)
 	python3 $(IMAGE_BUILDER) build \
 		--boot $(BOOT_BIN) \
 		--loader $(LOADER_BIN) \

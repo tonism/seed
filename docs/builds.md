@@ -516,6 +516,18 @@ P4 — bigger bets and research:
 13 reach / perf - beyond segment 0 (>64 KiB); render-rate optimization for very long
    replies; drop floppy reads in the 32K+ chat loop; TLS 1.3 (not a memory play -
    record-size caps are ignored on 1.2 and 1.3).
+14 full TCP retransmit (curiosity / "survive a genuinely bad link") - NOT Build 11 scope.
+   The seed's TCP is send-and-forget on the client side and in-order-only on receive, leaning
+   on the SERVER's retransmit for the download. Under heavy packet loss every un-retransmitted
+   client send (SYN, handshake records, request chunks) is a single point of failure, recovered
+   only by the coarse request-level reconnect retry. A real retransmit layer (unacked-byte
+   buffer + RTO timers + ACK tracking + receive reordering) would make loss transparent WITHIN a
+   connection - the universal fix for spotty-link loss - but it does NOT remove the reconnect (an
+   idle-CLOSED session has nothing to retransmit), and it is a meaty build for a 2 KB nucleus on
+   a 4.77 MHz part. Cheap partial slices that get most of the win first: SYN-retransmit in the
+   connect phase + a larger tcp_payload_wait_count receive window. (Context: Build 11 dropped the
+   un-retried port-80 boot probe and leaned boot connectivity on the agent connect's existing 3x
+   retry; see notes/build11-hardening-attempts.md.)
 ```
 
 ## Public Release Gate

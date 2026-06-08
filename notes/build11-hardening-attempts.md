@@ -571,6 +571,49 @@ VALIDATED (ne2k8, authentic idle-close, wire + screen). Same 470s idle reconnect
 1263/253/...) instead of 400+FIN. Screen: the dim "> reconnect" line followed by the answer "4", then the
 DPI prompt - so never-blank's "> reconnect" became a brief honest status before the REAL answer rather
 than "> reconnect failed". 7-NIC matrix (boot+greeting, the cold-path regression surface for the
-tls_probe.done change): RESULT_PENDING. The entire warm-up line of work (GET-ping, defer-context, the
-byte-wall placements) is now moot - there was no timeout to defeat. Tool tools/tls-flow.py kept for
-future reconnect wire analysis.
+tls_probe.done change): 6/7 first pass + 3c503 2/3 on a focused re-run (the fails are the documented
+3c501/3c503-on-5G boot flake, not the fix; the cold path is NIC-common and unchanged in shape). The
+entire warm-up line of work (GET-ping, defer-context, the byte-wall placements) is now moot - there was
+no timeout to defeat. Tool tools/tls-flow.py kept for future reconnect wire analysis. (Committed af2cbb9.)
+
+## 2026-06-09 - drop the redundant boot connectivity probe (+ NET.CFG); loss-vs-latency wire findings
+
+User asked to UNIFY the retry logic rather than add a second one (a boot-time 3x beside the mid-chat 3x).
+Tracing it: the agent-connect retry is ALREADY shared - boot and mid-chat both run prepare_agent_endpoint_
+path, whose .retry/.rebuild_and_connect loop (reconnect_retries=3) wraps endpoint+client_hello+cache+
+tcp_connect+tls_probe+exchange, and it runs on the cold greeting too (the "> reconnect" line is gated to
+handoff_status==ready, so it stays silent at boot). So the boot's agent connect already retries 3x; the
+ONLY un-retried network step was prepare_internet_path's port-80 connectivity probe.
+
+That probe (a single-shot TCP connect to NET.CFG's "probe example.com") was redundant + harmful: it tested
+the WRONG host+port (example.com:80, not the agent's api.openai.com:443), so it could FALSE-FAIL when the
+agent was reachable but example.com was not; it had no retry (the dominant spotty-network boot failure,
+"network setup failed 0C/10"); and the agent connect already proves real connectivity with the 3x retry.
+DELETED it entirely - the probe call, the net_probe_cfg phase, NET.CFG, and its FAT parser. Verified safe:
+seed_endpoint is owned by agent_setup (AGENTS.CFG) / user_cfg (USER.CFG), NOT NET.CFG (probe_cfg's write
+is transient + overwritten + only fed the probe, and the endpoint phase uses it only for 'l'-prefixed
+custom agents, never OpenAI/Anthropic/Google); the probe's FAT helpers were phase-local; the build already
+treated NET.CFG as optional (wildcard). Frees ~19 resident/nucleus bytes (nonzero 2043->2024) + a whole
+phase + NET.CFG. Build clean, phase table auto-recomputed (--check passes).
+
+LOSS TESTING (macOS dummynet via tools/netcond.sh, scoped to the provider's Cloudflare ranges; on 5G):
+- 8% loss, pre-removal: 0/4, "network setup failed 0C/10" = the un-retried probe. Post-removal: 0/4, now
+  "agent setup failed" - the failure correctly MOVED off the probe to the real agent connect.
+- 3% loss + 150ms delay, post-removal: 0/3, "agent setup failed 0D/12" (net_status 0x12 = tcp_connected,
+  net_error_tls). A pcap (tools/tls-flow.py) showed the decisive detail: EVERY handshake record arrived
+  (no loss that run); the client's CCS+Finished landed at t+15.46s and the server FIN'd at t+15.35s - it
+  missed by 0.1s. The ~7.5s gap between CKE (t+7.9s) and CCS+Finished is the 8088 grinding the master-
+  secret + key-block PRF; the +150ms delay slowed the round-trips ~0.6s and pushed a borderline ~14.8s
+  handshake (which just made it on clean 5G - server accepted at 14.86s) past the server's ~15.3s patience.
+
+So there are TWO orthogonal fragilities, and neither is the probe (now gone) nor a regression:
+  1. LOSS - every un-retransmitted client send (SYN/handshake records/request records) is a single point
+     of failure; request-level retry re-runs the whole ~15s handshake per attempt, so it papers over LOW
+     loss (~0.97^8 ~= 78%/attempt at 3%, ~99% in 3 tries) but cannot make a genuinely lossy link robust.
+     The principled fix is packet-level retransmit (P4 #14) - a dropped packet becomes a ~300ms in-place
+     resend, not a ~15s re-handshake.
+  2. HANDSHAKE MARGIN - the ~15s handshake sits ~0.2s inside the server's ~15s patience, so any latency
+     spike tips it. The fix is handshake SPEED (faster PRF/SHA-256), which also shrinks the loss window.
+Both are deliberate post-Build-11 robustness work (roadmap P4 #14 + a handshake-speed item); the +150ms
+netcond delay is satellite/bad-cellular latency, not home wifi, so it over-states the real envelope. The
+probe removal is a clean win regardless and ships in Build 11.
