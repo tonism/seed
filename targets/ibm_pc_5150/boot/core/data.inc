@@ -1,34 +1,13 @@
 tls_app_data_ptr dw 0
 tls_app_plain_ptr dw 0
-; Prompt length preserved for the reconnect resend, captured in prepare_agent_endpoint_path
-; before any receive (dpi_input_len_byte aliases the clobbered tls_rx_copy). MUST live in the
-; resident nucleus, NOT the link window: net_phase reloads the link window (load_core_window)
-; after capturing it, which would reset a link-window byte to its file value (0) and resend an
-; empty prompt. The nucleus is loaded once at boot and never reloaded.
-chat_resend_prompt_len db 0
-; Build 9 (Phase 3): bytes used in the chat_context conversation window (resident, reconnect-safe,
-; 0 at boot). The window itself is chat_context_start in the reclaimed pool (data below). WORD: the
-; window scales with RAM (chat_context_len_var), so the used count can exceed 255 on machines >16K.
-chat_context_used dw 0
-; compact_next: suppress-to-newline flag for the renderer. Build 10 removed the invisible model-recap
-; compaction (it ate answers in longer open-ended turns); compact_next is now raised ONLY by a
-; streamed tool '$' line (agent_response.inc) to hide that line. Resident, 0 at boot.
-compact_next db 0
-; compacting_msg: set by agent_request.compute_ready_body_lengths when the sliding window trims
-; (>=75% -> 25%); agent_api_stream then shows the dim "> compacting context" line for that turn.
-; Decoupled from compact_next so the trim's status line never triggers renderer suppression.
-compacting_msg db 0
-; Build 9 (Phase 3b): window-fill threshold (bytes) that triggers the sliding-window trim, measured
-; before each request so the reply has room to land. Default 3/4 of the window; resident so a
-; user/agent can tune it (read every request, so changes take effect immediately). WORD + runtime:
-; hardware_setup recomputes it and chat_context_len_var from ram_top, so both scale with RAM.
-chat_compact_threshold dw (chat_context_len * 3) / 4
-; Build 9: conversation-window length, computed at boot from ram_top (50/50 pool split) so it scales
-; with RAM. Inits to the compile-time floor; hardware_setup overwrites it. WORD (can exceed 255).
-chat_context_len_var dw chat_context_len
-; Build 10 rework: precomputed bottom-right corner (dh=last row, dl=cols-1) for the shared
-; scroll_text_area BIOS scroll. Set once by hardware_setup so the helper stays tiny.
-scroll_br dw 0
+; Build 11 never-blank reorg: the resident nucleus was full (2048/2048). Seven reconnect-safe vars
+; that used to live here as nucleus db/dw -- chat_resend_prompt_len, chat_context_used, compact_next,
+; compacting_msg, chat_compact_threshold, chat_context_len_var, scroll_br -- were relocated OUT of the
+; nucleus into the reconnect_state_* block defined near chat_cache_end (below). Each is written before
+; it is read (per turn, or once at boot by hardware_setup), so it needs no nucleus-resident initialiser;
+; the block sits above the TLS/critical scratch, so it survives a reconnect handshake exactly like the
+; nucleus copies did. This freed the bytes the 3x-retry reconnect loop + reconnect_retries counter need.
+; (tls_app_data_ptr/tls_app_plain_ptr stay resident: they are hot crypto-receive/send pointers.)
 ne_tx_frame equ low_scratch_start
 ne_prom equ ne_tx_frame + net_frame_buffer_len
 low_packet_scratch_end equ ne_prom + ne_prom_len
@@ -421,7 +400,25 @@ chat_cache_end equ chat_key_cache + seed_key_len
 ; split-adjustable, with no keepalive wedge in the middle. Staged once at boot by hardware_setup
 ; (the renderer was too full at 511/512 B to host it; the floppy was rejected - the keepalive
 ; fires mid-render, and a disk read there risks the long-render receive path).
-ka_template_persistent equ chat_cache_end
+; Build 11 never-blank reorg: reconnect-safe state relocated from the (full) resident nucleus.
+; Above the TLS/critical scratch and below the keep-alive template, so it survives a reconnect
+; handshake -- the whole reason the nucleus copies existed. chat_resend_prompt_len + reconnect_retries
+; are ADJACENT so net_phase inits both in ONE word write (al = prompt len, ah = 3 retries). All are
+; written-before-read each turn EXCEPT chat_context_used, which the cold greeting reads before any
+; write -> hardware_setup boot-zeroes it (beside agent_loop_pending, same pattern/reason).
+; chat_compact_threshold / chat_context_len_var / scroll_br are written once by hardware_setup at boot
+; before any read (formerly carried compile-time defaults that hardware_setup always overwrote).
+reconnect_state_start equ chat_cache_end
+chat_resend_prompt_len equ reconnect_state_start
+reconnect_retries equ chat_resend_prompt_len + 1
+compact_next equ reconnect_retries + 1
+compacting_msg equ compact_next + 1
+chat_context_used equ compacting_msg + 1
+chat_compact_threshold equ chat_context_used + 2
+chat_context_len_var equ chat_compact_threshold + 2
+scroll_br equ chat_context_len_var + 2
+reconnect_state_end equ scroll_br + 2
+ka_template_persistent equ reconnect_state_end
 chat_context_start equ ka_template_persistent + ka_request_len
 chat_context_len equ 128
 chat_context_end equ chat_context_start + chat_context_len

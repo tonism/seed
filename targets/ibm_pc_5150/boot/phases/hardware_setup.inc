@@ -84,6 +84,13 @@ hardware_setup_phase_display:
     ; tool phase's per-turn reset. Clear both here (one word write, count is adjacent) so the
     ; greeting reads pending=0 and takes the normal request path (restore_prompt_from_screen).
     mov word [agent_loop_pending], 0
+    ; Build 11 reorg: compact_next, compacting_msg and chat_context_used moved out of the resident
+    ; nucleus into reconnect_state_* (no longer boot-loaded db/dw 0). The cold greeting's renderer/X
+    ; phase read all three before their first write (their only writers are the ready/chat path), so
+    ; zero them here at boot like agent_loop_pending above. compact_next + compacting_msg are adjacent
+    ; bytes (one word write); chat_context_used follows (the conversation window starts empty).
+    mov word [compact_next], 0
+    mov word [chat_context_used], 0
     sub ah, seed_len
     shr ah, 1
     mov [seed_col], ah

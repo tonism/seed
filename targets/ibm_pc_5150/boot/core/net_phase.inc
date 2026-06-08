@@ -28,8 +28,13 @@ prepare_agent_endpoint_path:
     ; clobber them. chat_resend_prompt_len lives in the resident nucleus (data.inc) so neither a
     ; receive nor load_core_window's link reload touches it; agent_request restores the prompt
     ; from the screen using it on a reconnect rebuild.
+    ; Build 11 never-blank: init the 3x reconnect-retry counter in the SAME word write. reconnect_retries
+    ; sits at chat_resend_prompt_len+1 in the reconnect_state_* block, so al (prompt len) and ah (3
+    ; retries) land together -- the standalone "mov byte [reconnect_retries],3" the full nucleus had no
+    ; room for. Counts attempts for the cold connect AND every reconnect; the endpoint phase reads it.
     mov al, [dpi_input_len_byte]
-    mov [chat_resend_prompt_len], al
+    mov ah, 3
+    mov [chat_resend_prompt_len], ax
     call_core_phase core_agent_request_phase_start, core_agent_request_phase_end
     jc .restore
     load_core_window core_link_window_start, core_link_window_end
@@ -46,25 +51,37 @@ prepare_agent_endpoint_path:
     jne .connect_new_session
     call .stream_and_exchange
     jnc .restore
+.rebuild_and_connect:
     call_core_phase core_agent_request_phase_start, core_agent_request_phase_end
     jc .restore
 .connect_new_session:
     call_core_phase core_agent_endpoint_phase_start, core_agent_endpoint_phase_end
-    jc .restore
+    jc .retry
     call_core_phase core_tls_client_hello_phase_start, core_tls_client_hello_phase_end
-    jc .restore
+    jc .retry
     call_core_phase core_agent_cache_phase_start, core_agent_cache_phase_end
-    jc .restore
+    jc .retry
     call run_tcp_connect_phase
-    jc .restore
+    jc .retry
     call tls_probe_server
-    jc .restore
+    jc .retry
     ; Do NOT reset tls_app_len here: agent_request (above) already rebuilt the send-state,
     ; and the handshake never touches tls_app_len/total (only the app-data receive does,
     ; tls.inc:916-918). Zeroing it made an inline follow-up (chat_prompt_len_cache=0) send
     ; nothing on reconnect -> the prompt returned with no answer. The cold first request
     ; does not use tls_app_len here, so leaving it set is harmless for cold.
     call .stream_and_exchange
+    jnc .restore
+.retry:
+    ; Build 11 never-blank: this connect attempt failed (handshake phase OR the exchange). Silently
+    ; retry the whole rebuild+connect up to 3x. The endpoint phase draws the single dim "> reconnect"
+    ; line on the FIRST reconnect attempt (gated on reconnect_retries==3 + a live prior session) and
+    ; appends " failed" once the counter reaches 0. On exhaustion, re-run the endpoint phase ONCE so
+    ; it renders that "failed" tail, then fall through to .restore (back to DPI). The user's next
+    ; prompt re-inits reconnect_retries=3 (the word write above) and runs the same loop again.
+    dec byte [reconnect_retries]
+    jnz .rebuild_and_connect
+    call_core_phase core_agent_endpoint_phase_start, core_agent_endpoint_phase_end
 .restore:
     pushf
     call wd_restore_dp8390_base

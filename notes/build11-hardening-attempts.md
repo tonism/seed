@@ -219,3 +219,84 @@ chacha20_block to regenerate the keystream at the surviving counter before the X
 resumes regenerate in the loop as before. ~5 instructions; K window held. Verifying across samples
 (the ~50% garble should vanish). The user's "recall" symptom was really these corrupted response
 words being rendered + carried into the window.
+
+## 2026-06-08 08:42:00 - buffer shrink 1460->592: the FIFO collapse's payoff (Stage B)
+
+Post-collapse, tls_rx_copy holds ONE TCP segment, never a whole record (tls.inc removed the last
+whole-record receive path), so the 1460 ceiling was vestigial. Shrank tls_payload_buffer_len
+1460->592 by advertising a 592 MSS in the SYN (tcp_syn_mss, layout.inc): a 4-byte TCP option
+(0x02,0x04,MSS-hi,MSS-lo) rides as the SYN "payload" (cx=4 into build_tcp_segment_frame), and the SYN
+flag (0x02) made build_tcp_segment_frame emit data-offset 0x60 (24-byte header). TCP MSS is a
+transport option Cloudflare always honors (unlike the TLS-layer record_size_limit it ignores on 1.2),
+so every server segment is now <=592 and one segment fits the buffer. 592 is the floor for
+tls_rx_copy's OTHER uses (DNS qname at +512 -> 512+80; ClientHello; DPI input). Freed ~868 B into the
+RAM-scaling chat pool. Validated 7/7 NIC matrix + a multi-segment >592 reply (coherent across
+segments). (Committed 422697a.)
+
+## 2026-06-08 12:00:00 - never-blank reconnect (3x silent retry) + the nucleus reorg that funds it
+
+P1 #2 / task 8. UX (user's words): a dropped chat connection shows a SINGLE dim "> reconnect" line and
+silently retries up to 3x; if all fail, " failed" is appended in place ("> reconnect failed") and the
+user returns to DPI, where the next prompt re-runs the loop. Dim attr 0x08 (CGA) / 0x07 (MDA).
+
+THE WALL. The resident nucleus was FULL: measured core_resident_end - $$ == 0x0800 EXACTLY (2048/2048;
+the handoff's "~3 B free" was wrong - the 3 trailing zero bytes are scroll_br + a var high byte, real
+data). The retry needs ~16 resident B; the message RENDER lives in a phase (free). So: free >=16 B first.
+
+REORG (the relief, ~17 B freed):
+1. SYN data-offset, -7 B. build_tcp_segment_frame (resident) used `test dl,0x02 / jz / mov al,0x60` to
+   set data-offset 0x60 for the SYN. Now it always emits 0x50; ne_transmit_tcp_syn (tcp_connect PHASE)
+   patches [ne_tx_frame+tcp_offset+12]=0x60 AND fixes the TCP checksum. The data-offset is the LOW byte
+   of the +12 header word, so 0x50->0x60 adds 0x10 to the little-endian checksum sum -> subtract 0x10
+   from the stored checksum, one's-complement as `add ax,0xffef / adc ax,0` (end-around carry). ~17 B
+   added to the phase (slack: 145 B), 7 freed from the nucleus.
+2. Relocate 7 written-before-read vars, ~10 B. chat_resend_prompt_len, chat_context_used, compact_next,
+   compacting_msg, chat_compact_threshold, chat_context_len_var, scroll_br moved from nucleus db/dw into
+   a new reconnect_state_* block (data.inc, chat_cache_end..ka_template_persistent, ABOVE
+   critical_scratch_end so it survives a reconnect handshake exactly like the nucleus copies did). Each
+   is written before read (hardware_setup at boot, or per-turn) EXCEPT compact_next/compacting_msg/
+   chat_context_used, which the COLD greeting reads before its first write (their only writers are the
+   ready/chat path), so hardware_setup boot-zeroes them (beside agent_loop_pending). The two HOT crypto
+   pointers (tls_app_data_ptr/plain_ptr) stayed resident (too risky to move).
+
+FEATURE (~16 B):
+- Counter init is near-free: reconnect_retries sits at chat_resend_prompt_len+1, so net_phase inits both
+  in the EXISTING word that captures the prompt length (`mov ah,3 / mov [chat_resend_prompt_len],ax` -
+  al=len, ah=3 retries; +2 B vs the old byte store, not +5).
+- Retry loop (prepare_agent_endpoint_path): the 5 connect-path failures + the final exchange `jc .retry`;
+  `.retry` does `dec byte [reconnect_retries] / jnz .rebuild_and_connect`; on exhaustion re-invokes the
+  endpoint phase ONCE (renders "failed") then falls to .restore. Covers cold + reuse-fail + reconnect.
+- Render (agent_endpoint phase, the FIRST reconnect phase, so the line lands BEFORE the ~14.5s crypto):
+  retries==3 + tls_key_schedule_ready==1 (a live prior session, excludes the cold first connect) -> draw
+  "> reconnect" once and PARK the cursor (no advance) so the answer or " failed" appends in place;
+  retries {2,1} -> silent (the ==3 gate shows the line exactly once); retries==0 -> append " failed" +
+  advance. "show once" needs NO extra flag: tls_key_schedule_ready (set by the prior handshake, NOT
+  cleared by a hard-failed reuse) distinguishes reconnect from cold, and the ==3 gate fires only on
+  attempt 1. (A cold-boot connect failing 3x shows just " failed" - no "> reconnect" prefix - but with
+  the CF fix below that path shows the fatal screen anyway, so it never surfaces in practice.)
+
+CODE-REVIEW (3 parallel finder agents) caught + FIXED two reorg bugs before commit:
+- Cold-setup CF: the exhaustion path fell into .restore with CF from the "failed" render (~clear), so a
+  COLD-BOOT agent-connect failure (prepare_agent_path FALLS THROUGH into prepare_agent_endpoint_path;
+  main.inc `jc agent_setup_error`) would skip the fatal screen and drop into the chat loop with no
+  session. Fixed by `stc` before the endpoint phase's failed-render `ret` (in the PHASE, 0 nucleus B).
+  A mid-chat turn ignores CF, so only the cold-boot fatal path is restored.
+- compact_next/compacting_msg lost their nucleus `db 0` boot-init in the move and are read-before-write
+  on the cold greeting (same as chat_context_used) -> garbage from the non-boot-zeroed high block. Added
+  them to the hardware_setup boot-zero (one word write: they're adjacent). [The canaries had passed only
+  because the high block happened to be zero - a latent bug.]
+
+RESULT: nucleus 2047/2048 (1 B free), endpoint phase 506/512.
+
+VALIDATED (ne2k8 canaries, harness): reorg canary (greeting + 2 prompts clean -> SYN checksum + moved
+vars OK); forced-fail canary (a temp counter failing every exchange after the greeting -> screenshot
+shows dim "> reconnect failed" TWICE, incl. the re-prompt re-running the loop, then DPI). Happy
+reconnect (show "> reconnect" then a real answer) is proven BY CONSTRUCTION: the SUCCESS path is
+byte-identical to the pre-change reconnect (jc->.retry only changes FAILURE routing; success still
+`jnc .restore`), the reconnect was Build-8/10-validated, and the resend reconstructs the prompt from
+chat_resend_prompt_len (which the word write sets to the same value as before) via
+agent_request.restore_prompt_from_screen. A forced reuse-fail-then-reconnect test gave a FALSE "failed"
+(the forced fail fires at agent_api_exchange entry, AFTER the X phase already sent on the live socket,
+orphaning that request server-side; a real dead-socket reuse-fail has no such artifact). 7-NIC matrix =
+final regression confirmation (changes are NIC-independent: SYN building, RAM layout, control flow,
+print_char render - so ne2k8 covers the product).

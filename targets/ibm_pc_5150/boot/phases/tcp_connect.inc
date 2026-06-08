@@ -122,11 +122,20 @@ tcp_open_resolved_target:
 ne_transmit_tcp_syn:
     call tcp_reset_state
     mov al, 0x02
-    ; The 4-byte MSS option rides as the SYN "payload": build_tcp_segment_frame counts it in the
-    ; IP length + TCP checksum, and emits data-offset 0x60 because the SYN flag (0x02) is set.
+    ; The 4-byte MSS option rides as the SYN "payload": build_tcp_segment_frame counts it in the IP
+    ; length + TCP checksum. Build 11 reorg: it emits data-offset 0x50 (20-byte header) for EVERY
+    ; segment to keep the SYN-only branch out of the resident nucleus; patch it here to 0x60 (24-byte
+    ; header = +4 MSS-option bytes). The data-offset byte is the low byte of the header word at +12, so
+    ; the +0x10 it adds to the checksum sum is undone by subtracting 0x10 from the stored checksum --
+    ; one's-complement: add ~0x10 (0xffef) and fold the end-around carry (adc), keeping the SYN valid.
     mov cx, 4
     mov si, PHASE_LOAD_ADDR + (tcp_syn_mss_option - PHASE_BASE)
     phase_call_res build_tcp_segment_frame
+    mov byte [ne_tx_frame + tcp_offset + 12], 0x60
+    mov ax, [ne_tx_frame + tcp_offset + 16]
+    add ax, 0xffef
+    adc ax, 0
+    mov [ne_tx_frame + tcp_offset + 16], ax
 
     mov si, ne_tx_frame
     phase_call_res ne_transmit_frame
