@@ -122,8 +122,10 @@ tcp_open_resolved_target:
 ne_transmit_tcp_syn:
     call tcp_reset_state
     mov al, 0x02
-    xor cx, cx
-    mov si, tcp_remote_ack
+    ; The 4-byte MSS option rides as the SYN "payload": build_tcp_segment_frame counts it in the
+    ; IP length + TCP checksum, and emits data-offset 0x60 because the SYN flag (0x02) is set.
+    mov cx, 4
+    mov si, PHASE_LOAD_ADDR + (tcp_syn_mss_option - PHASE_BASE)
     phase_call_res build_tcp_segment_frame
 
     mov si, ne_tx_frame
@@ -132,6 +134,9 @@ ne_transmit_tcp_syn:
     mov byte [handoff_addr + handoff_net_status], net_status_tcp_syn_sent
 .done:
     ret
+
+tcp_syn_mss_option:
+    db 0x02, 0x04, tcp_syn_mss >> 8, tcp_syn_mss & 0xff
 
 tcp_reset_state:
     mov ax, [tcp_source_port_word]

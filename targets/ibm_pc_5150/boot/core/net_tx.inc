@@ -219,6 +219,10 @@ build_tcp_segment_frame:
     movsw
     mov ah, dl
     mov al, 0x50
+    test dl, 0x02                       ; SYN carries a 4-byte MSS option -> 24-byte header (data offset 6)
+    jz .data_offset_ready
+    mov al, 0x60
+.data_offset_ready:
     stosw
     ; Uniform 256-byte advertised window. Under SLiRP (the emulated test path) the
     ; VM<->proxy link is local, so the window has no real effect on throughput; the
