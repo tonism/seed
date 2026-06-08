@@ -60,8 +60,21 @@ tls_probe_server:
     ; master_secret/key_block), and the transcript was already updated just above, so the
     ; wire order (CKE before CCS+Finished) and the Finished hash are unchanged; only the
     ; local send timing moves earlier. (Was 3c501/3c503-only; NE/WD used to send it late.)
+    ; Build 11 slice 3b: save the send seq before the CKE, then (after the send) hold the CKE in
+    ; tls_client_hello_buffer -- idle now (the ClientHello retransmit is done) and NOT read by the key
+    ; derivation (the PRF reads tls_random/tls_server_random) -- before tls_prepare_master_secret can
+    ; reuse fs_sector_buffer. This begins the held CKE+CCS+Finished flight blob so the whole second
+    ; client flight can be retransmitted raw if the server's Finished does not arrive (NE/WD).
+    push ds
+    pop es
+    mov si, tcp_local_seq
+    mov di, tls_retransmit_seq
+    movsw
+    movsw
+    mov word [tls_stream_skip_remaining], 0
     call tls_send_client_key_exchange
     jc .failed
+    call tls_hold_flight_segment
     cmp byte [tls_key_schedule_ready], 1
     je .key_schedule_ready
     call tls_prepare_master_secret
@@ -87,6 +100,9 @@ tls_probe_server:
 .send_combined_final_flight:
     call tls_send_client_final_flight
     jc .failed
+    ; Build 11 slice 3b: append the sent CCS+Finished to the held flight blob (after the CKE) so the
+    ; whole second client flight can be resent raw on a server-Finished timeout (NE/WD path).
+    call tls_hold_flight_segment
 .app_send_path:
     mov al, [handoff_addr + handoff_nic_family]
     cmp al, family_3c503
@@ -792,12 +808,62 @@ tls_prepare_3c501_split_application_record:
     ret
 
 tls_send_prebuilt_after_server_finished:
-    call tls_read_server_finished_records
+    call tls_read_server_finished_with_retry
     jc .done
     call tls_send_prebuilt_application_data_current_seq
     jc .done
     jmp tls_accept_server_finished
 .done:
+    ret
+
+; Build 11 slice 3b: read the server's Finished; if it does not arrive (the client's CKE+CCS+Finished
+; flight was lost), resend that held flight raw and re-read, bounded by tcp_syn_retry_count. The
+; Finished is encrypted + transcript-bound so it CANNOT be rebuilt -- tls_resend_second_flight rewinds
+; tcp_local_seq to the saved pre-CKE value and resends the blob held in tls_client_hello_buffer (CKE ||
+; CCS+Finished, total length in tls_stream_skip_remaining), which the server dedups by seq. NE/WD path.
+tls_read_server_finished_with_retry:
+    mov cx, tcp_syn_retry_count
+.try:
+    push cx
+    call tls_read_server_finished_records
+    pop cx
+    jnc .ok
+    dec cx
+    jz .fail
+    call tls_resend_second_flight
+    jmp .try
+.ok:
+    clc
+    ret
+.fail:
+    stc
+    ret
+
+tls_resend_second_flight:
+    push ds
+    pop es
+    mov si, tls_retransmit_seq
+    mov di, tcp_local_seq
+    movsw
+    movsw
+    mov si, tls_client_hello_buffer
+    mov cx, [tls_stream_skip_remaining]
+    call tcp_send_payload
+    ret
+
+; Append the just-sent record (fs_sector_buffer[0..tls_tx_len]) to the held second-flight blob in
+; tls_client_hello_buffer (idle post-ServerHello), tracking the running length in
+; tls_stream_skip_remaining (idle during the handshake). Slice 3b: lets the whole CKE+CCS+Finished
+; flight be resent raw via tls_resend_second_flight if the server's Finished is lost.
+tls_hold_flight_segment:
+    push ds
+    pop es
+    mov si, fs_sector_buffer
+    mov di, tls_client_hello_buffer
+    add di, [tls_stream_skip_remaining]
+    mov cx, [tls_tx_len]
+    add [tls_stream_skip_remaining], cx
+    rep movsb
     ret
 
 tls_send_prebuilt_before_server_finished:

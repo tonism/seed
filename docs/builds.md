@@ -524,10 +524,20 @@ P4 — bigger bets and research:
    buffer + RTO timers + ACK tracking + receive reordering) would make loss transparent WITHIN a
    connection - the universal fix for spotty-link loss - but it does NOT remove the reconnect (an
    idle-CLOSED session has nothing to retransmit), and it is a meaty build for a 2 KB nucleus on
-   a 4.77 MHz part. Cheap partial slices that get most of the win first: SYN-retransmit in the
-   connect phase + a larger tcp_payload_wait_count receive window. (Context: Build 11 dropped the
-   un-retried port-80 boot probe and leaned boot connectivity on the agent connect's existing 3x
-   retry; see notes/build11-hardening-attempts.md.)
+   a 4.77 MHz part. Slices 2 (SYN-retransmit) + 3a (ClientHello retransmit) SHIPPED in Build 11 --
+   the connection-establishment client sends, the cheap high-exposure 80/20; slice 3b (CKE+CCS+
+   Finished flight, a held ~150 B buffer reusing tls_client_hello_buffer) + slice 4 (request flight,
+   the RAM-hungry tail) are the remaining slices. (Context: Build 11 also dropped the un-retried
+   port-80 boot probe; see notes/packet-retransmit-design.md + notes/build11-hardening-attempts.md.)
+15 handshake speed (crypto optimization) - the ~15 s handshake sits only ~0.2 s inside the server's
+   ~15 s patience, so any latency spike tips it past: this is the observed boot/reconnect failure on
+   a degraded link (wire-proven -- the client's CCS+Finished landed 0.1 s after the server's FIN).
+   The ~7.5 s CKE->CCS+Finished gap is the 8088 grinding the TLS-PRF (master secret + key block;
+   SHA-256/HMAC is the hot op). Optimizing it (faster SHA-256 inner loop, fewer PRF rounds) is a
+   DOUBLE win -- more patience margin AND a shorter window for packet loss to bite -- and it is the
+   bigger lever than retransmit for the failure we actually saw. Pairs with #14: retransmit fixes
+   loss, speed fixes the margin. (The P-256 primitives are already %if0'd for speed; this is the
+   symmetric PRF that always runs.)
 ```
 
 ## Public Release Gate
