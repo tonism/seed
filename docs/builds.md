@@ -524,11 +524,18 @@ P4 — bigger bets and research:
    buffer + RTO timers + ACK tracking + receive reordering) would make loss transparent WITHIN a
    connection - the universal fix for spotty-link loss - but it does NOT remove the reconnect (an
    idle-CLOSED session has nothing to retransmit), and it is a meaty build for a 2 KB nucleus on
-   a 4.77 MHz part. Slices 2 (SYN-retransmit) + 3a (ClientHello retransmit) SHIPPED in Build 11 --
-   the connection-establishment client sends, the cheap high-exposure 80/20; slice 3b (CKE+CCS+
-   Finished flight, a held ~150 B buffer reusing tls_client_hello_buffer) + slice 4 (request flight,
-   the RAM-hungry tail) are the remaining slices. (Context: Build 11 also dropped the un-retried
-   port-80 boot probe; see notes/packet-retransmit-design.md + notes/build11-hardening-attempts.md.)
+   a 4.77 MHz part. Slices 2 (SYN), 3a (ClientHello), 3b (CKE+CCS+Finished flight) ALL SHIPPED in
+   Build 11 -- every handshake client send is now retransmittable (NE/WD). BUT loss testing (5% +
+   15%, low latency) showed the client-retransmit is NOT the loss bottleneck: at 5% boot is 4/4 and
+   the loss is absorbed by the SERVER retransmitting the download + the seed's existing receive wait
+   (0 client retransmits, several server retransmits); at 15% boot drops to 1/4 and the failures are
+   the CERTIFICATE *receive* (the server resent ~2.8 KB but the seed's wait gave up first), upstream
+   of any client send. So the client-retransmit slices are correct insurance for a rare case, not the
+   high-value lever. Slice 4 (request-flight retransmit) is DROPPED -- the reconnect already recovers
+   a dropped request and #15 makes that recovery fast, so its ~2 KB buffer is not worth it. The real
+   heavy-loss levers are below (#15 handshake-speed) and a receive-side one (#16). (Context: Build 11
+   also dropped the un-retried port-80 boot probe; see notes/packet-retransmit-design.md +
+   notes/build11-hardening-attempts.md.)
 15 handshake speed (crypto optimization) - the ~15 s handshake sits only ~0.2 s inside the server's
    ~15 s patience, so any latency spike tips it past: this is the observed boot/reconnect failure on
    a degraded link (wire-proven -- the client's CCS+Finished landed 0.1 s after the server's FIN).
@@ -538,6 +545,15 @@ P4 — bigger bets and research:
    bigger lever than retransmit for the failure we actually saw. Pairs with #14: retransmit fixes
    loss, speed fixes the margin. (The P-256 primitives are already %if0'd for speed; this is the
    symmetric PRF that always runs.)
+16 receive-side loss tolerance (heavy loss) - the wire showed the heavy-loss (15%) bottleneck is the
+   server->client DOWNLOAD (the ~2.8 KB Certificate, the ~8 KB response): the server retransmits the
+   dropped segments, but the seed's bounded receive wait (tcp_payload_wait_count + the handshake
+   receive waits) gives up before all the retransmits land. The cheap lever is a BIGGER receive wait
+   so the seed out-waits the server's RTO under heavy loss (trade-off: a genuinely dead link then
+   fails slower; the never-blank reconnect already covers that gracefully). This is the actual
+   high-value heavy-loss lever the client-retransmit slices (#14) do NOT address -- moderate loss
+   (~5%) is already handled by the existing wait + server retransmit (boot 4/4). Lower priority than
+   #15 for the OBSERVED failure, but the real fix if "survive a bad link" becomes a goal.
 ```
 
 ## Public Release Gate

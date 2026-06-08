@@ -75,6 +75,8 @@ class Stream:
     def __init__(self):
         self.isn = None
         self.segs = {}          # offset -> bytes (first-seen wins; ignores retransmits)
+        self.retransmits = 0    # payload segments resent at an already-seen offset (a retransmit)
+        self.retransmit_bytes = 0
     def add(self, seq, payload, is_syn):
         if is_syn and self.isn is None:
             self.isn = seq
@@ -86,6 +88,9 @@ class Stream:
         # unwrap 32-bit wrap into a small positive offset space
         if offrel > 0x7fffffff:
             offrel -= 0x100000000
+        if offrel in self.segs:                      # same bytes resent = a retransmit
+            self.retransmits += 1
+            self.retransmit_bytes += len(payload)
         self.segs.setdefault(offrel, payload)
     def contiguous(self):
         """Return (blob, offset->ts map seeds) walking from 0 until the first gap."""
@@ -203,6 +208,9 @@ def main():
         print("  client AppData records: %d  sizes=%s" % (len(c_app), c_app))
         print("  server sent CCS(20): %s   server Finished(22 after CCS): %s" %
               (s_has_ccs, s_has_hs_after))
+        print("  CLIENT retransmits (our resends): %d (%d B)   server retransmits: %d (%d B)" %
+              (c["cs"].retransmits, c["cs"].retransmit_bytes,
+               c["sc"].retransmits, c["sc"].retransmit_bytes))
         if cend < clen:
             print("  [client stream gap/undecodable tail at offset %d of %d]" % (cend, clen))
         if send < slen:
