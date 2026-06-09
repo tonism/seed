@@ -49,6 +49,37 @@ several KB the 8088 can't spare — so wiring in a secure exchange (ephemeral sc
 real entropy) is the headline open problem. Full story:
 [docs/architecture.md](docs/architecture.md).
 
+## Try it
+
+A prebuilt floppy image is on the [Releases](https://github.com/tonism/seed/releases)
+page — `seed-160k.img` (160 KB, **no API key included**).
+
+1. **Boot it in [86Box](https://86box.net/).** Configure an IBM PC/XT-class machine
+   with **≥ 32 KB RAM** (16 KB boots, but the agent can barely remember a turn) and a
+   supported NIC (NE1000/NE2000, 3c501/3c503, or WD8003). Mount `seed-160k.img` as
+   floppy A: and boot. The repo ships 86Box profiles — see `tools/run-86box.sh`.
+2. **Bring your own key.** On first boot Seed asks for a provider and key — pick
+   OpenAI and paste yours. If the floppy is writable, Seed saves it for next time.
+
+To **skip typing the key**, put a `USER.CFG` on the image before booting:
+
+```text
+agent openai
+model gpt-5.5
+key sk-your-openai-key
+```
+
+(`model` is whatever id your account can use.) Inject it with
+[mtools](https://www.gnu.org/software/mtools/):
+`mcopy -i seed-160k.img USER.CFG ::USER.CFG` — or rebuild from source with
+`config/USER.CFG` in place.
+
+> ⚠️ **Use a throwaway, rate-limited key.** seed's TLS is **not a secure channel**
+> (the key exchange is stubbed — see Status above), so the `Authorization` header is
+> exposed to anyone on the network path. Use a disposable key with strict limits and
+> revoke it afterward. `USER.CFG` also stores the key in plaintext on the image — don't
+> share an image that has your key in it.
+
 ## Authorship
 
 Every line of seed's code — the 8088 assembly, the hand-rolled TLS stack, the build
