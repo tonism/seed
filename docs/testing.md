@@ -41,6 +41,8 @@ stale cfg leaves the floppy in B: and the machine lands in ROM BASIC.
 - `--screenshot PATH` - save a final screenshot (then read it; see below).
 - `--post-dpi-idle N` - idle N seconds before a turn to force the keep-alive to
   close, exercising a real reconnect.
+- `--pcap PATH` / `--pcap-iface IFACE` - capture the wire to a pcap; see Wire
+  capture below (the capture is host-wide, so seed must be isolated from it).
 
 ## Reading results
 
@@ -48,6 +50,31 @@ stale cfg leaves the floppy in B: and the machine lands in ROM BASIC.
 invisible, and digits get mangled (`7` -> `?`). **Read the screenshot image**
 with the Read tool; do not trust the printed OCR transcription. The screen
 oracle's success/failure verdict is reliable; its transcribed text is not.
+
+## Wire capture (pcap)
+
+`--pcap PATH` (optionally `--pcap-iface IFACE`, default `en0`) captures the wire
+during a run. **Caveat:** 86Box's SLiRP NATs the VM out through the *host's* IP,
+so the capture is the Mac's entire network (browser, Slack, ...), not just seed.
+You must isolate seed's traffic - and SLiRP terminates the VM's TCP and opens its
+own host socket, so the SYN options and source ports on the wire are the *host's*,
+not seed's. Identify seed only by destination IP + its TLS handshake fingerprint,
+never by source port.
+
+1. **OpenAI's edge IP** - `dig +short api.openai.com` (Cloudflare, e.g.
+   `162.159.140.245` / `172.66.0.243`); the harness also prints "HTTPS remotes:".
+2. **Walk only seed's streams** - `python3 tools/tls-flow.py <pcap> 162.159`. The
+   IP-substring arg drops the host noise; per connection it prints the client
+   AppData record count/sizes, whether the server sent CCS+Finished (handshake
+   accepted), retransmit counts, and a timestamped record timeline.
+3. **seed's fingerprint** - multi-second gaps between handshake steps (the 8088
+   grinding key-derivation: ~7 s ClientHello->ClientKeyExchange, ~7 s ->Finished).
+   No real client stalls like that, so you can spot seed even unfiltered.
+4. **"Did seed even dial out?"** - `tcpdump -nr <pcap> 'host <openai-ip>'`. Zero
+   packets to OpenAI after an event means seed never opened a socket - a
+   client-side bug, not a handshake or network failure. (This is exactly how the
+   post-panic reconnect bug was caught: the reconnects produced no OpenAI
+   connection at all, only the original request did.)
 
 ## Validation recipes
 
