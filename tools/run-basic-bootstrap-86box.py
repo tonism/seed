@@ -797,8 +797,13 @@ def rewrite_vm_config(
     wrote_fdd2_check = False
     wrote_fdd2_fn = False
     wrote_fdd2_type = False
+    wrote_video_filter = False
 
     def flush_general_tail():
+        # All VM profiles render with nearest-neighbour scaling (crisp CGA pixels). Forced here so it
+        # survives the rewrite + a fresh checkout regardless of what the committed cfg holds.
+        if not wrote_video_filter:
+            out.append("video_filter_method = 0")
         if not muted:
             return
         if not wrote_sound_muted:
@@ -833,6 +838,7 @@ def rewrite_vm_config(
             wrote_fdd2_check = False
             wrote_fdd2_fn = False
             wrote_fdd2_type = False
+            wrote_video_filter = False
             out.append(line)
             continue
 
@@ -845,6 +851,11 @@ def rewrite_vm_config(
                 out.append("sound_gain = 0")
                 wrote_sound_gain = True
                 continue
+
+        if in_general_section and stripped.startswith("video_filter_method ="):
+            out.append("video_filter_method = 0")
+            wrote_video_filter = True
+            continue
 
         if stripped.startswith("mem_size ="):
             out.append(f"mem_size = {ram_kib}")
