@@ -164,16 +164,21 @@ situational awareness + identity prompt - strengthen the situational map (curb t
 Bigger bets and research:
 
 ```text
-true security on larger / faster machines (separate exploration, CPU-gated) - the 4.77 MHz / 16 KiB
-  target makes deliberate, documented sacrifices; real confidentiality + authenticity are their own
-  work-item, gated on a CPU-speed probe (286/386+ or a higher clock). All CPU-bound, not just RAM-bound,
-  which is why they wait for a faster machine: real ECDHE key agreement (today a scalar-1 stub takes the
-  server's public X as the premaster - the constant-time P-256 primitives exist + are OpenSSL-cross-
-  checked, just compiled out for speed); real entropy for the client random + ephemeral scalar (today a
-  BIOS-tick LCG); and server-certificate authentication (today skipped, so the channel is unauthenticated
-  / MITM-exposed even before the key-exchange gap). Per-record app-data is already MAC-verified after the
-  FIFO collapse - that is record integrity, not a secure channel; the keys are still handshake-derived and
-  the handshake is the broken part. The small-machine product stays honestly "encrypted but not secure".
+true security on larger / faster machines (separate exploration, CPU-gated) - MEASURED to be CPU-gated,
+  not RAM-gated (spike: tools/crypto-bench/, results/FINDINGS.md + entropy_certauth_scoping.md). The
+  4.77 MHz / 16 KiB target makes deliberate, documented sacrifices; each was measured:
+  - real ECDHE: the dormant constant-time P-256 (%if0 in core/p256.inc, never previously assembled) was
+    brought to life + verified vs OpenSSL. One real scalar mult = 110.8 s on the 8088 - 7.4x over the
+    ~15 s window (the field multiply's 16x16 hardware muls are 97% of it; even a perfect schoolbook mul
+    floors at ~26.6 s). Fits 16 KiB easily (~3.4 KiB). So it is the CPU, not the size.
+  - server-cert authentication: RSA-2048 verify ~43 s/sig (e=65537, the cheap option), ECDSA-P256 verify
+    ~220 s/sig - both blow the window; a chain is minutes.
+  - real entropy: ~0.16 s (a SHA-mixed keystroke/NIC/PIT pool) - the ONLY affordable upgrade, but
+    timing-jitter sources are untestable on the cycle-deterministic emulator (keystroke timing works).
+  A full real-security handshake is ~2.7 min => out of reach on a stock 8088; it needs a faster machine
+  (286/386+) or a self-hosted long-patience endpoint. Per-record app-data is already MAC-verified after
+  the FIFO collapse - record integrity, not a secure channel. The small-machine product stays honestly
+  "encrypted but not secure"; real entropy + a pinned key is the honest middle ground.
 reach / perf - beyond segment 0 (>64 KiB); render-rate optimization for very long replies; drop the
   floppy reads in the 32K+ chat loop; TLS 1.3 (not a memory play - record-size caps are ignored on 1.2/1.3).
 full TCP retransmit (survive a genuinely bad link) - an unacked-byte buffer + RTO timers + ACK tracking +
@@ -182,10 +187,15 @@ full TCP retransmit (survive a genuinely bad link) - an unacked-byte buffer + RT
   showed the heavy-loss bottleneck is the server->client DOWNLOAD (the Certificate / response), not client
   sends, so a client retransmit layer is insurance for a rare case - below the two levers that follow. It
   also does NOT remove the reconnect (an idle-closed session has nothing to retransmit).
-handshake speed (crypto optimization) - the ~15 s handshake sits only ~0.2 s inside the server's ~15 s
-  patience, so a latency spike tips it past (the observed degraded-link boot/reconnect failure). The
-  ~7.5 s CKE->Finished gap is the 8088 grinding the TLS-PRF (SHA-256/HMAC is the hot op); a faster PRF
-  buys more margin AND a shorter loss window - the bigger lever than retransmit for the failure seen.
+handshake speed (crypto optimization) - MEASURED (spike: tools/crypto-bench/, results/FINDINGS.md).
+  The ~15 s handshake sits only ~0.2 s inside the server's ~15 s patience. The CKE->Finished gap is the
+  8088 grinding the TLS-PRF: measured 4.92 s (SHA-256 block 156 ms; bit-at-a-time rotr + memory-to-memory
+  32-bit math dominate). A 20-variant evolutionary search (byte rotation -> inline sigmas -> register-fold
+  the round body -> state base-ptr+disp8 -> xchg register-rename rotates) got SHA-256/PRF to 4.64x on real
+  86Box hardware (PRF 4.92 s -> 1.06 s), output bit-exact. Catch: +595 B of code and the K crypto window
+  has 9 B free, so landing it is a sized follow-up - free ~590 B in the K window, or bump
+  high_crypto_scratch_start ~600 B (free at 32 KiB, costs conversation arena at the 16 KiB floor; needs
+  7-NIC + 16K re-validation). The verified variant is tools/crypto-bench/variants/r4_v42.inc.
 receive-side loss tolerance - a bigger receive wait so the seed out-waits the server's RTO under heavy
   loss (the wire-proven heavy-loss bottleneck is the dropped server->client download). The high-value
   heavy-loss lever; the client-retransmit slices do not address it. Trade-off: a genuinely dead link then
