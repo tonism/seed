@@ -324,7 +324,7 @@ ka_interval_ticks equ 5461
 ka_request_len equ 42
 ; Build 11 ESC: byte length of the int 9 keyboard hook handler staged into the persistent pool at boot
 ; (hardware_setup, mirroring the keep-alive template). Asserted against the source there.
-esc_int9_handler_len equ 22
+esc_int9_handler_len equ 86
 tls_client_base_len equ 88
 tls_body_base_len equ 79
 tls_record_base_len equ 83

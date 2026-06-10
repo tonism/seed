@@ -25,6 +25,18 @@
 %endif
 
 tcp_connect_phase:
+    ; ESC-panic NIC safety (Build 11): a Ctrl+ESC longjmp can fire mid-NIC-access during the receive,
+    ; leaving the dp8390 command register on page 1 or a remote-DMA stalled; the reconnect then reuses
+    ; that dirty state and the SYN never reaches the wire (pcap-confirmed: zero SYNs leave after a
+    ; panic). ne_cmd_start_nodma (0x22 = page 0 + abort remote DMA + running) forces a clean state
+    ; before the flush/SYN below. dp8390 only -- the 3c501 has no DMA/page and re-inits its CR per TX.
+    cmp byte [handoff_addr + handoff_nic_family], family_3c501
+    je .nic_clean
+    mov bx, [handoff_addr + handoff_nic_base]
+    lea dx, [bx + ne_cr]
+    mov al, ne_cmd_start_nodma
+    out dx, al
+.nic_clean:
     cmp byte [handoff_addr + handoff_status], handoff_status_ready
     je tcp_reopen_cached_target
     call tcp_connect_target

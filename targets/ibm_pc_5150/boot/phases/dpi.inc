@@ -17,6 +17,10 @@
 %endmacro
 
 dpi_phase:
+    ; Build 11 ESC gate: the DPI is live now -- open the int 9 hook's ESC/Ctrl+ESC gate. Until this runs
+    ; (the entire boot network bring-up), the hook ignores ESC so it can't longjmp into a half-built chat
+    ; loop. Idempotent -- set every loop; only the first transition matters.
+    mov byte [dpi_reached], 1
     ; Build 10: run any tool directives the previous turn's response left in the
     ; conversation window, before drawing this prompt. Best-effort: a load failure
     ; just skips tools (never breaks the chat loop). Loaded at net_setup_phase_start

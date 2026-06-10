@@ -101,6 +101,9 @@ hardware_setup_phase_display:
     ; zero them here at boot like agent_loop_pending above. compact_next + compacting_msg are adjacent
     ; bytes (one word write); chat_context_used follows (the conversation window starts empty).
     mov word [compact_next], 0
+    mov word [esc_stop], 0          ; Build 11 ESC: esc_stop + the adjacent esc_panic -- tool_phase reads
+                                    ; both at the greeting, before agent_request resets esc_stop
+    mov byte [dpi_reached], 0       ; Build 11 ESC gate: hook stays inert until dpi_phase sets this post-boot
     mov word [chat_context_used], 0
     mov word [note_len], 0          ; #4 note-as-memory: no compacted note until the first compaction
     sub ah, seed_len
@@ -769,10 +772,11 @@ ka_template_source_end:
 %endif
 
 ; Build 11 ESC: the int 9 keyboard hook handler. Staged to esc_int9_handler (pool) at boot, runs from
-; there. Position-independent: only absolute seg-0 refs (esc_stop, esc_int9_old) + relative jumps. Peeks
-; the scancode, sets esc_stop on the ESC make-code (the graceful stop; the render's emit_char reacts),
-; and chains EVERY key to the saved BIOS int 9 (so normal typing + the ESC the DPI prompt reads still
-; work). Reading port 0x60 is non-destructive; the chained BIOS handler re-reads it and acks.
+; there. Position-independent: absolute seg-0 refs + relative internal jumps + an absolute far chain/jmp.
+; Peeks the scancode; on the ESC make-code, if Ctrl is held (BIOS kb-flag) it's Ctrl+ESC -> hard escape
+; (longjmp to chat_loop), else it sets esc_stop (graceful stop; emit_char reacts). Chains EVERY other key
+; to the saved BIOS int 9 (typing + the DPI prompt's ESC still work). Reading 0x60 is non-destructive; the
+; chained BIOS handler re-reads it and acks.
 esc_int9_handler_source:
     push ax
     push ds
@@ -781,11 +785,42 @@ esc_int9_handler_source:
     in al, 0x60
     cmp al, 0x01
     jne .esc_hook_chain
-    mov [esc_stop], al
+    cmp byte [dpi_reached], 0        ; Build 11 ESC gate: inert until the DPI is live (dpi_phase sets it)
+    je .esc_hook_chain               ; boot / pre-DPI keypress -> just chain to BIOS, never act on ESC
+    test byte [0x0417], 0x04         ; BIOS kb-flag 0040:0017 bit 2 = Ctrl held -> Ctrl+ESC hard escape
+    jnz .esc_panic
+    mov [esc_stop], al               ; plain ESC: graceful stop (al = 1)
+    mov word [chat_effective_cap], 0 ; + stop storing the rest into the window during the drain: no
+                                     ; context-fill / compaction-on-ESC; the drain just decrypt-discards
 .esc_hook_chain:
     pop ds
     pop ax
     jmp far [cs:esc_int9_old]
+.esc_panic:
+    ; Ctrl+ESC hard escape: abandon a hung $x / stuck render and longjmp back to the prompt. esc_panic ->
+    ; tool_phase draws "> panic stopped" + clears esc_stop+esc_panic (never-both). Mark the session dead
+    ; (reconnect next turn). EOI since we never IRET. Reset SP to the boot's ram_top, zero segments, and
+    ; do an ABSOLUTE far jmp to chat_loop (a relative jmp would be wrong from the pool). DS is already 0.
+    mov byte [esc_panic], 1
+    mov byte [tls_key_schedule_ready], 0
+    ; Ack the keyboard ourselves: this path does NOT chain to the BIOS int 9, so pulse PB7 (port 0x61
+    ; bit 7) or the 8255 stays latched on the un-acked ESC scancode and sends no more keys -- typing goes
+    ; dead at the prompt (the bug). The graceful path needs none of this: it chains to the BIOS, which acks.
+    in al, 0x61
+    mov ah, al
+    or al, 0x80
+    out 0x61, al
+    mov al, ah
+    out 0x61, al
+    mov al, 0x20
+    out 0x20, al
+    mov bx, [handoff_addr + handoff_ram_top]
+    xor ax, ax
+    mov es, ax
+    mov ss, ax
+    mov sp, bx
+    sti
+    jmp 0x0000:chat_loop
 esc_int9_handler_source_end:
 %if (esc_int9_handler_source_end - esc_int9_handler_source) != esc_int9_handler_len
 %error "esc_int9_handler_len (layout.inc) != the staged int 9 handler length"

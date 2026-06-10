@@ -413,12 +413,18 @@ chat_resend_prompt_len equ reconnect_state_start
 reconnect_retries equ chat_resend_prompt_len + 1
 compact_next equ reconnect_retries + 1
 compacting_msg equ compact_next + 1
-; Build 11 ESC-to-interrupt: the int 9 hook sets this on a plain ESC during a render (graceful stop).
-; Homed right after compacting_msg so emit_char suppresses on BOTH via one word cmp (0 extra bytes in
-; the maxed render phase). Reset per turn at agent_request (not boot-zeroed; agent_request always runs
-; before the first render, so the cold greeting never reads it stale).
+; Build 11 ESC-to-interrupt. esc_stop: the int 9 hook sets it on a plain ESC during a render (graceful
+; stop) -- homed right after compacting_msg so emit_char suppresses on BOTH via one word cmp (0 extra
+; bytes in the maxed render phase). esc_panic: set instead on Ctrl+ESC (stage 2 hard escape) -- the hook
+; longjmps to chat_loop and tool_phase draws "> panic stopped" + skips its scan. Both boot-zeroed together
+; (one word write in hardware_setup): tool_phase reads them at the greeting, before agent_request resets.
 esc_stop equ compacting_msg + 1
-chat_context_used equ esc_stop + 1
+esc_panic equ esc_stop + 1
+; Build 11 ESC gate: 0 through the whole boot network bring-up; dpi_phase sets it to 1 the moment the
+; DPI goes live. The int 9 hook ignores ESC/Ctrl+ESC while it is 0, so a keypress during boot can't
+; longjmp into a half-built chat loop (no splash, dead boot). Boot-zeroed (1 byte, after esc_panic).
+dpi_reached equ esc_panic + 1
+chat_context_used equ dpi_reached + 1
 chat_compact_threshold equ chat_context_used + 2
 chat_context_len_var equ chat_compact_threshold + 2
 scroll_br equ chat_context_len_var + 2

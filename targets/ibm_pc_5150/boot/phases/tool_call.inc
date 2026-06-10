@@ -51,6 +51,16 @@ tool_sink equ fs_sector_buffer
 
 tool_phase:
     push bp
+    ; Build 11 #5 stage 2: a Ctrl+ESC hard escape longjmp'd here (the hook set esc_panic + jmp chat_loop,
+    ; abandoning the hung $x). Draw "> panic stopped" and return WITHOUT scanning -- a scan would re-run the
+    ; $x that hung. Clear esc_stop + the adjacent esc_panic together (one word) so "> stopped" never also shows.
+    cmp byte [esc_panic], 0
+    je .no_panic
+    mov si, PHASE_LOAD_ADDR + (.panic_text - PHASE_BASE)
+    call .draw_status
+    mov word [esc_stop], 0
+    jmp .loop_stop                       ; clears agent_loop_pending + count, pop bp, ret (no scan, no continue)
+.no_panic:
     mov byte [agent_loop_pending], 0     ; not boot-cleared; clear each run, set on a tool fire
     cld
     mov si, chat_context_start
@@ -107,21 +117,23 @@ tool_phase:
 ; "> read from .." dim prefix in .res_open. Sets api_stream_seen so render_prompt leaves a gap and draws
 ; the next prompt below it. Called from .scan_done on a graceful stop (after any in-flight tool has run).
 .draw_stopped:
+    mov si, PHASE_LOAD_ADDR + (.stopped_text - PHASE_BASE)
+.draw_status:                            ; si -> relocated z-string; draw it as a dim screen-only system line
     mov byte [api_stream_seen], 1
     call .scr_newline
     call .scr_set_video
-    mov si, PHASE_LOAD_ADDR + (.stopped_text - PHASE_BASE)
-.draw_stopped_next:
+.draw_status_next:
     mov al, [si]
     or al, al
-    jz .draw_stopped_done
+    jz .draw_status_done
     call .scr_putc
     inc si
-    jmp .draw_stopped_next
-.draw_stopped_done:
+    jmp .draw_status_next
+.draw_status_done:
     call .scr_clr_video
     ret
 .stopped_text db '> stopped', 0
+.panic_text db '> panic stopped', 0
 
 ; si -> '$'. Validate "$<verb> " with verb in r/w/x. If invalid, step past the
 ; '$' and return (left intact, never executes). If valid: neutralize the '$',
