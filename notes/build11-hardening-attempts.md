@@ -934,3 +934,65 @@ kb-flag 0040:0017 bit 2) + ESC -> a hard longjmp back to the prompt (reset SP, m
 next prompt reconnects, draw "> panic stopped"). It must CLEAR esc_stop + bypass the soft-completion path so
 "> stopped" and "> panic stopped" are never both shown (panic replaces soft). The risky part (stack reset +
 phase re-entry) - deferred here on purpose.
+
+---
+
+## Renderer polish: dim tool directives + whole-line execution gate (DONE)
+
+GOAL: Build 10 HARD-CUT everything from a '$' to end-of-line off the screen, which mangled an inline mention
+- "verify at 0x7dfe (use $r 7dfe 2)" rendered as a dangling "(use ". Fix: render directives DIMMED instead.
+Grew into a coherent slice across three concerns, all driven by user feedback during the session.
+
+RELOCATION WAS UNSAFE (the plan's premise, abandoned). The plan (notes/renderer-polish-plan.md, now deleted)
+wanted to relocate the 1-sector render phase 'T' to a 2-sector slot for room. But the only slots below the
+nucleus (0x1000) overlap ne_tx_frame (low_scratch_start 0x0700), the NIC RX/TX/crypto packet buffer used
+DURING the render loop. transport.inc sets ne_rx_read_limit = tcp_payload_read_len = 1514, so a received
+frame can be read up to 0x0CDA - any 2-sector 'T' below the nucleus lands inside it. Relying on the server's
+MSS to bound that is the exact clobber-class fragility this codebase fights. So 'T' STAYS 1 sector at 0x0D00;
+everything fit via golf instead. (A principled RX-read-window shrink to one MSS-frame - the receive already
+caps payload at 592 via tls.inc:339 - WOULD free a safe 2-sector slot, but it touches the transport/handshake
+path: TABLED for separate exploration. Smart-linebreaking needs that same render-phase room, so it rides along.)
+
+THREE PARTS (each a user decision):
+1. Dim, don't cut (agent_response.inc .emit_char + write_char_direct). A '$' opens a dim line; write_char_direct
+   picks attr 0x08 (CGA dark grey) / 0x07 (MDA, no dim) when compact_next is set. The compaction-suppress path
+   (compacting_msg) split out cleanly - it only marks text_seen now, never touches compact_next (agent_request
+   resets it every request; compaction never reads it).
+2. Whole-line EXECUTION gate (tool_call.inc). User: "line starting with $<verb> <hexargs> and nothing trailing;
+   multiple such lines = multiple executions in order; text blocks between are fine." Two halves: .scan requires
+   the '$' to START a line (window-start or [si-1]==10); .line_is_call requires only hex+spaces after the args
+   to the newline/window-end. An in-sentence mention ("...jump with $x 7c00.") fails both. THE KEY TRICK: a
+   tool-only reply ("$r 7c00 8") abuts " You: " in the window with no newline, which is exactly why the EARLIER
+   line-start gate was reverted. Fixed by ending the " You:" label with a real newline (' You:',10 - same length;
+   flattens to a space when the window is re-sent, so the model still sees " You: <reply>") so the reply begins
+   its own line in the raw window. Focused retry succeeded where the poisoned-context attempt failed.
+3. COLOUR MATCHES EXECUTION (user: "then we'd have consistency"). The renderer dims a '$' only when cursor_col==0
+   (line start) - the same signal the gate uses; a mid-sentence '$' renders as normal prose. cursor_col is seeded
+   to 0 in the agent_api_stream per-request reset so a reply that OPENS with a directive also reads as column 0.
+   The clean-trailing half can't be checked while streaming (no lookahead), so a line-start directive followed by
+   same-line prose still dims to its newline - a rare, documented divergence.
+
+GOLF to keep 'T' in 1 sector (510/512 B after all of the above): jcxz for the raw-byte loop; single-load
+walk-down state dispatch in .scan_delta (mov ah,[state]/or/dec/dec - ah is dead there); done_pattern aliased
+into completed_pattern+5 ('.done' is its 5-char suffix); .escaped_lf merged; .string_done falls through to
+.parser_ret; the zero-displacement jmp .stream_seen_ready dropped.
+
+CODE-REVIEW (high effort, 2 finder agents + verify) found a PRE-EXISTING si-clobber: .res_line clobbers si
+(its comment says "the scan si must be saved by exec"), .do_exec saves/restores it but .do_read/.do_write did
+NOT - so after a read/write .skip_to_eol wild-scanned low RAM for a newline. Multi-directive replies "worked"
+only because the wild-scan eventually re-reached the window; a stray '$'+verb+hex at a [si-1]==10 spot in
+scanned memory could spuriously execute. FIXED by save/restore si in .do_read/.do_write (matching .do_exec).
+The new line-start gate already REDUCED the risk (the wild-scan now needs a line-start '$', not any '$'). Two
+other agent findings dismissed: note-prefix directive execution (pre-existing; the line-start gate makes it
+HARDER, not a regression) and indented-directive-dropped (by design - the user's column-0 rule).
+
+VALIDATED (ne2k8 @ 32K, plus cross-NIC spot-checks wd8003e + 3c501 - all changes are NIC-independent rendering
++ window-text-scan): inline mention renders NORMAL and does NOT execute ("The command is \"$r 7dfe 2\"." stays
+bright); "run it" follow-up emits "$r 7dfe 2" line-start -> dim + executed; agentic follow-ups dim+execute;
+multi-directive ("read 8 at 7c00, then 4 at 7dfe" -> "$r 7c00 8" + "$r 7dfe 4" -> "> read from 7c00" + "> read
+from 7dfe" IN ORDER, deterministic post si-fix); a suggestion list of inline mentions ("- Full sector: $r 7c00
+200", "run $x 7c00") all render normal + none execute; pure prose unaffected. tool phase 854/1024 B (2 sectors).
+
+REMAINING (rendering): smart-linebreaking - the system-line block ("$r .." + "> read from ..") abuts the prose
+with no blank line before and too many blank lines after. Pre-existing (this slice does not touch vertical
+spacing). Needs render-phase room -> blocked on the same RX-shrink/relocation tabled above; picks up with it.

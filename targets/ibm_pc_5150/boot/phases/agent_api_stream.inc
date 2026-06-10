@@ -151,6 +151,10 @@ agent_api_stream_phase:
     mov word [api_stream_seen], ax
     mov word [api_http_state], ax
     mov [api_stream_text_seen], al
+    ; Build 11 colour-matches-execution: start the response at column 0 so the renderer's line-start
+    ; dim test (agent_response .emit_char) sees a reply-leading '$' as a real call. .emit_to_screen
+    ; sets the real cursor when it positions the first char; this only seeds the pre-position read.
+    mov [cursor_col], al
     clc
     ret
 
@@ -480,7 +484,11 @@ api_json_input_open_text_len equ $ - api_json_input_open_text - 1
 ; layer, chosen by identity/the user, not dictated by the transcript format.
 api_json_user_label_text db ' User: ', 0
 api_json_user_label_text_len equ $ - api_json_user_label_text - 1
-api_json_you_label_text db ' You: ', 0
+; Build 11 whole-line tool gate: this label ends with a real newline (not a trailing space) so the
+; model's reply begins on its own line in the raw window - tool_call can then treat a reply-leading
+; directive as a true line start. It flattens back to a space when the window is re-sent (append_context
+; turns control bytes into spaces), so the model still sees " You: <reply>". Same length as before.
+api_json_you_label_text db ' You:', 10, 0
 api_json_you_label_text_len equ $ - api_json_you_label_text - 1
 ; Build 11 cleanup: the Build 9 invisible-compaction recap directive was removed along with the
 ; dead compact_next request-build branches (recap compaction is gone since Build 10; the sliding

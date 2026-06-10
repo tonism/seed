@@ -26,8 +26,7 @@ agent_response_phase:
     mov si, [tls_app_data_ptr]
     mov cx, [tls_app_len]
 .raw_next:
-    or cx, cx
-    jz .raw_done
+    jcxz .raw_done
     lodsb
     push si
     call .accept_raw_byte
@@ -78,11 +77,14 @@ agent_response_phase:
     ret
 
 .scan_delta:
-    cmp byte [api_stream_state], 0
+    ; load the 0/1/2 state once and walk it down (ah is dead here; write_char_direct resets it),
+    ; cheaper than three cmp-immediates - reclaims bytes for the line-start dim check below.
+    mov ah, [api_stream_state]
+    or ah, ah
     je .scan_idle
-    cmp byte [api_stream_state], 1
+    dec ah
     je .scan_string
-    cmp byte [api_stream_state], 2
+    dec ah
     je .scan_escaped
     ret
 
@@ -110,14 +112,11 @@ agent_response_phase:
 .scan_escaped:
     mov byte [api_stream_state], 1
     cmp al, 'n'
-    je .escaped_lf
-    jmp .emit_char
-.escaped_lf:
-    mov al, 10
+    jne .emit_char                       ; any other escape: emit the char verbatim
+    mov al, 10                           ; \n -> LF
     jmp .emit_char
 .string_done:
     mov byte [api_stream_state], 0
-    ret
 .parser_ret:
     ret
 
@@ -151,11 +150,11 @@ agent_response_phase:
     ; Build 11 #4 real compaction: store the rendered char into the window up to chat_effective_cap -
     ; the FULL window on a normal turn, HALVED on a compaction pass (set once per request in
     ; agent_request). The halving caps the summary at 50%, keeping the post-summary window below the
-    ; 75% trigger so the endpoint loop cannot re-fire. On a compaction pass also suppress the draw and
-    ; mark text_seen (via the shared .set_seen_ret below): the summary is internal carried state, not
-    ; an answer, so it must not render - and it must not read as an empty/dead socket (-> spurious
-    ; reconnect). Safe to suppress here: a DEDICATED exchange with no user answer to eat, unlike the
-    ; Build-10 recap that swallowed real replies. bx = pre-store used count.
+    ; 75% trigger so the endpoint loop cannot re-fire. On a compaction pass the char is captured but
+    ; never drawn (.compaction_suppress): the summary is internal carried state, not an answer, so it
+    ; must not render - yet it must still mark text_seen so the socket is not read as empty/dead (->
+    ; spurious reconnect). Safe: a DEDICATED exchange with no user answer to eat, unlike the Build-10
+    ; recap that swallowed real replies. bx = pre-store used count.
     mov bx, [chat_context_used]
     cmp bx, [chat_effective_cap]
     jae .emit_char_stored               ; window/summary cap reached: stop accumulating
@@ -163,38 +162,47 @@ agent_response_phase:
     inc word [chat_context_used]
 .emit_char_stored:
     cmp word [compacting_msg], 0
-    jne .set_seen_ret                    ; suppress on compacting_msg OR the adjacent esc_stop (Build 11 ESC
-                                         ; graceful-stop): never draw, mark seen, let the receive loop drain
+    jne .compaction_suppress             ; compacting_msg OR the adjacent esc_stop (Build 11 ESC graceful
+                                         ; -stop): capture into the window, never draw, drain the loop
     cmp byte [compact_next], 0
-    jne .suppress_active                 ; compaction recap OR a tool line already in progress
-    ; Build 10: a '$' begins a tool directive - suppress that whole line from the screen (it
-    ; is already captured in the window above; the tool phase executes it between turns, and
-    ; shows its own dim "read from .." line). Reuse the recap suppress-to-newline below;
-    ; compact_next is reset every request, so a trailing-newline-less tool line cannot leak
-    ; into the next turn's compaction.
+    jne .dim_line                        ; a '$' tool line is open - render it dim to its newline
+    ; Build 11 renderer polish: a '$' opens a tool directive. Build 10 HARD-CUT the whole '$'..newline
+    ; off the screen, which mangled an inline mention - "verify at 0x7dfe (use $r 7dfe 2)" rendered as
+    ; a dangling "(use ". Now render the directive DIMMED (dark grey) instead: the sentence stays
+    ; intact and the user SEES the model reach for a tool (tool_call.inc then replays it as its own
+    ; dim "> read from .." line). The char is already captured in the window above, so the tool phase
+    ; still parses the '$' line verbatim.
     cmp al, '$'
-    jne .emit_to_screen                  ; normal char: render (already stored in the window)
-    ; Build 10 fix: a tool directive is suppressed from the screen but IS reply content. Mark
-    ; text_seen (like the compaction recap pre-arm, agent_request.inc) so the transport-completion
-    ; scan runs (it gates on text_seen) and a tool-ONLY reply (no prose - e.g. an obedient
-    ; write-then-run) is NOT misread by agent_api_exchange as an empty/dead-socket response ->
-    ; spurious reconnect -> clobbered auto-continue directive -> dead agentic loop.
-.set_seen_ret:                           ; a compaction summary char OR a '$' tool line: captured into
-    mov byte [api_stream_text_seen], 1   ; the window, never drawn; mark seen so completion still scans
-    mov byte [compact_next], 1
+    jne .emit_to_screen                  ; normal char: render at the normal attribute
+    ; Build 11 colour-matches-execution: dim a '$' ONLY when it STARTS a line (cursor at column 0),
+    ; the same line-start test tool_call's gate uses to decide a real call. A mid-sentence '$' is a
+    ; mention - render it as normal prose, not dim. (cursor_col is zeroed before each receive in the
+    ; agent_api_stream per-request reset, so a reply that OPENS with a directive also reads as column 0
+    ; here, before .emit_to_screen positions it.) The clean-trailing half can't be checked while
+    ; streaming (no lookahead), so a
+    ; line-start directive followed by same-line prose still dims to its newline - a rare divergence.
+    cmp byte [cursor_col], dpi_prompt_col
+    jne .emit_to_screen
+    mov byte [compact_next], 1           ; open the dim tool line (.emit_to_screen marks text_seen)
+    jmp .emit_to_screen                  ; draw the '$' dim - write_char_direct reads compact_next
+.compaction_suppress:
+    ; A compaction summary (or an ESC graceful-stop) is captured into the window above but never
+    ; drawn; mark text_seen so the transport-completion scan still runs (it gates on text_seen) and a
+    ; reply that draws nothing is not misread as an empty/dead socket -> spurious reconnect. compact_next
+    ; is NOT touched: agent_request resets it every request and compaction never reads it.
+    mov byte [api_stream_text_seen], 1
     ret
-.suppress_active:
-    ; Compaction turn: the reply opens with a one-line recap (captured into the window, not
-    ; drawn) - suppress until its first newline (or the window cap), then render the answer.
-    ; Same path now also hides a tool-directive line until its newline.
+.dim_line:
+    ; Inside an open '$' tool line: render each char dim (compact_next gates the attribute in
+    ; write_char_direct) until the newline - or the window cap - closes the line, then fall through to
+    ; draw this char/newline at the normal attribute. compact_next is reset every request, so a tool
+    ; line with no trailing newline cannot leak dim into the next turn.
     cmp al, 10
-    je .recap_end
+    je .dim_line_end
     cmp bx, [chat_context_len_var]
-    jae .recap_end
-    ret
-.recap_end:
+    jb .emit_to_screen
+.dim_line_end:
     mov byte [compact_next], 0
-    ret
 .emit_to_screen:
     cmp byte [api_stream_seen], 0
     jne .live_ready
@@ -210,7 +218,7 @@ agent_response_phase:
 .position_cold_greeting:
     mov byte [cursor_row], dpi_prompt_row - 2
     mov byte [cursor_col], dpi_prompt_col
-    jmp .stream_seen_ready
+    ; falls through to .stream_seen_ready (the prior jmp here had a zero displacement)
 .seen_ready:
 .stream_seen_ready:
     mov byte [api_stream_text_seen], 1
@@ -260,8 +268,11 @@ agent_response_phase:
     pop ax
     ret
 
-done_pattern db '.done', 0
 completed_pattern db '_text.done', 0
+; '.done' is the trailing 5 chars of '_text.done', so alias it into the longer literal rather than
+; carry a second copy. Both are SSE completion markers the scanner walks to the NUL; tls_key_schedule
+; _ready selects which (done = transport-final cold path, completed = live-session reuse).
+done_pattern equ completed_pattern + 5
 delta_key_pattern db '"delta":"', 0
 zero_chunk_pattern db '0', 13, 10, 13, 10, 0
 
@@ -274,10 +285,15 @@ agent_response_write_char_direct:
     push bx
     push di
     push es
-    mov ah, 0x07
+    mov ah, 0x07                         ; normal text attribute
     mov bx, color_video_seg
     test word [handoff_addr + handoff_flags], handoff_flag_mda
-    jz .segment_ready
+    jnz .mda_segment                     ; MDA has no dark-grey cell - render the directive normal
+    cmp byte [compact_next], 0           ; CGA: an open '$' tool line renders dim (dark grey on black)
+    je .segment_ready
+    mov ah, 0x08
+    jmp short .segment_ready
+.mda_segment:
     mov bx, 0xb000
 .segment_ready:
     mov es, bx

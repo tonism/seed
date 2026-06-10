@@ -69,10 +69,19 @@ tool_phase:
 .scan:
     cmp si, bx
     jae .scan_done
-    cmp byte [si], '$'               ; a directive can appear anywhere; .exec_directive validates the
-    jne .scan_adv                    ; verb+hex and guards false matches. (The line-start gate was
-    call .exec_directive             ; reverted: a bare-directive reply puts '$r' right after the prompt
-                                     ; with no preceding newline, so the gate silently dropped real calls.)
+    cmp byte [si], '$'
+    jne .scan_adv
+    ; Build 11 whole-line gate (1 of 2): a directive must START its line - be the window's first byte,
+    ; or sit right after a newline. The reply is now stored after " You:\n" (a real newline), so a
+    ; reply-leading "$r .." is a true line start while an in-sentence "$x .." is not. (.exec_directive's
+    ; .line_is_call is half 2: only hex+spaces may follow the args.) This is the focused retry of the
+    ; earlier line-start gate, which failed only because the reply abutted " You: " with no newline.
+    cmp si, chat_context_start
+    je .exec_here
+    cmp byte [si - 1], 10
+    jne .scan_adv                    ; '$' mid-line -> a mention; leave it intact, scan on
+.exec_here:
+    call .exec_directive
     mov bx, chat_context_start
     add bx, [chat_context_used]      ; window may have grown (result appended)
     jmp .scan
@@ -159,6 +168,11 @@ tool_phase:
     mov ah, al                       ; ah = verb ([si+1])
     mov bx, si                       ; bx = '$' position (for neutralize / revert)
     add si, 3                        ; -> first arg
+    ; Build 11 whole-line gate (2 of 2): .scan already required a line START; here require the line to
+    ; END right after the args - only hex + spaces may follow. Together the line is exactly
+    ; "$<verb> <hexargs>"; a trailing-prose mention ("$r 7c00 8, then check") is rejected before it runs.
+    call .line_is_call
+    jc .verb_revert                  ; trailing prose -> a mention; leave '$' intact, step past it
     push ax                          ; save verb
     push bx                          ; save '$' position
     call .parse_hex                  ; ax = addr; advances si; cf if no digits
@@ -216,8 +230,9 @@ tool_phase:
     jmp .skip_to_eol
 
 .do_read:
-    call .parse_hex                  ; ax = len
-    jc .read_zero
+    call .parse_hex                  ; ax = len; si now points past the args
+    push si                          ; save scan ptr - .res_line clobbers si (see its comment); .do_exec
+    jc .read_zero                    ; saves it the same way. Without this .skip_to_eol wild-scans low RAM.
     mov cx, ax
     jmp .read_have_len
 .read_zero:
@@ -244,6 +259,7 @@ tool_phase:
     loop .read_byte
 .read_eol:
     call .res_close
+    pop si                           ; restore scan ptr saved above
     jmp .skip_to_eol
 
 .do_write:
@@ -256,9 +272,11 @@ tool_phase:
     jmp .write_byte
 .write_eol:
     pop bp                           ; [start] addr
+    push si                          ; save scan ptr - .res_line clobbers si (see its comment)
     mov ax, .word_wrote              ; "write to <addr>" - write cannot fail and the
     call .res_line                   ; model already knows the bytes, so no result suffix
     call .res_close
+    pop si                           ; restore scan ptr saved above
     jmp .skip_to_eol
 
 ; Advance si to the next newline (or window end). Returns to .scan, which then
@@ -274,6 +292,46 @@ tool_phase:
     inc si
     jmp .eol_next
 .eol_done:
+    ret
+
+; Build 11 standalone-call gate: si -> a directive's first arg. CF=0 if the rest of the line (to the
+; next newline or the window end) is ONLY hex digits and spaces - a real call whose args stand alone;
+; CF=1 if any other char appears first - an in-sentence mention, which must NOT execute. Preserves si
+; and ax (the scanner's live state); scans a private copy in si. di = window end.
+.line_is_call:
+    push si
+    push ax
+    mov di, chat_context_start
+    add di, [chat_context_used]
+.lic_next:
+    cmp si, di
+    jae .lic_call                    ; window end reached with only hex/space -> a call
+    mov al, [si]
+    cmp al, 10
+    je .lic_call                     ; newline closes a clean directive line -> a call
+    cmp al, ' '
+    je .lic_adv
+    cmp al, '0'
+    jb .lic_mention
+    cmp al, '9'
+    jbe .lic_adv
+    or al, 0x20                      ; tolerate 'A'-'F'
+    cmp al, 'a'
+    jb .lic_mention
+    cmp al, 'f'
+    ja .lic_mention
+.lic_adv:
+    inc si
+    jmp .lic_next
+.lic_call:
+    pop ax
+    pop si
+    clc
+    ret
+.lic_mention:
+    pop ax
+    pop si
+    stc
     ret
 
 ; ---- parse one hex token at [si] ----
