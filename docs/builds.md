@@ -135,6 +135,11 @@ record in `notes/build11-hardening-attempts.md`.
 Not yet built — the backlog beyond what ships today. The render-room and handshake-speed items
 unblock others, so they lead their groups.
 
+Deliberately out of scope — left to the user/agent environment: rich UI on top of the minimal DPI,
+e.g. displaying the model's reasoning/thinking. DPI is the disposable starter interface; the agent
+can pull its own reasoning from the API and render it in the environment it builds. (It would also
+cost the maxed render-phase budget and has no clean MDA treatment — no dim attribute to set it apart.)
+
 Polish:
 
 ```text
@@ -150,11 +155,10 @@ render-phase room (enabler) - the render phase is one full sector and cannot gro
 apostrophe glyph - the model's occasional curly apostrophe (UTF-8) renders as CP437 garbage.
   Mitigated: the identity prompt now gives a concrete example (map non-ASCII to ', not curly). A
   guaranteed fix is a render-level non-ASCII->ASCII map, which needs the render-phase room above.
-situational awareness + identity / ledger - strengthen the situational map (curb the 0ADD doodle);
+situational awareness + identity prompt - strengthen the situational map (curb the 0ADD doodle) and
   review/expand the identity prompt so the agent better understands where it lives, its opportunities,
-  and its risks; recalc the context/arena sizes the 592-byte RX shrink changed and advertise them in
-  the ledger.
-stream the model's reasoning summary to screen.
+  and its risks. (The ledger arena/context sizes are auto-computed - a@ = chat_context_start + the live
+  window length - so the 592-byte RX shrink needed no manual recalc; a@ has been advertised since Build 10.)
 ```
 
 Bigger bets and research:
