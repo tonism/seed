@@ -50,21 +50,20 @@ agent_api_stream_phase:
     ; Compaction: stream the contract as <=440 B records (it is larger than one record), staged in the
     ; RX buffer (free on a compaction pass: the prompt is not sent, and the real turn re-reads it from
     ; the screen). The targets + input-open then ride a fresh, bounded record.
+    mov ax, [prompt_compact_cluster]
+    mov cx, [prompt_compact_size]
     call agent_api_stream_stream_contract
     jc .prefix_failed
     mov di, api_request_plain + tls_record_header_len
     call agent_api_stream_append_compaction_targets   ; " Target about <N> .. at most <M>."
     jmp .chunk2_input_open
 .chunk2_identity:
-    ; Normal turn: the identity is ONE <=440 B record (Makefile-guarded <= the 1-record budget), read
-    ; in place; then record B = ledger + input-open.
+    ; Build 11: stream the identity as <=440 B records (the SAME path as the contract) so it can exceed
+    ; one record - the >392 B reframe. The prefix is already in the body; the streamer flushes records as
+    ; it fills and leaves di at the body. (Was a single in-place record, Makefile-capped at 392 B.)
     mov ax, [prompt_id_cluster]
     mov cx, [prompt_id_size]
-    call agent_api_stream_append_floppy_prompt
-    jc .prefix_failed
-    mov ax, di
-    sub ax, api_request_plain + tls_record_header_len
-    call .send_app_record                     ; record A: prefix + identity
+    call agent_api_stream_stream_contract
     jc .prefix_failed
     mov di, api_request_plain + tls_record_header_len
     call agent_api_stream_append_ledger
@@ -212,13 +211,14 @@ agent_api_stream_append_floppy_prompt:
 ; (so di = body, empty, on return - the caller then puts the targets + input-open in a fresh record).
 ; Control bytes flatten to space. CF=1 on a sector-read or record-send failure.
 agent_api_stream_stream_contract:
-    mov ax, [prompt_compact_cluster]
+    ; Build 11: generalized to stream ANY floppy prompt as <=440 B TLS records (ax = cluster, cx = byte
+    ; size, caller-set) - the compaction contract AND the identity, both larger than one record. cx
+    ; survives read_abs_sector (preserves bx/cx), so the size carries across the sector stage.
     add ax, fat_data_start_lba - fat_first_data_cluster
     mov bx, tls_rx_copy
-    phase_call_res read_abs_sector       ; stage the contract sector in tls_rx_copy
+    phase_call_res read_abs_sector       ; stage the prompt sector in tls_rx_copy
     jc .sc_fail
     mov si, tls_rx_copy
-    mov cx, [prompt_compact_size]
 .sc_copy:
     jcxz .sc_flush_last
     cmp di, api_request_plain + tls_record_header_len + api_request_plain_len

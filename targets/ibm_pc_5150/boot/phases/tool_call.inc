@@ -69,9 +69,10 @@ tool_phase:
 .scan:
     cmp si, bx
     jae .scan_done
-    cmp byte [si], '$'               ; a directive can appear anywhere (the model often
-    jne .scan_adv                    ; prefixes prose on the same line) - validation in
-    call .exec_directive             ; .exec_directive guards against false '$' matches
+    cmp byte [si], '$'               ; a directive can appear anywhere; .exec_directive validates the
+    jne .scan_adv                    ; verb+hex and guards false matches. (The line-start gate was
+    call .exec_directive             ; reverted: a bare-directive reply puts '$r' right after the prompt
+                                     ; with no preceding newline, so the gate silently dropped real calls.)
     mov bx, chat_context_start
     add bx, [chat_context_used]      ; window may have grown (result appended)
     jmp .scan

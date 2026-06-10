@@ -120,10 +120,10 @@ $(FLOPPY_IMG): $(BOOT_BIN) $(LOADER_BIN) $(CORE_SYS) $(AGENT_CFG) $(USER_CFG) $(
 		&& { echo "error: a streamed prompt contains a \" or \\ (breaks JSON / Content-Length)"; exit 1; } || true
 	@# A streamed TLS record must stay <= the ~440 B api_request_plain body so its TX frame fits the
 	@# 512 B scratch below the stream phase (an oversized frame overwrites the phase's own code mid-send).
-	@# The identity rides ONE record after the ~48 B JSON prefix, so cap it at 392 B. The contract is
+	@# The identity now streams as <=440 B records like the contract, so cap it at 512 B. The contract is
 	@# streamed as <=440 B records but staged one 512 B sector at a time in tls_rx_copy, so cap it at 512 B.
-	@test $$(wc -c < $(IDENTITY_PROMPT)) -le 392 \
-		|| { echo "error: $(IDENTITY_PROMPT) > 392 B (must fit one TLS record after the JSON prefix)"; exit 1; }
+	@test $$(wc -c < $(IDENTITY_PROMPT)) -le 512 \
+		|| { echo "error: $(IDENTITY_PROMPT) > 512 B (must fit one sector, streamed as <=440 B records)"; exit 1; }
 	@test $$(wc -c < $(COMPACT_PROMPT)) -le 512 \
 		|| { echo "error: $(COMPACT_PROMPT) > 512 B (contract staging reads one sector into tls_rx_copy)"; exit 1; }
 	python3 $(IMAGE_BUILDER) build \
