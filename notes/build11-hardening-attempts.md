@@ -727,7 +727,8 @@ static prompts (identity + compaction sysprompt; fs.inc resident; frees the byte
 length) + structured NOTE/DIALOGUE window (terse goal/facts/state/open fields + verbatim dialogue tail
 as the non-sequitur safety net) + CONTRACT sysprompt (schema only, NO example - examples bleed) +
 dynamic char targets (seed hands ~25%/~50% in chars) + HARDWARE-AGNOSTIC prompts (no "IBM PC"/"8088" -
-future ARM port). FULL SPEC: notes/compaction-redesign.md (self-contained, fresh-session brief).
+future ARM port). (Shipped eeaae5f; the design summary above is the durable record - the separate
+fresh-session brief notes/compaction-redesign.md was removed once the work landed.)
 Debug edits restored (emit_char suppression re-enabled, request-dump removed); tree builds clean. The
 2-pass loop + clean-request + capture + chat_effective_cap stay as the uncommitted base. Reconnect
 slowness (extra round-trip on the ~15s handshake-margin) is a SEPARATE handshake-speed item. Session is

@@ -1,10 +1,8 @@
 # Build Scope
 
-Status: latest is Build 10 (minimal tool calling: `$r/$w/$x` + the agentic loop), tagged
-`build-10` at `2eee16d` after the post-release patches — the long-discussion no-response
-fix, sliding-window context, reconnect soft-fail, and the tool-call `> ` prefix, plus an
-honest Known Limitations section in the README. Build 11 (release hardening) is planned;
-see the Build 11 section below.
+Status: latest tagged release is Build 10 (minimal tool calling: `$r/$w/$x` + the agentic loop),
+`build-10` at `2eee16d`. Build 11 (release hardening) is largely implemented on `work/draining-fifo`
+— see its section for the shipped features and "Forward-looking ideas" for the backlog.
 
 Seed's loading marker has four semantic states plus the final splash:
 
@@ -17,11 +15,9 @@ none         boot sector, loader, CORE.SYS load
 splash       ready handoff animation; no loading work happens here
 ```
 
-`retry` returns to the dark `"."` hardware phase. It does not reread floppy
-sectors or rerun the boot-sector/loader path.
-
-Builds can be larger than individual internal checkpoints. A build should map
-to a user-visible readiness goal; commits inside that build can still be small.
+`retry` returns to the dark `"."` hardware phase; it does not reread floppy sectors or rerun the
+boot-sector/loader path. A build maps to a user-visible readiness goal — it can be larger than its
+internal checkpoints, and commits inside it can still be small.
 
 ## Current Map
 
@@ -36,527 +32,158 @@ build 7   ROM BASIC 16 KiB entry and windowed-nucleus release target
 build 8   Default Prompt Interface chat loop
 build 9   minimal context management for agentic continuity
 build 10  minimal tool calling through controlled RAM access
-build 11  release hardening: FIFO memory budget, robust reconnect, real compaction, situational awareness
+build 11  release hardening: FIFO budget, robust reconnect, real compaction, ESC, tool-directive rendering
 ```
 
-Build 5 is intentionally broad. It should end when Seed can bring up a network
-path from the IBM PC 5150 target and prove outbound internet readiness. The
-internal sequence is:
+Builds 1–4 are the boot-presentation and hardware-setup milestones listed above; the substantive
+builds get a short section each below.
 
-```text
-NE-family packet hardware init
-Ethernet transmit and receive
-DHCP network configuration
-ARP resolution for the next-hop or service endpoint
-DNS resolution
-TCP or chosen transport reachability proof
-```
+## Build 5 — internet readiness
 
-Current build 5 checkpoints completed for the current 5150 NIC families:
-3c501, 3c503, NE1000/NE2000, Novell NE1000, and WD8003. The shared internet path performs
-packet hardware init, bounded receive polling, DHCPDISCOVER/OFFER,
-DHCPREQUEST/ACK, DHCP subnet/router/DNS capture, DNS-server ARP, DNS A
-resolution for the `NET.CFG` probe host, subnet-aware next-hop ARP, and a TCP
-connect handshake to port 80 through the boot-core TCP connect path. NE-family
-cards also perform the receive-ring read diagnostic. This gives the dark `"."`
-phase a real outbound reachability proof without starting TLS, model API calls,
-or an agent session.
+Brings the network up from cold and proves outbound reachability without starting TLS (the dark
+`"."` phase). Intentionally broad: NE-family packet init, Ethernet TX/RX, DHCP (discover/offer/
+request/ack plus subnet/router/DNS capture), DNS-server ARP, DNS A-resolution of the `NET.CFG`
+probe host, subnet-aware next-hop ARP, and a TCP connect to port 80. Validated across the 5150 NIC
+families: 3c501, 3c503, NE1000/NE2000, Novell NE1000, WD8003.
 
-## Build 6
+## Build 6 — TLS handshake + minimal provider API
 
-Build 6 owns the dark `"o"` TLS-handshake phase, the normal `"o"` local
-crypto phase, and the bright `"o"` agent/API-prep phase. It starts after
-internet readiness is proven and ends when Seed can connect to a selected
-provider, complete the current TLS/API path, and display the minimal returned
-answer. On MDA, dark and normal `"o"` both render with the same non-bright
-attribute.
+Connects to a selected provider and completes a minimal request/response (the `"o"` phases). From
+the FAT12 floppy + CORE.SYS: agent config (AGENTS.CFG, built-in openai/anthropic/google, USER.CFG
+for secrets), DNS + TCP 443, a hand-rolled TLS 1.2 ClientHello (P-256 ECDHE / ChaCha20-Poly1305),
+the full handshake through ServerHelloDone, 8086 P-256 field/point/scalar primitives (OpenSSL-cross-
+checked), a SHA-256 transcript + TLS-PRF key schedule, ChaCha20-Poly1305 records, and a minimal
+OpenAI Responses request that returns `ok`. Validated on all seven 4.77 MHz NIC profiles.
 
-Build 6 checkpoint:
+Honest caveat: the shipped path substitutes a scalar-1 stub for the ECDHE scalar (the premaster
+becomes the server's public X), so no real key agreement runs — fast boot, not a secure channel.
+Closing that is tracked under Forward-looking and in the README security status.
 
-```text
-FAT12 160 KiB boot floppy with small reserved loader and root CORE.SYS runtime
-optional tracked AGENTS.CFG root file with five agent interfaces
-optional tracked NET.CFG root file with the generic internet probe host
-fallback built-in agent interfaces for openai, anthropic, and google
-ignored USER.CFG for validated local user choices and secrets
-dark "o" parsing of up to five AGENTS.CFG agent declarations when present
-agent? drill-down menu when USER.CFG is missing, unreadable, unparseable, or invalid
-same-panel server?/key? form for selected agents that need both values
-preserve saved model/reasoning values, but do not ask the user to type them
-selected-agent DNS resolution and TCP 443 connect proof
-shared TCP connect boundary for internet and selected-agent reachability
-minimal TCP payload send/receive primitives used by the TLS proof
-TCP receive sequence validation so retransmits do not corrupt the TLS stream
-minimal TLS 1.2 ClientHello with SNI and P-256 ECDHE-ECDSA-CHACHA20-POLY1305
-without extended master secret for the current cloud timeout budget
-ServerHello state parse for version, random, cipher-suite, session-id, extension flags, and selected cipher path
-Certificate handshake header parse with declared certificate-list length
-Certificate handshake drain to the next handshake boundary
-ECDHE ServerKeyExchange header parse with uncompressed P-256 public-point capture
-P-256 coordinate conversion to 16-bit little-endian field words and coordinate range checks
-8086 P-256 field add/sub modulo-p primitives
-8086 P-256 field multiplication/reduction primitives
-P-256-specific coefficient reduction for faster field multiplication
-Comba-style P-256 product accumulation and inlined reduction coefficient folding
-P-256 public-point curve-equation validation in the dependency-free checker
-8086 P-256 Jacobian point double and mixed-add helper primitives
-8086 P-256 scalar multiplication helper for mixed affine points with leading-zero skip
-dependency-free P-256 vector, field-math, and point-math checker with optional OpenSSL cross-check
-ServerHelloDone proof
-live SHA-256 TLS handshake transcript context through ServerHelloDone
-sparse fixed-scalar ECDHE shared-point generation from the server public point
-Jacobian shared point conversion into the affine X-coordinate pre-master secret
-SHA-256 finalization and transcript-safe HMAC-SHA256 helper
-TLS 1.2 SHA-256 PRF for master-secret and key-expansion derivation
-prepared HMAC-SHA256 ipad/opad states for repeated TLS PRF calls on 8088-class hardware
-ChaCha20-Poly1305 key-block split into client/server write keys and IVs
-fixed-scalar ECDHE ClientKeyExchange record construction and transcript update
-ClientKeyExchange transmit after local key preparation, with short pacing before the client Finished path
-ChaCha20 block helper for the current TLS 1.2 record path
-Poly1305 helper for the current one-record Finished MAC shape
-client Finished verify_data derivation from the live SHA-256 transcript
-ChangeCipherSpec and encrypted client Finished record construction and transmit
-encrypted server Finished receive, ChaCha20-Poly1305 authentication/decryption, and verify_data check
-TLS application-data record construction and ChaCha20-Poly1305 authentication/decryption
-minimal hardcoded OpenAI Responses API request that asks the model to reply exactly "ok"
-OpenAI response scan for the first answer text/error message field
-dependency-free TLS PRF and key-schedule vector checker
-dependency-free ChaCha20/Poly1305 vector and Finished record shape checker
-direct OpenAI TLS 1.2 server-Finished proof on `vm-net-ne2k8`
-direct OpenAI Responses request/response proof on all seven original 4.77 MHz NIC profiles, displaying returned `ok`
-best-effort USER.CFG write of validated agent, model, reasoning, key, and endpoint values
-```
+## Build 7 — 16 KiB entry contract
 
-The P-256 field, point, and scalar-multiply primitives above are implemented and
-cross-checked against OpenSSL (`tools/check-p256.py`), but the shipped boot path
-substitutes a scalar-1 stub for the scalar multiply — the premaster becomes the
-server's public X coordinate — so no real key agreement runs and the session is not
-secure. That tradeoff keeps boot in seconds; closing it is tracked below and in the
-README security status.
+The same floppy supports two entry modes: ≥32 KiB BIOS-boots CORE.SYS directly; below 32 KiB the
+user types a generated ROM BASIC sidecar helper that loads the same CORE.SYS. One image, one visible
+`CORE.SYS`, one code path after entry. Implemented as a windowed nucleus — a tiny resident control
+plane plus reloadable cold/post-answer windows, with one no-floppy provider-critical window held
+from TLS start to the answer. Validated: all seven 16 KiB BASIC-sidecar NIC profiles returned `ok`;
+no-card CGA/MDA profiles fail cleanly. (Literal 24 KiB 86Box 5150 profiles stop in POST before ROM
+BASIC, so 16 KiB is the release entry target.)
 
-Still outside the Build 7 16 KiB release scope:
+## Build 8 — Default Prompt Interface
 
-```text
-replace pseudo-random client random and fixed scalar with real entropy/scalar handling before claiming secure TLS
-reduce the eventual full-random-scalar path below the current full double-and-add cost
-generalize ChaCha20-Poly1305 beyond the current Finished-record shapes
-fetch model and reasoning capabilities from the provider when available
-```
+The first usable chat loop on the 16 KiB entry: an initial model greeting, a `">"` prompt, bright
+user text / normal model text, readable streamed responses, and multiple turns per boot session.
+Each prompt may still be a fresh request (no semantic context yet); no tool calling. Validated 7/7
+NICs across multi-turn short / long / idle-reconnect runs; the long-render flake was fixed with
+keep-alive reuse + a completion fallback. DPI is a disposable starter interface, not the final
+user/agent environment.
 
-Build 6 optimization used the original 4.77 MHz, 32 KiB `vm-net-ne2k8` profile
-as the compatibility gate. Build 7 now uses original 4.77 MHz, 16 KiB profiles
-through the ROM BASIC sidecar helper with an explicit 16 KiB packed-memory
-budget; literal 24 KiB 86Box 5150 profiles stop in POST before ROM BASIC. The
-earlier faster ad hoc profiles are no longer part of the normal workflow. On 1 May 2026, all seven original-speed
-4.77 MHz NIC profiles completed the first minimal direct OpenAI Responses
-request/response proof and displayed the returned `ok`. On 4 May 2026, the
-64 KiB baseline was retested before memory-slimming work: `vm-net-3c503`,
-`vm-net-ne1k`, `vm-net-ne2k8`, `vm-net-novell-ne1k`, `vm-net-wd8003e`, and
-`vm-net-wd8003eb` reached `seed build 6` and displayed `ok`; `vm-net-3c501`
-failed at agent setup. On 7 May 2026, the 32 KiB slimming checkpoint repaired
-that 3c501 failure in representative NIC-family tests: `vm-net-ne2k8`,
-`vm-net-3c501`, `vm-net-3c503`, and `vm-net-wd8003e` each displayed `ok` and
-reached `seed build 6`. The later 24 KiB BASIC sidecar path reached returned
-`ok` on those same representative families before the compact helper release;
-the released hex helper was smoke-tested through returned `ok` on
-`vm-net-ne2k8`.
+## Build 9 — minimal context management
 
-## Build 7
+Gives continuity across turns without a writeable boot medium. Each request is four layers: identity
+(static, on the floppy) + ledger (machine facts from the handoff block) + conversation (a
+model-compacted rolling window) + the current prompt. The request streams as chunked TLS records so
+the prefix needn't fit one send buffer; the conversation is compacted by the model (never local
+heuristics), reconnect-safe in RAM reclaimed from the stack reserve, and shares that pool with a
+user/agent arena. The model is held to plain ASCII (the CP437 terminal can't render UTF-8). Validated
+7-NIC: recall survives a compaction collapse, and the keep-alive held a 20-minute render.
 
-Build 7 owns the 16 KiB entry contract. The user-visible packaging change
-is that the same Seed floppy supports two entry modes:
+## Build 10 — minimal tool calling
 
-```text
-32 KiB and larger    BIOS boots the floppy directly into CORE.SYS
-below 32 KiB         user enters ROM BASIC and types the generated BASIC sidecar helper
-```
-
-The BASIC helper is a sidecar entry path for the same `CORE.SYS`, not a second
-runtime. The floppy must remain one product: one image, one visible `CORE.SYS`,
-one code path after entry. The helper may be generated for emulator testing and
-documentation, but the shippable 16 KiB promise is that a user can type the
-minimal helper in ROM BASIC when BIOS boot is unavailable.
-
-The first attempted release target was 24 KiB, but literal 24 KiB
-IBM PC 5150 profiles in 86Box stop during POST before ROM BASIC. That makes
-24 KiB useful as an internal budgeting shape, not a releasable entry target for
-this emulator/target combination. Build 7 therefore uses the 16 KiB ROM BASIC
-sidecar harness for emulator execution while enforcing the 16 KiB packed-memory
-layout in `make inspect`.
-
-Build 7 completion target:
-
-```text
-16 KiB RAM ceiling
-ROM BASIC sidecar entry
-same visible CORE.SYS as the BIOS-boot path
-minimal OpenAI Responses request returns ok
-representative NIC-family success, including 3c501 and NE2K
-preferred 1 KiB measured execution guard after Seed-owned resident state,
-scratch, window space, and stack needs are accounted for
-0.5 KiB measured execution guard is the fallback release floor if the final
-1 KiB cut would make the critical path brittle
-```
-
-The Build 7 implementation strategy was the windowed nucleus described in
-`notes/old/16kb-windowed-nucleus-design.md`: keep a tiny resident control plane,
-move cold setup and post-answer work into reloadable windows, and preserve one
-no-floppy provider-critical window from TLS/API start until the answer has been
-found. Historical progress and failed cuts are tracked in
-`notes/old/16kb-windowed-nucleus-attempts.md`.
-
-Build 7 checkpoint:
-
-```text
-runtime splash number moved to seed build 7
-CORE.SYS 23040 bytes, 45 sectors
-resident nucleus 4 sectors, 2040 nonzero bytes
-LINK/K provider-critical window 13 sectors
-high-crypto scratch 194 bytes
-critical scratch 2097 bytes
-16 KiB packed critical raw slack 1293 bytes
-16 KiB packed critical guarded slack +269 bytes against the preferred 1 KiB guard
-all seven BASIC-sidecar 16 KiB NIC profiles reached returned ok: vm-net-3c501,
-vm-net-3c503, vm-net-ne1k, vm-net-ne2k8, vm-net-novell-ne1k,
-vm-net-wd8003e, and vm-net-wd8003eb
-no-card CGA and MDA profiles fail cleanly with no NIC
-```
-
-## Build 8
-
-Build 8 owns the Default Prompt Interface, the first usable chat loop after the
-provider API path is alive. It starts from the Build 7 16 KiB entry contract
-rather than assuming a larger machine.
-
-DPI is a disposable starter interface, not the final user/agent environment. It
-exists so a user can boot the machine, see an initial model greeting, type
-prompts, and receive streamed model responses across multiple turns in one boot
-session.
-
-Build 8 scope:
-
-```text
-initial model greeting
-prompt input with a visible ">" marker
-user text in bright text and model text in normal text
-readable streamed response rendering
-multiple prompt/response turns in one boot session
-each prompt may still be a fresh provider request without semantic context
-no tool calling yet
-```
-
-Build 8 release blockers:
-
-```text
-chat loop must not freeze after repeated prompt/response turns
-response rendering must be readable enough for real use
-prompt input must not corrupt runtime state
-hot chat loop should avoid floppy reads after splash, or document any temporary exception before release
-```
-
-Build 8 checkpoint (2026-06-02): chat-loop reliability COMPLETE across all 7 NIC profiles.
-Blockers 1-3 met (no-freeze, readable rendering, prompt input no longer corrupts runtime
-state) — validated by the 7-card matrix: multi-turn short + long + idle-reconnect. Blocker #4
-(floppy reads): the windowed-nucleus loads phases on demand, so the hot loop still reads the
-floppy per prompt — accepted as a TEMPORARY EXCEPTION per this blocker's escape clause
-(matrix-validated reliable); the floppy-read optimization is DEFERRED to Build 9. Key fixes:
-keep-alive reuse + durable resend (commit 2b09f60); long-render completion fallback for all
-NICs (commit 535de35) — the long-render 0D flake (was 3/28) is eliminated (0/21). The
-intermittent "no response" seen in testing was a harness screencapture observation artifact,
-not the product. Release marker pending (not yet cut).
-
-Build 8 should stay minimal. It should not introduce protected-mode machinery,
-a general shell, a local tool ABI, or memory-ocean/defrag work while the chat
-loop itself is still being stabilized.
-
-## Build 9
-
-Build 9 owns minimal context management for agentic continuity. It builds on the
-stable Build 8 chat loop. The layered request, chunked streaming, conversation
-accumulation, and model-driven compaction are implemented and validated end-to-end -
-the model recalls a fact across a compaction collapse; the full working record is
-`notes/old/build9-context-attempts.md`.
-
-Each request is assembled from four layers:
-
-```text
-identity      static, on the floppy, hand-tuned     tone / self / tools
-ledger        serialized from the handoff block      machine facts: RAM top, NIC, IP, ...
-conversation  RAM, model-compacted rolling summary   recent interaction
-prompt        current user input (256 B in RX)       this turn
-```
-
-identity + ledger are the protected frame: never lossy-compacted. Only the
-conversation is compacted, and by the model (an occasional round-trip near the
-budget), never by local heuristics. The ledger is regenerated from the handoff
-block, so it costs ~0 durable RAM; Seed publishes machine facts (including the
-already-present `ram_top`) and lets the user/agent derive their own free arena
-rather than dictating one.
-
-Implementation (Phases 2-3b, validated): the request is streamed as separate TLS
-records (headers+model / instructions+ledger / conversation+prompt), so the layered
-prefix never has to fit one send buffer. The conversation accumulates recent turns raw
-(JSON-escaped only at send) and, when it passes a tunable threshold (default 3/4,
-measured before each request so the reply has room to land), the model is asked to emit a
-one-line recap of the facts so far FIRST, then a newline, then its answer; the renderer
-captures that recap straight into the conversation window and never draws it (recap-first
-invisible compaction), so the user sees only a dim, fast-typed `compacting context` status
-line and then the answer - the recap silently replaces the prior history. The
-adjustment knobs (window / arena / threshold addresses) are documented in `HANDOFF.md`
-(Context-management knobs); their agent-facing advertisement in the ledger is deferred
-to Build 10, since advertising actionable addresses before a memory-write tool exists
-makes the model hallucinate tool calls. A long escaped prompt+conversation that would
-overflow one chunk-3 record now FLUSHES across multiple TLS records instead of truncating
-(the small send buffer is reused; gated on the record-buffer limit, so ordinary prompts
-take the unchanged single-record path) - the full no-truncation chunking goal, validated by
-a quote-heavy split test. The model is also held to plain ASCII (no JSON or tool calls): the CP437 text terminal
-cannot render UTF-8 typographic punctuation, and the model otherwise occasionally emits a
-memory-write tool-call JSON. (Lists are fine - they render as ASCII.)
-
-Build 9 scope:
-
-```text
-recent user prompt and model response influence the next request
-model-compacted rolling conversation summary (no local summarization heuristics)
-context is reconnect-safe: it survives an idle/walk-away reconnect
-context lives in RAM reclaimed from the stack reserve, above the TLS scratch
-context state does not require writeable boot media
-clear, visible compaction when the conversation region fills
-a reserved user/agent arena floor shares the reclaimed pool with conversation
-no tool calling yet
-```
-
-On the 16 KiB target Build 9 accepts bounded, documented per-turn floppy reads
-(identity loads with the existing per-turn phases): the Build 8 blocker #4 goal of
-eliminating hot-loop floppy reads is descoped here to "accept + document," trading
-hot-loop disk for the RAM that context and the arena need. Floppy-read elimination
-becomes a larger-machine quality-of-life item after Build 10.
-
-The reclaimed pool is split conversation/arena 50/50 by default and is
-user/agent-adjustable; the arena grows with RAM on larger machines, while the
-transmitted conversation is naturally bounded (on the 8088, RAM is the binding
-limit long before the model's context window). The release guard is run thin per
-the closed-contract guard philosophy (`architecture.md`): the 16 KiB stack reserve
-is trimmed to a measured margin, confirmed by a stack high-water check in validation.
-
-Build 9 is not full long-term agent memory. Persistent notes, preferences, project
-state, and durable workspaces belong to the later user/agent environment. Build 9
-only needs enough continuity that the next prompt is not semantically fresh.
-
-Build 9 carried-TODO disposition (from Build 8):
-
-```text
-floppy reads:  RESOLVED by decision - accept bounded documented per-turn reads on
-  16 KiB (see scope); elimination deferred to larger machines.
-memory reclaim: FOLDED into the core - the stack-reserve reclaim funds the context
-  pool; the old "toward a 1 KiB guard" target is replaced by a measured ~256 B reserve
-  run thin per the guard philosophy, confirmed by a validation tripwire.
-NIC timing unification: EVALUATED, deferred. The 7-NIC matrix came back green, so the
-  per-NIC timing differences are confirmed hardware-driven (mostly 3c501's single-buffer
-  carve-outs, one 3c503 app-send-before-Finished), not unifiable behavior. The only safe
-  move is structural DRY (a shared poll-with-timeout helper, ~8-15 B), not a behavioral
-  collapse - marginal, so deferred. Byte-reclaim for the context arena (TLS Finished /
-  HMAC pads, ~128 B) is real but island-shaped; reaching the arena needs a defrag pass,
-  sequenced into the Build 10 tool-calling layout rework. Analysis in
-  notes/old/build9-context-attempts.md.
-```
-
-Build 9 checkpoint (2026-06-04): context management COMPLETE and validated. The four-layer
-request (identity / ledger / conversation / prompt) streams as chunked TLS records; the
-conversation is a model-compacted rolling window using recap-first invisible compaction;
-chunk 3 flushes across records with no truncation; and the model is held to plain ASCII
-prose. Validated: the 7-NIC compaction matrix - 3c503, ne1k, novell-ne1k, 3c501, wd8003e,
-wd8003eb plus the ne2k8 baseline - 5/6 green on first pass, with ne1k a confirmed flake (3/3
-on recheck); the chunk-3 flush carried a quote-heavy split prompt through intact; recall
-survives a compaction collapse (the model answers a fact from before the window cleared);
-the keep-alive held a 20-minute render; and the ASCII instruction produced clean prose with
-no CP437 garbage or tool-call JSON. The full working record is
-`notes/old/build9-context-attempts.md`. Release marker pending (not yet cut).
-
-## Build 10
-
-Build 10 ships the first minimal tool-calling surface, in scope for the first
-public release. It builds on the Build 9 context path.
-
-Shipped:
+The first controlled tool surface, on top of the Build 9 context path:
 
 ```text
 $r ADDR LEN   - read up to 32 B of RAM (seg 0); the bytes flow back into the window
 $w ADDR BYTES - write RAM (seg 0)
 $x ADDR       - CALL a seg-0 address; AX/CF flow back into the window
-RAM detection - int 0x12 in the loader, so the pool scales with the machine and
-  caps at the 0xFFF0 seg-0 ceiling (~49 KiB pool at 64 KiB+)
-arena advert  - the ledger carries a@ = the free seg-0 arena base, so the agent
-  knows where it can safely $w a routine and $x it
-agentic loop  - a fired tool auto-continues (the model acts on the result), capped
-  at 8 hops, then control returns to the user
-suppression   - the streamed $-command is hidden on screen (kept in the window for
-  the tool phase), shown once as a dim "read from/write to/jump to <addr>" echo
+RAM detection - int 0x12 in the loader, so the pool scales with the machine (~49 KiB at 64 KiB+)
+arena advert  - the ledger carries a@ = the free seg-0 arena base for a safe $w + $x
+agentic loop  - a fired tool auto-continues (capped at 8 hops), then control returns to the user
 ```
 
-Validated: the 7-NIC chat matrix 7/7, and the capstone - the model wrote
-`b8 34 12 c3` (x86 `mov ax,0x1234; ret`) into the arena, ran it with `$x`, and read
-back `AX=0x1234`. See docs/architecture.md "Demo: A Tool-Called Request".
+Validated 7/7 NICs, and the capstone: the model wrote `b8 34 12 c3` (`mov ax,0x1234; ret`) into the
+arena, ran it with `$x`, and read back `AX=0x1234`. `$x` is a bare CALL with no sandbox — the agent
+owns the crash, reboot from trusted media recovers (Authority Model / Recovery Boundary).
 
-This is still not a general OS milestone. Seed remains the bootstrapping control
-plane: it provides the trusted recovery boundary, working provider API path,
-published machine contract, and the first controlled tool hook, then leaves local
-tool formats, loaders, ABIs, workspaces, and result handling to the user/agent
-environment. `$x` is a bare CALL with no sandbox - the agent owns the crash
-(Authority Model); reboot from trusted media recovers (Recovery Boundary).
+## Build 11 — release hardening
 
-Build 10 outcome (the carried-in memory/layout rework):
+Hardens the first public release on top of Build 10. The FIFO redesign led — it freed the memory
+budget the rest depended on. (On `work/draining-fifo`; not yet tagged.)
 
 ```text
-RAM detection - SHIPPED: int 0x12 in the loader scales the pool with the machine.
-buffer-shrink lever - NO pool win. The TLS receive buffer is the only relocatable
-  lever, and it must stay MSS-sized (1460): a streamed response batches into TLS
-  records over 640, and Cloudflare honors neither max_fragment_length (RFC 6066)
-  nor record_size_limit (RFC 8449) on TLS 1.2, so the server can't be told to cap
-  them. The pool therefore stays at the Build 9 RAM-scaling levels.
-ledger knob - the arena base (a@) is advertised (a need). The window/arena split
-  knob was DROPPED: it is a preference, the agent retunes it with a single $w to
-  chat_context_len_var, and the chunk-2 budget is tight.
-ESC-to-stop - DEFERRED to Build 11 (needs ~10 B in the maxed resident receive path).
-smart linebreaking - render-side cap DEFERRED to Build 11; Build 10 mitigates the
-  uneven blank lines with a "No trailing blank lines" instruction (the source is
-  the model's variable trailing newlines).
+draining-FIFO receive + RX shrink - one streamed receive path keeping incremental per-record
+  Poly1305 (app-data stays MAC-verified) + an RX-buffer shrink 1460->592 via a SYN MSS option.
+robust reconnect - one dim "> reconnect", up to 3 silent rebuilds, then "> reconnect failed" + a
+  soft-fail to DPI. Root-caused the idle-close asymmetry to a chunk-1 double-send and fixed it.
+real LLM compaction (note-as-memory) - a model-maintained terse note + a verbatim recent-dialogue
+  tail replaces the sliding-window trim; static prompts stream off the floppy. Fixes small-machine amnesia.
+ESC to interrupt - single ESC gracefully stops a render ("> stopped"); Ctrl+ESC hard-escapes
+  ("> panic stopped", reconnect next turn). An int 9 hook gated on a live DPI.
+history-echo - the carried window stores each turn role-labeled (" User: .. You: ..") so the model
+  tells its own prior answers from user text.
+tool-directive rendering - a '$' renders DIMMED (not hard-cut) and only when it starts a line, matching
+  a whole-line execution gate (runs only if the line is just the directive). Multiple directive lines run
+  in order; in-sentence mentions stay inert prose.
 ```
 
-Build 11 curiosity items surfaced during Build 10 (draining-FIFO receive + streamed
-send; TLS 1.3; drop floppy reads in the 32K+ chat loop; detect a fast machine for
-authenticated crypto; reach beyond segment 0; stream the reasoning summary; see
-notes/build10-tool-calling-attempts.md) are folded into the prioritized Build 11 plan
-below.
+Validated 7/7 NICs (boot+greeting) on the final transport state; the compaction, ESC, and
+tool-directive paths deep-validated on ne2k8 @ 16K/32K with wd8003e + 3c501 spot-checks. Working
+record in `notes/build11-hardening-attempts.md`.
 
-## Build 11
+## Forward-looking ideas
 
-Build 11 hardens the first public release: transport robustness, real context quality,
-and a sharper situational-awareness pass, all on top of the Build 10 tool-calling
-surface. The sequencing is deliberate — the FIFO redesign leads because it frees the
-memory budget the rest of the work depends on.
+Not yet built — the backlog beyond what ships today. The render-room and handshake-speed items
+unblock others, so they lead their groups.
 
-P1 — memory budget and robustness:
+Polish:
 
 ```text
-1  [DONE 49fc3f9 / ffaf80f / 422697a] draining-FIFO receive + streamed send - collapsed
-   to one streamed receive path that KEEPS incremental per-record Poly1305 (app-data stays
-   MAC-verified), plus the RX buffer shrink 1460->592 via a SYN MSS option. Freed the
-   hot-crypto budget that funds the rest of Build 11.
-2  [DONE 929479f] reconnect 3x-auto - on a dropped session, a single dim "> reconnect"
-   line, then up to 3 silent rebuild+connect retries; on exhaustion " failed" is appended
-   ("> reconnect failed") and it soft-fails to DPI (user re-asks -> fresh loop). Closes the
-   last blank-turn-after-idle path. (Absorbed the old 0D/F0 retry UX.) Needed a full-nucleus
-   reorg to fund - see notes/build11-hardening-attempts.md.
-2b [DONE] reconnect SUCCESS (the asymmetry's real root cause) - a wire capture of an authentic
-   idle-close reconnect found it was a deterministic chunk-1 DOUBLE-SEND, not a handshake race or
-   a fresh-connection timeout (both retired). The handshake's prebuilt already ships chunk 1 (the
-   POST headers), and the X phase's .ready_tail re-sent it (tls_app_len still set) -> a duplicated
-   "POST" the server reads as the body and 400s + FINs. Fix: clear tls_app_len at tls_probe.done
-   (one instruction) so .ready_tail streams only chunk 2 + context + prompt - the reconnect's send
-   is now byte-identical to the proven reuse path. Wire+screen confirmed: chunk 1 once, full SSE
-   answer, the dim "> reconnect" line now precedes the REAL reply. tools/tls-flow.py added for
-   reconnect wire analysis. (The whole warm-up line of work was moot - no timeout existed.)
-3  [DONE 2026-06-09] 7-NIC matrix re-validation + splash bump to "seed build 11" + release
-   sign-off - the FINAL state (reconnect double-send fix + probe removal + SYN/ClientHello/
-   flight retransmit) re-validated 7/7 across ALL NIC families (boot+greeting) on clean home
-   wifi; splash bumped (b078269). Connectivity changes are NIC-common (connect/handshake control
-   flow); ne2k8 deep-validated each step + the matrix confirms no cold-path regression on any NIC.
-   (3c501/3c503's earlier matrix flakes were 5G/harness noise - both pass clean on home wifi.)
+smart linebreaking - collapse the loop-hop blank lines + cursor-aware wrapping. Four render groups
+  (dpi prompt, model response, tool calling, system messages like "> reconnect"): no blank line within
+  a group, exactly one between different groups. Today the "$r .." + "> read from .." block abuts the
+  prose with no blank line before and too many after. BLOCKED on render-phase room (below).
+render-phase room (enabler) - the render phase is one full sector and cannot grow in place: a 2-sector
+  phase below the nucleus lands inside the NIC packet buffer at 0x0700 (read up to ~1.5 KB during a
+  receive). Shrink the RX read window to one MSS-frame - the receive already caps payload at 592, so it
+  is consistent - to free a safe 2-sector slot. Unblocks smart linebreaking + future renderer work.
+  Touches the transport/handshake receive path, so it needs handshake + multi-NIC re-validation.
+apostrophe glyph - "'" renders as a garbage glyph in replies.
+situational awareness + identity / ledger - strengthen the situational map (curb the 0ADD doodle);
+  review/expand the identity prompt so the agent better understands where it lives, its opportunities,
+  and its risks; recalc the context/arena sizes the 592-byte RX shrink changed and advertise them in
+  the ledger.
+stream the model's reasoning summary to screen.
 ```
 
-P2 — core experience:
+Bigger bets and research:
 
 ```text
-4  real LLM-driven compaction - a model-written summary (dim-rendered, never suppressed)
-   replaces the Build 10 sliding-window trim: more context per byte, fixing the
-   small-machine amnesia. The "> compacting context" line is already in place to reuse.
-5  ESC to interrupt - stop a long render / break a runaway agentic loop (~10 B in the
-   resident receive path; the FIFO budget helps).
-6  [DONE 49fc3f9] history-echo fix - the carried conversation window now stores each turn
-   role-labeled (" User: <prompt> You: <response>"), so the model can tell its own prior
-   answers from user text instead of inventing/repeating (the flat-window artifact).
-```
-
-P3 — polish and consistency:
-
-```text
-7  smart linebreaking - cursor-aware wrapping + collapse the loop-hop blank lines. Design
-   (user, 2026-06-08): the screen has four render GROUPS - dpi (user-written prompt), model
-   response, tool calling, and system messages (e.g. "> reconnect", "> compacting context").
-   Consecutive lines WITHIN one group get NO blank line between them; DIFFERENT groups are
-   separated by exactly one empty line.
-8  apostrophe glyph - "'" renders as a garbage glyph in replies.
-9  situational awareness - strengthen the situational map (curb the 0ADD doodle) AND
-   review/expand the identity prompt so the agent better understands where it lives, its
-   opportunities, and its risks. Build 10 kept this deliberately minimal.
-10 [DONE] dead-code cleanup - the now-dead recap-compaction remnants (the directive text,
-   the dead compact_next request-build branches in agent_api_stream) were removed during the
-   FIFO/recall work; only explanatory comments remain.
-```
-
-P4 — bigger bets and research:
-
-```text
-11 stream the model's reasoning summary to screen.
-12 true security on larger / faster machines (SEPARATE exploration, later) - the
-   4.77 MHz / 16 KiB target makes deliberate, documented security sacrifices; real
-   confidentiality + authenticity are their own work-item, gated on a CPU-speed probe
-   (286/386+ or a higher clock) on top of the existing RAM tier. What "true security"
-   would restore - all sacrificed today and CPU-bound, not just RAM-bound, which is why
-   they wait for a faster machine:
-   - real ECDHE key agreement (today a scalar-1 stub takes the server's public X as the
-     premaster - no key agreement; the constant-time P-256 primitives exist and are
-     OpenSSL-cross-checked, just compiled out for speed).
-   - real entropy for the client random + ephemeral scalar (today a BIOS-tick LCG).
-   - server authentication: certificate-chain + signature verification (today skipped, so
-     the channel is unauthenticated / MITM-exposed even before the key-exchange gap).
-   (Per-record application-data AEAD verification is NO longer on this list — Build 11's
-   draining-FIFO collapse keeps incremental Poly1305, so app-data records are MAC-verified
-   on the small machine too. That is record integrity within the session, not a secure
-   channel: the keys are still handshake-derived, and the handshake is the broken part.)
-   The small-machine product stays honestly "encrypted but not secure."
-13 reach / perf - beyond segment 0 (>64 KiB); render-rate optimization for very long
-   replies; drop floppy reads in the 32K+ chat loop; TLS 1.3 (not a memory play -
-   record-size caps are ignored on 1.2 and 1.3).
-14 full TCP retransmit (curiosity / "survive a genuinely bad link") - NOT Build 11 scope.
-   The seed's TCP is send-and-forget on the client side and in-order-only on receive, leaning
-   on the SERVER's retransmit for the download. Under heavy packet loss every un-retransmitted
-   client send (SYN, handshake records, request chunks) is a single point of failure, recovered
-   only by the coarse request-level reconnect retry. A real retransmit layer (unacked-byte
-   buffer + RTO timers + ACK tracking + receive reordering) would make loss transparent WITHIN a
-   connection - the universal fix for spotty-link loss - but it does NOT remove the reconnect (an
-   idle-CLOSED session has nothing to retransmit), and it is a meaty build for a 2 KB nucleus on
-   a 4.77 MHz part. Slices 2 (SYN), 3a (ClientHello), 3b (CKE+CCS+Finished flight) ALL SHIPPED in
-   Build 11 -- every handshake client send is now retransmittable (NE/WD). BUT loss testing (5% +
-   15%, low latency) showed the client-retransmit is NOT the loss bottleneck: at 5% boot is 4/4 and
-   the loss is absorbed by the SERVER retransmitting the download + the seed's existing receive wait
-   (0 client retransmits, several server retransmits); at 15% boot drops to 1/4 and the failures are
-   the CERTIFICATE *receive* (the server resent ~2.8 KB but the seed's wait gave up first), upstream
-   of any client send. So the client-retransmit slices are correct insurance for a rare case, not the
-   high-value lever. Slice 4 (request-flight retransmit) is DROPPED -- the reconnect already recovers
-   a dropped request and #15 makes that recovery fast, so its ~2 KB buffer is not worth it. The real
-   heavy-loss levers are below (#15 handshake-speed) and a receive-side one (#16). (Context: Build 11
-   also dropped the un-retried port-80 boot probe; see notes/packet-retransmit-design.md +
-   notes/build11-hardening-attempts.md.)
-15 handshake speed (crypto optimization) - the ~15 s handshake sits only ~0.2 s inside the server's
-   ~15 s patience, so any latency spike tips it past: this is the observed boot/reconnect failure on
-   a degraded link (wire-proven -- the client's CCS+Finished landed 0.1 s after the server's FIN).
-   The ~7.5 s CKE->CCS+Finished gap is the 8088 grinding the TLS-PRF (master secret + key block;
-   SHA-256/HMAC is the hot op). Optimizing it (faster SHA-256 inner loop, fewer PRF rounds) is a
-   DOUBLE win -- more patience margin AND a shorter window for packet loss to bite -- and it is the
-   bigger lever than retransmit for the failure we actually saw. Pairs with #14: retransmit fixes
-   loss, speed fixes the margin. (The P-256 primitives are already %if0'd for speed; this is the
-   symmetric PRF that always runs.)
-16 receive-side loss tolerance (heavy loss) - the wire showed the heavy-loss (15%) bottleneck is the
-   server->client DOWNLOAD (the ~2.8 KB Certificate, the ~8 KB response): the server retransmits the
-   dropped segments, but the seed's bounded receive wait (tcp_payload_wait_count + the handshake
-   receive waits) gives up before all the retransmits land. The cheap lever is a BIGGER receive wait
-   so the seed out-waits the server's RTO under heavy loss (trade-off: a genuinely dead link then
-   fails slower; the never-blank reconnect already covers that gracefully). This is the actual
-   high-value heavy-loss lever the client-retransmit slices (#14) do NOT address -- moderate loss
-   (~5%) is already handled by the existing wait + server retransmit (boot 4/4). Lower priority than
-   #15 for the OBSERVED failure, but the real fix if "survive a bad link" becomes a goal.
+true security on larger / faster machines (separate exploration, CPU-gated) - the 4.77 MHz / 16 KiB
+  target makes deliberate, documented sacrifices; real confidentiality + authenticity are their own
+  work-item, gated on a CPU-speed probe (286/386+ or a higher clock). All CPU-bound, not just RAM-bound,
+  which is why they wait for a faster machine: real ECDHE key agreement (today a scalar-1 stub takes the
+  server's public X as the premaster - the constant-time P-256 primitives exist + are OpenSSL-cross-
+  checked, just compiled out for speed); real entropy for the client random + ephemeral scalar (today a
+  BIOS-tick LCG); and server-certificate authentication (today skipped, so the channel is unauthenticated
+  / MITM-exposed even before the key-exchange gap). Per-record app-data is already MAC-verified after the
+  FIFO collapse - that is record integrity, not a secure channel; the keys are still handshake-derived and
+  the handshake is the broken part. The small-machine product stays honestly "encrypted but not secure".
+reach / perf - beyond segment 0 (>64 KiB); render-rate optimization for very long replies; drop the
+  floppy reads in the 32K+ chat loop; TLS 1.3 (not a memory play - record-size caps are ignored on 1.2/1.3).
+full TCP retransmit (survive a genuinely bad link) - an unacked-byte buffer + RTO timers + ACK tracking +
+  receive reordering, so a dropped packet is a fast resend instead of a ~15 s re-handshake. The client
+  handshake-send slices (SYN, ClientHello, CKE+CCS+Finished flight) already retransmit; loss testing
+  showed the heavy-loss bottleneck is the server->client DOWNLOAD (the Certificate / response), not client
+  sends, so a client retransmit layer is insurance for a rare case - below the two levers that follow. It
+  also does NOT remove the reconnect (an idle-closed session has nothing to retransmit).
+handshake speed (crypto optimization) - the ~15 s handshake sits only ~0.2 s inside the server's ~15 s
+  patience, so a latency spike tips it past (the observed degraded-link boot/reconnect failure). The
+  ~7.5 s CKE->Finished gap is the 8088 grinding the TLS-PRF (SHA-256/HMAC is the hot op); a faster PRF
+  buys more margin AND a shorter loss window - the bigger lever than retransmit for the failure seen.
+receive-side loss tolerance - a bigger receive wait so the seed out-waits the server's RTO under heavy
+  loss (the wire-proven heavy-loss bottleneck is the dropped server->client download). The high-value
+  heavy-loss lever; the client-retransmit slices do not address it. Trade-off: a genuinely dead link then
+  fails slower, but the never-blank reconnect already covers that gracefully.
 ```
 
 ## Public Release Gate
