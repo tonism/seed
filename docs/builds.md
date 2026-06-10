@@ -147,7 +147,9 @@ render-phase room (enabler) - the render phase is one full sector and cannot gro
   receive). Shrink the RX read window to one MSS-frame - the receive already caps payload at 592, so it
   is consistent - to free a safe 2-sector slot. Unblocks smart linebreaking + future renderer work.
   Touches the transport/handshake receive path, so it needs handshake + multi-NIC re-validation.
-apostrophe glyph - "'" renders as a garbage glyph in replies.
+apostrophe glyph - the model's occasional curly apostrophe (UTF-8) renders as CP437 garbage.
+  Mitigated: the identity prompt now gives a concrete example (map non-ASCII to ', not curly). A
+  guaranteed fix is a render-level non-ASCII->ASCII map, which needs the render-phase room above.
 situational awareness + identity / ledger - strengthen the situational map (curb the 0ADD doodle);
   review/expand the identity prompt so the agent better understands where it lives, its opportunities,
   and its risks; recalc the context/arena sizes the 592-byte RX shrink changed and advertise them in
