@@ -1,0 +1,15 @@
+{
+  "_comment": "Frozen ORIGINAL crypto baseline (current core/sha256.inc + tls.inc PRF). The fixed comparison point for every variant. 86Box ground truth: 8088 @ 4772728 Hz, 1 tick = 54.9254 ms.",
+  "machine": "ibmpc 8088 @ 4772728 Hz, no dynarec, CGA, 64 KiB",
+  "tick_ms": 54.9254,
+  "ops": {
+    "SHABLK": {"desc": "SHA-256 process_block (one 64-byte block)", "N": 96, "dt_ticks": 273, "ms_per_iter": 156.19, "cycles_per_iter": 745420, "unicorn_instrs": 54646, "ck": "4E3F"},
+    "PRFMAS": {"desc": "TLS1.2 PRF master secret (premaster->48B)", "N": 6, "dt_ticks": 261, "ms_per_iter": 2389.25, "ck": "2368"},
+    "PRFALL": {"desc": "TLS1.2 PRF master secret + key block (the always-runs symmetric handshake cost)", "N": 3, "dt_ticks": 269, "ms_per_iter": 4924.98, "ck": "2228", "unicorn_instrs": 1701916}
+  },
+  "notes": [
+    "PRF (master+keyblock) ~4.92 s is the dominant slice of the ~7.5 s CKE->Finished gap; the rest is the client Finished transcript hash + CKE build + transmit + server wait.",
+    "SHA-256 block ~745K cycles -- dominated by bit-at-a-time rotr32/shr32 and memory-to-memory 32-bit math.",
+    "Correctness gated host-side in unicorn vs OpenSSL (check-tls-prf vectors); device ck cross-checks (2368/2228 match host word-sums)."
+  ]
+}
