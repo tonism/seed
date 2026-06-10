@@ -413,7 +413,12 @@ chat_resend_prompt_len equ reconnect_state_start
 reconnect_retries equ chat_resend_prompt_len + 1
 compact_next equ reconnect_retries + 1
 compacting_msg equ compact_next + 1
-chat_context_used equ compacting_msg + 1
+; Build 11 ESC-to-interrupt: the int 9 hook sets this on a plain ESC during a render (graceful stop).
+; Homed right after compacting_msg so emit_char suppresses on BOTH via one word cmp (0 extra bytes in
+; the maxed render phase). Reset per turn at agent_request (not boot-zeroed; agent_request always runs
+; before the first render, so the cold greeting never reads it stale).
+esc_stop equ compacting_msg + 1
+chat_context_used equ esc_stop + 1
 chat_compact_threshold equ chat_context_used + 2
 chat_context_len_var equ chat_compact_threshold + 2
 scroll_br equ chat_context_len_var + 2
@@ -449,7 +454,12 @@ prompt_compact_size equ prompt_compact_cluster + 2
 note_len equ prompt_compact_size + 2
 reconnect_state_end equ note_len + 2
 ka_template_persistent equ reconnect_state_end
-chat_context_start equ ka_template_persistent + ka_request_len
+; Build 11 ESC: the int 9 keyboard hook handler is staged to this pool slot at boot (position-independent
+; code; runs from here so it survives the phase-overlay churn). esc_int9_old saves the BIOS int 9 vector
+; the handler chains every key to. Both sit between the keep-alive template and the conversation window.
+esc_int9_handler equ ka_template_persistent + ka_request_len
+esc_int9_old equ esc_int9_handler + esc_int9_handler_len
+chat_context_start equ esc_int9_old + 4
 chat_context_len equ 128
 chat_context_end equ chat_context_start + chat_context_len
 chat_arena_start equ chat_context_end

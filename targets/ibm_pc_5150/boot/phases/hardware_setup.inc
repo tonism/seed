@@ -741,6 +741,22 @@ hardware_setup_stage_ka_template:
     mov di, ka_template_persistent
     mov cx, ka_request_len
     rep movsb
+    ; Build 11 ESC: stage the int 9 keyboard hook to its pool slot + install the vector, HERE (before the
+    ; network I/O, like the ka template) so the source is copied while intact. Position-independent handler
+    ; (only absolute esc_stop/esc_int9_old refs at seg 0 + relative jumps), so it runs from the pool. It
+    ; chains every non-ESC key to the BIOS, so the prompt's keyboard input is unaffected.
+    mov si, low_scratch_start + (esc_int9_handler_source - PHASE_BASE)
+    mov di, esc_int9_handler
+    mov cx, esc_int9_handler_len
+    rep movsb
+    cli
+    mov ax, [0x0024]
+    mov [esc_int9_old], ax
+    mov ax, [0x0026]
+    mov [esc_int9_old + 2], ax
+    mov word [0x0024], esc_int9_handler
+    mov word [0x0026], 0
+    sti
     pop es
     ret
 ka_template_source:
@@ -750,6 +766,29 @@ ka_template_source:
 ka_template_source_end:
 %if (ka_template_source_end - ka_template_source) != ka_request_len
 %error "ka_request_len (layout.inc) does not match the staged keep-alive template length"
+%endif
+
+; Build 11 ESC: the int 9 keyboard hook handler. Staged to esc_int9_handler (pool) at boot, runs from
+; there. Position-independent: only absolute seg-0 refs (esc_stop, esc_int9_old) + relative jumps. Peeks
+; the scancode, sets esc_stop on the ESC make-code (the graceful stop; the render's emit_char reacts),
+; and chains EVERY key to the saved BIOS int 9 (so normal typing + the ESC the DPI prompt reads still
+; work). Reading port 0x60 is non-destructive; the chained BIOS handler re-reads it and acks.
+esc_int9_handler_source:
+    push ax
+    push ds
+    xor ax, ax
+    mov ds, ax
+    in al, 0x60
+    cmp al, 0x01
+    jne .esc_hook_chain
+    mov [esc_stop], al
+.esc_hook_chain:
+    pop ds
+    pop ax
+    jmp far [cs:esc_int9_old]
+esc_int9_handler_source_end:
+%if (esc_int9_handler_source_end - esc_int9_handler_source) != esc_int9_handler_len
+%error "esc_int9_handler_len (layout.inc) != the staged int 9 handler length"
 %endif
 
 %unmacro phase_call_res 1

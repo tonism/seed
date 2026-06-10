@@ -73,6 +73,14 @@ tool_phase:
     ; pending=1 (dpi auto-continues next) and stage the fixed continue directive into
     ; dpi_input_buf; else stop and reset the count. count self-heals from boot garbage here
     ; (no tool fired on the greeting -> .loop_reset).
+    ; Build 11 ESC: a graceful stop this turn -> show "> stopped" and break the agentic loop. Any tool that
+    ; fired above already ran (the user's "let the tool finish"); we just don't auto-continue / send the
+    ; result back. .loop_stop clears pending + count and returns to the prompt. esc_stop resets next request.
+    cmp byte [esc_stop], 0
+    je .esc_not_stopped
+    call .draw_stopped
+    jmp .loop_stop
+.esc_not_stopped:
     cmp byte [agent_loop_pending], 0
     je .loop_reset
     cmp byte [agent_loop_count], agent_loop_max
@@ -94,6 +102,26 @@ tool_phase:
 %if ($ - .continue_text) != agent_continue_len
 %error "tool_call .continue_text length must equal agent_continue_len (layout.inc)"
 %endif
+
+; Build 11 ESC: draw the dim "> stopped" system line (screen-only, NOT in the model window). Mirrors the
+; "> read from .." dim prefix in .res_open. Sets api_stream_seen so render_prompt leaves a gap and draws
+; the next prompt below it. Called from .scan_done on a graceful stop (after any in-flight tool has run).
+.draw_stopped:
+    mov byte [api_stream_seen], 1
+    call .scr_newline
+    call .scr_set_video
+    mov si, PHASE_LOAD_ADDR + (.stopped_text - PHASE_BASE)
+.draw_stopped_next:
+    mov al, [si]
+    or al, al
+    jz .draw_stopped_done
+    call .scr_putc
+    inc si
+    jmp .draw_stopped_next
+.draw_stopped_done:
+    call .scr_clr_video
+    ret
+.stopped_text db '> stopped', 0
 
 ; si -> '$'. Validate "$<verb> " with verb in r/w/x. If invalid, step past the
 ; '$' and return (left intact, never executes). If valid: neutralize the '$',

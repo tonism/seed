@@ -54,6 +54,8 @@ agent_request_phase:
     mov byte [api_stream_text_seen], 0
     mov byte [api_stream_prompt_len], 0
     mov byte [api_stream_completed], 0
+    mov byte [esc_stop], 0               ; Build 11 ESC: per-turn reset of the graceful-stop flag (the int 9
+                                         ; hook sets it during a render; cleared here before the next render)
     mov byte [api_http_state], 0
     mov byte [api_http_header_match], 0
     cmp byte [handoff_addr + handoff_status], handoff_status_ready

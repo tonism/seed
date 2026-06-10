@@ -879,3 +879,58 @@ facts still survive (recall). NIC-independent (the fix is in show_compacting's s
 is representative; 7-NIC spot-check still advisable before release. The boot-freeze fix + this recap fix
 together complete the #4 slice end to end (boot -> compaction fires -> note captures facts -> answer ->
 recall). New reusable tool: tools/tls-decrypt.py (offline TLS decrypt from a pcap).
+
+## 2026-06-10 - #5 ESC-to-interrupt STAGE 1 (graceful single-ESC): a synchronous poll wouldn't fit -> async int 9 hook [SHIPPED, not pushed]
+
+Graceful single-ESC: pressing ESC during a model render stops it, shows a dim "> stopped", and breaks the
+agentic loop (a tool that already fired finishes, but its result is NOT sent back) - returning to the prompt
+with the TLS session still reusable. Ctrl+ESC (the hard async escape that ALSO rescues a hung $x tool) is
+staged separately as #5 stage 2.
+
+DESIGN JOURNEY (a budget fight, recorded so we don't re-walk it). The obvious mechanism is a synchronous
+keyboard poll (int 16h AH=01) in the render loop. But the render hot-path is MAXED: the render phase
+(agent_response, id "T") has 2 free bytes, and the streaming receive loop (tls.inc) lives in the
+crypto/transport "LINK window" (id "K") which has 9 free - the 13-byte poll overflowed it into
+high_crypto_scratch. There is NO slack to grow the window (layout.inc:405 pins critical_scratch_start ==
+high_crypto_scratch_end). The resident nucleus's ~15 free bytes are a DIFFERENT region (ui.inc/data.inc),
+not where the receive loop lives, so they don't help. I briefly wired the poll anyway; the build's
+LINK-window assert (core.asm:73) caught the overflow -> reverted. Lesson: trust the build asserts over
+byte-counting; tls.inc is NOT in the 2 KB resident nucleus.
+
+THE FIX = an asynchronous int 9 (keyboard IRQ) hook, OFF the tight budgets. A 22-byte position-independent
+handler is staged at boot into the persistent pool (esc_int9_handler, beside ka_template_persistent) and the
+int 9 vector points there; it peeks the scancode, sets esc_stop on the ESC make-code (0x01), and chains
+EVERY key to the saved BIOS int 9 (so normal typing + the DPI prompt's own ESC-clears-line still work).
+Staged inside hardware_setup_stage_ka_template, which runs BEFORE the network I/O (the cold-boot-freeze
+lesson) so the source is copied while intact; the handler runs from the pool (position-independent: only
+absolute seg-0 refs to esc_stop/esc_int9_old + relative jumps + a cs-override far chain). Cost: ~0
+nucleus/LINK; +59 B in hardware_setup (428 free) + the pool slot. It's also the exact mechanism stage 2
+needs (Ctrl held + ESC -> hard longjmp), so building it now is reused, not throwaway.
+
+THE RENDER-SUPPRESS = FREE. esc_stop is homed immediately after compacting_msg, so emit_char's existing
+"cmp byte [compacting_msg],0 / jne suppress" widened to "cmp WORD" now covers BOTH flags in the same 4 bytes
+(0 added bytes in the 2-free render phase). esc_stop set -> every char suppressed (marked seen so the
+completion scan still runs) -> the receive loop DRAINS to the normal completion -> session reusable.
+
+THE MESSAGE + LOOP-BREAK = in tool_call (id "M", 328 free), which runs at dpi entry every turn before the
+prompt draws + already has a dim "> " drawer (.scr_putc). At .scan_done, if esc_stop: draw a screen-only dim
+"> stopped" (NOT in the model window) + .loop_stop (clear agent_loop_pending + count -> dpi does not
+auto-continue). esc_stop is reset each request at agent_request top (not boot-zeroed; agent_request always
+precedes the first render, so the cold greeting never reads it stale).
+
+VALIDATED (ne2k8 @ 32K): (1) cold-boot verdict=success - the hook install is freeze-safe (the risky part);
+(2) no-regression - a normal "say blue" turn types + renders + returns to the prompt, which PROVES the
+hook's key-chaining (typing flows int 9 -> hook -> chain -> BIOS -> int 16h); (3) ESC mid-render (osascript
+key code 53 injected ~10s after submit) -> screen shows the dim "> stopped" + the prompt, verdict=success
+(the stream drained cleanly + the prompt returned, session reusable). A 4th test (1000-word essay, ESC
+~95s) was captured too early - the model was STILL GENERATING, so single-ESC had suppressed the render but
+the drain was still reading the incoming essay (it draws "> stopped" only AFTER the drain completes); the
+machine was healthy (greeting + prompt). That is the chosen drain-to-completion behavior: immediate when the
+RENDER is the bottleneck (reply already received), but it waits for an in-flight GENERATION (Ctrl+ESC is the
+instant hard escape). NIC-independent (hook + flag + screen logic).
+
+REMAINING for #5: stage 2 - Ctrl+ESC hard escape. Extend the same int 9 handler to detect Ctrl held (BIOS
+kb-flag 0040:0017 bit 2) + ESC -> a hard longjmp back to the prompt (reset SP, mark the session dead so the
+next prompt reconnects, draw "> panic stopped"). It must CLEAR esc_stop + bypass the soft-completion path so
+"> stopped" and "> panic stopped" are never both shown (panic replaces soft). The risky part (stack reset +
+phase re-entry) - deferred here on purpose.

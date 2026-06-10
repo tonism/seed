@@ -162,8 +162,9 @@ agent_response_phase:
     mov [chat_context_start + bx], al
     inc word [chat_context_used]
 .emit_char_stored:
-    cmp byte [compacting_msg], 0
-    jne .set_seen_ret                    ; compaction: never draw the summary; mark it seen (below)
+    cmp word [compacting_msg], 0
+    jne .set_seen_ret                    ; suppress on compacting_msg OR the adjacent esc_stop (Build 11 ESC
+                                         ; graceful-stop): never draw, mark seen, let the receive loop drain
     cmp byte [compact_next], 0
     jne .suppress_active                 ; compaction recap OR a tool line already in progress
     ; Build 10: a '$' begins a tool directive - suppress that whole line from the screen (it
