@@ -121,6 +121,39 @@ agent_request_phase:
     clc
     ret
 .build_ready_openai_request:
+    ; Build 11 #4 note-as-memory: if the PRIOR pass was a compaction (compacting_msg still 1 from it,
+    ; not yet reset below), the summary just captured into chat_context IS the new memory note - record
+    ; its length so THIS (real) pass sends [0..note_len) in "instructions" and the live dialogue
+    ; [note_len..used) in "input". Detected here because compacting_msg only stays 1 across the 2-pass
+    ; loop's re-entry; a normal turn enters with it 0, so note_len persists untouched (the dialogue
+    ; just accumulates after the note).
+    cmp byte [compacting_msg], 0
+    je .note_len_kept
+    mov ax, [chat_context_used]
+    mov [note_len], ax
+.note_len_kept:
+    ; Build 11 #4 real compaction: decide PER PASS whether this request is a compaction summarize
+    ; exchange. When the carried window has reached the 75% trigger (chat_compact_threshold), set
+    ; compacting_msg=1 -> this request streams the FULL window + the summarize directive (in place
+    ; of the user prompt), the reply is captured AS the new window (agent_response/.emit_char, hard-
+    ; capped at 50%), and the resident endpoint loop re-enters for the real turn. Below 75% it is a
+    ; normal turn (compacting_msg=0). The 50% capture cap keeps the post-summary window < 75%, so the
+    ; loop runs at most twice. Replaces the Build-10 sliding-window byte-trim (deleted below).
+    mov byte [compacting_msg], 0
+    mov ax, [chat_context_used]
+    cmp ax, [chat_compact_threshold]
+    jb .not_compaction_pass
+    mov byte [compacting_msg], 1
+.not_compaction_pass:
+    ; Per-request window store cap (read by agent_response/.emit_char): full window normally, halved
+    ; on a compaction pass so the captured summary can never exceed 50% -> the post-summary window
+    ; stays under the 75% trigger and the endpoint loop runs at most twice.
+    mov ax, [chat_context_len_var]
+    cmp byte [compacting_msg], 0
+    je .cap_full
+    shr ax, 1
+.cap_full:
+    mov [chat_effective_cap], ax
     cmp byte [agent_loop_pending], 0
     jne .skip_prompt_restore             ; agentic auto-continue: dpi_input_buf holds the directive
     call .restore_prompt_from_screen
@@ -240,51 +273,77 @@ agent_request_phase:
     ret
 
 .compute_ready_body_lengths:
-    ; Build 10 sliding-window context retention (replaces the removed model-recap compaction): when
-    ; the carried window reaches the 75% trigger (chat_compact_threshold), drop the OLDEST bytes down
-    ; to the 25% target (cap/4), keeping the most recent conversation. No model recap and no render
-    ; suppression, so the reply ALWAYS renders (the long-discussion no-response cannot recur) while
-    ; recent context still rides forward. rep movsb shifts the kept tail to the front (es=ds, cld;
-    ; src>dst so the forward copy never clobbers an unread byte).
+    ; Build 11 #4 real compaction: measure the ready-request Content-Length. The Build-10 sliding-
+    ; window byte-trim is GONE - the window is compacted by a model summarize exchange instead (the
+    ; resident endpoint loop fires it when compacting_msg=1; the decision + flag are set in
+    ; .build_ready_openai_request above). So this no longer mutates the window; it only sizes the
+    ; body. On a compaction pass the input is the WINDOW alone (the floppy-streamed contract rides in
+    ; "instructions"); on a normal pass the input adds the user prompt, JSON-escaped. The FULL window
+    ; always rides forward.
     push ds
     pop es
     cld
-    mov byte [compacting_msg], 0          ; default: no trim this turn
-    mov ax, [chat_context_used]
-    cmp ax, [chat_compact_threshold]
-    jb .ctx_trimmed
-    mov bx, [chat_context_len_var]
-    shr bx, 1
-    shr bx, 1                             ; bx = cap/4 = 25% target
-    mov cx, ax
-    sub cx, bx                            ; drop = used - target (oldest bytes)
-    mov si, chat_context_start
-    add si, cx
-    mov di, chat_context_start
-    mov cx, bx                            ; keep = target (most-recent) bytes
-    rep movsb
-    mov [chat_context_used], bx
-    mov byte [compacting_msg], 1          ; trimmed -> show "> compacting context" this turn
-.ctx_trimmed:
     mov si, chat_model_cache
     mov cx, seed_model_len
     call agent_request_phase_strlen_z_bounded
     jc .body_failed
     mov bx, ax
+    cmp byte [compacting_msg], 0
+    je .prompt_user
+    xor ax, ax                                  ; compaction: the input is the WINDOW alone (the
+    jmp .prompt_len_ready                        ; summarize directive rides in "instructions", below)
+.prompt_user:
     mov si, dpi_input_buf
     mov cl, [dpi_input_len_byte]
     xor ch, ch
     call agent_request_phase_json_bytes_len
+.prompt_len_ready:
     mov dx, ax
     add ax, api_ready_stream_close_text_len
     mov [api_response_pending_len], ax
     mov ax, dx
     add ax, bx
     add ax, api_json_model_text_len + api_ready_stream_close_text_len
-    add ax, api_json_instructions_text_len + api_ledger_len + api_json_input_open_text_len
-    ; Build 9: the window rides in the input JSON-ESCAPED, so Content-Length must count it ESCAPED
-    ; (like the prompt above) - else a quote/backslash-bearing window under-counts and truncates the
-    ; sent body. Keep the RAW count for the fill threshold. (WORD throughout.)
+    add ax, api_json_reasoning_prefix_len + api_json_input_open_text_len
+    ; instructions value = the compaction contract (compaction) OR identity + ledger (normal turn).
+    ; Build 11 #4: the contract/identity are streamed off the floppy, so their length is the cached
+    ; file size (prompt_compact_size / prompt_id_size), not a compile-time string length. The bytes
+    ; stream RAW (control->space, 1:1; no " or \ -> no escape growth), so sent length == file size.
+    cmp byte [compacting_msg], 0
+    je .instr_normal
+    ; Compaction: instructions = the floppy contract + the seed-appended dynamic char targets
+    ; " Target about <N> characters, at most <M>." (N = window/4, M = window/2). The fixed text is a
+    ; constant; the two decimals vary, so size them with .u16_decimal_len (bx holds the running body
+    ; while the digit counts are computed). Must match exactly what the stream phase renders.
+    add ax, [prompt_compact_size]
+    add ax, api_compaction_targets_fixed_len
+    mov bx, ax
+    mov ax, [chat_context_len_var]
+    shr ax, 1
+    shr ax, 1                            ; N = window/4
+    call .u16_decimal_len
+    add bx, ax
+    mov ax, [chat_context_len_var]
+    shr ax, 1                            ; M = window/2
+    call .u16_decimal_len
+    add bx, ax
+    mov ax, bx
+    jmp .instr_done
+.instr_normal:
+    add ax, [prompt_id_size]
+    add ax, api_ledger_len
+    ; Build 11 #4 note-as-memory: a normal turn also carries the running note in "instructions" behind
+    ; a fixed label (when a note exists). The note's bytes are part of the window-escaped count below
+    ; (the window = note ++ dialogue), so only the LABEL is extra here.
+    cmp word [note_len], 0
+    je .instr_done
+    add ax, api_note_label_text_len
+.instr_done:
+    ; Build 9: the window rides JSON-ESCAPED, so Content-Length must count it ESCAPED (else a quote/
+    ; backslash-bearing window under-counts and truncates the sent body). Build 11 #4: the window now
+    ; splits into the note (-> "instructions") and the dialogue (-> "input"), but escaping is per-char
+    ; so escape(note)+escape(dialogue) == escape(window); counting the whole window here is still exact
+    ; for both fields combined. Keep the RAW count for the fill threshold. (WORD throughout.)
     mov si, chat_context_start
     mov cx, [chat_context_used]
     push ax                             ; body-so-far
@@ -359,31 +418,45 @@ agent_request_phase:
 ; draws it, so there is nothing to scan back off the screen.
 
 .append_u16_decimal:
-    xor cx, cx
-    mov bx, 100
-    xor dx, dx
-    div bx
-    or ax, ax
-    jz .tens
-    add al, '0'
-    stosb
-    inc cx
-.tens:
-    mov ax, dx
+    ; ax = u16 -> variable-width decimal at [es:di]. Build 11 #4: was a 3-digit-only renderer (div by
+    ; 100 then 10, max 999) - fine while the old window-trim + tiny directive kept every body < 1000,
+    ; but the floppy compaction contract pushes a compaction-pass body past 1000 (prefix + ~509 B
+    ; contract + targets + the carried window), so Content-Length needs the full u16 range. Pushes the
+    ; digits low-to-high, emits them high-to-low. Preserves bx/cx; clobbers ax (the value) + dx.
+    push cx
+    push bx
+    xor cx, cx                          ; digits pushed
     mov bx, 10
+.u16_div:
     xor dx, dx
-    div bx
-    or cx, cx
-    jne .write_tens
+    div bx                              ; dx:ax / 10 -> ax = quotient, dx = next digit
+    push dx
+    inc cx
     or ax, ax
-    jz .ones
-.write_tens:
+    jnz .u16_div
+.u16_emit:
+    pop ax
     add al, '0'
     stosb
-.ones:
-    mov al, dl
-    add al, '0'
-    stosb
+    loop .u16_emit
+    pop bx
+    pop cx
+    ret
+.u16_decimal_len:
+    ; ax = u16 -> ax = its decimal digit count (1-5). Build 11 #4: lets compute_ready_body_lengths
+    ; size the dynamic char targets (N, M) into Content-Length exactly, without rendering them.
+    ; Preserves bx; clobbers cx, dx.
+    push bx
+    xor bx, bx                          ; digit count
+    mov cx, 10
+.dl_loop:
+    inc bx
+    xor dx, dx
+    div cx                              ; ax /= 10
+    or ax, ax
+    jnz .dl_loop
+    mov ax, bx
+    pop bx
     ret
 
 http_post_text db 'POST ', 0

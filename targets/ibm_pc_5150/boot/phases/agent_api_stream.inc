@@ -39,33 +39,76 @@ agent_api_stream_phase:
     ; (~586 B) overflowed it into TLS/config scratch and hung the send (16K freeze). Splitting
     ; keeps each record well under the cap; the body now spans 4 TLS records.
     mov di, api_request_plain + tls_record_header_len
-    mov si, PHASE_LOAD_ADDR + (api_json_instructions_text - PHASE_BASE)
+    mov si, PHASE_LOAD_ADDR + (api_json_reasoning_prefix - PHASE_BASE)
     call agent_api_stream_append_z_to_buffer
+    ; Build 11 #4: chunk 2 instructions value. CRITICAL: every TLS record's TX frame (record + ~75 B
+    ; TLS/TCP/IP/Eth overhead) must fit the 512 B scratch (ne_tx_frame at low_scratch_start .. the phase
+    ; load addr net_setup_phase_start) - an oversized frame overwrites THIS phase's own code mid-send.
+    ; So no record may exceed api_request_plain_len (440), exactly like the normal-turn records.
+    cmp byte [compacting_msg], 0
+    je .chunk2_identity
+    ; Compaction: stream the contract as <=440 B records (it is larger than one record), staged in the
+    ; RX buffer (free on a compaction pass: the prompt is not sent, and the real turn re-reads it from
+    ; the screen). The targets + input-open then ride a fresh, bounded record.
+    call agent_api_stream_stream_contract
+    jc .prefix_failed
+    mov di, api_request_plain + tls_record_header_len
+    call agent_api_stream_append_compaction_targets   ; " Target about <N> .. at most <M>."
+    jmp .chunk2_input_open
+.chunk2_identity:
+    ; Normal turn: the identity is ONE <=440 B record (Makefile-guarded <= the 1-record budget), read
+    ; in place; then record B = ledger + input-open.
+    mov ax, [prompt_id_cluster]
+    mov cx, [prompt_id_size]
+    call agent_api_stream_append_floppy_prompt
+    jc .prefix_failed
     mov ax, di
     sub ax, api_request_plain + tls_record_header_len
-    call .send_app_record
+    call .send_app_record                     ; record A: prefix + identity
     jc .prefix_failed
     mov di, api_request_plain + tls_record_header_len
     call agent_api_stream_append_ledger
-    ; Build 11 cleanup: the recap-compaction directive was dead (Build 10 removed model-recap
-    ; compaction; agent_request resets compact_next to 0 before this build, and it is only raised
-    ; later by the renderer for tool-line suppression). Removing it frees X-phase bytes.
+    ; Build 11 #4 note-as-memory: a normal turn carries the running note (the compacted memory) in
+    ; "instructions" behind a label, JSON-escaped (the model summary may contain " or \). This is what
+    ; makes the post-compaction turn ANSWER the user's prompt: the note reads as system memory, not as
+    ; the latest conversation turn. Skipped until the first compaction (note_len 0).
+    cmp word [note_len], 0
+    je .chunk2_input_open
+    mov si, PHASE_LOAD_ADDR + (api_note_label_text - PHASE_BASE)
+    call agent_api_stream_append_z_to_buffer
+    mov si, chat_context_start
+    mov cx, [note_len]
+    call agent_api_stream_append_context      ; the note [0..note_len), escaped (flushes if large)
+    jc .prefix_failed
+.chunk2_input_open:
     mov si, PHASE_LOAD_ADDR + (api_json_input_open_text - PHASE_BASE)
     call agent_api_stream_append_z_to_buffer
     mov ax, di
     sub ax, api_request_plain + tls_record_header_len
-    call .send_app_record
+    call .send_app_record                     ; record B: ledger [+ note] + input-open (or targets)
     jc .prefix_failed
 .tail_pending:
     pop ax
-    mov [api_stream_prompt_len], al
-    or al, al
-    je .done
+    mov [api_stream_prompt_len], al           ; gate length stays the user prompt's (non-zero); on a
+    or al, al                                 ; compaction pass the input is the WINDOW ONLY (the
+    je .done                                  ; directive rode in instructions above)
     mov di, api_request_plain + tls_record_header_len
+    ; Build 11 #4 note-as-memory: "input" carries the live DIALOGUE (the window AFTER the note) on a
+    ; normal turn; the WHOLE window (note ++ dialogue, to be summarized) on a compaction pass.
+    mov si, chat_context_start
+    mov cx, [chat_context_used]
+    cmp byte [compacting_msg], 0
+    jne .ctx_range_ready                      ; compaction: summarize the whole window
+    sub cx, [note_len]
+    add si, [note_len]                        ; normal: dialogue = [chat_context_start+note_len .. used)
+.ctx_range_ready:
     call agent_api_stream_append_context
     jc .failed
+    cmp byte [compacting_msg], 0
+    jne .tail_close                           ; compaction: input = the window alone, no user prompt
     call agent_api_stream_append_prompt_screen_to_buffer
     jc .failed
+.tail_close:
     mov si, PHASE_LOAD_ADDR + (api_stream_json_close_text - PHASE_BASE)
     call agent_api_stream_append_z_to_buffer
     mov ax, di
@@ -129,6 +172,161 @@ agent_api_stream_phase:
 
 api_stream_json_close_text db '","stream":true}', 0
 api_stream_json_close_text_len equ $ - api_stream_json_close_text - 1
+
+; Build 11 #4: stream the floppy-resident IDENTITY into the open record IN PLACE (one record). ax =
+; first cluster, cx = byte size (cached at boot). di = the body write pointer (past the prefix). The
+; identity is ONE sector and the whole record (prefix + identity) is <= api_request_plain_len - so the
+; TX frame fits the 512 B pre-phase scratch (an oversized frame would overwrite this phase's own code;
+; the Makefile guards the identity size). The caller sends the record. Control bytes flatten to space
+; (1:1, JSON-safe; the build guard bans " and \), so the streamed length == the cached size, which is
+; exactly what compute_ready_body_lengths counts. CF=1 on a sector-read failure. Returns di past the
+; identity, cx=0.
+agent_api_stream_append_floppy_prompt:
+    jcxz .fp_done                        ; size 0 (file absent) -> emit nothing
+    push cx                              ; size = bytes to flatten in place
+    add ax, fat_data_start_lba - fat_first_data_cluster   ; cluster -> absolute LBA
+    mov bx, di                           ; read the sector IN PLACE at the record write pointer
+    phase_call_res read_abs_sector       ; es:bx <- sector; clobbers dx + flags, preserves bx/cx
+    pop cx
+    jc .fp_done_err
+.fp_flatten:
+    cmp byte [di], 32
+    jae .fp_keep
+    mov byte [di], ' '                   ; control byte (newline etc.) -> JSON-safe space, 1:1
+.fp_keep:
+    inc di
+    loop .fp_flatten
+.fp_done:
+    clc
+    ret
+.fp_done_err:
+    stc
+    ret
+
+; Build 11 #4: stream the compaction CONTRACT (larger than one record) as <=440 B records, so no TX
+; frame ever exceeds the 512 B scratch below the phase. di = the body write pointer (past the prefix).
+; The contract is staged in the RX buffer tls_rx_copy - FREE on a compaction pass: the user prompt
+; there is not sent (the input is the window alone) and the real turn re-reads it from the screen
+; (agent_request restore_prompt_from_screen). Reads the contract (one sector; Makefile-guarded <= 512)
+; into tls_rx_copy, then copies it into the body, flushing EVERY full record AND the final partial one
+; (so di = body, empty, on return - the caller then puts the targets + input-open in a fresh record).
+; Control bytes flatten to space. CF=1 on a sector-read or record-send failure.
+agent_api_stream_stream_contract:
+    mov ax, [prompt_compact_cluster]
+    add ax, fat_data_start_lba - fat_first_data_cluster
+    mov bx, tls_rx_copy
+    phase_call_res read_abs_sector       ; stage the contract sector in tls_rx_copy
+    jc .sc_fail
+    mov si, tls_rx_copy
+    mov cx, [prompt_compact_size]
+.sc_copy:
+    jcxz .sc_flush_last
+    cmp di, api_request_plain + tls_record_header_len + api_request_plain_len
+    jb .sc_room
+    call .sc_flush_record                ; record full (440 B): send it, di = body
+    jc .sc_fail
+.sc_room:
+    lodsb
+    cmp al, 32
+    jae .sc_store
+    mov al, ' '
+.sc_store:
+    stosb
+    dec cx
+    jmp .sc_copy
+.sc_flush_last:
+    cmp di, api_request_plain + tls_record_header_len
+    je .sc_done                          ; nothing buffered (di == body): done
+    call .sc_flush_record                ; flush the final partial contract record
+    jc .sc_fail
+.sc_done:
+    clc
+    ret
+.sc_fail:
+    stc
+    ret
+.sc_flush_record:
+    ; send body[0 .. di-body] as a TLS record; reset di = body. Preserves si + cx (the contract
+    ; staging pointer + remaining), which the TLS send would otherwise clobber. CF=1 on send failure.
+    push si
+    push cx
+    mov ax, di
+    sub ax, api_request_plain + tls_record_header_len
+    mov [tls_app_len], ax
+    mov word [tls_app_plain_ptr], api_request_plain + tls_record_header_len
+    phase_call_res tls_prepare_3c501_receive
+    phase_call_res tls_send_application_data_current_seq
+    jc .sc_flush_fail
+    phase_call_res tls_prepare_3c501_receive
+    pop cx
+    pop si
+    mov di, api_request_plain + tls_record_header_len
+    clc
+    ret
+.sc_flush_fail:
+    pop cx
+    pop si
+    stc
+    ret
+
+; Build 11 #4c: append the dynamic char targets after the (floppy) compaction contract, so the model
+; sizes its note to the window without doing byte math itself. N = window/4 (the ~25% aim), M =
+; window/2 (the hard ceiling - emit_char caps the captured summary at exactly this, keeping the post-
+; summary window under the 75% trigger). Rendered as decimals; the fixed text length + the two digit
+; counts are mirrored into Content-Length by compute_ready_body_lengths (api_compaction_targets_fixed_len
+; + .u16_decimal_len). [es:di] advances; clobbers ax/bx/cx/dx/si.
+agent_api_stream_append_compaction_targets:
+    mov si, PHASE_LOAD_ADDR + (api_targets_pre_text - PHASE_BASE)
+    call agent_api_stream_append_z_to_buffer
+    mov ax, [chat_context_len_var]
+    shr ax, 1
+    shr ax, 1                            ; N = window/4
+    call agent_api_stream_append_u16_decimal
+    mov si, PHASE_LOAD_ADDR + (api_targets_mid_text - PHASE_BASE)
+    call agent_api_stream_append_z_to_buffer
+    mov ax, [chat_context_len_var]
+    shr ax, 1                            ; M = window/2 (== chat_effective_cap on a compaction pass)
+    call agent_api_stream_append_u16_decimal
+    mov si, PHASE_LOAD_ADDR + (api_targets_post_text - PHASE_BASE)
+    jmp agent_api_stream_append_z_to_buffer
+
+agent_api_stream_append_u16_decimal:
+    ; ax = u16 -> variable-width decimal at [es:di]. Mirror of agent_request's .append_u16_decimal
+    ; (must agree with .u16_decimal_len's count). Preserves bx/cx; clobbers ax + dx.
+    push cx
+    push bx
+    xor cx, cx
+    mov bx, 10
+.u16d_div:
+    xor dx, dx
+    div bx
+    push dx
+    inc cx
+    or ax, ax
+    jnz .u16d_div
+.u16d_emit:
+    pop ax
+    add al, '0'
+    stosb
+    loop .u16d_emit
+    pop bx
+    pop cx
+    ret
+
+api_targets_pre_text db ' Target about ', 0
+api_targets_pre_len equ $ - api_targets_pre_text - 1
+api_targets_mid_text db ' characters, at most ', 0
+api_targets_mid_len equ $ - api_targets_mid_text - 1
+api_targets_post_text db '.', 0
+api_targets_post_len equ $ - api_targets_post_text - 1
+api_compaction_targets_fixed_len equ api_targets_pre_len + api_targets_mid_len + api_targets_post_len
+
+; Build 11 #4 note-as-memory: the label that prefixes the running note in "instructions" (the system
+; slot). Frames the note as background memory and explicitly tells the model not to restate it, so the
+; post-compaction turn answers the user's new prompt (in "input") instead of continuing the note. Plain
+; ASCII (no " or \), so its length is fixed; compute_ready_body_lengths adds api_note_label_text_len.
+api_note_label_text db ' Conversation so far (context, do not restate): ', 0
+api_note_label_text_len equ $ - api_note_label_text - 1
 
 agent_api_stream_append_z_to_buffer:
     lodsb
@@ -262,8 +460,16 @@ agent_api_stream_append_prompt_screen_to_buffer:
 ; (ledger+directive+input-open) tail are sent as TWO separate records (.stream_chunk2), so
 ; each must stay under the 440 B api_request_plain body - NOT their sum. The old single-record
 ; build summed them (~586 B on a compaction turn), overflowed the buffer, and hung the send.
-api_json_instructions_text db '","reasoning":{"effort":"high"},"instructions":"Concise: a few sentences unless asked for detail. Factual, professional. No trailing blank lines. ASCII only - map non-ASCII to nearest ASCII; no JSON. RAM tools, hex: $r ADDR LEN read, $w ADDR BYTES write, $x ADDR run. They reach all RAM of the PC you run on, including the code running them; a bad write or jump hangs it until reboot.', 0
-api_json_instructions_text_len equ $ - api_json_instructions_text - 1
+; Build 11 #4: split into the JSON prefix (always sent) + the identity body (NORMAL turns only). A
+; compaction pass sends prefix + the summarize directive instead - so the model NEVER sees the tool
+; grammar/identity that made it "summarize" its RAM tools instead of the chat.
+api_json_reasoning_prefix db '","reasoning":{"effort":"high"},"instructions":"', 0
+api_json_reasoning_prefix_len equ $ - api_json_reasoning_prefix - 1
+; Build 11 #4 real compaction: the identity body (normal turns) and the compaction contract
+; (compaction passes) are no longer inline strings - they are STREAMED off the floppy
+; (agent_api_stream_append_floppy_prompt). This frees the phase bytes they used and lifts the
+; in-phase prompt-length cap (the contract can now be detailed). The prefix above still rides record A
+; from the phase image; the floppy content follows it.
 api_json_input_open_text db '","input":"', 0
 api_json_input_open_text_len equ $ - api_json_input_open_text - 1
 ; Build 11 recall fix: vendor-agnostic role labels for the carried conversation window (the
@@ -304,8 +510,18 @@ api_ledger_len equ api_ledger_labels_len + (4 + 4 * 15 + 3 + 4 + 3 + 12 + 4)
 ; so enforce that EACH record fits the api_request_plain body. The old single-record build
 ; summed them (~586 B on a compaction turn) and overflowed the 440 B buffer, corrupting TLS
 ; scratch and hanging the send -> the 16K compaction-turn freeze.
-%if api_json_instructions_text_len > api_request_plain_len
-%error "chunk 2 record A (instructions) exceeds the api_request_plain body - trim the map"
+; Build 11 #4: TWO floppy-read bounds. (1) The IDENTITY is read a full 512 B sector IN PLACE into the
+; record body after the prefix - the read end (prefix + 512) overflows the nominal api_request_plain
+; body into the post-record handshake/config scratch tail (dead during chat-loop sends) and MUST stay
+; inside the critical scratch arena. (The identity RECORD itself is <= api_request_plain_len, Makefile-
+; guarded, so its TX frame fits the pre-phase scratch.) (2) The CONTRACT is staged a sector at a time
+; in tls_rx_copy, which MUST hold a full 512 B sector below api_request_plain (tls_payload_buffer_len
+; reserves 592 B there). No record exceeds api_request_plain_len, so no TX frame overruns the scratch.
+%if (api_request_plain + tls_record_header_len + api_json_reasoning_prefix_len + 512) > critical_scratch_end
+%error "floppy identity in-place sector read overflows the critical scratch arena"
+%endif
+%if 512 > tls_payload_buffer_len
+%error "contract staging sector does not fit tls_rx_copy below api_request_plain"
 %endif
 %if (api_ledger_len + api_json_input_open_text_len) > api_request_plain_len
 %error "chunk 2 record B (ledger+input-open) exceeds the api_request_plain body"
@@ -424,11 +640,13 @@ agent_api_stream_ledger_dec8:      ; al (0-255) -> exactly 3 decimal digits at [
     pop cx
     ret
 
-; ---- Build 9 conversation context (Phase 3): carry the recent prompt into the next input ----
-agent_api_stream_append_context:        ; copy the window (RAW) into [es:di], JSON-escaped, FLUSHING
-    mov cx, [chat_context_used]          ; full TLS records as the buffer fills - a big-RAM window can
-    jcxz .ctx_ok                         ; exceed one record. es=ds (buffer in ds); the source is ds:si
-    mov si, chat_context_start           ; (not video like the prompt flush), and tls_send leaves es=ds.
+; ---- Build 9 conversation context: copy a chat_context range into [es:di], JSON-escaped, FLUSHING ----
+; Build 11 #4 note-as-memory: range-based - si = start ptr, cx = byte count. Callers pass the NOTE
+; range [chat_context_start .. +note_len) (into "instructions") and the DIALOGUE range
+; [chat_context_start+note_len .. +used) (into "input") separately; the compaction pass passes the whole
+; window. es=ds; tls_send leaves es=ds. A big range flushes across TLS records as the buffer fills.
+agent_api_stream_append_context:        ; si = source start, cx = byte count
+    jcxz .ctx_ok
 .ctx_next:
     cmp di, api_request_plain + tls_record_header_len + api_request_plain_len - 2
     jae .ctx_flush                       ; leave room for one escaped pair before the payload cap
@@ -478,6 +696,16 @@ agent_api_stream_append_context:        ; copy the window (RAW) into [es:di], JS
     stc
     ret
 agent_api_stream_append_prompt_to_context:   ; accumulate the just-sent prompt (RAW) for later turns
+    cmp byte [compacting_msg], 0
+    je .ctx_not_compaction
+    ; Build 11 #4 note-as-memory: the FULL window was just sent (as "input") to be summarized; reset it
+    ; so the streamed summary reply (agent_response/.emit_char) becomes the new window from offset 0.
+    ; The next (real) pass records note_len = chat_context_used (agent_request) and sends this note in
+    ; the "instructions"/memory slot, NOT as a conversation turn - so the model answers the user's
+    ; prompt instead of continuing the note.
+    mov word [chat_context_used], 0
+    ret
+.ctx_not_compaction:
     cmp byte [agent_loop_pending], 0
     jne .ctx_store_done                       ; auto-continue: don't bloat the window with "continue"
     mov al, [api_stream_prompt_len]
@@ -495,8 +723,11 @@ agent_api_stream_append_prompt_to_context:   ; accumulate the just-sent prompt (
     cmp bx, [chat_context_len_var]
     jbe .ctx_fits
     ; Window full: drop the history and start over with this labeled turn (overflow fallback;
-    ; model-compaction fires earlier at the threshold). Re-check the lone labeled turn fits.
+    ; model-compaction fires earlier at the threshold). Build 11 #4 note-as-memory: also clear note_len
+    ; - dropping the window discards the note too, so note_len must not stay > the (reset) used, or the
+    ; dialogue range used-note_len would underflow.
     mov word [chat_context_used], 0
+    mov word [note_len], 0
     mov al, [api_stream_prompt_len]
     xor ah, ah
     mov bx, ax
@@ -574,6 +805,17 @@ agent_api_stream_show_compacting:
     mov dl, [screen_cols]
     dec dl
     int 0x10
+    ; Build 11 #4 RECAP FIX (2026-06-10, wire-proven): this scroll moves the captured user prompt up one
+    ; row. pass-2 (the post-compaction real turn) rebuilds its prompt by reading the screen at
+    ; dpi_prompt_marker_row (restore_prompt_from_screen + append_prompt_screen_to_buffer). If the marker is
+    ; NOT moved with the scroll it points at the "> compacting context" line drawn just below, so pass-2
+    ; sent "compacting context" as the user input and the model restated the note instead of ANSWERING the
+    ; question. Track the prompt: decrement the marker per scroll (the 0x80 "set" flag survives - row < 128
+    ; so dec never borrows into bit 7). Guarded so an unset (0) marker can never underflow.
+    cmp byte [dpi_prompt_marker_row], 0
+    je .compacting_adv_set_row
+    dec byte [dpi_prompt_marker_row]
+.compacting_adv_set_row:
     mov byte [cursor_row], dpi_prompt_row - 1
 .compacting_adv_inc:
     inc byte [cursor_row]

@@ -33,6 +33,13 @@ prepare_agent_endpoint_path:
     mov al, [dpi_input_len_byte]
     mov ah, 3
     mov [chat_resend_prompt_len], ax
+.pass:
+    ; Build 11 #4 real compaction: 2-pass loop target. Pass 1 is the compaction summarize exchange
+    ; (only if agent_request finds the window >= 75% and sets compacting_msg); pass 2 is the real
+    ; turn. agent_request re-decides per pass off chat_context_used, so after the summary shrinks the
+    ; window below 75% the loop naturally falls through to the real turn and exits. The clean
+    ; prompt-len capture above runs ONCE (the compaction receive clobbers dpi_input_len_byte, which
+    ; aliases the RX buffer), and reconnect_retries is intentionally shared across both passes.
     call_core_phase core_agent_request_phase_start, core_agent_request_phase_end
     jc .restore
     load_core_window core_link_window_start, core_link_window_end
@@ -48,7 +55,7 @@ prepare_agent_endpoint_path:
     cmp byte [tls_key_schedule_ready], 1
     jne .connect_new_session
     call .stream_and_exchange
-    jnc .restore
+    jnc .pass_done
 .rebuild_and_connect:
     call_core_phase core_agent_request_phase_start, core_agent_request_phase_end
     jc .restore
@@ -69,7 +76,7 @@ prepare_agent_endpoint_path:
     ; nothing on reconnect -> the prompt returned with no answer. The cold first request
     ; does not use tls_app_len here, so leaving it set is harmless for cold.
     call .stream_and_exchange
-    jnc .restore
+    jnc .pass_done
 .retry:
     ; Build 11 never-blank: this connect attempt failed (handshake phase OR the exchange). Silently
     ; retry the whole rebuild+connect up to 3x. The endpoint phase draws the single dim "> reconnect"
@@ -80,6 +87,14 @@ prepare_agent_endpoint_path:
     dec byte [reconnect_retries]
     jnz .rebuild_and_connect
     call_core_phase core_agent_endpoint_phase_start, core_agent_endpoint_phase_end
+    jmp .restore                      ; retries exhausted: "failed" rendered; exit, skipping the loop-back
+.pass_done:                           ; reached ONLY after a successful exchange (both jnc above, CF=0)
+    ; Use TEST not CMP: TEST clears CF, so the normal-turn fall-through to .restore keeps the
+    ; exchange's CF=0 (a success return). CMP byte,1 BORROWS on compacting_msg==0 -> CF=1 -> .restore
+    ; (pushf/popf) returns failure though the exchange succeeded (greeting renders, yet "agent setup
+    ; failed"). ZF=0 (compacting_msg nonzero) means a compaction summarize just finished -> loop.
+    test byte [compacting_msg], 0xff
+    jnz .pass                         ; compaction summarize done -> loop for the real turn
 .restore:
     pushf
     call wd_restore_dp8390_base

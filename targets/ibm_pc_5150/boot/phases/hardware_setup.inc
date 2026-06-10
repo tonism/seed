@@ -10,6 +10,18 @@
 hardware_setup_phase:
     call hardware_setup_phase_init_handoff
     call hardware_setup_phase_display
+    ; Build 9 (compaction redesign): stage the keep-alive template into the persistent pool once at boot,
+    ; so the renderer no longer carries it (frees its last bytes for compaction).
+    ; Build 11 #4 COLD-BOOT-FREEZE FIX (2026-06-10): this MUST run BEFORE the network I/O below.
+    ; hardware_setup loads at low_scratch_start, which == ne_tx_frame; the NIC's MAC-PROM read target
+    ; (ne_prom .. low_packet_scratch_end, a 32 B window just under fs_sector_buffer) OVERLAPS this
+    ; phase's tail, where stage_ka_template's CODE and ka_template_source DATA live. At some phase sizes
+    ; the routine's code lands inside ne_prom's window; read_network_address then writes the MAC PROM
+    ; over it, so calling stage_ka_template AFTER read_network_address (the old order) executed code the
+    ; MAC read had just clobbered -> hard cold-boot freeze, no splash. Size-fragile: Build 11 #4's
+    ; chat_effective_cap write (6 B) shifted the tail into range. Staging FIRST runs the routine + reads
+    ; ka_template_source while both are intact; the later MAC read can clobber that dead region harmlessly.
+    call hardware_setup_stage_ka_template
     mov bl, [load_attr]
     mov al, '.'
     phase_call_res show_load_marker
@@ -17,9 +29,6 @@ hardware_setup_phase:
     jc .failed
     call resolve_network_config
     call read_network_address
-    ; Build 9 (compaction redesign): stage the keep-alive template into the persistent pool once,
-    ; here at boot, so the renderer no longer carries it (frees its last bytes for compaction).
-    call hardware_setup_stage_ka_template
     clc
     ret
 .failed:
@@ -57,6 +66,8 @@ hardware_setup_phase_init_handoff:
     sub ax, chat_context_start
     shr ax, 1
     mov [chat_context_len_var], ax
+    mov [chat_effective_cap], ax    ; #4: boot default = full window (the cold greeting skips the
+                                    ; ready path; agent_request resets it per ready request)
     mov bx, ax
     shr ax, 1          ; window/2
     shr bx, 1
@@ -91,6 +102,7 @@ hardware_setup_phase_display:
     ; bytes (one word write); chat_context_used follows (the conversation window starts empty).
     mov word [compact_next], 0
     mov word [chat_context_used], 0
+    mov word [note_len], 0          ; #4 note-as-memory: no compacted note until the first compaction
     sub ah, seed_len
     shr ah, 1
     mov [seed_col], ah

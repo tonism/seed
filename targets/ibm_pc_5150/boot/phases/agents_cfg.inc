@@ -9,6 +9,11 @@
 
 agents_cfg_phase:
     mov byte [agent_count], 0
+    ; Build 11 #4 real compaction: cache the floppy-resident system prompts (identity + compaction
+    ; contract) here, while a root-dir scan buffer (fs_sector_buffer) is free - the stream phase
+    ; later overlaps that buffer with its own code, so the find CANNOT run mid-chat. Caches each
+    ; file's first cluster + size (size 0 if absent); the stream phase reads the sectors directly.
+    call agents_cfg_phase_find_prompts
     call agents_cfg_phase_find
     jc .fallback
     call agents_cfg_phase_parse
@@ -175,6 +180,37 @@ agents_cfg_phase_copy_id:
     pop si
     ret
 
+; Build 11 #4 real compaction: locate the two streamed prompts and cache (cluster, size) for each.
+; A missing file -> size 0 (the stream phase then emits nothing for it - degraded but non-fatal).
+; Reuses agents_cfg_phase_find_root_file (di = 11-byte 8.3 name); the find leaves fs_file_cluster +
+; fs_file_size_low set on success. The caches live in the reconnect_state block (data.inc): boot-
+; written here, read every request, survives the session.
+agents_cfg_phase_find_prompts:
+    mov di, low_scratch_start + (agents_cfg_phase_identity_name - PHASE_BASE)
+    call agents_cfg_phase_find_root_file
+    jc .no_identity
+    mov ax, [fs_file_cluster]
+    mov [prompt_id_cluster], ax
+    mov ax, [fs_file_size_low]
+    mov [prompt_id_size], ax
+    jmp .find_compact
+.no_identity:
+    mov word [prompt_id_size], 0
+.find_compact:
+    mov di, low_scratch_start + (agents_cfg_phase_compact_name - PHASE_BASE)
+    call agents_cfg_phase_find_root_file
+    jc .no_compact
+    mov ax, [fs_file_cluster]
+    mov [prompt_compact_cluster], ax
+    mov ax, [fs_file_size_low]
+    mov [prompt_compact_size], ax
+    ret
+.no_compact:
+    mov word [prompt_compact_size], 0
+    ret
+
+agents_cfg_phase_identity_name db 'IDENTITY   '
+agents_cfg_phase_compact_name db 'COMPACT    '
 agents_cfg_phase_name db 'AGENTS  CFG'
 agents_cfg_phase_builtin_ids db 'openai', 0
                             times agent_id_len - 7 db 0

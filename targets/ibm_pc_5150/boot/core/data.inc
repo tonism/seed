@@ -422,7 +422,32 @@ scroll_br equ chat_context_len_var + 2
 ; is handshake-scoped (used + rewound within one tls_probe), so it does not need this block's
 ; survive-the-handshake property; it just needs a 4-byte home idle during the handshake.
 tls_retransmit_seq equ scroll_br + 2
-reconnect_state_end equ tls_retransmit_seq + 4
+; Build 11 #4 real compaction: the live store cap for the conversation window. agent_request sets it
+; each ready request to chat_context_len_var (normal turn) or HALF that (a compaction pass), so
+; emit_char's single store path enforces the 50% summary ceiling with no per-char branch. Written-
+; before-read each turn (set in .build_ready_openai_request before any receive/render).
+chat_effective_cap equ tls_retransmit_seq + 4
+; Build 11 #4 real compaction: the two static system prompts (identity, compaction contract) are
+; STREAMED off the floppy into the request mid-chat instead of living in the stream phase image. The
+; root-dir find runs once at boot (agents_cfg) and caches each file's first cluster + byte size here;
+; the stream phase reads cluster, cluster+1, ... for ceil(size/512) sectors via the resident
+; read_abs_sector (the builder lays files contiguously + NUL-pads the tail). size feeds the HTTP
+; Content-Length (the bytes stream RAW + control->space, so sent length == file size). Homed in this
+; block (only 3 B were free in low scratch) because it survives the session like the rest: boot-written
+; once, read every request, untouched by the handshake (which uses the scratch BELOW this block). A
+; missing file caches size 0 -> the streamer emits nothing (degraded, non-fatal).
+prompt_id_cluster equ chat_effective_cap + 2
+prompt_id_size equ prompt_id_cluster + 2
+prompt_compact_cluster equ prompt_id_size + 2
+prompt_compact_size equ prompt_compact_cluster + 2
+; Build 11 #4 note-as-memory: the conversation window (chat_context) is split into a NOTE prefix
+; [0..note_len) and the live DIALOGUE [note_len..chat_context_used). The note is the compacted memory
+; and rides in the request "instructions" (system) slot; the dialogue + the user prompt ride in
+; "input". Set right after a compaction pass (agent_request) to the captured summary's length; 0 until
+; the first compaction. This is what makes the post-compaction turn ANSWER the user's question instead
+; of continuing the note (the note reads as system memory, not the latest conversation turn).
+note_len equ prompt_compact_size + 2
+reconnect_state_end equ note_len + 2
 ka_template_persistent equ reconnect_state_end
 chat_context_start equ ka_template_persistent + ka_request_len
 chat_context_len equ 128

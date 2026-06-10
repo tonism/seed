@@ -68,12 +68,13 @@ agent_response_phase:
     jc .scan_delta
 .done_ready:
 .completion_ready:
-    cmp byte [tls_key_schedule_ready], 0
-    jne .done_pending_transport
-    mov byte [api_stream_completed], 3
-    ret
-.done_pending_transport:
-    mov byte [api_stream_completed], 2
+    ; Build 11 #4: golfed from a 2-way branch to arithmetic (tls_key_schedule_ready is strictly 0/1)
+    ; to reclaim the bytes the compaction capture branch in .emit_char needs. completed = 3 when cold
+    ; (transport-final, no keep-alive drain) or 2 when a live session still awaits the transport
+    ; drain, i.e. 3 - the flag. al is dead here (the matched done-pattern char is already consumed).
+    mov al, 3
+    sub al, [tls_key_schedule_ready]
+    mov [api_stream_completed], al
     ret
 
 .scan_delta:
@@ -147,15 +148,22 @@ agent_response_phase:
     ret
 
 .emit_char:
-    ; Build 9 (both-sides capture): always append the rendered char into the window (up to the cap),
-    ; so the model's own responses accumulate alongside the prompts - that is what the next request
-    ; carries forward. One shared store serves both turn kinds. bx holds the pre-store used count.
+    ; Build 11 #4 real compaction: store the rendered char into the window up to chat_effective_cap -
+    ; the FULL window on a normal turn, HALVED on a compaction pass (set once per request in
+    ; agent_request). The halving caps the summary at 50%, keeping the post-summary window below the
+    ; 75% trigger so the endpoint loop cannot re-fire. On a compaction pass also suppress the draw and
+    ; mark text_seen (via the shared .set_seen_ret below): the summary is internal carried state, not
+    ; an answer, so it must not render - and it must not read as an empty/dead socket (-> spurious
+    ; reconnect). Safe to suppress here: a DEDICATED exchange with no user answer to eat, unlike the
+    ; Build-10 recap that swallowed real replies. bx = pre-store used count.
     mov bx, [chat_context_used]
-    cmp bx, [chat_context_len_var]
-    jae .emit_char_stored               ; window full: stop accumulating (compaction fires next request)
+    cmp bx, [chat_effective_cap]
+    jae .emit_char_stored               ; window/summary cap reached: stop accumulating
     mov [chat_context_start + bx], al
     inc word [chat_context_used]
 .emit_char_stored:
+    cmp byte [compacting_msg], 0
+    jne .set_seen_ret                    ; compaction: never draw the summary; mark it seen (below)
     cmp byte [compact_next], 0
     jne .suppress_active                 ; compaction recap OR a tool line already in progress
     ; Build 10: a '$' begins a tool directive - suppress that whole line from the screen (it
@@ -170,7 +178,8 @@ agent_response_phase:
     ; scan runs (it gates on text_seen) and a tool-ONLY reply (no prose - e.g. an obedient
     ; write-then-run) is NOT misread by agent_api_exchange as an empty/dead-socket response ->
     ; spurious reconnect -> clobbered auto-continue directive -> dead agentic loop.
-    mov byte [api_stream_text_seen], 1
+.set_seen_ret:                           ; a compaction summary char OR a '$' tool line: captured into
+    mov byte [api_stream_text_seen], 1   ; the window, never drawn; mark seen so completion still scans
     mov byte [compact_next], 1
     ret
 .suppress_active:

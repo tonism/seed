@@ -617,3 +617,265 @@ So there are TWO orthogonal fragilities, and neither is the probe (now gone) nor
 Both are deliberate post-Build-11 robustness work (roadmap P4 #14 + a handshake-speed item); the +150ms
 netcond delay is satellite/bad-cellular latency, not home wifi, so it over-states the real envelope. The
 probe removal is a clean win regardless and ships in Build 11.
+
+---
+
+## 2026-06-09 - #4 REAL LLM COMPACTION (model summary replaces the Build-10 byte-trim) [BUILT, test pending]
+
+Replaces the raw sliding-window byte-trim (drop-oldest-to-25%) with a model-written summary. Design
+settled with the user: trigger at 75% (chat_compact_threshold, unchanged); steer the summary to ~1/3;
+HARD-CAP at 1/2 (the user: "I don't think we should go over 50%"). Form = an OPERATOR working-state note
+(not a chat recap): "Goal, State (facts/addresses/values), Open", inline (the window flattens newlines),
+in the agent's own voice (reinforces the host-operating-the-machine identity; dovetails P3 #9).
+
+ARCHITECTURE (came out clean - reuses ALL existing machinery):
+- 2-PASS LOOP in prepare_agent_endpoint_path (net_phase): a `.pass` label + a `.pass_done` loop-back at
+  the success exits. Pass 1 = the compaction summarize exchange (only when agent_request finds the window
+  >= 75% and sets compacting_msg=1); pass 2 = the real turn. The whole reuse/reconnect/3x-retry path is
+  inherited for BOTH passes for free. Exhaustion jmps .restore (skips the loop-back, no infinite loop).
+  ~12 resident bytes (fit the headroom the probe-removal freed).
+- compacting_msg DOUBLES as the compaction-mode flag (the old byte-trim that set it is deleted). Decision
+  lives in agent_request/.build_ready_openai_request (a PHASE, keeps the resident cost tiny).
+- The summarize request = a normal ready request with the PROMPT replaced by api_compaction_directive_text
+  (chunk 3), the FULL window riding as input. append_prompt_to_context (compaction path) drops the window
+  to 0 AFTER the send, so the streamed summary BECOMES the entire new window (no User:/You: labels).
+- CAPTURE in agent_response/.emit_char: stores up to chat_effective_cap (a NEW per-request var = full
+  window normally, HALVED on a compaction pass - set in agent_request). The 50% cap guarantees the
+  post-summary window < 75%, so the loop runs AT MOST TWICE (no runaway). Compaction chars jump to the
+  shared .set_seen_ret ('$'-tool-line path): mark text_seen (so the completion scan runs - a summary must
+  not read as an empty/dead socket -> spurious reconnect) and never draw it. Suppressing the render is
+  SAFE here (a DEDICATED exchange, no user answer to eat) - that is the whole point vs the Build-10 recap
+  landmine that suppressed a real answer's first line and swallowed replies.
+
+BYTE WALL (three near-full regions; measured via a negative-`times` probe trick):
+- stream phase +221 over (the 251 B directive). LINK window had only 5 B free (no home there). Resolved:
+  shortened the directive to 42 B (" Brief operator notes: Goal, State, Open." - the operator identity
+  rides in chunk 2's instructions, so the directive stays short; the 50% ceiling is enforced in code, not
+  prose) -> fits the stream phase's 43 B headroom.
+- response phase +35 over. Resolved by moving the 50% cap OUT of emit_char into chat_effective_cap (set
+  once per request in agent_request, which has room from the deleted trim) - so emit_char only gains the
+  +7 suppress branch - THEN golfing the completion-value logic from a 2-way tls_key_schedule_ready branch
+  to arithmetic (completed = 3 - flag; the flag is strictly 0/1), reclaiming 9 B. Build CLEAN.
+
+WINDOW SIZE (recomputed - the user was right that FIFO/shrink grew it): chat_context_start=15389, so the
+window = (ram_top-0x100-15389)/2 ~= 369 B at 16K (75%~277, cap~184) and ~8561 B at 32K. docs/testing.md
+still says "~107 B" at 16K - STALE (pre-shrink), update it. (32K "~8KB" is current.)
+
+TODO: validate - smoke (16K 2-turn recall, normal path no-regression) + the documented "invisible
+compaction" recipe (16K, chat until "compacting context", recall a pre-compaction fact). Then 7-NIC.
+
+### CF-corruption bug in the #4 2-pass loop (found via smoke test, FIXED)
+First smoke runs "failed": screen showed the greeting RENDERED ("Hello! How can I help you today?")
+yet a fatal "agent setup failed 00/12" overlay. A baseline (HEAD, stashed #4) passed the same prompt
+on the first try -> not network, a real regression. Root cause: `.pass_done` did `cmp byte
+[compacting_msg], 1` on the SUCCESS path; with compacting_msg==0 (every normal turn + the greeting)
+that subtraction BORROWS -> CF=1, and `.restore` (pushf/popf around wd_restore) preserves it, so
+prepare_agent_endpoint_path RETURNED CF=1 after a fully successful exchange -> the boot flow rendered
+the fatal screen (and every ready turn would have too). HEAD has no .pass_done (it `jnc .restore`
+directly, keeping the exchange's CF=0). Fix: `test byte [compacting_msg], 0xff` / `jnz .pass` - TEST
+clears CF, so the normal fall-through to .restore keeps CF=0; ZF=0 (nonzero) loops for the real turn.
+Lesson: any new instruction between a success `jnc` and the shared CF-preserving `.restore` epilogue
+must not touch CF. (The OCR showing BOTH the greeting and the failure was the tell; read the image.)
+
+### #4 16K test #1 (wire + screen): mechanism works, SUMMARY CONTENT is the bug [directive fix in test]
+First end-to-end 16K compaction test (passcode-recall recipe) + pcap (tools/tls-flow.py). Findings:
+- The MECHANISM is sound: compaction fires ("> compacting context"), the loop runs, the summary is
+  SUPPRESSED + captured (not drawn), and the machine does NOT freeze. The CF fix holds across turns.
+- ROOT BUG = SUMMARY CONTENT. With the directive " Brief operator notes: Goal, State, Open." the model
+  summarized its OPERATOR ROLE / situational context ("Context compacted: RAM tools use hex: $r read
+  $w write $x jump") instead of the CONVERSATION. So the user's passcode was NEVER in the summary; when
+  the summary became the window, the model parroted it AND emitted the $r/$w/$x it saw -> the tool phase
+  executed them -> recall failed ("I don't have any record of a passcode"). The rendered "Context
+  compacted:..." is the model echoing its own bad summary on the REAL turn, NOT a suppression failure.
+  Cause: the summarize request carries the full situational instructions (which describe the tools), and
+  "operator notes" pointed the model AT that role rather than at the chat.
+- SECONDARY (wire): the server intermittently Alert+FINs after a response (reuse also works fine for
+  357s/14 reqs on a good connection - 56004); when it closes, the forced reconnect handshake is marginal
+  (one run: client sent CKE, server never finished, 12 client flight-retransmits over 29s -> server RST).
+  That is the known handshake-margin/reconnect-reliability item, amplified by compaction's extra round-
+  trip. The window-reset-before-receive (append_prompt_to_context) loses history if such a reconnect
+  fails - a robustness gap to fix if the directive fix lands.
+FIX UNDER TEST: retarget the directive at the CHAT, not the role: " Summarize our chat; keep
+names/numbers." (the "operator notes" framing backfired; "names/numbers" pins concrete facts).
+
+### #4 clean-request fix: tool-gibberish FIXED, but recall still fails + compaction is slow
+Implemented the clean compaction request (user's guidance): for a compaction pass the request is
+model + a summarize instruction + the window ONLY - identity + ledger STRIPPED. Done by splitting
+api_json_instructions_text into api_json_reasoning_prefix (always) + api_json_identity_text (normal
+turns only); .stream_chunk2 sends prefix+directive+input-open for compaction (skips identity/ledger,
+one small record); .tail_pending sends the window alone (no prompt); compute_ready_body_lengths got a
+compaction branch (prefix+directive instructions, no identity/ledger, no input-prompt). Trimmed the
+identity ("Factual, professional."->"Factual.", -14 B) to fit the stream phase's 3-sector cap.
+RESULT (16K passcode test): the tool-gibberish is GONE - the summary is now a coherent conversation
+summary (no more "RAM tools use hex: $r/$w/$x"). BUT recall still fails: asked "what passcode did I
+give you?" the model returned ANOTHER full IBM PC description (a non-sequitur) - it recapped the rich
+dominant topic and dropped the small early passcode (turn 1). Window size is NOT the limit (~184 B
+summary cap easily holds "passcode ZX42QW + gist"); the model just deprioritized the user's fact.
+ALSO: compaction turns are very slow (>10 min for 3 turns) - the extra summarize round-trip keeps
+hitting the flaky reconnect (handshake-margin), stalling ~15-30s each (server intermittently Alert+FINs
+after a response; the forced reconnect handshake races the ~15s server patience and often loses).
+NEXT: directive retargeted from "summarize our chat" to " List facts the user gave, not a recap." to
+make the model EXTRACT the user's facts (the passcode) rather than recap the topic. (User asked: is the
+window big enough - yes; why hard - slow 6-10min test loop + small-model quirks + reconnect fragility,
+not a fundamental blocker. Fresh-context reset on the table if this directive doesn't land.)
+
+### #4 — REDESIGN decided; session reset prep (2026-06-09)
+On-screen request-window dump confirmed the conversation (incl. the user's fact) DOES reach the model -
+not clipping; the summary QUALITY is the problem (model continues/recaps the blob, variable). One run
+extracted correctly, so it's viable but unreliable. Agreed redesign with the user: floppy-streamed
+static prompts (identity + compaction sysprompt; fs.inc resident; frees the byte budget + uncaps prompt
+length) + structured NOTE/DIALOGUE window (terse goal/facts/state/open fields + verbatim dialogue tail
+as the non-sequitur safety net) + CONTRACT sysprompt (schema only, NO example - examples bleed) +
+dynamic char targets (seed hands ~25%/~50% in chars) + HARDWARE-AGNOSTIC prompts (no "IBM PC"/"8088" -
+future ARM port). FULL SPEC: notes/compaction-redesign.md (self-contained, fresh-session brief).
+Debug edits restored (emit_char suppression re-enabled, request-dump removed); tree builds clean. The
+2-pass loop + clean-request + capture + chat_effective_cap stay as the uncommitted base. Reconnect
+slowness (extra round-trip on the ~15s handshake-margin) is a SEPARATE handshake-speed item. Session is
+huge -> implement fresh off the spec.
+
+## 2026-06-09 - #4 BUILT off the spec; the 16K compaction HANG ROOT-CAUSED on the wire + FIXED (oversized TLS record clobbered the stream phase's own code)
+
+Implemented the redesign: IDENTITY + COMPACT prompt files on the floppy (build-guarded JSON-safe +
+size); boot find/cache in agents_cfg -> prompt_id/compact_cluster+size in the reconnect_state block;
+the stream phase reads the sectors via the resident read_abs_sector. Identity reworded hardware-agnostic
+(#4b). Compaction contract = the spec #5 schema (no example) + seed-appended dynamic char targets
+" Target about <N> .. at most <M>." (N=window/4, M=window/2); shared .append_u16_decimal widened
+3-digit->full u16 (the contract pushes the compaction-pass body >1000 B). Verified at 32K: cold
+greeting + normal turns + deterministic recall (floppy identity streams; mid-chat floppy read works).
+
+THE 16K COMPACTION HANG (NOT effort/vendor slowness - OUR side, wire-proven). pcap of the compaction
+turn: client sends chunk1 (299 B) + record A (578 B = the JSON prefix + the whole 509 B contract),
+server ACKs it, then the client's TCP seq STOPS - record B + the window never go out - and 13s later
+the server RSTs (it is waiting for the Content-Length body), then a reconnect loop = the "hang". Turns
+1-3 (all records <=440 B) worked; only the compaction turn (the one with a >440 B record) hung.
+ROOT CAUSE: ne_tx_frame sits at low_scratch_start (0x0700); the stream phase loads 512 B above it at
+net_setup_phase_start (0x0900). A record's TX frame (record + ~75 B TLS/TCP/IP/Eth) must fit that 512 B
+window or it OVERWRITES THE PHASE'S OWN CODE mid-send. The 578 B contract record -> ~632 B TX frame ->
+clobbered ~120 B of the phase at 0x0900; the next instructions (build/send record B) were corrupt ->
+the send died -> truncated request -> RST. (The old streamer read a whole 512 B sector into the record
+body and sent it as ONE record - fine for the 295 B identity, fatal for the 509 B contract.)
+
+FIX: never emit a record >440 B (api_request_plain_len), like every normal record. The contract is now
+streamed as <=440 B records (agent_api_stream_stream_contract): staged in tls_rx_copy (FREE on a
+compaction pass - the prompt is not sent and the real turn re-reads it from the screen), copied into the
+body, flushing every full record + the final partial; the targets + input-open then ride a fresh record.
+Identity stays one <=440 B in-place record. Makefile guards: identity <=392 B, contract <=512 B. Asserts:
+the identity in-place sector read stays < critical_scratch_end; the contract staging sector fits
+tls_rx_copy below api_request_plain. This ALSO exercises the multi-record flush path (the 509 B contract
+spans 2 records). Network during the runs is flaky (netcheck ping=FAIL) - the earlier "reconnect hangs"
+were the spotty test network (a drop looks like a reconnect stall), NOT this bug.
+
+VERIFIED 16K end-to-end (ne2k8, clean run): turns establish "Quorblax" + fill the window -> "> compacting
+context" fires (dim) + the compaction turn COMPLETES (no hang) -> the note captured the codename
+("ack: codename quorblax remembered; will give one-sentence answers; noted sky is blue and rivers form")
+-> the RECALL turn answered "quorblax". So the model remembers a fact ACROSS the compaction collapse =
+the #4 goal. HANG fixed + recall verified.
+
+KNOWN QUALITY QUIRK (refinement, not a blocker): on the compaction turn itself the model's pass-2 answer
+is a RECAP/ack of the note rather than an answer to the new prompt (it "acked" the note instead of
+answering "what makes the moon change shape"). The note is also prose, not the contract's strict
+goal/facts/state/open schema - facts ARE captured (recall works) but the schema isn't followed and the
+prose note reads like a prior assistant turn, so pass 2 continues it. The spec's verbatim DIALOGUE-tail
+safety net only helps turns AFTER compaction (the window post-compaction = note only, no tail on the
+compaction turn). Options to refine later: keep a 1-turn dialogue tail on the compaction turn, or tighten
+the contract so the note reads as context not a turn. REMAINING for #4: 7-NIC re-validation (the
+floppy-streaming is NIC-independent, so ne2k8 is representative) + this recap refinement.
+
+## 2026-06-10 - #4 note-as-memory + the COLD-BOOT FREEZE (size-fragile self-clobber in hardware_setup; ~10-build bisect) [FIXED]
+
+Implemented note-as-memory to fix the recap quirk above: split the chat_context window into a NOTE prefix
+[0..note_len) and the live DIALOGUE [note_len..used). The note (the compacted summary) rides in the
+request "instructions"/system slot behind a "do not restate" label; the dialogue + the user prompt ride
+in "input", so the post-compaction turn answers the user's NEW prompt instead of continuing the note (the
+note reads as system memory, not a prior assistant turn). New var note_len in reconnect_state (boot-zeroed
+in hardware_setup; agent_request sets note_len = chat_context_used after a compaction pass; the stream
+phase ranges instructions/input off note_len). chat_effective_cap (the per-request window store cap, also
+new in reconnect_state) gets a boot default in hardware_setup.
+
+THE COLD-BOOT FREEZE (this is the one that ate the session). The note-as-memory build froze at the cold
+boot - black screen, one dim mark, NO splash; the VM "stuck at the . loading phase". Deterministic (4+
+clean freezes), NOT a flake, NOT the network (ping fine + HEAD booted on the same box), NOT 16K-specific
+(32K direct froze identically). A ~10-build bisect (stash HEAD to prove it was our code, revert in groups,
+then single files, then single instructions, then a value-vs-address probe, then a moved-write probe, then
+visible boot markers) isolated it to ONE instruction: hardware_setup's `mov [chat_effective_cap], ax` boot
+write - removing it booted, adding it (any address, any value) froze. RED HERRINGS ruled out along the way
+(the struggle, recorded so we don't repeat it): the profile 86box.cfg (the harness rewrites it via
+rewrite_vm_config - my stale fdd_01 edit was moot); the data.inc +12 reconnect_state shift (RAM-independent
+equ addresses, all asserts pass, 32K has headroom); the link/K crypto window; the resident nucleus size;
+find_prompts; net_phase's 2-pass loop; the floppy/FAT layout; even a data.inc reorder that kept
+ka_template at its base address (still froze - wrong suspect). The decisive clue: adding ~25 B of debug
+markers to the SAME phase made it BOOT - so it was SIZE/POSITION-fragile, not a logic bug.
+
+ROOT CAUSE (address-proven via a NASM probe). hardware_setup is a phase that loads at low_scratch_start
+(0x0700) == the network buffers: ne_tx_frame at 0x0700, then ne_prom (the NIC MAC-PROM read target) at
+0x0cee .. low_packet_scratch_end (0x0d0e) - a 32 B window just under fs_sector_buffer. hardware_setup does
+its OWN network I/O (probe/resolve/read_network_address), so the phase's TAIL overlaps those buffers.
+hardware_setup_stage_ka_template's CODE + its ka_template_source data live in that tail; at H=1564 B the
+routine's code sat at ~0x0cf5 - INSIDE ne_prom's 0x0cee..0x0d0e window. read_network_address writes the MAC
+PROM into ne_prom, and the OLD order called stage_ka_template AFTER read_network_address -> the call jumped
+into code the MAC read had just overwritten -> executed garbage -> hard freeze, before the splash (which is
+drawn later, by the cold agent_api_stream). SIZE-FRAGILE because the tail position tracks the phase size:
+Build 11 #4's 6-byte chat_effective_cap write shifted the tail INTO ne_prom's window (freeze); the 25-byte
+debug markers shifted it back OUT (boot); HEAD's hardware_setup happened to sit at a safe size. NB ne_prom
+(0x0cee, LOW scratch) and ka_template_persistent (0x3ab8, HIGH reconnect_state) are unrelated addresses -
+the data.inc-reorder detour chased the wrong one.
+
+FIX (robust, size-independent): stage the keep-alive template BEFORE the network I/O - moved
+`call hardware_setup_stage_ka_template` above probe/resolve/read in hardware_setup_phase. Now the routine's
+tail code runs (and ka_template_source is read) while both are intact; the later MAC read clobbers that
+now-dead tail region harmlessly (the next phase load overwrites it anyway). No size dependency, no extra
+bytes. Verified: 32K-direct cold boot -> splash + "Hello?" greeting in the EXACT config that froze.
+
+LESSON (generalizes the docs/memory "phases doing network I/O" hazard with a concrete 2nd instance): any
+phase loaded at low_scratch_start that does network I/O can self-clobber if its tail code/data crosses into
+ne_tx_frame/ne_prom. Code that must run AFTER the network I/O has to stay clear of those buffers - or run
+before them (what the fix does). A boot freeze with NO splash + a dim mark = suspect a 0x0700-phase tail vs
+network-buffer overlap, and check it is SIZE-fragile (does adding/removing a few phase bytes flip it).
+
+## 2026-06-10 - #4 RECAP ROOT-CAUSED ON THE WIRE: pass-2 sent the "compacting context" STATUS LINE as the prompt (not framing, not the note) [FIXED]
+
+After the boot freeze was fixed, the compaction turn STILL answered with a restatement of the context
+instead of the user's question ("Compact context: codename quorblax. Sky is blue... rivers..." for the
+"what makes the moon change shape" turn). I had assumed it was the note content / pass-2 framing (the model
+echoing an ack-note). WRONG - decrypting the wire showed the real cause.
+
+WIRE DECRYPT (built tools/tls-decrypt.py - reusable). seed's TLS premaster is ON THE WIRE: tls_parse_server_
+key_exchange copies the server's ECDHE public-key X coordinate straight into tls_premaster_secret (no scalar
+mult - seed sends the base point G as its own ClientKeyExchange point, so the server's shared secret == its
+own public key and both sides use that X; insecure but wire-derivable). So all keys derive offline from the
+capture: premaster=serverPubX -> TLS-PRF -> master_secret -> key_block -> ChaCha20-Poly1305 client/server
+write keys+IVs (RFC 7905); per-record nonce = write_iv XOR seq; plaintext = ChaCha20(key,ctr=1,nonce) ^ ct.
+The tool decrypts both directions of the agent connection from a pcap (no device key dump needed).
+
+WHAT THE WIRE SHOWED (turn 4, the compaction turn):
+  - pass-1 (compaction) note response was CORRECT and followed the contract:
+      "goal: remember codename; answer concisely\nfacts: codename for later: quorblax\nstate: sky blue:
+       Rayleigh; rivers: runoff to rills"
+    -> pass-1 is fine; recall works because the codename fact is captured.
+  - pass-2 (the real turn) instructions correctly carried that note (recB 339 B vs 163 B normal) AND...
+  - pass-2 "input" = "compacting context" (space-padded) -- NOT "what makes the moon change shape". The
+    model dutifully restated the context because that IS what it was asked. So the bug is the PROMPT, not
+    the note or the framing.
+
+ROOT CAUSE. agent_api_stream_show_compacting draws the dim "> compacting context" status during pass-1. To
+make room it calls .compacting_advance, which SCROLLS the text area up one line (int 10h, rows 1..dpi_prompt_
+row) - moving the captured user prompt from row 24 up to row 23 - then draws the status on the freed row 24.
+But it did NOT move dpi_prompt_marker_row. pass-2 rebuilds its prompt by reading the screen at that marker
+(agent_request restore_prompt_from_screen AND agent_api_stream append_prompt_screen_to_buffer); the marker
+still said row 24, which now holds "> compacting context" -> pass-2 sent the status line as the user input.
+
+FIX (1 guarded dec): in .compacting_advance, after each scroll, decrement dpi_prompt_marker_row so it tracks
+the prompt's new row. The 0x80 "set" flag survives (row < 128, no borrow into bit 7); guarded so an unset (0)
+marker never underflows. Both screen readers then read the real prompt row. X phase stays 3 sectors.
+LESSON: anything that scrolls the text area between prompt-capture and a screen-based prompt-restore MUST
+move dpi_prompt_marker_row with it.
+
+VERIFIED (ne2k8 @ 16K, full 4-turn compaction run): turn 4 (the compaction turn, "what makes the moon change
+shape") answered "The Moon appears to change shape because, as it orbits Earth, we see varying portions of its
+sunlit side, creating the phases." -- the ACTUAL answer, not the old "Context compacted; ready for next step"
+ack. Compaction stays invisible (brief "> compacting context", then the answer). So #4 now meets the hard
+requirement: after compaction the user gets the answer to their original question, not the compaction response;
+facts still survive (recall). NIC-independent (the fix is in show_compacting's scroll bookkeeping), so ne2k8
+is representative; 7-NIC spot-check still advisable before release. The boot-freeze fix + this recap fix
+together complete the #4 slice end to end (boot -> compaction fires -> note captures facts -> answer ->
+recall). New reusable tool: tools/tls-decrypt.py (offline TLS decrypt from a pcap).
