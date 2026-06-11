@@ -241,3 +241,23 @@ the ~12 s FMUL-only floor — the decision holds without it.)
   cosmetic and cut against honest framing.
 - Keep the precise **"encrypted but not secure"** label. Real confidentiality/
   authenticity wait for a faster machine (286/386+) or a self-hosted patient endpoint.
+
+### 80186 instructions on V20/V30 — MEASURED (correcting an earlier reasoned claim)
+Tested, not reasoned (`bench186.asm`, on a V20). The SHA hot op is a 32-bit rotate;
+after the byte-granular step the residual is 1..7 bits. The 186 shift-by-immediate
+cross-register combine is a FIXED cost; the 8086 single-bit residual grows with the
+residual (dt for 30000 iters, V20):
+
+| residual | 8086 single-bit | 186 shift-imm | winner |
+|---|---|---|---|
+| 2 | 17 | 20 | 8086 (186 ~18% slower) |
+| 5 | 24 | 20 | 186 (~17% faster) |
+| 7 | 28 | 20 | 186 (~29% faster) |
+
+Crossover ~residual 3-4. SHA-256's 12 rotate residuals = [2,5,6,6,3,1,7,2,3,1,3,2]:
+8/12 are small (8086 wins), 4/12 large (186 wins). A smart hybrid nets only ~2-4% on a
+full SHA block; naive all-186 is ~a wash. And a fully 186-tuned V20 SHA (~82 ms) is still
+slower than plain-8086 code on a 16-bit-bus 8086@8 (71 ms) -- the bus beats the ISA.
+**Verdict: real but small + residual-dependent; not worth a CPU-specific code path. Tier
+on RAM + bus-class, not 086-ISA.** (Earlier I reasoned "~nothing"; measured it's ~18-29%
+on large-residual rotates but ~nil net on SHA -- the test was right to run.)
