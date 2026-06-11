@@ -1,8 +1,9 @@
 # Build Scope
 
-Status: latest tagged release is Build 10 (minimal tool calling: `$r/$w/$x` + the agentic loop),
-`build-10` at `2eee16d`. Build 11 (release hardening) is largely implemented on `work/draining-fifo`
-— see its section for the shipped features and "Forward-looking ideas" for the backlog.
+Status: latest tagged release is Build 11 (release hardening: draining-FIFO transport, robust
+reconnect, real LLM compaction, ESC-to-interrupt, tool-directive rendering), `build-11`. See its
+section for the shipped features and "Forward-looking ideas" for the backlog. The next cycle
+(Build 12) is the capability-tiered memory-layout redesign on `work/scaling`.
 
 Seed's loading marker has four semantic states plus the final splash:
 
@@ -108,7 +109,7 @@ owns the crash, reboot from trusted media recovers (Authority Model / Recovery B
 ## Build 11 — release hardening
 
 Hardens the first public release on top of Build 10. The FIFO redesign led — it freed the memory
-budget the rest depended on. (On `work/draining-fifo`; not yet tagged.)
+budget the rest depended on.
 
 ```text
 draining-FIFO receive + RX shrink - one streamed receive path keeping incremental per-record
@@ -175,10 +176,17 @@ true security on larger / faster machines (separate exploration, CPU-gated) - ME
     ~220 s/sig - both blow the window; a chain is minutes.
   - real entropy: ~0.16 s (a SHA-mixed keystroke/NIC/PIT pool) - the ONLY affordable upgrade, but
     timing-jitter sources are untestable on the cycle-deterministic emulator (keystroke timing works).
-  A full real-security handshake is ~2.7 min => out of reach on a stock 8088; it needs a faster machine
-  (286/386+) or a self-hosted long-patience endpoint. Per-record app-data is already MAC-verified after
-  the FIFO collapse - record integrity, not a secure channel. The small-machine product stays honestly
-  "encrypted but not secure"; real entropy + a pinned key is the honest middle ground.
+  A full real-security handshake is ~2.7 min on a stock 8088 => out of reach. The threshold on faster
+  CPUs was then MEASURED (spike branch spike/crypto-speed, results/FINDINGS.md): the FPU does NOT
+  unlock it (SHA is FPU-immune; the P-256 reduction/carry work dominates the FMUL win), but security
+  begins at the 286. An optimized real ECDHE (Solinas+Karatsuba+wNAF P-256, OpenSSL-verified) runs in
+  6.6 s on the lowest 6 MHz part, and a full cert-authenticated handshake (ECDHE + RSA-2048 verify
+  6.37 s + fast PRF) fits the ~15 s server window: ~13.8 s @6 MHz (a knife-edge, only with the 4.64x
+  SHA win) and a comfortable ~10.4 s @8 MHz. So "secure" is a 286@8+ tier; full 286 coverage (the
+  6 MHz floor with real slack) needs a further crypto-optimisation pass and is scoped to the
+  capability-tiered redesign (Build 12, branch work/scaling). The stock-8088 product stays honestly
+  "encrypted but not secure" (per-record app-data IS MAC-verified after the FIFO collapse - record
+  integrity, not a secure channel); real entropy + a pinned key is the honest middle ground there.
 reach / perf - beyond segment 0 (>64 KiB); render-rate optimization for very long replies; drop the
   floppy reads in the 32K+ chat loop; TLS 1.3 (not a memory play - record-size caps are ignored on 1.2/1.3).
 full TCP retransmit (survive a genuinely bad link) - an unacked-byte buffer + RTO timers + ACK tracking +

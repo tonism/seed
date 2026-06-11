@@ -404,9 +404,16 @@ And the part that is *not* tractable — the honest gap:
   confidentiality, still ~3× over the window). So entropy is a cheap *prerequisite*
   (~0.16 s) that must ship bundled with key agreement, never as a standalone "fix".
 - The honest gap is therefore the whole public-key story, and on a stock 8088 it is
-  CPU-gated to minutes (a full real-security handshake ≈ 2.7 min). It waits for a faster
-  machine (286/386+) or a self-hosted long-patience endpoint; the small-machine product
-  stays honestly **encrypted but not secure**. Detail + reproducible benchmarks:
+  CPU-gated to minutes (a full real-security handshake ≈ 2.7 min). The threshold on faster
+  CPUs has since been **measured** (same harness): an FPU does *not* rescue it (SHA is
+  FPU-immune, the P-256 reduction/carry work dominates), but **security begins at the
+  286** — an optimised real ECDHE (Solinas + Karatsuba + wNAF P-256, OpenSSL-verified) is
+  6.6 s on the lowest 6 MHz part, and a full cert-authenticated handshake (ECDHE +
+  RSA-2048 verify 6.37 s + the fast PRF) fits the ~15 s window: ~13.8 s at 6 MHz (a
+  knife-edge, only with the 4.64× SHA win) and a comfortable ~10.4 s at 8 MHz. So a real
+  secure channel is a **286@8+ tier**; full 6 MHz coverage needs a further crypto pass and
+  is scoped to the Build 12 redesign (`work/scaling`). The stock-8088 product stays
+  honestly **encrypted but not secure**. Detail + reproducible benchmarks:
   `tools/crypto-bench/results/FINDINGS.md`.
 
 The handshake race is also why the chat loop reuses one session instead of reconnecting
