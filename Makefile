@@ -36,6 +36,7 @@ FLOPPY_IMG := $(BUILD_DIR)/floppy-160k.img
 IMAGE_BUILDER := tools/build-fat12-image.py
 BASIC_BOOT_BUILDER := tools/build-basic-bootstrap.py
 CORE_SYS_INFO := tools/core-sys-info.py
+LAYOUT_CHECK := tools/check-layout.py
 AGENT_CFG := $(wildcard config/AGENTS.CFG)
 USER_CFG := $(wildcard config/USER.CFG)
 INCLUDE_USER_CFG ?= 1
@@ -75,9 +76,10 @@ $(BOOT_BIN): $(BOOT_SRC) | $(BUILD_DIR)
 $(LOADER_BIN): $(LOADER_SRC) | $(BUILD_DIR)
 	nasm $(NASM_FLAGS) -f bin -o $@ $<
 
-$(CORE_SYS): $(CORE_SRC) $(CORE_INCLUDES) $(CORE_PHASE_INCLUDES) $(CORE_SYS_INFO) | $(BUILD_DIR)
+$(CORE_SYS): $(CORE_SRC) $(CORE_INCLUDES) $(CORE_PHASE_INCLUDES) $(CORE_SYS_INFO) $(LAYOUT_CHECK) | $(BUILD_DIR)
 	nasm $(NASM_FLAGS) -f bin -o $@ $<
 	python3 $(CORE_SYS_INFO) --check $@
+	python3 $(LAYOUT_CHECK) $@
 
 $(BASIC_BOOT_A_BIN): $(BASIC_BOOT_SRC) $(CORE_SYS) Makefile | $(BUILD_DIR)
 	core_sectors=$$(python3 $(CORE_SYS_INFO) --field resident-sectors $(CORE_SYS)); \
