@@ -1,5 +1,20 @@
 # Build 12 — NIC HAL vtable (dispatch-vector) handover
 
+> **STATUS: LANDED (2026-06-11)** — increments A/B/C/D, commits `f65f46d`, `c8867a4`,
+> `7cd9492`, +D on `work/scaling` (NOT pushed). The resident TX/RX/enter/restore/
+> rx_fallback hot path now dispatches through a **5-slot resident** `nic_vtable`
+> (`nic_vt_enter/restore/transmit/receive/rx_fallback`) populated once by
+> `populate_nic_vtable` in `hardware_setup`. 7-NIC matrix 7/7 PASS after each increment;
+> Build-11 parity. Two refinements vs the plan below: (1) the table lives in the
+> **nucleus** (resident), not low memory — the conversions free more than it costs, so
+> nucleus went **2033 → 2002 B** at **zero arena cost**, and it survives reconnect for
+> free; (2) the inner NE-family buffer load/read sub-dispatch (wd/3c503/remote-DMA) was
+> **left as a direct branch** — it's the NE driver's own DP8390 access taxonomy, not a
+> separate driver (high DMA-timing risk, ~zero additivity value). `handoff_nic_family`
+> stays the source of truth for the cold-phase flight-order/pacing/display reads (out of
+> scope, untouched). Grind log + rationale: `notes/build12-staging.md`. The text below
+> is the original execution brief, kept for the record.
+
 Self-contained brief for a **fresh session** to execute the NIC HAL / dispatch-vector
 refactor. Read this + `docs/architecture.md` ("The One-Artifact Relocation Model")
 + `notes/build12-staging.md`. The prior session mapped the dispatch and the design

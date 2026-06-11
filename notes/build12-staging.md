@@ -169,6 +169,37 @@ Current `core/` mixes lifetimes in one crypto group. Conservative, increment-ali
   parity landings (golf ~586 B from the other crypto, or the holistic SHA-out
   reorg) are both heavy/fresh-context. Reverted to clean parity (cb2c7d7d). The
   crypto is ready; the fit is the deferred work.
+- 2026-06-11 — **NIC HAL vtable LANDED (increments A/B/C/D, commits f65f46d, c8867a4,
+  7cd9492, +D).** Converted the NIC-family runtime branching in the resident network
+  path into a boot-populated dispatch-vector. A 5-slot vtable (`nic_vt_enter/restore/
+  transmit/receive/rx_fallback`) is filled once by `populate_nic_vtable` in
+  hardware_setup (after the family is final — the I phase had only 61 B slack, H had
+  355); the resident hot path then `call [nic_vt_*]` with no `cmp [nic_family]`.
+  Self-contained brief: `notes/build12-hal-handover.md`.
+  - **Where it lives — REFINED from the handover.** The table is **resident nucleus
+    data**, not low memory. Removing the per-family branches frees more than the 10 B
+    table costs, so the nucleus went **NET-NEGATIVE 2033 → 2002 B** AND it costs **zero
+    arena** (precious at 321 B on 16K) — strictly better than the reconnect-block
+    option the handover suggested, and it survives reconnect for free (resident, never
+    reloaded). The `%error` nucleus cap was the safety net; the fallback was never hit.
+  - **Scope — REFINED.** 5 top-level slots only. Deliberately did **not** convert the
+    inner NE-family buffer load/read sub-dispatch (wd-sharedmem / 3c503-chipmem /
+    remote-DMA) to slots: that is the NE driver's own DP8390 access taxonomy, not a
+    separate driver; converting it is byte-positive and touches the timing-sensitive
+    DMA loops (high risk, ~zero additivity value — a new card reuses one mode or is
+    fully custom like el1, which uses the transmit/receive slots). `handoff_nic_family`
+    stays the source of truth for the cold-phase flight-order/pacing/display reads.
+  - **One register subtlety:** `el1_transmit_frame` (3c501) is now reached directly via
+    the slot, bypassing `ne_transmit_frame`'s `mov bp,cx` prologue, so it establishes
+    `bp = len` from the caller's `cx` itself (increment B). RX needed no such fix (both
+    receive impls are self-contained).
+  - **Incremental + matrix-green:** A (enter/restore + rx_fallback), B (TX), C (RX),
+    each its own commit after the **7-NIC matrix 7/7 PASS** (~134 s/card, full boot →
+    handshake → greeting). Build-11 parity, no behaviour change. D = a `check-layout.py`
+    guard that every declared slot gets a default population write (negative-tested),
+    asm binary-identical. NB: `make all` doesn't build the BASIC sidecars — run `make
+    basic-bootstrap` before a `--no-build` matrix or the harness fails fast ("missing
+    BASIC bootstrap: SEED24B.BAS").
 
 ## Deferred to fresh-context feature sessions (heavy)
 
@@ -203,8 +234,15 @@ is teed up but intentionally NOT done here:
 - **Capability-vector field allocation** — when the 286 secure tier (or Wi-Fi)
   adds the first consumer of CPU-class/FPU/link-type; reclaim low-runtime slack,
   bump the handoff version, re-verify via `check-layout.py`.
-- **Live dispatch-vector mechanism**, **32K floppy-free loop**, **HAL/driver
-  vtable**, **286 secure tier**.
+- **NIC HAL vtable — DONE** (the dispatch-vector seam for the active NIC driver; see
+  the grind log above). What REMAINS of the HAL vision: floppy-loaded driver *modules*
+  in a bounded resident **active-driver slot** (today every family's driver is still
+  resident — the vtable makes dispatch additive, but inactive drivers don't yet cost
+  zero RAM). The vtable's OTHER dispatch-vector consumers are still future: the **32K
+  floppy-free loop** (phase preload-vs-demand) and the **286 secure crypto path** —
+  build their slots when those features land (YAGNI; not now).
+- **286 secure tier** (the orthogonal CPU-class capability; carries the 286@8+
+  objective + the "full-286 needs further crypto-opt" gate).
 - **Doc-staleness sweep** (pre-existing, out of this pass's scope): `AGENTS.md`
   still references shipped `NET.CFG`; `HANDOFF.md` "Context-management knobs
   (Build 9)" describes the recap-first compaction that Build 10 removed. Fix in a

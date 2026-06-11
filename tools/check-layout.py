@@ -31,6 +31,8 @@ ROOT = Path(__file__).resolve().parents[1]
 CORE = ROOT / "targets/ibm_pc_5150/boot/core"
 DEFAULT_LAYOUT = CORE / "layout.inc"
 DEFAULT_DATA = CORE / "data.inc"
+# Build 12 NIC HAL: the vtable slots are declared in data.inc and populated in this phase.
+HARDWARE_SETUP = ROOT / "targets/ibm_pc_5150/boot/phases/hardware_setup.inc"
 
 SECTOR = 512
 MAGIC = b"SEEDCORE"
@@ -175,6 +177,62 @@ ALIASES = [
 ]
 
 
+def check_nic_vtable(data_path: Path, hw_path: Path) -> tuple[list[str], list[str], list[str]]:
+    """Build 12 NIC HAL guard: every dispatch-vector slot declared in data.inc must get
+    an unconditional DEFAULT write in populate_nic_vtable, so no NIC family can leave a
+    slot uninitialised (a `call [garbage]` crash). This is the safety net for the
+    additive-driver pattern: add a slot without populating it -> the build fails here,
+    not on the one card whose family doesn't override that slot. Source-parsed (the
+    slots are resident `dw`, not equates, so they're invisible to the equate model).
+
+    Returns (slots, default_writes, issues)."""
+    issues: list[str] = []
+
+    # 1. the ordered slot labels: the contiguous `nic_vt_* dw` block under `nic_vtable:`.
+    slots: list[str] = []
+    in_table = False
+    for raw in data_path.read_text().splitlines():
+        s = raw.split(";", 1)[0].strip()
+        if s == "nic_vtable:":
+            in_table = True
+            continue
+        if in_table:
+            m = re.match(r"^(nic_vt_\w+)\s+dw\b", s)
+            if m:
+                slots.append(m.group(1))
+            elif s:  # first non-slot, non-blank line ends the table
+                break
+
+    # 2. the DEFAULT writes: `mov word [nic_vt_*]` from populate_nic_vtable: up to the
+    #    first family `cmp`/`ret` (the unconditional prefix, before any override branch).
+    defaults: list[str] = []
+    in_routine = False
+    for raw in hw_path.read_text().splitlines():
+        s = raw.split(";", 1)[0].strip()
+        if s == "populate_nic_vtable:":
+            in_routine = True
+            continue
+        if in_routine:
+            if s.startswith("cmp ") or s == "ret" or s.startswith("ret "):
+                break
+            m = re.match(r"^mov\s+word\s+\[(nic_vt_\w+)\]", s)
+            if m:
+                defaults.append(m.group(1))
+
+    # 3. the invariant.
+    if not slots:
+        issues.append("nic_vtable: no slots parsed from data.inc (label renamed/removed?)")
+    if not defaults:
+        issues.append("populate_nic_vtable: no default slot writes parsed (routine renamed/restructured?)")
+    for slot in slots:
+        if slot not in defaults:
+            issues.append(f"nic_vtable slot {slot} has no DEFAULT write in populate_nic_vtable")
+    for d in defaults:
+        if d not in slots:
+            issues.append(f"populate_nic_vtable default-writes unknown slot {d} (not declared in nic_vtable)")
+    return slots, defaults, issues
+
+
 def run(core_path: Path, layout: Path, data: Path) -> int:
     c = parse_equates([layout, data])
     core = read_core(core_path)
@@ -285,6 +343,13 @@ def run(core_path: Path, layout: Path, data: Path) -> int:
         print(f"  {'ok' if ok else 'XX'} {sym_a} == {sym_b} ({c[sym_a]:#06x})  — {why}")
         if not ok:
             errors.append(f"broken alias: {sym_a}({c[sym_a]:#06x}) != {sym_b}({c[sym_b]:#06x})")
+
+    # 4. NIC HAL dispatch-vector: every declared slot must be default-populated at boot.
+    slots, defaults, vt_issues = check_nic_vtable(data, HARDWARE_SETUP)
+    print("\nNIC HAL vtable (every slot must get a default write in populate_nic_vtable):")
+    for slot in slots:
+        print(f"  {'ok' if slot in defaults else 'XX'} {slot}")
+    errors.extend(vt_issues)
 
     if missing:
         errors.append(f"unresolved alias symbols: {sorted(set(missing))}")
