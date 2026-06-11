@@ -261,3 +261,41 @@ slower than plain-8086 code on a 16-bit-bus 8086@8 (71 ms) -- the bus beats the 
 **Verdict: real but small + residual-dependent; not worth a CPU-specific code path. Tier
 on RAM + bus-class, not 086-ISA.** (Earlier I reasoned "~nothing"; measured it's ~18-29%
 on large-residual rotates but ~nil net on SHA -- the test was right to run.)
+
+## Front 3 — the 286 tier: where real secure crypto first fits (measured 6/8 MHz + linear projection)
+The 086-class can't reach a secure handshake even maxed+hybridized (Front 1/2). The 286
+can. Booted the 360K bench image on 86Box `ibmat` (286) via a crafted IBM-AT CMOS (the AT
+halts at "Run SETUP" on blank CMOS; the XT class has no CMOS) + a minimal raw boot sector
+with a real 360K BPB (`bench_boot.asm`) -- the AT rejects the product's 160K single-sided
+image. `ibmat` clamps to 8 MHz (real AT speed); the 286 has no cache so 6->8 scaled exactly
+with clock -> higher clocks project linearly.
+
+| CPU | SHA block | int 32x32 | 287 FMUL 32x32 |
+|---|---|---|---|
+| 8088 @4.77 | 155.6 ms | 0.225 ms | 0.124 ms |
+| 286 @6 (measured) | 61.8 ms (2.5x) | 0.0330 ms (6.8x) | 0.0604 ms |
+| 286 @8 (measured) | 45.8 ms (3.4x) | 0.0247 ms (9.1x) | 0.0467 ms |
+| 286 @20 (linear proj) | ~18 ms | ~0.010 ms | - |
+| 286 @25 (linear proj) | ~15 ms | ~0.008 ms | - |
+
+Findings:
+- The 286's integer MUL is ~9x the 8088's @8 MHz -- exactly the P-256 bottleneck. Linear
+  with clock (no cache).
+- The 287 FPU is SLOWER than the 286 integer MUL (0.047 vs 0.025 ms @8) -- on the 286 you do
+  NOT use the FPU for bignum; integer MUL wins. (Opposite of the 8088's 8087.) So "286 + FPU"
+  adds nothing for crypto.
+
+Crypto projection (286, from the measured MUL/general speedups, linear with clock):
+| 286 clock | real ECDHE | secure handshake (ECDHE + RSA cert-auth + PRF) | vs 15 s window |
+|---|---|---|---|
+| 8 MHz | ~18-20 s | ~22 s | just over |
+| 16 MHz | ~9 s | ~11 s | FITS |
+| 20 MHz | ~7 s | ~10 s | FITS |
+| 25 MHz | ~6 s | ~8 s | FITS |
+
+**Threshold: a 286 @ ~16-20 MHz is where a full real-secure handshake (real ECDHE + RSA
+cert-auth + real entropy) first fits Cloudflare's ~15 s window.** The 086-class never does;
+the 286's ~9x faster MUL is what crosses the line. Caveat: RSA cert-auth (cheap on the 286's
+fast MUL, ~2 s) or a pinned key -- full ECDSA chain auth (~2x ECDHE) would push back over.
+NB ibmat caps at 8 MHz in 86Box; 20/25 MHz Harris parts are projected (linear scaling proven
+6->8) -- literal 20/25 needs a fast-286 clone (its own CMOS) or real hardware.
