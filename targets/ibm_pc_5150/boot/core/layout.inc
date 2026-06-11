@@ -17,6 +17,15 @@ runtime_stack_top equ 0x8000
 runtime_stack_guard_len equ 1536
 low_scratch_start equ 0x0700
 low_scratch_end equ 0x1000
+; Build 12 NIC HAL: the resident active-driver slot — the 4th nucleus sector. The shared resident
+; code fits the first 3 sectors (0x1000..nic_driver_slot); the detected family's driver module is
+; loaded HERE at boot and every other family's driver stays on the floppy (0 resident RAM). The K
+; crypto window still starts at 0x1800 (= nic_driver_slot_end), so this costs no arena and no
+; crypto-window move. Each driver module must fit one sector (loaded whole-sector into the slot).
+nic_driver_slot equ 0x1600
+nic_driver_slot_len equ 0x200
+nic_driver_slot_end equ nic_driver_slot + nic_driver_slot_len
+nic_vt_slot_count equ 5
 net_setup_frame_scratch_len equ 512
 net_setup_phase_start equ low_scratch_start + net_setup_frame_scratch_len
 agent_response_phase_load_addr equ low_scratch_start + 0x0600

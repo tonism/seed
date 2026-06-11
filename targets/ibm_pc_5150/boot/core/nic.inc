@@ -1,17 +1,10 @@
-; Build 12 NIC HAL: per-family packet-path ops reached via nic_vtable (populate_nic_vtable fills the
-; slots at boot). nic_noop is the shared default for families with no enter/restore work; wd_do_enter
-; / wd_do_restore window the DP8390 (wd8003 maps the NIC registers behind a +wd_dp8390_offset window
-; the packet path uses, then unmaps). The `cmp [nic_family]` is gone -- the vtable already routed the
-; active family in, so these run only for the family that needs them.
+; Build 12 NIC HAL: the SHARED NIC helpers that stay resident (per-family driver code lives in the
+; floppy driver modules, loaded into the active-driver slot at boot; the active driver reaches these
+; via drv_call_res, core/nic_ring.inc). nic_noop is the no-op enter/restore default (every driver
+; header that needs no DP8390 windowing points its enter/restore slots here); c503_select_dp8390
+; returns the 3c503 gate array to DP8390 mode (the 3c503 driver AND the cold packet_io_init both call
+; it, so it stays resident); out_dx_word + scroll_text_area below are generic helpers.
 nic_noop:
-    ret
-
-wd_do_enter:
-    add word [handoff_addr + handoff_nic_base], wd_dp8390_offset
-    ret
-
-wd_do_restore:
-    sub word [handoff_addr + handoff_nic_base], wd_dp8390_offset
     ret
 
 c503_select_dp8390:

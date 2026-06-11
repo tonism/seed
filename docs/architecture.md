@@ -592,6 +592,18 @@ detects the family, loads the active driver, and fills the vtable; only the
 bounded **active-driver slot**. New families grow the floppy, not the resident
 footprint — one driver is ever live.
 
+> **Implemented (Build 12).** The NIC families are exactly this. Each family is a
+> floppy driver module — `ne` (ne1000/ne2000/Novell), `wd8003`, `3c503`, `3c501`;
+> the shared DP8390 ring is one macro source compiled into the three ring cards,
+> `3c501` is fully custom. The boot detects the family, loads *only* that module
+> (one sector) into the active-driver slot, and copies the module's 10-entry header
+> into the resident dispatch vector (`nic_vtable`); the resident TX/RX/enter/restore/
+> rx_fallback path then dispatches through it. Moving the per-family code off the
+> nucleus shrank the shared resident code from ~2000 B to ~1100 B (3 sectors); the
+> slot is the reclaimed 4th sector, so the crypto window and the 16K arena did not
+> move. A 3c501 machine carries ~350 B of driver, not all ~900 B of every family —
+> inactive drivers cost zero resident RAM. Validated 7/7 across the NIC matrix.
+
 Wi-Fi is the stress test, and it decomposes cleanly into the existing bands:
 
 ```text
@@ -607,9 +619,11 @@ So "thinking ahead a few steps" is concrete and cheap: make three seams
 extensible now and build the drivers later. (1) The capability vector carries
 NIC-family *and* link-type (wired/Wi-Fi), alongside CPU class and FPU. (2) A
 driver is a floppy module with a known vtable. (3) The config model grows
-without reshaping. The only sizing decision deferred is how large the resident
-active-driver slot must be for the worst-case future driver — a seam to size,
-not code to write now.
+without reshaping. The active-driver slot is currently **one sector (512 B)** — it
+fits today's worst-case driver (3c503, ~448 B); a larger future driver, or Wi-Fi
+(whose scan/SSID UI is additive floppy phases and whose WPA crypto lives in the
+handshake-only band), is the case that would size it to two sectors, which on 16K
+would cost arena. That sizing is the remaining seam decision, not code to write now.
 
 ## Hardware And Handoff Contract
 

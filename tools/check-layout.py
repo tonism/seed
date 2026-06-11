@@ -31,8 +31,9 @@ ROOT = Path(__file__).resolve().parents[1]
 CORE = ROOT / "targets/ibm_pc_5150/boot/core"
 DEFAULT_LAYOUT = CORE / "layout.inc"
 DEFAULT_DATA = CORE / "data.inc"
-# Build 12 NIC HAL: the vtable slots are declared in data.inc and populated in this phase.
+# Build 12 NIC HAL: the vtable slots are declared in data.inc; the driver modules carry the headers.
 HARDWARE_SETUP = ROOT / "targets/ibm_pc_5150/boot/phases/hardware_setup.inc"
+DRIVERS = ROOT / "targets/ibm_pc_5150/boot/drivers"
 
 SECTOR = 512
 MAGIC = b"SEEDCORE"
@@ -130,7 +131,8 @@ def build_bands(c: dict[str, int], core: dict) -> list[dict]:
         ("handoff (capability vector)", c["handoff_addr"], c["handoff_addr"] + c["handoff_size_bytes"], "session", "handoff"),
         ("low runtime state", c["low_runtime_state_start"], c["low_runtime_state_end"], "session", "tls/net/sha state"),
         ("low scratch window (phases + pkt/fs overlay)", c["low_scratch_start"], c["low_scratch_end"], "per-turn", "phase loader"),
-        ("resident nucleus", c["core_load_addr"], nucleus_end, "resident", "nucleus"),
+        ("resident nucleus (shared)", c["core_load_addr"], c["nic_driver_slot"], "resident", "nucleus"),
+        ("active-driver slot", c["nic_driver_slot"], c["nic_driver_slot_end"], "resident", "active NIC driver — loaded at boot; inactive drivers cost 0"),
         ("K crypto window", k_start, k_end, "resident", "crypto code"),
         ("high crypto scratch (session keys)", c["high_crypto_scratch_start"], c["high_crypto_scratch_end"], "handshake", "tls keys (re-derived on reconnect)"),
         ("critical scratch (RX stream + AEAD)", c["critical_scratch_start"], c["critical_scratch_end"], "per-turn", "tls record + handshake scratch"),
@@ -177,18 +179,19 @@ ALIASES = [
 ]
 
 
-def check_nic_vtable(data_path: Path, hw_path: Path) -> tuple[list[str], list[str], list[str]]:
-    """Build 12 NIC HAL guard: every dispatch-vector slot declared in data.inc must get
-    an unconditional DEFAULT write in populate_nic_vtable, so no NIC family can leave a
-    slot uninitialised (a `call [garbage]` crash). This is the safety net for the
-    additive-driver pattern: add a slot without populating it -> the build fails here,
-    not on the one card whose family doesn't override that slot. Source-parsed (the
-    slots are resident `dw`, not equates, so they're invisible to the equate model).
+def check_nic_vtable(c: dict[str, int], data_path: Path, drivers_dir: Path) -> tuple[list[str], list[tuple[str, int]], list[str]]:
+    """Build 12 NIC HAL guard. The dispatch vector is filled at boot by loading the detected family's
+    driver module into the active-driver slot and copying its header — the first nic_vt_slot_count
+    words — into the resident nic_vtable. So the invariant is: (1) nic_vtable declares exactly
+    nic_vt_slot_count word slots, and (2) every driver module begins with exactly that many `dw`
+    header entries (else the boot header copy reads the wrong number of pointers and a card dies).
+    Source-parsed — the slots and headers are `dw` data, invisible to the equate model.
 
-    Returns (slots, default_writes, issues)."""
+    Returns (slots, [(driver, header_dw_count)], issues)."""
     issues: list[str] = []
+    slot_count = c.get("nic_vt_slot_count")
 
-    # 1. the ordered slot labels: the contiguous `nic_vt_* dw` block under `nic_vtable:`.
+    # 1. the nic_vtable slot labels (contiguous `nic_vt_* dw` block under `nic_vtable:`).
     slots: list[str] = []
     in_table = False
     for raw in data_path.read_text().splitlines():
@@ -202,35 +205,31 @@ def check_nic_vtable(data_path: Path, hw_path: Path) -> tuple[list[str], list[st
                 slots.append(m.group(1))
             elif s:  # first non-slot, non-blank line ends the table
                 break
-
-    # 2. the DEFAULT writes: `mov word [nic_vt_*]` from populate_nic_vtable: up to the
-    #    first family `cmp`/`ret` (the unconditional prefix, before any override branch).
-    defaults: list[str] = []
-    in_routine = False
-    for raw in hw_path.read_text().splitlines():
-        s = raw.split(";", 1)[0].strip()
-        if s == "populate_nic_vtable:":
-            in_routine = True
-            continue
-        if in_routine:
-            if s.startswith("cmp ") or s == "ret" or s.startswith("ret "):
-                break
-            m = re.match(r"^mov\s+word\s+\[(nic_vt_\w+)\]", s)
-            if m:
-                defaults.append(m.group(1))
-
-    # 3. the invariant.
     if not slots:
         issues.append("nic_vtable: no slots parsed from data.inc (label renamed/removed?)")
-    if not defaults:
-        issues.append("populate_nic_vtable: no default slot writes parsed (routine renamed/restructured?)")
-    for slot in slots:
-        if slot not in defaults:
-            issues.append(f"nic_vtable slot {slot} has no DEFAULT write in populate_nic_vtable")
-    for d in defaults:
-        if d not in slots:
-            issues.append(f"populate_nic_vtable default-writes unknown slot {d} (not declared in nic_vtable)")
-    return slots, defaults, issues
+    if slot_count is not None and slots and len(slots) != slot_count:
+        issues.append(f"nic_vtable declares {len(slots)} slots but nic_vt_slot_count = {slot_count}")
+
+    # 2. each driver module begins with exactly nic_vt_slot_count `dw` header entries (the run of
+    #    leading `dw` lines before the first label / instruction).
+    headers: list[tuple[str, int]] = []
+    drivers = sorted(drivers_dir.glob("*.inc")) if drivers_dir.is_dir() else []
+    if not drivers:
+        issues.append(f"no NIC driver modules found in {drivers_dir}")
+    for d in drivers:
+        n = 0
+        for raw in d.read_text().splitlines():
+            s = raw.split(";", 1)[0].strip()
+            if not s:
+                continue
+            if re.match(r"^dw\b", s):
+                n += 1
+                continue
+            break
+        headers.append((d.name, n))
+        if slot_count is not None and n != slot_count:
+            issues.append(f"driver {d.name}: header has {n} dw entries, expected nic_vt_slot_count = {slot_count}")
+    return slots, headers, issues
 
 
 def run(core_path: Path, layout: Path, data: Path) -> int:
@@ -344,11 +343,15 @@ def run(core_path: Path, layout: Path, data: Path) -> int:
         if not ok:
             errors.append(f"broken alias: {sym_a}({c[sym_a]:#06x}) != {sym_b}({c[sym_b]:#06x})")
 
-    # 4. NIC HAL dispatch-vector: every declared slot must be default-populated at boot.
-    slots, defaults, vt_issues = check_nic_vtable(data, HARDWARE_SETUP)
-    print("\nNIC HAL vtable (every slot must get a default write in populate_nic_vtable):")
-    for slot in slots:
-        print(f"  {'ok' if slot in defaults else 'XX'} {slot}")
+    # 4. NIC HAL: the dispatch vector is filled from a driver module's header at boot. Check the
+    #    slot count, that every driver's header matches it, and that the slot abuts the K window.
+    slots, headers, vt_issues = check_nic_vtable(c, data, DRIVERS)
+    print("\nNIC HAL active-driver slot (driver header -> nic_vtable; inactive drivers cost 0 RAM):")
+    print(f"  {len(slots)} vtable slots; driver headers: " + ", ".join(f"{n}={h}" for n, h in headers))
+    if "nic_driver_slot_end" in c and c["nic_driver_slot_end"] != core["k_load"]:
+        vt_issues.append(
+            f"active-driver slot end {c['nic_driver_slot_end']:#06x} != K window start {core['k_load']:#06x}"
+        )
     errors.extend(vt_issues)
 
     if missing:

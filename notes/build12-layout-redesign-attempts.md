@@ -107,6 +107,66 @@ reached directly via the slot, establishes `bp = len` from `cx` itself. NB
 `make all` does NOT build the BASIC sidecars — run `make basic-bootstrap` before a
 `--no-build` matrix.
 
+## 2026-06-11 — floppy-loaded NIC driver modules (0 RAM for inactive) — LANDED 2026-06-12
+
+User directive: follow the architecture's full HAL — inactive drivers must cost
+**zero resident RAM**. So the per-family hot-path code moves OFF the nucleus onto the
+floppy as self-contained driver modules; only the detected family's driver is loaded
+into a bounded **resident active-driver slot** at boot.
+
+Measured (this tree): per-family NIC code = **915 B** resident; shared NIC code = 588 B;
+non-NIC resident ≈ 498 B. Driver-size estimates (self-contained): ne ~377, wd ~357,
+3c503 ~426, 3c501 ~262 B — all < 512.
+
+**Binding constraint → forced big-bang.** All current NIC code (1504 B) + a slot can't
+coexist in the 4-sector (2048 B) nucleus, and the DP8390 ring is shared by ne/wd/3c503,
+so there's no intermediate state that both fits 16K and isn't broken. The slot only
+fits once the per-family code is removed → all families migrate at once. (A 2-driver
+"dp8390+el1" shortcut needs a 1024 B/2-sector slot → 5 sectors → breaks 16K, so the
+faithful 4-driver design is also the only one that fits.) De-risk: build-green
+sub-steps + faithful relocation (driver code == current instructions) + the full 7-NIC
+matrix before commit; never commit broken.
+
+**Design.**
+- `nic_driver_slot` = 0x1600..0x1800 (the 4th nucleus sector). Shared resident code
+  shrinks to 3 sectors; K window stays at 0x1800 → **no arena/crypto disruption**.
+- 4 driver modules (floppy phases, load at the slot): `ne` (ne1000/ne2000/novell),
+  `wd8003`, `3c503`, `3c501`. DP8390 ring = a shared macro source (`%%` locals,
+  buf-leaf as a macro param) emitted into ne/wd/3c503; 3c501 is fully custom.
+- ABI: a driver runs at the slot (like a phase) — internal calls relative, resident
+  calls (out_dx_word / net_fail_al / parse_tcp_payload) via a slot-aware `drv_call_res`
+  (the established `phase_call_res` idiom, base = `nic_driver_slot`). First 10 bytes =
+  a header of the 5 `nic_vt_*` entries (slot-relative for own ops, resident addr for
+  shared defaults nic_noop / nic_rx_fallback_none).
+- Boot (hardware_setup, after detection, before the crypto race): `load_core_sectors_at`
+  the active driver's sectors into the slot, then copy its 10-byte header into the
+  resident `nic_vtable`. Replaces `populate_nic_vtable`.
+- The resident hot path is unchanged — it already does `call [nic_vt_*]`; the entries
+  now point into the slot instead of the nucleus.
+
+**Result — LANDED, 7/7.** The shared resident code dropped from **2002 B → 1095 B** (the
+915 B of per-family code is now 4 floppy driver modules, one sector each; ne ~310, wd
+~310, 3c503 ~448, 3c501 ~350 B, all < the 512 B slot). Resident image stays 4 sectors
+(3 shared + the slot); CORE.SYS grew 55 → 59 sectors (the 4 driver sectors, on the
+floppy). On any given machine only the detected family's driver is resident — e.g. a
+3c501 box carries ~350 B in the slot, not the other ~565 B — so **inactive drivers cost
+0 resident RAM**, exactly the architecture's HAL. K window unchanged at 0x1800; 16K arena
+untouched. `check-layout.py` gained an active-driver-slot band + a driver-header guard
+(every driver module must begin with nic_vt_slot_count `dw` entries). Validated: a single
+ne2k8 canary first (proved slot-load + vtable-from-header + the ring + drv_call_res),
+then the full **7-NIC matrix 7/7 PASS** (~134 s each, full boot → handshake → greeting),
+covering all four drivers — el1 (3c501, fully custom), 3c503 (chip-mem + gate array), ne
+(ne1k/ne2k8/novell remote-DMA), wd (wd8003e/eb windowing + shared mem). 3c501 passed
+first try (no flake). The big-bang was forced by the byte budget but de-risked via a
+faithful relocation (driver code == the prior resident instructions) + build-green
+sub-steps + the matrix; never committed broken.
+
+This realizes the architecture's HAL vision for NIC families. What is still future: the
+slot is sized at one sector (512 B) for the current worst-case driver (3c503 ~448 B) —
+a larger future driver (or Wi-Fi, which also wants scan/SSID UI phases + WPA crypto in
+the handshake-only band) may need a 2-sector slot, which on 16K would cost arena (the
+sizing seam the architecture flagged).
+
 ## Remaining (deferred to fresh-context sessions)
 
 - **32K floppy-free chat loop** — preload the loop's phases + IDENTITY/COMPACT
@@ -114,9 +174,6 @@ reached directly via the slot, establishes `bp = len` from `cx` itself. NB
   seam + the band model are ready.
 - **286 secure tier** — the orthogonal CPU-class capability; carries the 286@8+
   secure objective + the "full-286 needs a further crypto-opt pass" gate.
-- **Floppy-loaded NIC driver modules** — a bounded resident active-driver slot.
-  Today every family's driver is resident; the HAL vtable made *dispatch* additive,
-  but inactive drivers don't yet cost zero RAM.
 - **Capability-vector field allocation** — when the first consumer (286 / Wi-Fi)
   needs CPU-class / FPU / link-type; reclaim low-runtime slack, bump the handoff
   version, re-verify via `check-layout.py`.

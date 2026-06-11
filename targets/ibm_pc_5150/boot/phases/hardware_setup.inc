@@ -220,25 +220,39 @@ store_auto_network_config:
 ; for the hot path -- it runs once, off the hot path, and every resident TX/RX/packet-path call then
 ; dispatches through the slots with no family branch. Each store writes a resident routine's address
 ; (absolute) into a resident slot (absolute), so it runs correctly from this phase at low_scratch_start.
+; Build 12 NIC HAL: load the detected family's driver module into the active-driver slot, then copy
+; its 10-byte header (the 5 nic_vt_* entries) into the resident vtable. Runs once at boot, after
+; detection and BEFORE the network bring-up (the crypto race is much later), so the floppy read is in
+; a permitted window. Only this family's driver becomes resident in the slot; every other family's
+; driver stays on the floppy — 0 resident RAM for inactive cards. The driver's TX/RX/enter/restore/
+; rx_fallback entry points live in the slot; the resident hot path's `call [nic_vt_*]` dispatches into
+; them unchanged. (ne1000/ne2000/Novell-NE all share the ne driver; the page constants differ and are
+; set by packet_io_init, not the driver.)
 populate_nic_vtable:
-    mov word [nic_vt_enter], nic_noop
-    mov word [nic_vt_restore], nic_noop
-    mov word [nic_vt_transmit], ne_transmit_frame
-    mov word [nic_vt_receive], ne_try_receive_frame
-    mov word [nic_vt_rx_fallback], nic_rx_fallback_none
     mov al, [handoff_addr + handoff_nic_family]
     cmp al, family_3c501
-    jne .check_wd
-    mov word [nic_vt_transmit], el1_transmit_frame
-    mov word [nic_vt_receive], el1_try_receive_frame
-    mov word [nic_vt_rx_fallback], el1_rx_second_frame
-    ret
-.check_wd:
+    je .el1
     cmp al, family_wd8003
-    jne .done
-    mov word [nic_vt_enter], wd_do_enter
-    mov word [nic_vt_restore], wd_do_restore
-.done:
+    je .wd
+    cmp al, family_3c503
+    je .c503
+    mov ax, (((core_ne_driver_end - core_ne_driver_start + 511) / 512) << 8) | ((core_ne_driver_start - $$) / 512)
+    jmp .load
+.el1:
+    mov ax, (((core_el1_3c501_driver_end - core_el1_3c501_driver_start + 511) / 512) << 8) | ((core_el1_3c501_driver_start - $$) / 512)
+    jmp .load
+.wd:
+    mov ax, (((core_wd8003_driver_end - core_wd8003_driver_start + 511) / 512) << 8) | ((core_wd8003_driver_start - $$) / 512)
+    jmp .load
+.c503:
+    mov ax, (((core_el2_3c503_driver_end - core_el2_3c503_driver_start + 511) / 512) << 8) | ((core_el2_3c503_driver_start - $$) / 512)
+.load:
+    mov bx, nic_driver_slot
+    phase_call_res load_core_sectors_at
+    mov si, nic_driver_slot
+    mov di, nic_vtable
+    mov cx, nic_vt_slot_count
+    rep movsw
     ret
 
 autodetect_io_280:

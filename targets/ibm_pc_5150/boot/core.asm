@@ -3,6 +3,7 @@ cpu 8086
 org 0x1000
 
 %include "core/layout.inc"
+%include "core/nic_ring.inc"
 
 core_phase_entry_len equ 10
 
@@ -29,6 +30,17 @@ core_header_end:
 %include "core/net_rx.inc"
 %include "core/ui.inc"
 %include "core/data.inc"
+
+; Build 12 NIC HAL: pad the shared resident code up to the active-driver slot, then reserve the slot.
+; The detected family's driver module is loaded here at boot (hardware_setup / populate_nic_vtable);
+; every other family's driver stays on the floppy (0 resident RAM). The slot is the 4th nucleus
+; sector, so the K crypto window still starts at 0x1800 (= nic_driver_slot_end) — the arena and the
+; crypto window are untouched. The shared resident code must fit the 3 sectors below the slot.
+%if ($ - $$) > (nic_driver_slot - core_load_addr)
+%error "shared resident code overflows past the NIC driver slot (must fit <= 3 sectors / 0x1600)"
+%endif
+times (nic_driver_slot - core_load_addr) - ($ - $$) db 0
+times nic_driver_slot_len db 0
 
 core_resident_end:
 
@@ -406,6 +418,50 @@ core_phase_table_end:
 
 %if (core_phase_table_end - core_save_phase_start) > 1024
 %error "save phase and metadata exceed metadata window"
+%endif
+
+; Build 12 NIC HAL: the four NIC driver modules. Each is a self-contained driver assembled at its
+; image position but run at nic_driver_slot; hardware_setup loads ONLY the detected family's module
+; (whole-sector) into the slot at boot, so inactive drivers cost zero resident RAM. Each must fit
+; the one-sector slot. DRIVER_BASE names the module start (for the slot-relative header + drv_call_res).
+align 512, db 0
+core_ne_driver_start:
+%define DRIVER_BASE core_ne_driver_start
+%include "drivers/ne.inc"
+%undef DRIVER_BASE
+core_ne_driver_end:
+%if (core_ne_driver_end - core_ne_driver_start) > nic_driver_slot_len
+%error "ne driver module exceeds the active-driver slot"
+%endif
+
+align 512, db 0
+core_wd8003_driver_start:
+%define DRIVER_BASE core_wd8003_driver_start
+%include "drivers/wd8003.inc"
+%undef DRIVER_BASE
+core_wd8003_driver_end:
+%if (core_wd8003_driver_end - core_wd8003_driver_start) > nic_driver_slot_len
+%error "wd8003 driver module exceeds the active-driver slot"
+%endif
+
+align 512, db 0
+core_el2_3c503_driver_start:
+%define DRIVER_BASE core_el2_3c503_driver_start
+%include "drivers/el2_3c503.inc"
+%undef DRIVER_BASE
+core_el2_3c503_driver_end:
+%if (core_el2_3c503_driver_end - core_el2_3c503_driver_start) > nic_driver_slot_len
+%error "3c503 driver module exceeds the active-driver slot"
+%endif
+
+align 512, db 0
+core_el1_3c501_driver_start:
+%define DRIVER_BASE core_el1_3c501_driver_start
+%include "drivers/el1_3c501.inc"
+%undef DRIVER_BASE
+core_el1_3c501_driver_end:
+%if (core_el1_3c501_driver_end - core_el1_3c501_driver_start) > nic_driver_slot_len
+%error "3c501 driver module exceeds the active-driver slot"
 %endif
 
 align 512, db 0
