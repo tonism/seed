@@ -132,6 +132,22 @@ Current `core/` mixes lifetimes in one crypto group. Conservative, increment-ali
   budget correct (critical 1229); `CORE.SYS` byte-identical throughout — Build 11
   parity proven by md5 across every increment. No emulator run needed (no behavior
   change). No push (per policy).
+- 2026-06-11 — **FAST SHA LANDED + WORKING on 16K (commit de49ffb).** Landed
+  **r2_v25** (4.33× PRF / 4.62× block, bit-exact) — the fastest variant that fits
+  the K window in **15 sectors with ZERO golf**. r4_v42 (4.64×) is 16 sectors and
+  would need a fragile 74 B bit-exact golf of working TLS/chacha/poly for the last
+  ~0.3× *and the same 321 B arena* — not worth the handshake risk. One impl,
+  everywhere. Base-raised high_crypto_scratch 0x3400→0x3600 + critical 0x34c2→0x36c2
+  (the fast SHA is +1 sector). **16K arena 833→321 B** (the +512 B; reduced but
+  functional — conversation window + boot/chat buffers are separate; 32K unaffected).
+  **Validated:** 16K vm-net-ne2k8 via the ROM BASIC sidecar reached the model
+  greeting (full DHCP→DNS→TCP→TLS-handshake→API→chat, screen-oracle SUCCESS) +
+  offline gates (evaluate.py ok_sha/ok_prf, check-tls-prf, check-chacha-poly1305).
+  NB the architecture's "overlay zone keeps the arena" was aspirational: at the 16K
+  byte level there is no hole for the ~2 KB SHA *code* (the handshake uses all of
+  low scratch incl. the packet buffer), so the fast SHA's extra sector costs ~512 B
+  of arena. Recommended follow-up: the 7-NIC matrix (the change is NIC-independent;
+  ne2k8 is the documented gate). PRIOR ANALYSIS (kept for the record):
 - 2026-06-11 — **Fast-crypto landing — crypto de-risked, fit is a hard wall.** Per
   user "push now": confirmed r4_v42 (the 4.64× winner) bit-exact via the offline
   gate (`cd tools/crypto-bench && python3 evaluate.py variants/r4_v42.inc`:

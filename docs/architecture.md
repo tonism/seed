@@ -497,21 +497,27 @@ What keeps the symmetric side tractable:
   renderer (see `networking.md`).
 
 **The fast crypto is baseline now — one implementation, everywhere.** An
-evolutionary search found a byte-granular rotate + register-resident SHA-256/PRF
-rewrite that is **4.64× faster, verified bit-exact on 86Box hardware** (PRF
-4.92 s → 1.06 s; one SHA-256 block 156 ms → ~34 ms). It is the only crypto Seed
-ships — there is no slow fallback — because it works on the 16 KiB baseline,
-which is where every feature must work. It both attacks the largest line item in
-the boot and is *load-bearing for the 286 secure tier* (below).
+evolutionary search produced a family of byte-granular-rotate + register-resident
+SHA-256/PRF rewrites, all bit-exact. Seed ships **r2_v25 — ~4.3× faster
+(PRF 4.92 s → ~1.14 s), bit-exact** (gated by `evaluate.py` + `check-tls-prf` +
+`check-chacha-poly1305`). It is the only crypto Seed ships — no slow fallback —
+because it works on the 16 KiB baseline, where every feature must. The faster
+`r4_v42` (~4.64×) was measured but *not* shipped: it is one sector larger and buys
+the last ~0.3× only behind a fragile 74 B bit-exact golf of working TLS code, for
+the same 16K cost — not worth the handshake risk.
 
-The catch was size — and it is the whole reason this layout is being redesigned.
-The fast path adds ~595 B, and the K window it has to live in has 9 B of slack;
-shipping it would overflow into the crypto scratch. The fix is not a byte-hunt,
-it is the lifetime shape above: SHA/HMAC/PRF are **handshake-only**, so the fast
-crypto lands in the **overlay zone**, sharing space with the chat loop's per-turn
-scratch. It costs the chat loop nothing and **never touches the user's arena**.
-That is the redesign earning its keep: a verified win that did not fit the old
-shape fits the new one by construction.
+**The honest 16K cost.** The fast SHA is bigger than the slow one, so it grows the
+resident K window by one sector (14 → 15). The earlier hope was that an "overlay
+zone" would let the handshake-only SHA share space with chat scratch and *never
+touch the arena* — but at the 16K byte level that does not hold: there is no
+~2 KB hole free *during the handshake* (it uses all of low scratch, including the
+packet TX buffer), so the SHA must stay resident. Conservation of bytes then wins:
+on a full 16 KiB machine the extra sector comes from the only elastic region, the
+arena — `high_crypto_scratch` base-raises by 512 B and the **arena goes 833 B →
+321 B** (still functional; the conversation window and boot/chat buffers are
+separate). **32 KiB is unaffected** — its arena is large and 512 B is noise, which
+is the real shape of the trade: faster crypto everywhere, paid for in 16K arena,
+free on the scale tier. It is also *load-bearing for the 286 secure tier* (below).
 
 And the part that is *not* tractable on the 8088 — the honest gap:
 
