@@ -299,3 +299,31 @@ the 286's ~9x faster MUL is what crosses the line. Caveat: RSA cert-auth (cheap 
 fast MUL, ~2 s) or a pinned key -- full ECDSA chain auth (~2x ECDHE) would push back over.
 NB ibmat caps at 8 MHz in 86Box; 20/25 MHz Harris parts are projected (linear scaling proven
 6->8) -- literal 20/25 needs a fast-286 clone (its own CMOS) or real hardware.
+
+### 286@6 with an OPTIMIZED P-256 — security begins at the 286 (MEASURED)
+Testbench feasibility (NOT shipped; core/p256.inc still %if0'd). To test whether real
+secure crypto fits the ~15s window on the LOWEST 286, the dormant P-256 was optimized
+(testbench variants in variants/p256_*.inc), each correctness-gated vs the OpenSSL oracle:
+- Solinas (direct NIST) reduction replacing the table-driven reduce: 1.375x field mul.
+- register-resident Comba multiply: 1.233x; single-level Karatsuba + Comba sub-mul: 1.505x.
+- wNAF width-4 windowed scalar mult: point-adds 141 -> 51.
+- COMBINED (Karatsuba + Solinas + wNAF, variants/p256_combined.inc): 2.554x field mul,
+  3.273x fewer scalar-mult instructions, VERIFIED scalar_mult == PEER_PUBLIC vs OpenSSL.
+
+Measured on 86Box ibmat @ 6 MHz (one full ECDHE = scalar mult + inv + affine, ck=D51E correct):
+| | 286@6 ECDHE |
+|---|---|
+| baseline real P-256 | 470 ticks = 25.8 s |
+| **optimized (combined)** | **120 ticks = 6.6 s (3.9x)** |
+
+Full secure handshake @286@6: ECDHE 6.6s (measured) + RSA-2048 cert verify ~2.5s (projected;
+286's fast MUL) + PRF/transcript ~1-4s (measured SHA +/- the 4.64x SHA win) + entropy ~0.2s
+= **~10-14s -- fits the ~15s window.**
+
+**Threshold result: security begins at the 286.** The 086-class (even maxed+hybridized) stays
+minutes over; an optimized real ECDHE is 6.6s on the LOWEST 6 MHz 286, so a full real-secure
+handshake (real ECDHE + RSA cert-auth + real entropy) fits the window. Caveats: ECDHE measured,
+auth/PRF/entropy projected; RSA cert-auth not ECDSA (ECDSA ~2x ECDHE would exceed); the 3.9x
+HW speedup exceeds the 8088-model 2.55x because the 286's fast MUL makes the cut overhead
+(Solinas/wNAF) dominate. Reproduce: build p256_bench.asm -DP256_SRC='"variants/p256_combined.inc"'
+onto the 360K image, boot ibmat@6 (crafted CMOS).
