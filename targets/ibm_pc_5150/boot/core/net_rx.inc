@@ -1,6 +1,10 @@
+; Build 12 NIC HAL: the NE-family receive (DP8390 ring — ne2000/ne1000/3c503/wd8003), reached via
+; nic_vt_receive. 3c501 (el1) is a full receive override the vtable routes to el1_try_receive_frame
+; instead, so the old `cmp family_3c501/je el1_try_receive_frame` top dispatch is gone. Both receive
+; impls are self-contained (each clears ne_rx_sample_count and reads the NIC itself — no input regs).
+; The inner wd/3c503/remote-DMA buffer-read split in ne_remote_read_bytes stays a direct branch (the
+; NE driver's own DP8390 access taxonomy, not a separate driver — handover scope note).
 ne_try_receive_frame:
-    cmp byte [handoff_addr + handoff_nic_family], family_3c501
-    je el1_try_receive_frame
     mov word [ne_rx_sample_count], 0
     call ne_read_ring_pointers
     cmp al, ah

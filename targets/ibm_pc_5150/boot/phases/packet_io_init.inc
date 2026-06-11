@@ -16,7 +16,7 @@ packet_io_init_phase:
     call init_ne_packet_io_phase
     jc .done
     mov word [ne_rx_read_limit], ne_rx_sample_len
-    phase_call_res ne_try_receive_frame
+    call [nic_vt_receive]
     jc .done
     clc
 .done:

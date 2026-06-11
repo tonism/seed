@@ -36,7 +36,7 @@ ne_wait_for_dhcp_offer:
     mov word [ne_rx_read_limit], dhcp_rx_frame_len
     mov word [dhcp_wait_count], dhcp_offer_wait_count
 .poll:
-    phase_call_res ne_try_receive_frame
+    call [nic_vt_receive]
     jc .failed
     cmp word [ne_rx_sample_count], 0
     je .wait
@@ -65,7 +65,7 @@ ne_wait_for_dhcp_ack:
     mov word [ne_rx_read_limit], dhcp_rx_frame_len
     mov word [dhcp_wait_count], dhcp_ack_wait_count
 .poll:
-    phase_call_res ne_try_receive_frame
+    call [nic_vt_receive]
     jc .failed
     cmp word [ne_rx_sample_count], 0
     je .wait

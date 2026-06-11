@@ -3,7 +3,7 @@ tcp_receive_payload:
     mov word [ne_rx_read_limit], tcp_payload_read_len
     mov word [dhcp_wait_count], tcp_payload_wait_count
 .poll:
-    call ne_try_receive_frame
+    call [nic_vt_receive]
     jc .failed
     cmp word [ne_rx_sample_count], 0
     je .wait

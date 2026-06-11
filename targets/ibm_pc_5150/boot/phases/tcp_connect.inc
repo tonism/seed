@@ -97,7 +97,7 @@ ne_flush_receive_frames:
     mov cx, 256
 .next:
     push cx
-    phase_call_res ne_try_receive_frame
+    call [nic_vt_receive]
     pop cx
     jc .done
     cmp word [ne_rx_sample_count], 0
@@ -285,7 +285,7 @@ ne_wait_for_arp_reply:
     mov word [ne_rx_read_limit], arp_tx_frame_len
     mov word [dhcp_wait_count], arp_wait_count
 .poll:
-    phase_call_res ne_try_receive_frame
+    call [nic_vt_receive]
     jc .failed
     cmp word [ne_rx_sample_count], 0
     je .wait
@@ -318,7 +318,7 @@ ne_wait_for_dns_response:
     mov word [ne_rx_read_limit], dns_rx_read_len
     mov word [dhcp_wait_count], dns_wait_count
 .poll:
-    phase_call_res ne_try_receive_frame
+    call [nic_vt_receive]
     jc .failed
     cmp word [ne_rx_sample_count], 0
     je .wait
@@ -351,7 +351,7 @@ ne_wait_for_tcp_synack:
     jne .poll
     mov word [dhcp_wait_count], tcp_wait_count_3c501
 .poll:
-    phase_call_res ne_try_receive_frame
+    call [nic_vt_receive]
     jc .failed
     cmp word [ne_rx_sample_count], 0
     je .wait
