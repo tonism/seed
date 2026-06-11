@@ -8,6 +8,12 @@ instead of forcing another byte-scrounge. Get the foundational decisions right s
 > Status: signals-gathering for the redesign. Numbers + symptoms below are from the Build-11 era and
 > the crypto spike (`tools/crypto-bench/results/FINDINGS.md`, `docs/architecture.md` "CPU And Crypto
 > Budget"). Validate against the current tree before committing — the layout moves fast.
+>
+> **Crypto/CPU investigations COMPLETE (2026-06-11, branch `spike/crypto-speed`).** The two crypto
+> questions this charter gated on are now measured, not hypothesized: (1) the FPU does NOT unlock
+> secure crypto on the 086 class, and (2) a full cert-authenticated TLS handshake becomes *reachable*
+> at the 286 and *comfortable* at 286@8+. Folded into the Principles / O2 / Investigations below — the
+> upshot is a concrete future objective: **"secure" is a 286@8+ tier, never the 16K/4.77 MHz floor.**
 
 ---
 
@@ -53,7 +59,11 @@ run its course for the constrained tier.
 - **One artifact** (see the crux): all tier code ships in the single `CORE.SYS`; the capability vector
   selects what loads and where.
 - **Honest security framing** stays: a faster machine is not "secure" unless real ECDHE **and** entropy
-  **and** cert-auth all land in a usable handshake (the spike measured they don't, on a stock 8088).
+  **and** cert-auth all land in a usable handshake. The spike now MEASURED where that line is: on a
+  stock 8088 they don't (real ECDHE alone = 110 s); the full secure handshake first FITS the ~15 s
+  server window at the **286** — ~13.8 s on the lowest 6 MHz part (only with the fast SHA, on a
+  knife-edge ~1.2 s slack) and a comfortable ~10.4 s by 8 MHz. So "secure" is a **286@8+ tier**, never
+  the 16K / 4.77 MHz floor — which stays honestly "encrypted, not secure."
 - **Hardware-agnostic static prompts** (identity, compaction) never name the hardware — portability.
 
 ---
@@ -68,8 +78,12 @@ run its course for the constrained tier.
   *everything that can scale, scales by tier.*
 - **O2 — Fit the crypto wins, by class not by hack.** A crypto-variant slot the capable tier fills
   with the fast SHA/PRF (the +595 B 4.64× win lands here) and the 16K tier fills with the small-slow
-  version. Leave room for real-crypto experiments (the dormant P-256 is ~3.4 KiB; an FPU path may be
-  added). One mechanism, not a per-feature byte-fight.
+  version. NB the spike showed the fast SHA is **load-bearing for the 286 secure tier**, not just a
+  perf nicety: it's what pulls the secure handshake from ~18 s (over the window) to ~13.8 s @6 / ~10.4 s
+  @8. Leave room for the real-crypto slot the secure tier needs — measured on a 286@6: optimized real
+  P-256 ECDHE 6.6 s + RSA-2048 cert-verify 6.37 s + fast PRF/transcript 0.66 s, all serial (the dormant
+  P-256 is ~3.4 KiB). The FPU does NOT earn a crypto slot (see Investigations). One mechanism, not a
+  per-feature byte-fight.
 - **O3 — A floppy-free *conversational loop* on the 32K tier.** "Floppy-free" means specifically: once
   the chat loop is live, NO disk reads (no mid-chat latency, no keep-alive-fires-during-render →
   disk-read hazard, and a mid-session reconnect needs no phase reload). Achieve it by doing MORE at
@@ -120,10 +134,12 @@ Everything hangs on this; decide it with eyes open.
 
 Use the crypto-bench harness (`tools/crypto-bench/` — unicorn correctness + calibrated 8088 cycle model
 + 86Box ground truth) for anything crypto/CPU:
-- **FPU (8087/287/387):** hypothesis — won't help SHA (add/rotate-bound) but may ~2× the P-256 field
-  multiply (a 32×32→64 product is exact in the 80-bit mantissa: one `FMUL` replaces four 8088 `MUL`s →
-  ~110 s → ~55 s, still over the window). 86Box can enable an 8087. **Measure before allocating an FPU
-  path.** Decides whether O5 needs an FPU crypto slot.
+- **FPU (8087/287/387): DONE — measured, no crypto slot warranted.** Confirmed the hypothesis: SHA is
+  add/rotate-bound (FPU-immune), and while an `FMUL` can stand in for four 8088 `MUL`s in the P-256
+  field multiply, the reduction/carry work dominates — an 8087 FMUL-only floor is still ~tens of
+  seconds, far over the window. The FPU does NOT unlock secure crypto on the 086 class. ⇒ **O5 does not
+  need an FPU crypto slot**; the capability vector still HOLDS the FPU dimension (O1) but nothing acts
+  on it. The real lever was CPU class (the 286 — see Principles / O2), not the FPU.
 - **>64 KiB reach:** which mechanism per era — EMS bank-switching (works on 8088), unreal/protected
   mode (286/386+). Scope only; informs O6 seams.
 - **Preload economics:** at each tier, cost (boot time, RAM) vs benefit of preloading all phases +
@@ -149,7 +165,7 @@ Use the crypto-bench harness (`tools/crypto-bench/` — unicorn correctness + ca
 
 - Adding a feature / NIC / crypto-variant is **additive** — no hand-scrounged bytes, no new ad-hoc alias.
 - Each tier's headroom is **visible and build-checked**; aliases are lifetime-checked.
-- The 4.64× crypto win lands on capable tiers.
+- The 4.64× crypto win lands on capable tiers (it's load-bearing for the 286 secure tier, not just perf).
 - No mid-session floppy I/O on capable tiers.
 - 16K still boots and passes the full matrix.
 - The memory map has one source of truth.
