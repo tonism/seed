@@ -95,7 +95,7 @@ ne_transmit_dhcp_discover:
 
     mov si, ne_tx_frame
     mov cx, dhcp_frame_len
-    phase_call_res ne_transmit_frame
+    call [nic_vt_transmit]
     jc .done
     mov byte [handoff_addr + handoff_net_status], net_status_dhcp_discover_sent
 .done:
@@ -106,7 +106,7 @@ ne_transmit_dhcp_request:
 
     mov si, ne_tx_frame
     mov cx, dhcp_frame_len
-    phase_call_res ne_transmit_frame
+    call [nic_vt_transmit]
     jc .done
     mov byte [handoff_addr + handoff_net_status], net_status_dhcp_request_sent
 .done:

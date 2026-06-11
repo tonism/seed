@@ -5,7 +5,7 @@ ne_transmit_tcp_ack:
     call build_tcp_segment_frame
 
     mov si, ne_tx_frame
-    call ne_transmit_frame
+    call [nic_vt_transmit]
     jc .done
     mov byte [handoff_addr + handoff_net_status], net_status_tcp_connected
 .done:
@@ -19,7 +19,7 @@ tcp_send_payload:
     call build_tcp_segment_frame
 
     mov si, ne_tx_frame
-    call ne_transmit_frame
+    call [nic_vt_transmit]
     pop cx
     jc .done
     mov di, tcp_local_seq
@@ -31,10 +31,14 @@ tcp_send_payload:
     mov al, net_error_tcp
     jmp net_fail_al
 
+; Build 12 NIC HAL: the NE-family transmit (ne2000/ne1000/3c503/wd8003 — DP8390 ring), reached via
+; nic_vt_transmit. 3c501 (el1) is a full transmit override the vtable routes to el1_transmit_frame
+; instead, so the old `cmp family_3c501/je el1_transmit_frame` top dispatch is gone. Caller contract
+; (both transmit impls): cx = frame length, si = frame at ne_tx_frame. The inner wd/3c503/remote-DMA
+; buffer-load split below stays a direct branch — it is the NE driver's own DP8390 access taxonomy,
+; not a separate driver (see the handover's scope note).
 ne_transmit_frame:
     mov bp, cx
-    cmp byte [handoff_addr + handoff_nic_family], family_3c501
-    je el1_transmit_frame
     mov bx, [handoff_addr + handoff_nic_base]
     lea dx, [bx + ne_isr]
     mov al, ne_isr_rdc | ne_isr_txe | ne_isr_ptx
@@ -125,7 +129,11 @@ ne_transmit_frame:
     mov al, net_error_ne_tx
     jmp net_fail_al
 
+; Build 12 NIC HAL: the 3c501 (el1) full transmit override, reached via nic_vt_transmit. Reached
+; directly now (not via ne_transmit_frame's prologue), so it establishes bp = frame length from the
+; caller's cx itself — the contract every transmit impl shares (cx = len, si = frame).
 el1_transmit_frame:
+    mov bp, cx
     mov ax, 0x0800
     sub ax, bp
     mov [el1_tx_ptr], ax

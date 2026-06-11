@@ -169,7 +169,7 @@ ne_send_tcp_syn_frame:
     mov [ne_tx_frame + tcp_offset + 16], ax
 
     mov si, ne_tx_frame
-    phase_call_res ne_transmit_frame
+    call [nic_vt_transmit]
     jc .done
     mov byte [handoff_addr + handoff_net_status], net_status_tcp_syn_sent
 .done:
@@ -381,7 +381,7 @@ ne_transmit_arp_request:
 
     mov si, ne_tx_frame
     mov cx, arp_tx_frame_len
-    phase_call_res ne_transmit_frame
+    call [nic_vt_transmit]
     jc .done
     mov al, [arp_status_sent]
     mov [handoff_addr + handoff_net_status], al
@@ -393,7 +393,7 @@ ne_transmit_dns_query:
 
     mov si, ne_tx_frame
     mov cx, [dns_tx_len]
-    phase_call_res ne_transmit_frame
+    call [nic_vt_transmit]
     jc .done
     mov byte [handoff_addr + handoff_net_status], net_status_dns_query_sent
 .done:
