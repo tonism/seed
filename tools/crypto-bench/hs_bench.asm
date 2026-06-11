@@ -267,7 +267,10 @@ t0_lo dw 0
 t0_hi dw 0
 dt_lo dw 0
 
-%include "core/sha256.inc"
+%ifndef SHA256_SRC
+%define SHA256_SRC "core/sha256.inc"
+%endif
+%include SHA256_SRC
 %include "prf_driver.inc"
 
 ; SHA constant tables (deployed at boot, from phases/tls_client_hello.inc)

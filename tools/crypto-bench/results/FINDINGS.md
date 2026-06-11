@@ -330,16 +330,33 @@ onto the 360K image, boot ibmat@6 (crafted CMOS).
 
 ### Full handshake crypto on 286@6 (MEASURED, hs_bench.asm)
 Beyond the ECDHE component, the rest of the handshake crypto measured on ibmat@6:
-- PRF (master+keyblock) + transcript SHA-256 over ~3 KB (cert + messages) = 90 ticks = 4.94 s.
+- PRF (master+keyblock) + transcript SHA-256 over ~3 KB (cert + messages):
+  - baseline SHA: 90 ticks = **4.94 s**
+  - with the 4.64x SHA win (variants/r4_v42.inc, -DSHA256_SRC): 12 ticks = **0.66 s** (ck=C31E identical -> bit-exact; ~7.5x here, more than the lone-block 4.64x because PRF+transcript is almost pure SHA)
 Summed with the measured ECDHE (6.6 s) -- they run sequentially, no overlap:
 | 286@6 handshake crypto | time | basis |
 |---|---|---|
 | ECDHE (optimized real P-256) | 6.6 s | measured |
-| PRF + transcript | 4.94 s | measured |
-| **full ECDHE handshake (no auth)** | **~11.5 s** | **measured -- fits ~15 s** |
+| PRF + transcript (baseline SHA) | 4.94 s | measured |
+| PRF + transcript (4.64x SHA win) | 0.66 s | measured |
 | + RSA-2048 cert verify | ~2.5 s | projected (only unbuilt piece) |
 | + entropy | ~0.2 s | projected |
-| **full SECURE handshake** | **~14 s** | fits ~15 s (→ ~10.6 s if the 4.64x SHA win is applied to PRF+transcript) |
+| **full SECURE handshake, baseline SHA** | **~14.2 s** | ECDHE+PRF measured, RSA projected |
+| **full SECURE handshake, + SHA win** | **~10.0 s** | ECDHE+PRF measured, RSA projected |
 
-So the full ECDHE handshake crypto is MEASURED at ~11.5 s on the lowest 286; only RSA cert-auth
-remains projected. Security begins at the 286 -- handshake measured, not just the ECDHE component.
+### Slack vs the server hang-up (the flakiness question)
+The server (Cloudflare) closes a handshake that takes too long between its ServerHelloDone and
+the client's ClientKeyExchange+Finished -- the client is SILENT during the whole crypto grind
+(it can't send ClientKeyExchange until ECDHE produces the premaster). That patience was measured
+empirically for Seed at **~15 s** (the shipped ~14.5 s 8088 handshake "sat ~0.2 s inside" it --
+which is exactly why it was flaky on degraded links). It is a measured-for-Seed figure, not a
+published Cloudflare SLA, so the goal is comfortable margin, not "under 15".
+| 286@6 secure handshake | total | slack vs ~15 s | verdict |
+|---|---|---|---|
+| baseline SHA | ~14.2 s | ~0.8 s | **flaky** (the same knife-edge the 8088 had) |
+| + 4.64x SHA win | ~10.0 s | ~5 s | **robust** |
+So a NON-flaky "security begins at the 286" needs BOTH the optimized P-256 ECDHE AND the SHA win
+(or a faster 286 -- time scales ~linearly with clock: @8 = ~7.5 s, @12 = ~5 s). The bare path is
+too marginal. The one remaining projected piece (RSA ~2.5 s) is the main risk left to the ~5 s
+slack: even at 2x (5 s) the SHA-win path is ~12.5 s = ~2.5 s slack, still OK; the baseline path
+would blow the window. Building RSA-2048 verify on the 286 would make the whole handshake measured.
