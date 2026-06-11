@@ -45,6 +45,37 @@ offset  size  value
 0x2c    2     runtime RAM top used for the initial stack
 ```
 
+## Capability vector (Build 12)
+
+This block is also Seed's **capability vector** — the boot-detected facts that
+drive what loads and where (see [../../docs/architecture.md](../../docs/architecture.md),
+"Capability Tiers" and "The One-Artifact Relocation Model"). Two dimensions are
+live today:
+
+```text
+RAM tier     derived from RAM top (0x2c): < 32 KiB = 16K tier, >= 32 KiB = 32K tier.
+             (Only 16K and 32K boot configurations exist; >32K reuses the 32K tier.)
+NIC family   0x10, used to select the active adapter path.
+```
+
+Three dimensions are **reserved for later feature tiers** and are *not yet
+allocated* in the struct:
+
+```text
+CPU class    8088 / V20 / 286 / 386+  — gates the secure (real-crypto) tier.
+FPU present  held but inert (the FPU does not unlock secure crypto; measured).
+link type    wired / Wi-Fi            — selects driver + setup-UI family.
+```
+
+They are deferred deliberately, not forgotten. The struct is **full-packed**: it
+ends at offset `0x2e` and `low_runtime_state` begins immediately there and runs
+packed to the `0x0700` phase window, so there is no free byte to append a field
+without first reclaiming low-runtime-state slack. Allocating these belongs to the
+feature session that adds the first *consumer* (e.g. the 286 secure tier reading
+CPU class): bump the structure version, append the fields, and re-verify the low
+scratch fits via `tools/check-layout.py`. Until then the capability vector is the
+two live dimensions plus this documented seam.
+
 ## Flags
 
 ```text

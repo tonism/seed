@@ -110,3 +110,47 @@ Current `core/` mixes lifetimes in one crypto group. Conservative, increment-ali
 - 2026-06-11 — Plan written. Design of record = the rewritten `docs/architecture.md`.
   Baseline build confirmed: `CORE.SYS` 27648 B / 54 sectors, nucleus 2033/2048,
   K window 0x1800..0x33f7 (9 B slack). Starting increment 1.
+- 2026-06-11 — **Increment 1 DONE** (commit `54f9d94`). `tools/check-layout.py`:
+  parses `layout.inc`+`data.inc` equates + the `CORE.SYS` header, prints the
+  labeled band map, asserts band geometry + the 19-entry intended-alias web,
+  wired into `make`. Binary-identical (md5 `cb2c7d7d…`). It immediately caught the
+  drift below.
+- 2026-06-11 — **Increments 3+4 DONE** (commit `7d63d70`). O7: the Makefile's
+  inspect ranges now derive from `layout.inc` via `check-layout.py --emit` — the
+  stale `CRITICAL_SCRATCH_LEN` (2097) is now the real 1229; `make inspect` was
+  wrong before, fixed. Checker deepened: reconnect-safe-line divider in the map +
+  a phase-footprint backstop (no demand-loaded phase may overrun the nucleus).
+  Binary-identical. (Increment 4's *hard* line enforcement = the deferred physical
+  reorg, since the band above `critical_scratch_end` still interleaves per-turn
+  `tls_app_*` with reconnect-survivor caches; the checker documents the line + gap.)
+- 2026-06-11 — **Increment 2 (seam, doc-only).** `HANDOFF.md` now documents the
+  capability vector: RAM-tier + NIC-family live; CPU-class / FPU / link-type
+  reserved. The struct is full-packed (ends 0x2e, `low_runtime_state` packed to
+  0x0700), so field allocation defers to the feature session that adds the first
+  consumer. Zero binary change.
+- 2026-06-11 — **Pass green.** Full `make` builds the 160K floppy; `make inspect`
+  budget correct (critical 1229); `CORE.SYS` byte-identical throughout — Build 11
+  parity proven by md5 across every increment. No emulator run needed (no behavior
+  change). No push (per policy).
+
+## Deferred to fresh-context feature sessions (heavy)
+
+The parity pass established the structure + seams. The heavy, binary-changing work
+is teed up but intentionally NOT done here:
+
+- **Physical band reorg** — separate per-turn `tls_app_*` from reconnect-survivor
+  caches above `critical_scratch_end`; carve the handshake-only ⟷ per-turn overlay
+  zone as distinct regions. Then `check-layout.py` can *enforce* the reconnect-safe
+  line + arena contiguity (the hooks are already in the checker).
+- **Land the fast SHA/PRF crypto** (+595 B, 4.64×) into the overlay band — the
+  forcing function. One impl, slow deleted. Needs the spike routine ported under
+  `cpu 8086`/org constraints; crypto self-tests + matrix.
+- **Capability-vector field allocation** — when the 286 secure tier (or Wi-Fi)
+  adds the first consumer of CPU-class/FPU/link-type; reclaim low-runtime slack,
+  bump the handoff version, re-verify via `check-layout.py`.
+- **Live dispatch-vector mechanism**, **32K floppy-free loop**, **HAL/driver
+  vtable**, **286 secure tier**.
+- **Doc-staleness sweep** (pre-existing, out of this pass's scope): `AGENTS.md`
+  still references shipped `NET.CFG`; `HANDOFF.md` "Context-management knobs
+  (Build 9)" describes the recap-first compaction that Build 10 removed. Fix in a
+  focused doc pass (verify against code first).
