@@ -139,13 +139,18 @@ the saved value back. The saved `model`, by contrast, IS substituted into the re
 Honoring the stored reasoning effort, and dynamic model/reasoning capability fetches,
 remain later work. The `key` value is
 plaintext on the boot medium. The shipped build does not perform real key agreement: the P-256 scalar multiply
-is compiled out (a full one is minutes on this CPU), so the premaster is taken from
-the server's public value rather than a Diffie-Hellman exchange, and client
-randomness is a placeholder LCG. Seed still runs the rest of the path for real — it
+is compiled out (one real scalar multiply is 110.8 s measured on this CPU — it fits the
+size budget, the wall is speed), so the premaster is taken from the server's public
+value rather than a Diffie-Hellman exchange, and client randomness is a placeholder LCG.
+Seed still runs the rest of the path for real — it
 sends ClientKeyExchange, ChangeCipherSpec, and an encrypted client Finished, can send
 the API request early as TLS application data before the server Finished, and
 receives, authenticates, decrypts, and verifies the server Finished and application
 records on the ChaCha20-Poly1305 path — but because the key exchange is stubbed, the
-session is not confidential. A real entropy source and a constant-time scalar
-multiply that fits the budget are required before this can be treated as secure TLS. Capability fetches, model selection, reasoning selection,
+session is not confidential. Real key agreement is the blocker: the premaster is public,
+so a better client-random RNG alone would not make the session confidential (entropy
+matters only once a secret per-session value exists). Both real key agreement and
+server-certificate authentication are out of reach on this CPU (minutes per handshake),
+so this is not secure TLS — see `docs/architecture.md` (CPU And Crypto Budget) for the
+measured costs. Capability fetches, model selection, reasoning selection,
 and environment handoff remain later work.

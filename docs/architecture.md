@@ -308,10 +308,12 @@ sub-MIPS part with a slow multiply and no crypto acceleration, and the provider 
 asks it to run modern TLS 1.2. That splits into two very different costs. The
 *symmetric* crypto — ChaCha20-Poly1305 record encryption and SHA-256 (the handshake
 transcript and the PRF key schedule) — runs for real on the 8088. The *asymmetric*
-step — a P-256 scalar multiply for the ECDH key exchange — is the killer: a full
-constant-time one runs into minutes here, so the shipped build skips it (the security
-gap below). That omission keeps boot in the tens of seconds instead of the tens of
-minutes a real scalar multiply would cost — but, as the measured timeline below shows,
+step — a P-256 scalar multiply for the ECDH key exchange — is the killer: one real
+scalar multiply is **110.8 s** measured on this CPU (the dormant constant-time
+primitives, verified against OpenSSL), so the shipped build skips it (the security gap
+below). Notably it is **not a size problem** — the real P-256 fits in ~3.4 KiB —
+purely a speed one: the 8088's slow `mul` opcode is the wall. Skipping it keeps boot in
+the tens of seconds instead of minutes — but, as the measured timeline below shows,
 even the symmetric crypto that remains pins this CPU flat-out for ~14 seconds.
 
 The resource profile, measured by packet-capture timing across two boots (the gaps
@@ -372,17 +374,40 @@ What keeps the symmetric side tractable:
   step-by-step remote hardware control unreliable, which is why the post-Seed model is
   asynchronous (see User/Agent Environment, below).
 
+Measured headroom on the symmetric side (per-op micro-benchmarks, `tools/crypto-bench/`):
+the TLS-PRF key schedule is 4.92 s and one SHA-256 block 156 ms here, both dominated by
+the original bit-at-a-time 32-bit rotates (rotr-by-22 = 22 loop iterations) and
+memory-to-memory math on the 8-bit bus. An evolutionary search found a byte-granular
+rotate + register-resident rewrite that is **4.64× faster on SHA-256/PRF, verified on
+86Box hardware** (PRF 4.92 s → 1.06 s), output bit-exact. Because the handshake is
+SHA-bound — the PRF *plus* hashing the 2.8 KB certificate into the transcript — that
+per-op win projects to cutting most of the ~14 s handshake CPU, the highest-leverage
+margin against the reconnect race. The catch is size: it adds ~595 B and the K crypto
+window has 9 B free, so landing it is a sized follow-up (free room in the other K-window
+crypto, or raise the crypto-scratch base at a RAM cost on the 16 KiB target).
+
 And the part that is *not* tractable — the honest gap:
 
-- **The P-256 key exchange is skipped.** Real ECDHE needs a 256-bit scalar multiply,
-  and a full constant-time one runs into minutes on this CPU. Seed's implementation
-  (Comba accumulation, Jacobian coordinates) is written and cross-checked against
-  OpenSSL, but it is **compiled out** of the shipped build. The boot path substitutes a
-  scalar-1 stub: it takes the server's public X coordinate as the premaster, so **no
-  key agreement happens** and the session is not confidential. Client randomness is a
-  placeholder too (a BIOS-tick LCG). Wiring in real, secure key agreement — a
-  constant-time scalar multiply that is both fast enough *and* small enough for the
-  16 KiB budget, plus a real entropy source — is the headline open crypto problem.
+- **The P-256 key exchange is skipped — a speed wall, not a size one.** The real
+  constant-time primitives (Comba accumulation, Jacobian coordinates) are written,
+  cross-checked against OpenSSL, and **fit in ~3.4 KiB**, but one scalar multiply is
+  **110.8 s** measured here, so they are **compiled out**. The boot path substitutes a
+  scalar-1 stub: the server's public X coordinate *is* the premaster, so **no key
+  agreement happens** — anyone capturing the handshake derives every session key
+  (`tools/tls-decrypt.py` does exactly that), and the session is not confidential.
+  Server-certificate authentication is also skipped (RSA-2048 verify ~43 s, ECDSA-P256
+  ~220 s per signature — both out of reach), so the channel is unauthenticated.
+- **Real entropy would not help on its own.** The client random is only a nonce; with a
+  public premaster, making it unpredictable buys no confidentiality. Entropy matters
+  only once a real per-session *secret* exists — the secret ECDHE scalar, or an
+  RSA-encrypted random premaster (RSA key transport, ~43 s, is the *cheapest* real
+  confidentiality, still ~3× over the window). So entropy is a cheap *prerequisite*
+  (~0.16 s) that must ship bundled with key agreement, never as a standalone "fix".
+- The honest gap is therefore the whole public-key story, and on a stock 8088 it is
+  CPU-gated to minutes (a full real-security handshake ≈ 2.7 min). It waits for a faster
+  machine (286/386+) or a self-hosted long-patience endpoint; the small-machine product
+  stays honestly **encrypted but not secure**. Detail + reproducible benchmarks:
+  `tools/crypto-bench/results/FINDINGS.md`.
 
 The handshake race is also why the chat loop reuses one session instead of reconnecting
 per turn — a fresh mid-chat handshake can lose the race:

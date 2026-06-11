@@ -35,9 +35,15 @@ extra SHA-256 block ≈ **156 ms (measured)** — negligible vs the handshake.
 latency reproduce identically every boot, so the entropy is ZERO under test and
 can only be validated on real hardware (or by statistical batteries on captured
 real-HW samples). Keystroke timing is the one source that works even in the
-emulator (human input is external). **Verdict:** cheap in CPU; the engineering
-risk is quality + testability, not time budget. A keystroke + NIC + PIT pool is
-the pragmatic path; claim entropy only after real-HW validation.
+emulator (human input is external). **Verdict:** cheap in CPU — but cheap is NOT the
+same as worth doing. On the current path the client random is only a *nonce*, and the
+premaster is the server's public X (anyone watching the handshake derives the keys —
+`tools/tls-decrypt.py` does), so better client-random entropy buys **no** confidentiality.
+Entropy only earns its keep once a real per-session *secret* exists — the secret ECDHE
+scalar, or an RSA-encrypted random premaster — i.e. it is a *prerequisite* that must ship
+**bundled with key agreement**, never as a standalone "fix" (which would be cosmetic and
+cut against honest framing). When that day comes: a keystroke + NIC + PIT pool, claimed
+only after real-HW validation.
 
 ---
 
@@ -91,9 +97,15 @@ All steps run **serially** in one handshake:
 Cloudflare's ~15 s patience. Full real security needs ONE of:
 1. a self-hosted endpoint with a long/disabled patience window (not Cloudflare),
 2. a one-time, user-opted "secure handshake" mode that tolerates minutes,
-3. a documented partial: **real entropy (cheap, ~0.16 s) is the only one that
-   fits** — ECDHE and cert-auth do not. Pinned-key transport (no chain walk) plus
-   real entropy is the honest shippable middle ground; it is still not "secure".
+3. a faster machine (286/386+ / higher clock).
+
+There is **no cheap partial that improves real security.** Entropy is the only piece
+that *fits* the time budget (~0.16 s), but it is gated: alone it changes nothing while
+the premaster is public (see Entropy verdict above). The cheapest path to real
+*confidentiality* is RSA key transport (~43 s, one modexp) — still ~3× over the window,
+and it is what would finally make entropy meaningful. So the honest position is to keep
+the precise **"encrypted but not secure"** label and NOT ship a cosmetic entropy "fix";
+real confidentiality/authenticity wait for a faster machine or a patient endpoint.
 
 **Honest-security bar (unchanged):** do NOT claim "secure" unless real ECDHE AND
 real entropy AND cert-auth all land within a usable handshake. Measured: that is

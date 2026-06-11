@@ -186,8 +186,13 @@ ECDHE 110.8 s + cheapest auth ~45 s + PRF ~5 s, all serial ≈ **~160 s ≈ 2.7 
 - Real public-key security would need a self-hosted long-patience endpoint, an
   opt-in multi-minute "secure handshake" mode, or hardware help.
 
-**Affordable honesty upgrade:**
-- **Real entropy (~0.16 s)** is the only real-crypto improvement that fits. Pair a
-  keystroke/NIC/PIT entropy pool with a pinned-key transport and keep labeling the
-  channel **"encrypted but not secure"** — do not claim "secure" (real ECDHE +
-  entropy + cert-auth cannot all land in a usable handshake here).
+**Don't ship a cosmetic "fix":**
+- Real entropy (~0.16 s) is the only piece that *fits* the time budget, but it is
+  **gated** — alone it improves nothing, because the client random is just a nonce and
+  the premaster is public, so every session key is already derivable from the wire.
+  Entropy only earns its keep bundled with real key agreement (the secret ECDHE scalar,
+  or an RSA-encrypted random premaster — RSA key transport ~43 s is the cheapest real
+  confidentiality, still ~3× over the window). Shipping entropy standalone would be
+  cosmetic and cut against honest framing.
+- Keep the precise **"encrypted but not secure"** label. Real confidentiality/
+  authenticity wait for a faster machine (286/386+) or a self-hosted patient endpoint.
