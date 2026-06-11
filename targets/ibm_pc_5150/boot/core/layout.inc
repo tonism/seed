@@ -300,7 +300,7 @@ tcp_syn_mss equ 592
 tls_payload_buffer_len equ tcp_syn_mss
 tls_pre_response_tail_len equ tls_app_record_buffer_len + (16 * 2) + (16 * 2) + tls_random_len + tls_master_secret_len + sha256_digest_len
 tls_stream_buffer_len equ tls_payload_buffer_len + tls_pre_response_tail_len
-critical_scratch_start equ 0x34c2
+critical_scratch_start equ 0x36c2
 critical_scratch_len equ tls_stream_buffer_len
 critical_scratch_end equ critical_scratch_start + critical_scratch_len
 tcp_port_http_word equ 0x5000
@@ -383,7 +383,7 @@ p256_word_count equ 16
 p256_word_len equ p256_word_count * 2
 p256_product_word_count equ p256_word_count * 2
 p256_product_word_len equ p256_product_word_count * 2
-high_crypto_scratch_start equ 0x3400
+high_crypto_scratch_start equ 0x3600
 high_tls_client_write_key equ high_crypto_scratch_start
 high_tls_server_write_key equ high_tls_client_write_key + tls_chacha_key_len
 high_tls_client_write_iv equ high_tls_server_write_key + tls_chacha_key_len
