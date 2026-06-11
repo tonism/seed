@@ -167,9 +167,39 @@ a larger future driver (or Wi-Fi, which also wants scan/SSID UI phases + WPA cry
 the handshake-only band) may need a 2-sector slot, which on 16K would cost arena (the
 sizing seam the architecture flagged).
 
-## 2026-06-12 — 32K floppy-free chat loop — IN PROGRESS
+## 2026-06-12 — 32K floppy-free chat loop — LANDED, fully floppy-free (incr 1+2+3)
 
 User: do the full preload incl. K; bigger floppy-free win over a bigger arena.
+
+**LANDED (incr 1 `8203f78` + the combined K+prompt commit below, NOT pushed).** On a 32K direct boot
+the chat-loop working set is preloaded into a high RAM cache (loop_cache 0x4400..0x7a00, above the
+window/arena, below the stack guard); on 16K the tier-gate is off and the loop demand-loads as before.
+- **Phases** (dpi/Y, agent_request/R, agent_api_stream/X, agent_response/T, tool/M, AND the 15-sector
+  K crypto window): `load_core_sectors_at` serves them from RAM by a key match (sectors<<8|offset),
+  the loop's own loads hit by construction. K (reloaded every turn to restore 0x1800 after a $x) now
+  memcpy's the pristine cache copy — the dominant cost, gone.
+- **Prompts** (IDENTITY/COMPACT, streamed per request via the fs cluster path): pinned in two fixed
+  top-of-cache slots; a resident `agent_resolve_prompt_source` returns the slot to the stream phase
+  (ax IS the cluster being checked, so a 32K hit is guaranteed). Preloaded AFTER agents_cfg sets the
+  clusters (so the preload call moved from hal_start to after prepare_agent_path).
+- **Per-turn floppy I/O: ~25 sectors → 0** — the 32K loop is fully floppy-free. Cost: window/arena
+  capped below the cache (32K arena ~321 B band shown on the 16K map; the 32K window/arena ~2 KB) and
+  the ledger advertises loop_cache_start as ram= so the agent can't $w the cache. Nucleus 1095→1322 B
+  (3 shared sectors; K window + driver slot unmoved).
+
+**Lesson — a broken intermediate I caught at incr 3.** The incr-2 "fits the cache" build assert was a
+`%if` over the phase labels placed near the TOP of core.asm — but `%if` can't forward-reference labels,
+so incr-2 (`8ce6ac9`) actually FAILED to build. My validation command filtered the make output, so I
+missed the error; `make basic-bootstrap` then fell back to the stale incr-1 floppy and "validated" K
+against a build that didn't have it. Fixes: (1) the assert moved to the END of core.asm (backward ref);
+(2) always read the FULL build output, never a keyword-filtered grep; (3) confirm the floppy md5 is
+fresh before trusting a run. The branch was unpushed, so the broken `8ce6ac9` + its doc commit were
+`reset --soft`'d away and K+prompts re-committed as one clean, building, properly-validated commit.
+
+Validated (the FINAL build, md5-confirmed fresh): 32K direct boot, **2 turns**, verdict=success — the
+TLS crypto ran from cache-loaded K and the identity streamed from cache each turn; + full **7-NIC 16K
+matrix** (no regression — the preload is 32K-gated). docs/architecture.md Floppy Policy updated. (A
+dedicated 32K matrix profile is still a nice-to-have; the ne2k8 direct-boot run is the gate today.)
 
 Per-turn floppy reads today (BOTH tiers identically — no tier branch exists; ram_top
 only sizes the window): dpi/Y(1) + agent_request/R(3) + **K window(15)** +

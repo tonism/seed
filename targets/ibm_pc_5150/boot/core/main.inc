@@ -43,11 +43,6 @@ hal_start:
     call_core_phase core_packet_io_init_phase_start, core_packet_io_init_phase_end
     jc network_setup_error
 
-    ; Build 12: on a 32K direct boot, preload the chat-loop working set into the high cache so the
-    ; loop runs floppy-free (no-op on 16K). Done here, at boot, before the network bring-up — the
-    ; floppy is free, and the cache region above the (not-yet-populated) arena is available.
-    call preload_loop_cache
-
     call prepare_internet_path
     jc network_setup_error
 
@@ -57,6 +52,12 @@ hal_start:
     call prepare_agent_path
     jc agent_setup_error
     mov byte [handoff_addr + handoff_status], handoff_status_ready
+
+    ; Build 12 (32K floppy-free loop): preload the chat-loop working set — phases (incl. K) AND the
+    ; streamed IDENTITY/COMPACT prompts — into the high cache, now that agents_cfg has set the prompt
+    ; clusters. No-op on 16K (tier-gated). After this the chat loop reads no floppy per turn. Runs once
+    ; here per cold bring-up (and on a retry loop back through hal_start), before the first request.
+    call preload_loop_cache
 
 chat_loop:
     call_core_phase core_dpi_phase_start, core_dpi_phase_end
@@ -206,20 +207,77 @@ preload_loop_cache:
     mov ax, di
     sub ax, loop_cache_table
     shr ax, 1
-    shr ax, 1                  ; entries = (di - loop_cache_table) / 4
-    mov [loop_cache_count], ax
+    shr ax, 1                  ; ax = phase entry count
+    push ax                    ; commit it AFTER the prompt preloads, so they floppy-fill (count still 0)
+    ; Build 12 incr 3: preload the two streamed system prompts into their fixed top-of-cache slots
+    ; (agents_cfg, which ran before this preload's new call site, set the clusters + sizes). With
+    ; loop_cache_count still 0, load_core_sectors_at floppy-fills. The prompt LBA is read as a 1-sector
+    ; load whose data-area offset is cluster - fat_first_data_cluster.
+    mov ax, [prompt_id_cluster]
+    mov cx, [prompt_id_size]
+    mov bx, prompt_id_cache
+    call .preload_one_prompt
+    mov ax, [prompt_compact_cluster]
+    mov cx, [prompt_compact_size]
+    mov bx, prompt_compact_cache
+    call .preload_one_prompt
+    pop ax
+    mov [loop_cache_count], ax  ; phase cache live; the prompt cache is gated on loop_cache_count > 0 too
     pop es
 .done:
     ret
+.preload_one_prompt:
+    ; ax = cluster, cx = byte size, bx = cache slot. Read the one prompt sector if the file exists
+    ; (size > 0); a missing prompt (size 0) leaves the slot unused — its stream is empty regardless.
+    or cx, cx
+    jz .pp_done
+    sub ax, fat_first_data_cluster
+    mov ah, 1                  ; ah = 1 sector; al = data-area offset (prompts sit well within 8 bits)
+    call load_core_sectors_at
+.pp_done:
+    ret
 
-; The chat-loop working set, as canonical load keys (sectors<<8 | sector-offset). dpi/Y, agent_request/R,
-; agent_api_stream/X, agent_response/T, tool/M. The K crypto window is added in a later increment.
-; Must stay <= loop_cache_max_entries; their total sectors <= loop_cache_max_sectors (build-asserted
-; against the cache size once K joins). 0 terminates the list.
+; Build 12 incr 3 (32K floppy-free loop): resolve the streamed-prompt source for the X phase. ax =
+; the IDENTITY or COMPACT first cluster. When a 32K boot preloaded the prompts (loop_cache_count > 0),
+; return si = the fixed cache slot (no floppy); else read the one prompt sector into tls_rx_copy and
+; return si = tls_rx_copy. CF on a read failure. Resident so the tight net-window X phase stays small.
+; (ax IS the cluster being checked against, so on 32K a hit is guaranteed.)
+agent_resolve_prompt_source:
+    cmp word [loop_cache_count], 0
+    je .floppy
+    cmp ax, [prompt_id_cluster]
+    je .id
+    cmp ax, [prompt_compact_cluster]
+    jne .floppy
+    mov si, prompt_compact_cache
+    clc
+    ret
+.id:
+    mov si, prompt_id_cache
+    clc
+    ret
+.floppy:
+    add ax, fat_data_start_lba - fat_first_data_cluster
+    mov bx, tls_rx_copy
+    call read_abs_sector
+    jc .fail
+    mov si, tls_rx_copy
+    clc
+    ret
+.fail:
+    stc
+    ret
+
+; The chat-loop working set, as canonical load keys (sectors<<8 | sector-offset): dpi/Y,
+; agent_request/R, agent_api_stream/X, agent_response/T, tool/M, and the K crypto window (the
+; dominant per-turn cost, reloaded every turn to restore 0x1800 after a $x; the cache copy is
+; pristine, so the reload becomes a RAM memcpy). Must stay <= loop_cache_max_entries; their total
+; sectors <= loop_cache_max_sectors (build-asserted in core.asm). 0 terminates the list.
 loop_preload_list:
     dw (((core_dpi_phase_end - core_dpi_phase_start + 511) / 512) << 8) | ((core_dpi_phase_start - $$) / 512)
     dw (((core_agent_request_phase_end - core_agent_request_phase_start + 511) / 512) << 8) | ((core_agent_request_phase_start - $$) / 512)
     dw (((core_agent_api_stream_phase_end - core_agent_api_stream_phase_start + 511) / 512) << 8) | ((core_agent_api_stream_phase_start - $$) / 512)
     dw (((core_agent_response_phase_end - core_agent_response_phase_start + 511) / 512) << 8) | ((core_agent_response_phase_start - $$) / 512)
     dw (((core_tool_phase_end - core_tool_phase_start + 511) / 512) << 8) | ((core_tool_phase_start - $$) / 512)
+    dw (((core_link_window_end - core_link_window_start + 511) / 512) << 8) | ((core_link_window_start - $$) / 512)
     dw 0

@@ -76,6 +76,8 @@ core_resident_end:
 %if loop_cache_end > (runtime_stack_top - runtime_stack_guard_len)
 %error "32K loop cache overruns the runtime stack guard"
 %endif
+; (The "preload working set fits the cache" assert references the phase labels, so it lives at the END
+;  of this file — below all the phase definitions — where they are backward references the %if can see.)
 
 %if (core_resident_end - $$) > (runtime_stack_top - runtime_stack_guard_len - core_load_addr)
 %error "CORE.SYS exceeds 32KB runtime stack guard"
@@ -475,5 +477,20 @@ core_el1_3c501_driver_end:
 %endif
 
 align 512, db 0
+
+; Build 12 (32K floppy-free loop): the preloaded chat-loop working set (loop_preload_list — dpi/Y +
+; agent_request/R + agent_api_stream/X + agent_response/T + tool/M + the K crypto window) is written
+; sequentially from loop_cache_start and must not collide with the two prompt slots pinned at the top
+; of the cache (prompt_id_cache / prompt_compact_cache, 2 sectors). Placed here (not with the other
+; layout guards near the top) because %if cannot forward-reference the phase labels. Keep the sum in
+; sync with loop_preload_list (main.inc).
+%if (((core_dpi_phase_end - core_dpi_phase_start + 511) / 512) + \
+     ((core_agent_request_phase_end - core_agent_request_phase_start + 511) / 512) + \
+     ((core_agent_api_stream_phase_end - core_agent_api_stream_phase_start + 511) / 512) + \
+     ((core_agent_response_phase_end - core_agent_response_phase_start + 511) / 512) + \
+     ((core_tool_phase_end - core_tool_phase_start + 511) / 512) + \
+     ((core_link_window_end - core_link_window_start + 511) / 512)) > (loop_cache_max_sectors - 2)
+%error "32K chat-loop preload working set + 2 prompt sectors exceeds the loop cache (raise loop_cache_max_sectors)"
+%endif
 
 core_image_end:

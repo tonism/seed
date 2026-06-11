@@ -218,11 +218,11 @@ agent_api_stream_stream_contract:
     ; Build 11: generalized to stream ANY floppy prompt as <=440 B TLS records (ax = cluster, cx = byte
     ; size, caller-set) - the compaction contract AND the identity, both larger than one record. cx
     ; survives read_abs_sector (preserves bx/cx), so the size carries across the sector stage.
-    add ax, fat_data_start_lba - fat_first_data_cluster
-    mov bx, tls_rx_copy
-    phase_call_res read_abs_sector       ; stage the prompt sector in tls_rx_copy
+    ; Build 12 incr 3 (32K floppy-free loop): resolve the prompt source via a resident helper (this is
+    ; a tight net-window phase, so keep the logic out of it). It returns si = the fixed cache slot when
+    ; a 32K boot preloaded this prompt, else reads the sector into tls_rx_copy; CF on a read failure.
+    phase_call_res agent_resolve_prompt_source
     jc .sc_fail
-    mov si, tls_rx_copy
 .sc_copy:
     jcxz .sc_flush_last
     cmp di, api_request_plain + tls_record_header_len + api_request_plain_len

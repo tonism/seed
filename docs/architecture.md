@@ -311,6 +311,14 @@ The tiers differ only in what they pin:
          loop-time RAM.
 ```
 
+> **Implemented (Build 12).** On a 32 KiB direct boot, the boot reads the loop's working set —
+> the chat-loop phases, the resident crypto (K) window, and the IDENTITY/COMPACT prompts — into a
+> high RAM cache once (`loop_cache`, above the conversation window/arena and below the stack). The
+> phase loader (`load_core_sectors_at`) and the prompt streamer then serve from RAM, so a chat turn
+> reads **no floppy** (per-turn I/O ~25 sectors → 0). The window/arena ceiling drops to the cache
+> base, and the ledger advertises that as the RAM ceiling so an agent `$w` never lands in the cache.
+> 16 KiB is untouched: the path is gated on `ram_top`, and the 16 KiB loop demand-loads as before.
+
 ## Runtime Step Order
 
 The resident nucleus is a small scheduler plus shared hardware, UI, filesystem,
