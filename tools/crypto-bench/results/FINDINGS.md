@@ -327,3 +327,19 @@ auth/PRF/entropy projected; RSA cert-auth not ECDSA (ECDSA ~2x ECDHE would excee
 HW speedup exceeds the 8088-model 2.55x because the 286's fast MUL makes the cut overhead
 (Solinas/wNAF) dominate. Reproduce: build p256_bench.asm -DP256_SRC='"variants/p256_combined.inc"'
 onto the 360K image, boot ibmat@6 (crafted CMOS).
+
+### Full handshake crypto on 286@6 (MEASURED, hs_bench.asm)
+Beyond the ECDHE component, the rest of the handshake crypto measured on ibmat@6:
+- PRF (master+keyblock) + transcript SHA-256 over ~3 KB (cert + messages) = 90 ticks = 4.94 s.
+Summed with the measured ECDHE (6.6 s) -- they run sequentially, no overlap:
+| 286@6 handshake crypto | time | basis |
+|---|---|---|
+| ECDHE (optimized real P-256) | 6.6 s | measured |
+| PRF + transcript | 4.94 s | measured |
+| **full ECDHE handshake (no auth)** | **~11.5 s** | **measured -- fits ~15 s** |
+| + RSA-2048 cert verify | ~2.5 s | projected (only unbuilt piece) |
+| + entropy | ~0.2 s | projected |
+| **full SECURE handshake** | **~14 s** | fits ~15 s (→ ~10.6 s if the 4.64x SHA win is applied to PRF+transcript) |
+
+So the full ECDHE handshake crypto is MEASURED at ~11.5 s on the lowest 286; only RSA cert-auth
+remains projected. Security begins at the 286 -- handshake measured, not just the ECDHE component.
