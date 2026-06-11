@@ -3,7 +3,7 @@
 ; Byte-granular rotates + single-load sigmas + register-resident round. Position-independent
 ; (relative calls, fixed-absolute data refs). Drop-in: same entry points + data.inc state.
 ; Chosen over r4_v42 (4.64x) because it fits the 16K K window in 15 sectors with NO golf;
-; r4_v42 needed a fragile 74 B crypto golf for the last ~0.3x. See notes/build12-staging.md.
+; r4_v42 needed a fragile 74 B crypto golf for the last ~0.3x. See notes/build12-layout-redesign-attempts.md.
 
 sha256_init:
     push ds
