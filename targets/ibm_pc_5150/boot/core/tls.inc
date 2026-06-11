@@ -10,14 +10,38 @@ tls_probe_server:
     sub cx, 5
     call tls_transcript_update
     jc .failed
+    ; Build 11 slice 3a: retransmit the ClientHello if the ServerHello does not arrive (a lost
+    ; ClientHello, or a lost server flight not yet recovered). The ClientHello stays intact in
+    ; tls_client_hello_buffer through the wait (the receive reads into ne_tx_frame), so we save its
+    ; send seq and, on a wait failure, rewind tcp_local_seq + resend the same buffer, bounded by
+    ; tcp_syn_retry_count. The retry count is pushed so it survives tcp_send_payload +
+    ; tls_wait_for_server_hello (both clobber cx). A duplicate ClientHello is deduped by the server.
+    mov ax, [tcp_local_seq]
+    mov [tls_retransmit_seq], ax
+    mov ax, [tcp_local_seq + 2]
+    mov [tls_retransmit_seq + 2], ax
+    mov cx, tcp_syn_retry_count
+.send_client_hello:
+    push cx
     call tls_prepare_3c501_receive
     mov si, tls_client_hello_buffer
     mov cx, [tls_tx_len]
     call tcp_send_payload
-    jc .failed
-.wait_for_record:
+    jc .client_hello_send_failed
     call tls_wait_for_server_hello
-    jc .failed
+    pop cx
+    jnc .server_hello_received
+    dec cx
+    jz .failed
+    mov ax, [tls_retransmit_seq]
+    mov [tcp_local_seq], ax
+    mov ax, [tls_retransmit_seq + 2]
+    mov [tcp_local_seq + 2], ax
+    jmp .send_client_hello
+.client_hello_send_failed:
+    pop cx
+    jmp .failed
+.server_hello_received:
     cmp word [tls_buffered_payload_len], 0
     jne .parse_certificate
     call ne_transmit_tcp_ack
@@ -36,8 +60,21 @@ tls_probe_server:
     ; master_secret/key_block), and the transcript was already updated just above, so the
     ; wire order (CKE before CCS+Finished) and the Finished hash are unchanged; only the
     ; local send timing moves earlier. (Was 3c501/3c503-only; NE/WD used to send it late.)
+    ; Build 11 slice 3b: save the send seq before the CKE, then (after the send) hold the CKE in
+    ; tls_client_hello_buffer -- idle now (the ClientHello retransmit is done) and NOT read by the key
+    ; derivation (the PRF reads tls_random/tls_server_random) -- before tls_prepare_master_secret can
+    ; reuse fs_sector_buffer. This begins the held CKE+CCS+Finished flight blob so the whole second
+    ; client flight can be retransmitted raw if the server's Finished does not arrive (NE/WD).
+    push ds
+    pop es
+    mov si, tcp_local_seq
+    mov di, tls_retransmit_seq
+    movsw
+    movsw
+    mov word [tls_stream_skip_remaining], 0
     call tls_send_client_key_exchange
     jc .failed
+    call tls_hold_flight_segment
     cmp byte [tls_key_schedule_ready], 1
     je .key_schedule_ready
     call tls_prepare_master_secret
@@ -63,6 +100,9 @@ tls_probe_server:
 .send_combined_final_flight:
     call tls_send_client_final_flight
     jc .failed
+    ; Build 11 slice 3b: append the sent CCS+Finished to the held flight blob (after the CKE) so the
+    ; whole second client flight can be resent raw on a server-Finished timeout (NE/WD path).
+    call tls_hold_flight_segment
 .app_send_path:
     mov al, [handoff_addr + handoff_nic_family]
     cmp al, family_3c503
@@ -74,6 +114,17 @@ tls_probe_server:
     call tls_send_prebuilt_before_server_finished
     jc .failed
 .done:
+    ; Build 11 reconnect double-send fix (wire-proven). The handshake just prebuilt + sent the
+    ; request from tls_app_len. On a RECONNECT that prebuilt is only chunk 1 (POST line + headers +
+    ; Content-Length + {"model"), and the X phase's .ready_tail would re-send chunk 1 because
+    ; tls_app_len is still set -> TWO POST prefixes in one request: the server reads the duplicate
+    ; "POST ..." as the first request's body, 400s it, and FINs -> every reconnect failed (a clean
+    ; idle-close capture showed client AppData [293,293,400,...] and a 400+Alert+FIN). Clearing
+    ; tls_app_len here makes .ready_tail skip the prefix and stream only chunk 2 + context + prompt,
+    ; matching the working REUSE path (which never runs tls_probe, so it is untouched). The COLD
+    ; greeting sent its whole request as the prebuilt and takes the splash branch (never reads
+    ; tls_app_len), so clearing is harmless there; the receive resets tls_app_len regardless.
+    mov word [tls_app_len], 0
     clc
     ret
 .failed:
@@ -757,12 +808,62 @@ tls_prepare_3c501_split_application_record:
     ret
 
 tls_send_prebuilt_after_server_finished:
-    call tls_read_server_finished_records
+    call tls_read_server_finished_with_retry
     jc .done
     call tls_send_prebuilt_application_data_current_seq
     jc .done
     jmp tls_accept_server_finished
 .done:
+    ret
+
+; Build 11 slice 3b: read the server's Finished; if it does not arrive (the client's CKE+CCS+Finished
+; flight was lost), resend that held flight raw and re-read, bounded by tcp_syn_retry_count. The
+; Finished is encrypted + transcript-bound so it CANNOT be rebuilt -- tls_resend_second_flight rewinds
+; tcp_local_seq to the saved pre-CKE value and resends the blob held in tls_client_hello_buffer (CKE ||
+; CCS+Finished, total length in tls_stream_skip_remaining), which the server dedups by seq. NE/WD path.
+tls_read_server_finished_with_retry:
+    mov cx, tcp_syn_retry_count
+.try:
+    push cx
+    call tls_read_server_finished_records
+    pop cx
+    jnc .ok
+    dec cx
+    jz .fail
+    call tls_resend_second_flight
+    jmp .try
+.ok:
+    clc
+    ret
+.fail:
+    stc
+    ret
+
+tls_resend_second_flight:
+    push ds
+    pop es
+    mov si, tls_retransmit_seq
+    mov di, tcp_local_seq
+    movsw
+    movsw
+    mov si, tls_client_hello_buffer
+    mov cx, [tls_stream_skip_remaining]
+    call tcp_send_payload
+    ret
+
+; Append the just-sent record (fs_sector_buffer[0..tls_tx_len]) to the held second-flight blob in
+; tls_client_hello_buffer (idle post-ServerHello), tracking the running length in
+; tls_stream_skip_remaining (idle during the handshake). Slice 3b: lets the whole CKE+CCS+Finished
+; flight be resent raw via tls_resend_second_flight if the server's Finished is lost.
+tls_hold_flight_segment:
+    push ds
+    pop es
+    mov si, fs_sector_buffer
+    mov di, tls_client_hello_buffer
+    add di, [tls_stream_skip_remaining]
+    mov cx, [tls_tx_len]
+    add [tls_stream_skip_remaining], cx
+    rep movsb
     ret
 
 tls_send_prebuilt_before_server_finished:
@@ -908,81 +1009,19 @@ tls_receive_application_data:
     mov [tls_app_len], dx
     add ax, tls_record_header_len
     mov [tls_app_total_len], ax
-    cmp byte [handoff_addr + handoff_nic_family], family_3c501
-    jne .shared_record_limit
-    cmp ax, tls_payload_buffer_len
-    ja .large_record
-.shared_record_limit:
-    cmp ax, tls_stream_buffer_len
-    ja .large_record
-    call tls_ensure_current_tls_record_complete
-    jc .failed
-    mov ax, [tls_app_total_len]
-    mov si, [tls_current_payload_ptr]
-    mov cx, [tls_current_payload_len]
-    cmp ax, cx
-    ja .failed
-    call tls_save_payload_after_current_offset
-
-    push ds
-    pop es
-    add si, tls_record_header_len
-    mov di, tls_rx_copy
-    mov cx, [tls_app_len]
-    rep movsb
-    mov di, tls_received_tag
-    mov cx, tls_aead_tag_len
-    rep movsb
-    mov word [tls_app_data_ptr], tls_rx_copy
-
-    call tls_build_server_nonce
-    call tls_build_server_app_aad
-    mov word [chacha_key_ptr], tls_server_write_key
-    mov word [chacha_nonce_ptr], tls_client_nonce
-    mov word [chacha_counter_low], 0
-    mov word [chacha_counter_high], 0
-    call chacha20_block
-    call poly1305_load_key
-    call tls_poly1305_mac_app
-    mov si, tls_finished_tag
-    mov di, tls_received_tag
-    mov cx, tls_aead_tag_len
-    call tls_compare_buffers
-    jc .failed
-.tag_ready:
-    mov word [chacha_counter_low], 1
-    mov word [chacha_counter_high], 0
-    call tls_xor_app_data
+    ; Build 11 draining-FIFO collapse: ALL records now stream through
+    ; tls_receive_large_application_record (with incremental Poly1305 verify), so tls_rx_copy never
+    ; holds a whole record - only one TCP segment, dropping the record-size ceiling that pinned the
+    ; buffer at 1460. Application data (0x17) streams; an alert (0x15) means the session is ending,
+    ; so just mark it closed and let the exchange finish (the next prompt reconnects). The 2-byte
+    ; alert is not decrypted/verified: it is not security-critical (the channel is unauthenticated)
+    ; and any alert -> reconnect is the right response, so stream alignment is moot once the session
+    ; is torn down. This removed the LAST whole-record receive path.
     cmp byte [tls_app_content_type], 0x17
-    jne .check_alert
-    cmp word [tls_app_len], 5
-    jne .application_record
-    cmp byte [tls_rx_copy], '0'
-    jne .application_record
-    cmp byte [tls_rx_copy + 1], 13
-    jne .application_record
-    cmp byte [tls_rx_copy + 2], 10
-    jne .application_record
-    cmp byte [tls_rx_copy + 3], 13
-    jne .application_record
-    cmp byte [tls_rx_copy + 4], 10
-    jne .application_record
-    mov byte [api_stream_completed], 3
-    jmp .application_record
-.check_alert:
-    cmp byte [tls_app_content_type], 0x15
-    jne .application_record
-    cmp word [tls_rx_copy], 0x0001
-    jne .failed
+    je .large_record
     mov byte [tls_key_schedule_ready], 0
     mov byte [api_stream_completed], 3
-.application_record:
-    ; Preserve any following-record bytes that share this frame into tls_rx_copy
-    ; before ne_transmit_tcp_ack rebuilds ne_tx_frame; otherwise the next record
-    ; (often a large trailer record) is parsed from a clobbered header and
-    ; completion is intermittently missed.
-    call tls_preserve_buffered_payload
-    call tls_increment_server_record_seq
+    clc
     ret
 .large_record:
     jmp tls_receive_large_application_record
@@ -1023,9 +1062,28 @@ tls_ensure_tls_header_complete:
 
 tls_receive_large_application_record:
     call tls_clear_buffered_payload
+    ; Build 11 FIX: the first segment of a record can still be sitting in ne_tx_frame (0x0700), which
+    ; ALIASES low_crypto_work - chacha20_block + poly1305_load_key + app_init below all write that
+    ; region and would shred the ciphertext before .copy_current_to_rx reads it (the MAC then runs
+    ; over corrupted bytes -> tag mismatch). Buffered leftovers already live in tls_rx_copy, which is
+    ; why later records verified; the FIRST record (greeting response.created) did not. Copy the
+    ; payload into tls_rx_copy (0x34c2, clear of the crypto scratch) before touching any crypto state.
+    call tls_copy_current_payload
+    jc .failed
     call tls_build_server_nonce
     mov word [chacha_key_ptr], tls_server_write_key
     mov word [chacha_nonce_ptr], tls_client_nonce
+    ; Build 11 incremental Poly1305: derive the one-time key from the ChaCha counter-0 block (the
+    ; streamed decrypt starts at counter 1 and would never compute block 0 otherwise), build the AAD
+    ; over this record's ciphertext length (tls_app_len, still intact here), and init the streaming
+    ; MAC. Chunks are absorbed in the loop; the tag is captured + verified at .record_done.
+    mov word [chacha_counter_low], 0
+    mov word [chacha_counter_high], 0
+    call chacha20_block
+    call poly1305_load_key
+    call tls_build_server_app_aad
+    call tls_poly1305_app_init
+    call tls_poly1305_rx_save
     mov word [chacha_counter_low], 1
     mov word [chacha_counter_high], 0
     mov byte [tls_large_chacha_offset], chacha_block_len
@@ -1078,6 +1136,16 @@ tls_receive_large_application_record:
     ; ChaCha keystream in sync.
     push cx
     mov cx, dx
+    ; Build 11: MAC the ciphertext chunk BEFORE the in-place decrypt (AEAD authenticates ciphertext).
+    ; The receive MAC state lives in poly_rx_save between chunks - restore it into poly_acc, MAC,
+    ; stash it back - so it survives the decrypt's chacha20_block AND a mid-receive keep-alive SEND,
+    ; both of which clobber the shared poly_acc. dx is preserved across app_update.
+    call tls_poly1305_rx_restore
+    push si
+    call tls_poly1305_app_update
+    pop si
+    call tls_poly1305_rx_save
+    mov cx, dx
     call tls_xor_large_app_chunk
     pop cx
     mov [tls_app_data_ptr], si
@@ -1101,6 +1169,24 @@ tls_receive_large_application_record:
     jbe .tag_take_ready
     mov dx, ax
 .tag_take_ready:
+    ; Build 11: capture the tag bytes (may span chunks) into tls_received_tag for the record-end
+    ; verify. Destination offset = bytes already captured = tls_aead_tag_len - remaining.
+    push si
+    push di
+    push cx
+    push es
+    push ds
+    pop es
+    mov di, tls_received_tag
+    mov cx, tls_aead_tag_len
+    sub cx, [tls_app_record_len]
+    add di, cx
+    mov cx, dx
+    rep movsb
+    pop es
+    pop cx
+    pop di
+    pop si
     add si, dx
     sub cx, dx
     sub word [tls_app_record_len], dx
@@ -1108,6 +1194,16 @@ tls_receive_large_application_record:
 .record_done:
     mov [tls_buffered_payload_len], cx
     mov [tls_buffered_payload_ptr], si
+    ; Build 11: finalize the streaming MAC and verify the captured tag. A mismatch (corrupted or
+    ; desynced record) returns failure (.failed) so the caller can invalidate + reconnect rather than
+    ; continue a desynced stream; the server record seq is NOT advanced on a bad record.
+    call tls_poly1305_rx_restore
+    call tls_poly1305_app_final
+    mov si, tls_finished_tag
+    mov di, tls_received_tag
+    mov cx, tls_aead_tag_len
+    call tls_compare_buffers
+    jc .failed
     xor ax, ax
     mov [tls_app_len], ax
     call tls_preserve_buffered_payload
@@ -1132,6 +1228,16 @@ tls_xor_large_app_chunk:
     push bx
     push cx
     push si
+    ; Build 11 FIX: chacha_block (the keystream, in low_crypto_work @0x0700) is clobbered by the
+    ; inter-chunk NIC receive between draining-FIFO chunks - the counter+offset survive (resident
+    ; low_runtime_state) but the 64-byte block does not. Resuming a chunk MID-block (offset <
+    ; block_len) would XOR ciphertext against the clobbered block -> garbage plaintext, while the MAC
+    ; still passes (it uses the saved otk), so the per-record verify can't catch it. Regenerate the
+    ; block at the surviving counter on a mid-block resume; an aligned resume regenerates in the loop.
+    mov bl, [tls_large_chacha_offset]
+    cmp bl, chacha_block_len
+    jae .next_byte
+    call chacha20_block
 .next_byte:
     or cx, cx
     jz .done
@@ -1176,58 +1282,8 @@ tls_preserve_buffered_payload:
 .done:
     ret
 
-tls_ensure_current_tls_record_complete:
-    mov si, [tls_current_payload_ptr]
-    call tls_copy_current_payload
-    jc .failed
-.receive_header:
-    cmp word [tls_current_payload_len], tls_record_header_len
-    jae .header_ready
-    call .append_next_payload
-    jc .failed
-    jmp .receive_header
-.header_ready:
-    mov si, [tls_current_payload_ptr]
-    mov ah, [si + 3]
-    mov al, [si + 4]
-    add ax, tls_record_header_len
-    cmp ax, tls_stream_buffer_len
-    ja .failed
-    mov [tls_stream_skip_remaining], ax
-    cmp [tls_current_payload_len], ax
-    jae .done
-.receive_more:
-    call .append_next_payload
-    jc .failed
-    mov ax, [tls_current_payload_len]
-    cmp ax, [tls_stream_skip_remaining]
-    jb .receive_more
-.done:
-    clc
-    ret
-.failed:
-    stc
-    ret
-.append_next_payload:
-    call ne_transmit_tcp_ack
-    jc .append_failed
-    call tcp_receive_payload
-    jc .append_failed
-    mov ax, [tls_current_payload_len]
-    mov di, tls_rx_copy
-    add di, ax
-    mov cx, [tcp_rx_payload_len]
-    add ax, cx
-    cmp ax, tls_stream_buffer_len
-    ja .append_failed
-    push ds
-    pop es
-    mov si, [tcp_rx_payload_ptr]
-    rep movsb
-    mov [tls_current_payload_len], ax
-    mov word [tls_current_payload_ptr], tls_rx_copy
-    clc
-    ret
+; Build 11: tls_ensure_current_tls_record_complete removed - its only caller was the whole-record
+; alert path, now collapsed to the one streaming receive. The bytes fund the receive-MAC save/restore.
 .append_failed:
     stc
     ret
@@ -1277,54 +1333,123 @@ tls_xor_app_data:
     pop ax
     ret
 
+; Build 11: the AEAD MAC is now ONE streaming implementation (init/update/final, below), shared by
+; the send path, the alert receive, and the FIFO receive. The old all-at-once cipher-block loop is
+; gone - update() absorbs the whole buffer in a single call for the non-streamed callers.
 tls_poly1305_mac_app:
-    call poly1305_clear_acc
+    call tls_poly1305_app_init
+    mov si, [tls_app_data_ptr]
+    mov cx, [tls_app_len]
+    call tls_poly1305_app_update
+    jmp tls_poly1305_app_final
 
+; ---- Build 11 streaming Poly1305 for the FIFO receive ----
+; The draining-FIFO never buffers a whole record, so the AEAD tag is computed incrementally:
+; init (acc + padded AAD), update per ciphertext chunk (absorb full 16-byte blocks, carry a <16 B
+; partial in poly_block across calls), final (pad the partial, absorb the AAD/cipher length block,
+; emit). The one-time key (poly_r/poly_s) must already be loaded from the ChaCha counter-0 block.
+; CIPHERTEXT is absorbed (AEAD MACs ciphertext), so update must run BEFORE the in-place decrypt.
+tls_poly1305_app_init:
+    call poly1305_clear_acc
     call poly1305_clear_block
     push ds
     pop es
     mov si, tls_aead_aad
     mov di, poly_block
     mov cx, tls_aead_aad_len
-    rep movsb
+    rep movsb                                   ; AAD into the (zeroed) block -> zero-padded to 16
     mov word [poly_block_ptr], poly_block
     call poly1305_process_block
+    call poly1305_clear_block                   ; ready a zeroed block for ciphertext accumulation
+    mov byte [tls_poly_app_fill], 0
+    mov word [tls_poly_app_cipher_len], 0
+    ret
 
-    mov si, [tls_app_data_ptr]
-    mov cx, [tls_app_len]
-    call tls_poly1305_process_cipher_bytes
+tls_poly1305_app_update:                        ; si = ciphertext, cx = byte count
+    or cx, cx
+    jz .upd_done
+    add [tls_poly_app_cipher_len], cx
+.upd_byte:
+    mov bl, [tls_poly_app_fill]
+    xor bh, bh
+    mov al, [si]
+    mov [poly_block + bx], al                    ; accumulate into the partial block
+    inc si
+    inc bx
+    cmp bl, 16
+    jb .upd_keep
+    push cx                                       ; full 16-byte block -> absorb it
+    push si
+    mov word [poly_block_ptr], poly_block
+    call poly1305_process_block
+    call poly1305_clear_block                     ; zero the block so the next/final partial pads
+    pop si
+    pop cx
+    xor bx, bx
+.upd_keep:
+    mov [tls_poly_app_fill], bl
+    dec cx
+    jnz .upd_byte
+.upd_done:
+    ret
+
+tls_poly1305_app_final:                          ; finalize the streamed MAC -> tls_finished_tag
+    cmp byte [tls_poly_app_fill], 0
+    je .fin_lengths
+    mov word [poly_block_ptr], poly_block         ; trailing partial (already zero-padded)
+    call poly1305_process_block
+.fin_lengths:
     call poly1305_clear_block
-    mov byte [poly_block], tls_aead_aad_len
-    mov ax, [tls_app_len]
+    mov byte [poly_block], tls_aead_aad_len        ; len(AAD) || len(ciphertext) as the final block
+    mov ax, [tls_poly_app_cipher_len]
     mov [poly_block + 8], ax
     mov word [poly_block_ptr], poly_block
     call poly1305_process_block
     call poly1305_emit_tag
     ret
 
-tls_poly1305_process_cipher_bytes:
-.cipher_block:
-    or cx, cx
-    jz .cipher_done
-    call poly1305_clear_block
-    mov dx, cx
-    cmp dx, 16
-    jbe .cipher_chunk_ready
-    mov dx, 16
-.cipher_chunk_ready:
-    mov [tls_app_chunk_len], dx
-    sub cx, dx
+; Receive-MAC state shuttle: poly_acc + the partial poly_block are 33 contiguous bytes. The
+; streamed receive stashes them in poly_rx_save between MAC steps (the decrypt + a keep-alive send
+; both clobber the shared poly_acc/poly_block); the send/ping path never touches poly_rx_save.
+tls_poly1305_rx_save:
+    push si
+    push di
     push cx
+    push es
     push ds
     pop es
-    mov di, poly_block
-    mov cx, dx
+    mov si, poly_acc
+    mov di, poly_rx_save
+    mov cx, poly1305_acc_len + 16
     rep movsb
-    mov word [poly_block_ptr], poly_block
-    call poly1305_process_block
+    mov si, poly_r
+    mov di, poly_rx_otk
+    mov cx, poly1305_r_len + poly1305_s_len
+    rep movsb
+    pop es
     pop cx
-    jmp .cipher_block
-.cipher_done:
+    pop di
+    pop si
+    ret
+tls_poly1305_rx_restore:
+    push si
+    push di
+    push cx
+    push es
+    push ds
+    pop es
+    mov si, poly_rx_save
+    mov di, poly_acc
+    mov cx, poly1305_acc_len + 16
+    rep movsb
+    mov si, poly_rx_otk
+    mov di, poly_r
+    mov cx, poly1305_r_len + poly1305_s_len
+    rep movsb
+    pop es
+    pop cx
+    pop di
+    pop si
     ret
 
 tls_build_client_app_aad:

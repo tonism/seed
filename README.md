@@ -44,9 +44,11 @@ ChaCha20-Poly1305, SHA-256, and the full TLS 1.2 handshake, over a live session 
 it is **not a secure channel yet.** The shipped build skips the ECDH key exchange (a
 stub takes the server's public value as the premaster, and client randomness is a
 placeholder), so a passive observer could derive the keys. The full P-256 is written
-and OpenSSL-checked, just compiled out — a real scalar multiply is minutes of work and
-several KB the 8088 can't spare — so wiring in a secure exchange (ephemeral scalar plus
-real entropy) is the headline open problem. Full story:
+and OpenSSL-checked, just compiled out — and it *fits* the RAM (~3.4 KB); the blocker is
+CPU time, not space: a real scalar multiply is ~110 s on the 4.77 MHz part, minutes past
+the server's handshake window. (Measured: it's the CPU — a real secure handshake first
+fits the window on a 286, never the stock 8088.) So wiring in a secure exchange (ephemeral
+scalar plus real entropy) is the headline open problem on this hardware. Full story:
 [docs/architecture.md](docs/architecture.md).
 
 ## Try it
@@ -151,17 +153,16 @@ On the IBM PC 5150 target, Seed can:
 
 Seed is a working agent on real 1981 hardware, with the rough edges that implies:
 
-- **Memory is tight on small machines.** The conversation window scales with RAM;
-  on a 16 KiB machine it is only ~100 bytes and the sliding-window trim is
-  aggressive, so the agent forgets recent turns quickly — it may not recall an
-  action (e.g. a tool call) it took a few turns earlier. More RAM means a larger
-  window and longer memory. Model-driven summary compaction (more context per
-  byte) is planned.
+- **Memory is tight on small machines.** The conversation window scales with RAM, so
+  the agent's recall is shorter on a 16 KiB machine — more RAM means a larger window and
+  longer memory. Build 11 replaced the old sliding-window trim with model-maintained
+  compaction (a terse running note plus a verbatim recent-dialogue tail), keeping more
+  meaning per byte; the smallest machines still forget oldest turns first.
 - **Reconnect after a long idle.** The TLS session is held open across a response,
-  but a long idle at the prompt lets the server close it. The next message
-  reconnects, and if that single attempt loses the ~15 s handshake race it returns
-  to the prompt with no answer — re-send and it reconnects. Automatic multi-attempt
-  reconnect is planned.
+  but a long idle at the prompt lets the server close it. The next message reconnects
+  automatically — a dim `> reconnect` line, then up to three silent retries; if all
+  three lose the ~15 s handshake race it shows `> reconnect failed` and returns to the
+  prompt, where re-sending runs the reconnect loop again. Never a blank turn.
 - **Long replies render slowly.** Drawing to the text screen is the bottleneck,
   not the network; a very long reply can take minutes to fully render.
 - **The TLS path is not a secure channel.** The hand-rolled handshake does no real

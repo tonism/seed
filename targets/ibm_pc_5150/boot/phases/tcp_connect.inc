@@ -25,6 +25,18 @@
 %endif
 
 tcp_connect_phase:
+    ; ESC-panic NIC safety (Build 11): a Ctrl+ESC longjmp can fire mid-NIC-access during the receive,
+    ; leaving the dp8390 command register on page 1 or a remote-DMA stalled; the reconnect then reuses
+    ; that dirty state and the SYN never reaches the wire (pcap-confirmed: zero SYNs leave after a
+    ; panic). ne_cmd_start_nodma (0x22 = page 0 + abort remote DMA + running) forces a clean state
+    ; before the flush/SYN below. dp8390 only -- the 3c501 has no DMA/page and re-inits its CR per TX.
+    cmp byte [handoff_addr + handoff_nic_family], family_3c501
+    je .nic_clean
+    mov bx, [handoff_addr + handoff_nic_base]
+    lea dx, [bx + ne_cr]
+    mov al, ne_cmd_start_nodma
+    out dx, al
+.nic_clean:
     cmp byte [handoff_addr + handoff_status], handoff_status_ready
     je tcp_reopen_cached_target
     call tcp_connect_target
@@ -32,11 +44,8 @@ tcp_connect_phase:
 
 tcp_reopen_cached_target:
     call ne_flush_receive_frames
-    call ne_transmit_tcp_syn
-    jc .done
-    call ne_wait_for_tcp_synack
-    cmp byte [handoff_addr + handoff_net_status], net_status_tcp_synack_received
-    jne .failed
+    call ne_tcp_syn_handshake
+    jc .failed
     phase_call_res ne_transmit_tcp_ack
     jc .done
     cmp byte [handoff_addr + handoff_net_status], net_status_tcp_connected
@@ -103,11 +112,8 @@ tcp_open_resolved_target:
     jc .done
     cmp byte [handoff_addr + handoff_net_status], net_status_next_hop_arp_resolved
     jne .failed
-    call ne_transmit_tcp_syn
-    jc .done
-    call ne_wait_for_tcp_synack
-    cmp byte [handoff_addr + handoff_net_status], net_status_tcp_synack_received
-    jne .failed
+    call ne_tcp_syn_handshake
+    jc .failed
     phase_call_res ne_transmit_tcp_ack
     jc .done
     cmp byte [handoff_addr + handoff_net_status], net_status_tcp_connected
@@ -119,12 +125,48 @@ tcp_open_resolved_target:
 .done:
     ret
 
-ne_transmit_tcp_syn:
+; Build 11 slice 2 (SYN retransmit): reset the connection state ONCE, then (re)send the SYN and
+; wait for the SYN-ACK up to tcp_syn_retry_count times. A dropped SYN or SYN-ACK no longer fails
+; the whole connect -- the resend reuses the same source port + ISN (tcp_reset_state runs only
+; once), so it is a true retransmit the server dedups, not a new connection. CF clear = connected
+; (SYN-ACK received); CF set = exhausted. Used by both the cold connect and the mid-chat reopen.
+ne_tcp_syn_handshake:
     call tcp_reset_state
+    mov cx, tcp_syn_retry_count
+.try:
+    push cx
+    call ne_send_tcp_syn_frame
+    jc .next
+    call ne_wait_for_tcp_synack
+    cmp byte [handoff_addr + handoff_net_status], net_status_tcp_synack_received
+    je .ok
+.next:
+    pop cx
+    loop .try
+    stc
+    ret
+.ok:
+    pop cx
+    clc
+    ret
+
+; Build + transmit the SYN with the CURRENT state (no reset), so ne_tcp_syn_handshake can retransmit.
+ne_send_tcp_syn_frame:
     mov al, 0x02
-    xor cx, cx
-    mov si, tcp_remote_ack
+    ; The 4-byte MSS option rides as the SYN "payload": build_tcp_segment_frame counts it in the IP
+    ; length + TCP checksum. Build 11 reorg: it emits data-offset 0x50 (20-byte header) for EVERY
+    ; segment to keep the SYN-only branch out of the resident nucleus; patch it here to 0x60 (24-byte
+    ; header = +4 MSS-option bytes). The data-offset byte is the low byte of the header word at +12, so
+    ; the +0x10 it adds to the checksum sum is undone by subtracting 0x10 from the stored checksum --
+    ; one's-complement: add ~0x10 (0xffef) and fold the end-around carry (adc), keeping the SYN valid.
+    mov cx, 4
+    mov si, PHASE_LOAD_ADDR + (tcp_syn_mss_option - PHASE_BASE)
     phase_call_res build_tcp_segment_frame
+    mov byte [ne_tx_frame + tcp_offset + 12], 0x60
+    mov ax, [ne_tx_frame + tcp_offset + 16]
+    add ax, 0xffef
+    adc ax, 0
+    mov [ne_tx_frame + tcp_offset + 16], ax
 
     mov si, ne_tx_frame
     phase_call_res ne_transmit_frame
@@ -132,6 +174,9 @@ ne_transmit_tcp_syn:
     mov byte [handoff_addr + handoff_net_status], net_status_tcp_syn_sent
 .done:
     ret
+
+tcp_syn_mss_option:
+    db 0x02, 0x04, tcp_syn_mss >> 8, tcp_syn_mss & 0xff
 
 tcp_reset_state:
     mov ax, [tcp_source_port_word]

@@ -1,0 +1,46 @@
+{
+  "_comment": "Speed-track evolutionary search audit trail. 20 correct variants over 4 rounds (2 agents failed to return structured output; their variants were dropped). Ranked by the 8088 cycle model (block_cycles, lower=better) vs the frozen baseline 735461. The two round-4 leaders were 86Box-confirmed on real hardware.",
+  "baseline_block_cycles": 735461,
+  "baseline_prf_cycles": 23214061,
+  "hardware_confirmation": {
+    "_comment": "86Box, 8088 @ 4.772728 MHz, 1 tick = 54.9254 ms. Output bit-identical (checksums 4E3F/2368/2228).",
+    "baseline_ticks": {"SHABLK_N96": 273, "PRFMAS_N6": 261, "PRFALL_N3": 269},
+    "r4_v42_ticks": {"SHABLK_N96": 55, "PRFMAS_N6": 57, "PRFALL_N3": 58},
+    "r4_v44_ticks": {"SHABLK_N96": 55, "PRFMAS_N6": 57, "PRFALL_N3": 58},
+    "block_speedup_hw": 4.96,
+    "prf_speedup_hw": 4.64,
+    "prf_baseline_s": 4.92, "prf_optimized_s": 1.06,
+    "note": "cycle model predicted 5.78x block / 5.30x PRF; ~16% optimistic on register-dense code (calibrated on the memory-heavy baseline). Model RANKS correctly; 86Box is the claim."
+  },
+  "code_size_delta_bytes": {"v001_byterot": 61, "r1_v7": 471, "r3_v32": 717, "r4_v41": 841, "r4_v42": 595, "r4_v44": 605},
+  "k_window_headroom_bytes": 9,
+  "progression_best_per_round": [
+    {"stage": "seed",  "name": "v001_byterot", "block_cycles": 481653, "x": 1.53, "insight": "byte-granular rotate (xchg/byte-moves + <=7 residual bits) kills the bit-at-a-time loop"},
+    {"stage": "round1","name": "r1_v7",  "block_cycles": 172709, "x": 4.26, "insight": "inline sigmas + unrolled ring-shuffle (no call clobbering regs mid-round)"},
+    {"stage": "round2","name": "r2_v22", "block_cycles": 148438, "x": 4.95, "insight": "register-fold Ch/Maj/T1 (regs+stack, not sha256_t1/t2 memory temporaries)"},
+    {"stage": "round3","name": "r3_v32", "block_cycles": 135491, "x": 5.43, "insight": "state base-ptr + disp8 addressing (kill [disp16] + all memory spills)"},
+    {"stage": "round4","name": "r4_v44", "block_cycles": 127327, "x": 5.78, "insight": "xchg byte-rotate as register-renaming + branchless shortest-path sigma chains"}
+  ],
+  "all_variants": [
+    {"name": "r1_v1", "technique": "inline-sigma-rotates", "block_cycles": 277717, "x": 2.65},
+    {"name": "r1_v2", "technique": "inline-sigma-schedule-rotates", "block_cycles": 387014, "x": 1.90},
+    {"name": "r1_v3", "technique": "load-word-once-in-sigmas", "block_cycles": 440917, "x": 1.67},
+    {"name": "r1_v4", "technique": "register-resident-t1-t2", "block_cycles": 437637, "x": 1.68},
+    {"name": "r1_v5", "technique": "pointer-rotation-of-state", "block_cycles": 414820, "x": 1.77},
+    {"name": "r1_v6", "technique": "rotl-rotr-residual-min+combined-byte-bit", "block_cycles": 271397, "x": 2.71},
+    {"name": "r1_v7", "technique": "chained-reg-sigmas+unrolled-ring-shuffle", "block_cycles": 172709, "x": 4.26},
+    {"name": "r2_v22", "technique": "inline-all-sigmas+regfold-ch-maj-t1", "block_cycles": 148438, "x": 4.95},
+    {"name": "r2_v23", "technique": "streamline-schedule-mem+inline-schedule-rotates", "block_cycles": 162198, "x": 4.53},
+    {"name": "r2_v24", "technique": "reg-resident-sigma-shr-no-tmp", "block_cycles": 165269, "x": 4.45},
+    {"name": "r2_v25", "technique": "min-addchain-mem-writes", "block_cycles": 159041, "x": 4.62},
+    {"name": "r3_v31", "technique": "recombine-top2+stack-spills", "block_cycles": 140690, "x": 5.23},
+    {"name": "r3_v32", "technique": "state-base-ptr+disp8-addressing", "block_cycles": 135491, "x": 5.43},
+    {"name": "r3_v33", "technique": "bitselect-maj-read-once+early-lo-fold", "block_cycles": 147670, "x": 4.98},
+    {"name": "r3_v34", "technique": "one-load-schedule-sigmas", "block_cycles": 141526, "x": 5.20},
+    {"name": "r3_v35", "technique": "byte-rotate-as-register-rename", "block_cycles": 139222, "x": 5.28},
+    {"name": "r4_v41", "technique": "recombine-all: xchg-rotates+reg-loopctl+unroll-beload+cx-lo-cache", "block_cycles": 129300, "x": 5.69},
+    {"name": "r4_v42", "technique": "cycle-model micro-opt: xchg-byte-rotates+reorder-sigma0+maj-mov-elim+ptr-loops", "block_cycles": 127931, "x": 5.75},
+    {"name": "r4_v43", "technique": "xchg-byte-rotate-in-sigmas", "block_cycles": 131651, "x": 5.59},
+    {"name": "r4_v44", "technique": "shortest-path-branchless-sigma+sigma0-reorder+xchg-byterotate", "block_cycles": 127327, "x": 5.78}
+  ]
+}

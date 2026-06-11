@@ -10,6 +10,18 @@
 hardware_setup_phase:
     call hardware_setup_phase_init_handoff
     call hardware_setup_phase_display
+    ; Build 9 (compaction redesign): stage the keep-alive template into the persistent pool once at boot,
+    ; so the renderer no longer carries it (frees its last bytes for compaction).
+    ; Build 11 #4 COLD-BOOT-FREEZE FIX (2026-06-10): this MUST run BEFORE the network I/O below.
+    ; hardware_setup loads at low_scratch_start, which == ne_tx_frame; the NIC's MAC-PROM read target
+    ; (ne_prom .. low_packet_scratch_end, a 32 B window just under fs_sector_buffer) OVERLAPS this
+    ; phase's tail, where stage_ka_template's CODE and ka_template_source DATA live. At some phase sizes
+    ; the routine's code lands inside ne_prom's window; read_network_address then writes the MAC PROM
+    ; over it, so calling stage_ka_template AFTER read_network_address (the old order) executed code the
+    ; MAC read had just clobbered -> hard cold-boot freeze, no splash. Size-fragile: Build 11 #4's
+    ; chat_effective_cap write (6 B) shifted the tail into range. Staging FIRST runs the routine + reads
+    ; ka_template_source while both are intact; the later MAC read can clobber that dead region harmlessly.
+    call hardware_setup_stage_ka_template
     mov bl, [load_attr]
     mov al, '.'
     phase_call_res show_load_marker
@@ -17,9 +29,6 @@ hardware_setup_phase:
     jc .failed
     call resolve_network_config
     call read_network_address
-    ; Build 9 (compaction redesign): stage the keep-alive template into the persistent pool once,
-    ; here at boot, so the renderer no longer carries it (frees its last bytes for compaction).
-    call hardware_setup_stage_ka_template
     clc
     ret
 .failed:
@@ -57,6 +66,8 @@ hardware_setup_phase_init_handoff:
     sub ax, chat_context_start
     shr ax, 1
     mov [chat_context_len_var], ax
+    mov [chat_effective_cap], ax    ; #4: boot default = full window (the cold greeting skips the
+                                    ; ready path; agent_request resets it per ready request)
     mov bx, ax
     shr ax, 1          ; window/2
     shr bx, 1
@@ -84,6 +95,17 @@ hardware_setup_phase_display:
     ; tool phase's per-turn reset. Clear both here (one word write, count is adjacent) so the
     ; greeting reads pending=0 and takes the normal request path (restore_prompt_from_screen).
     mov word [agent_loop_pending], 0
+    ; Build 11 reorg: compact_next, compacting_msg and chat_context_used moved out of the resident
+    ; nucleus into reconnect_state_* (no longer boot-loaded db/dw 0). The cold greeting's renderer/X
+    ; phase read all three before their first write (their only writers are the ready/chat path), so
+    ; zero them here at boot like agent_loop_pending above. compact_next + compacting_msg are adjacent
+    ; bytes (one word write); chat_context_used follows (the conversation window starts empty).
+    mov word [compact_next], 0
+    mov word [esc_stop], 0          ; Build 11 ESC: esc_stop + the adjacent esc_panic -- tool_phase reads
+                                    ; both at the greeting, before agent_request resets esc_stop
+    mov byte [dpi_reached], 0       ; Build 11 ESC gate: hook stays inert until dpi_phase sets this post-boot
+    mov word [chat_context_used], 0
+    mov word [note_len], 0          ; #4 note-as-memory: no compacted note until the first compaction
     sub ah, seed_len
     shr ah, 1
     mov [seed_col], ah
@@ -722,6 +744,22 @@ hardware_setup_stage_ka_template:
     mov di, ka_template_persistent
     mov cx, ka_request_len
     rep movsb
+    ; Build 11 ESC: stage the int 9 keyboard hook to its pool slot + install the vector, HERE (before the
+    ; network I/O, like the ka template) so the source is copied while intact. Position-independent handler
+    ; (only absolute esc_stop/esc_int9_old refs at seg 0 + relative jumps), so it runs from the pool. It
+    ; chains every non-ESC key to the BIOS, so the prompt's keyboard input is unaffected.
+    mov si, low_scratch_start + (esc_int9_handler_source - PHASE_BASE)
+    mov di, esc_int9_handler
+    mov cx, esc_int9_handler_len
+    rep movsb
+    cli
+    mov ax, [0x0024]
+    mov [esc_int9_old], ax
+    mov ax, [0x0026]
+    mov [esc_int9_old + 2], ax
+    mov word [0x0024], esc_int9_handler
+    mov word [0x0026], 0
+    sti
     pop es
     ret
 ka_template_source:
@@ -731,6 +769,61 @@ ka_template_source:
 ka_template_source_end:
 %if (ka_template_source_end - ka_template_source) != ka_request_len
 %error "ka_request_len (layout.inc) does not match the staged keep-alive template length"
+%endif
+
+; Build 11 ESC: the int 9 keyboard hook handler. Staged to esc_int9_handler (pool) at boot, runs from
+; there. Position-independent: absolute seg-0 refs + relative internal jumps + an absolute far chain/jmp.
+; Peeks the scancode; on the ESC make-code, if Ctrl is held (BIOS kb-flag) it's Ctrl+ESC -> hard escape
+; (longjmp to chat_loop), else it sets esc_stop (graceful stop; emit_char reacts). Chains EVERY other key
+; to the saved BIOS int 9 (typing + the DPI prompt's ESC still work). Reading 0x60 is non-destructive; the
+; chained BIOS handler re-reads it and acks.
+esc_int9_handler_source:
+    push ax
+    push ds
+    xor ax, ax
+    mov ds, ax
+    in al, 0x60
+    cmp al, 0x01
+    jne .esc_hook_chain
+    cmp byte [dpi_reached], 0        ; Build 11 ESC gate: inert until the DPI is live (dpi_phase sets it)
+    je .esc_hook_chain               ; boot / pre-DPI keypress -> just chain to BIOS, never act on ESC
+    test byte [0x0417], 0x04         ; BIOS kb-flag 0040:0017 bit 2 = Ctrl held -> Ctrl+ESC hard escape
+    jnz .esc_panic
+    mov [esc_stop], al               ; plain ESC: graceful stop (al = 1)
+    mov word [chat_effective_cap], 0 ; + stop storing the rest into the window during the drain: no
+                                     ; context-fill / compaction-on-ESC; the drain just decrypt-discards
+.esc_hook_chain:
+    pop ds
+    pop ax
+    jmp far [cs:esc_int9_old]
+.esc_panic:
+    ; Ctrl+ESC hard escape: abandon a hung $x / stuck render and longjmp back to the prompt. esc_panic ->
+    ; tool_phase draws "> panic stopped" + clears esc_stop+esc_panic (never-both). Mark the session dead
+    ; (reconnect next turn). EOI since we never IRET. Reset SP to the boot's ram_top, zero segments, and
+    ; do an ABSOLUTE far jmp to chat_loop (a relative jmp would be wrong from the pool). DS is already 0.
+    mov byte [esc_panic], 1
+    mov byte [tls_key_schedule_ready], 0
+    ; Ack the keyboard ourselves: this path does NOT chain to the BIOS int 9, so pulse PB7 (port 0x61
+    ; bit 7) or the 8255 stays latched on the un-acked ESC scancode and sends no more keys -- typing goes
+    ; dead at the prompt (the bug). The graceful path needs none of this: it chains to the BIOS, which acks.
+    in al, 0x61
+    mov ah, al
+    or al, 0x80
+    out 0x61, al
+    mov al, ah
+    out 0x61, al
+    mov al, 0x20
+    out 0x20, al
+    mov bx, [handoff_addr + handoff_ram_top]
+    xor ax, ax
+    mov es, ax
+    mov ss, ax
+    mov sp, bx
+    sti
+    jmp 0x0000:chat_loop
+esc_int9_handler_source_end:
+%if (esc_int9_handler_source_end - esc_int9_handler_source) != esc_int9_handler_len
+%error "esc_int9_handler_len (layout.inc) != the staged int 9 handler length"
 %endif
 
 %unmacro phase_call_res 1

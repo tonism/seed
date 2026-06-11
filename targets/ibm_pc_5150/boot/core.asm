@@ -163,18 +163,6 @@ core_agent_endpoint_phase_end:
 
 times 512 - (core_agent_endpoint_phase_end - core_agent_endpoint_phase_start) db 0
 
-core_probe_cfg_phase_start:
-%define PHASE_BASE core_probe_cfg_phase_start
-%include "phases/net_probe_cfg.inc"
-%undef PHASE_BASE
-core_probe_cfg_phase_end:
-
-%if (core_probe_cfg_phase_end - core_probe_cfg_phase_start) > (low_scratch_end - low_scratch_start)
-%error "probe config phase exceeds low scratch window"
-%endif
-
-align 512, db 0
-
 core_agents_cfg_phase_start:
 %define PHASE_BASE core_agents_cfg_phase_start
 %include "phases/agents_cfg.inc"
@@ -357,11 +345,6 @@ core_phase_table:
     db 'E', 0
     dw (core_agent_endpoint_phase_start - $$) / 512
     dw (core_agent_endpoint_phase_end - core_agent_endpoint_phase_start + 511) / 512
-    dw low_scratch_start
-    dw 0
-    db 'P', 0
-    dw (core_probe_cfg_phase_start - $$) / 512
-    dw (core_probe_cfg_phase_end - core_probe_cfg_phase_start + 511) / 512
     dw low_scratch_start
     dw 0
     db 'A', 0

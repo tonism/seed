@@ -2,10 +2,10 @@
 
 This directory is working memory for active branch design and experiments.
 
-No active per-build implementation log right now: Build 8 (the Default Prompt
-Interface chat loop) is complete and its working docs are archived in `old/`
-(the build attempt logs and design notes). The Build 8 release
-summary lives in `docs/builds.md`. The next build opens a fresh top-level log.
+Active per-build implementation log: `build11-hardening-attempts.md` (Build 11, release
+hardening; branch `work/draining-fifo`). Builds 8, 9, and 10 have shipped — their attempt logs and
+design notes are archived in `old/`. Per-build release summaries live in `docs/builds.md`. Each new
+build opens a fresh top-level log and archives the prior one to `old/`.
 
 Completed or superseded branch logs and designs live in:
 

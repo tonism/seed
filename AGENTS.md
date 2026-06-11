@@ -160,7 +160,9 @@ tools/run-basic-bootstrap-86box.py --profile vm-net-ne2k8
 ```
 
 Boot modes (16 KiB ROM BASIC sidecar vs 32 KiB direct-from-A:), harness flags,
-validation recipes, and the OCR/cfg/screenshot gotchas live in `docs/testing.md`.
+validation recipes, pcap wire capture (and isolating seed's traffic from the
+SLiRP-NATed host noise), and the OCR/cfg/screenshot gotchas live in
+`docs/testing.md`.
 
 Useful expected screens:
 

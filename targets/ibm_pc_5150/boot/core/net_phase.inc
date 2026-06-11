@@ -1,14 +1,12 @@
 prepare_internet_path:
     call wd_enter_packet_path
     call_core_phase_at core_dhcp_setup_phase_start, core_dhcp_setup_phase_end, net_setup_phase_start
-    jc .done
-    call_core_phase core_probe_cfg_phase_start, core_probe_cfg_phase_end
-    jc .done
-    mov word [tcp_dest_port_word], tcp_port_http_word
-    call run_tcp_connect_phase
-.done:
-    ; Share the identical packet-path-exit epilogue with prepare_agent_endpoint_path.restore
-    ; (pushf; wd_restore_dp8390_base; popf; ret) to reclaim nucleus bytes for the probe glue.
+    ; DHCP is the whole internet bring-up now. The old port-80 connectivity probe + its NET.CFG
+    ; parse (probe_cfg) were removed (Build 11): they were a single-shot, un-retried connect to
+    ; example.com that (a) was the dominant spotty-network boot failure, (b) could FALSE-FAIL when
+    ; the agent host was reachable but the probe host was not, and (c) duplicated the real test --
+    ; the agent connect (port 443) already proves connectivity and is wrapped in the shared 3x
+    ; reconnect retry. DHCP's CF propagates through .restore to network_setup_error.
     jmp prepare_agent_endpoint_path.restore
 
 prepare_agent_path:
@@ -28,8 +26,20 @@ prepare_agent_endpoint_path:
     ; clobber them. chat_resend_prompt_len lives in the resident nucleus (data.inc) so neither a
     ; receive nor load_core_window's link reload touches it; agent_request restores the prompt
     ; from the screen using it on a reconnect rebuild.
+    ; Build 11 never-blank: init the 3x reconnect-retry counter in the SAME word write. reconnect_retries
+    ; sits at chat_resend_prompt_len+1 in the reconnect_state_* block, so al (prompt len) and ah (3
+    ; retries) land together -- the standalone "mov byte [reconnect_retries],3" the full nucleus had no
+    ; room for. Counts attempts for the cold connect AND every reconnect; the endpoint phase reads it.
     mov al, [dpi_input_len_byte]
-    mov [chat_resend_prompt_len], al
+    mov ah, 3
+    mov [chat_resend_prompt_len], ax
+.pass:
+    ; Build 11 #4 real compaction: 2-pass loop target. Pass 1 is the compaction summarize exchange
+    ; (only if agent_request finds the window >= 75% and sets compacting_msg); pass 2 is the real
+    ; turn. agent_request re-decides per pass off chat_context_used, so after the summary shrinks the
+    ; window below 75% the loop naturally falls through to the real turn and exits. The clean
+    ; prompt-len capture above runs ONCE (the compaction receive clobbers dpi_input_len_byte, which
+    ; aliases the RX buffer), and reconnect_retries is intentionally shared across both passes.
     call_core_phase core_agent_request_phase_start, core_agent_request_phase_end
     jc .restore
     load_core_window core_link_window_start, core_link_window_end
@@ -45,26 +55,46 @@ prepare_agent_endpoint_path:
     cmp byte [tls_key_schedule_ready], 1
     jne .connect_new_session
     call .stream_and_exchange
-    jnc .restore
+    jnc .pass_done
+.rebuild_and_connect:
     call_core_phase core_agent_request_phase_start, core_agent_request_phase_end
     jc .restore
 .connect_new_session:
     call_core_phase core_agent_endpoint_phase_start, core_agent_endpoint_phase_end
-    jc .restore
+    jc .retry
     call_core_phase core_tls_client_hello_phase_start, core_tls_client_hello_phase_end
-    jc .restore
+    jc .retry
     call_core_phase core_agent_cache_phase_start, core_agent_cache_phase_end
-    jc .restore
+    jc .retry
     call run_tcp_connect_phase
-    jc .restore
+    jc .retry
     call tls_probe_server
-    jc .restore
+    jc .retry
     ; Do NOT reset tls_app_len here: agent_request (above) already rebuilt the send-state,
     ; and the handshake never touches tls_app_len/total (only the app-data receive does,
     ; tls.inc:916-918). Zeroing it made an inline follow-up (chat_prompt_len_cache=0) send
     ; nothing on reconnect -> the prompt returned with no answer. The cold first request
     ; does not use tls_app_len here, so leaving it set is harmless for cold.
     call .stream_and_exchange
+    jnc .pass_done
+.retry:
+    ; Build 11 never-blank: this connect attempt failed (handshake phase OR the exchange). Silently
+    ; retry the whole rebuild+connect up to 3x. The endpoint phase draws the single dim "> reconnect"
+    ; line on the FIRST reconnect attempt (gated on reconnect_retries==3 + a live prior session) and
+    ; appends " failed" once the counter reaches 0. On exhaustion, re-run the endpoint phase ONCE so
+    ; it renders that "failed" tail, then fall through to .restore (back to DPI). The user's next
+    ; prompt re-inits reconnect_retries=3 (the word write above) and runs the same loop again.
+    dec byte [reconnect_retries]
+    jnz .rebuild_and_connect
+    call_core_phase core_agent_endpoint_phase_start, core_agent_endpoint_phase_end
+    jmp .restore                      ; retries exhausted: "failed" rendered; exit, skipping the loop-back
+.pass_done:                           ; reached ONLY after a successful exchange (both jnc above, CF=0)
+    ; Use TEST not CMP: TEST clears CF, so the normal-turn fall-through to .restore keeps the
+    ; exchange's CF=0 (a success return). CMP byte,1 BORROWS on compacting_msg==0 -> CF=1 -> .restore
+    ; (pushf/popf) returns failure though the exchange succeeded (greeting renders, yet "agent setup
+    ; failed"). ZF=0 (compacting_msg nonzero) means a compaction summarize just finished -> loop.
+    test byte [compacting_msg], 0xff
+    jnz .pass                         ; compaction summarize done -> loop for the real turn
 .restore:
     pushf
     call wd_restore_dp8390_base

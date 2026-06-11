@@ -2,7 +2,7 @@
 %define LOADER_SECTORS 4
 %endif
 
-build_number equ 10
+build_number equ 11
 ; Build 10 (agentic loop): max consecutive auto-continue turns before handing back to the
 ; user, so a model that keeps emitting tool calls cannot loop forever.
 agent_loop_max equ 8
@@ -280,17 +280,24 @@ tcp_offset equ eth_header_len + ipv4_header_len
 tcp_payload_offset equ tcp_offset + 20
 tcp_payload_max_len equ 1460
 tcp_payload_read_len equ tcp_payload_offset + tcp_payload_max_len
-; TLS record receive buffer: tls_rx_copy accumulates one full TLS record here, and the receive
-; fails any record larger than this (tls.inc:261/288) - AEAD decrypts a record as a unit, so the
-; buffer must hold the server's largest record WHOLE. MUST stay MSS-sized (tcp_payload_max_len).
-; A streamed response batches into TLS records far over 640 (measured 2026-06 via openssl/gnutls
-; s_client to the real endpoint: Cloudflare sends records up to ~13 KB to a fast reader; Seed
-; survives at 1460 only because the 4.77 MHz drain flow-controls the server down to <=~1460).
-; Shrinking to 640 passed the greeting matrix but FAILED a long essay (a record > 635 -> receive
-; fail -> no response). A client record-size cap does NOT help: Cloudflare honors neither
-; max_fragment_length (RFC 6066) nor record_size_limit (RFC 8449) on TLS 1.2 - its ServerHello
-; echoes neither, so neither is negotiated. 1460 is the floor unless/until Seed speaks TLS 1.3.
-tls_payload_buffer_len equ tcp_payload_max_len
+; Build 11 RX-buffer shrink: Seed advertises this MSS in its SYN (a 4-byte TCP option) so the
+; server caps every segment it sends us at this size. Post-FIFO-collapse the receive streams
+; per-segment (tls_rx_copy holds ONE segment, not a whole record - see tls.inc:911), so a small
+; advertised MSS lets tls_rx_copy shrink to match, freeing the critical scratch for the chat pool
+; and the never-blank reconnect loop. 592 keeps the buffer above its other floors (the DNS qname at
+; tls_rx_copy+512 and the ClientHello). TCP MSS is a transport option Cloudflare always honors
+; (unlike the TLS-layer max_fragment_length/record_size_limit it ignores on TLS 1.2).
+tcp_syn_mss equ 592
+; TLS record receive buffer. Post the Build 11 draining-FIFO collapse the receive STREAMS per
+; segment (tls.inc:911 "removed the LAST whole-record receive path"): tls_rx_copy holds ONE TCP
+; segment, never a whole record, so there is no record-size ceiling - a multi-KB TLS record arrives
+; as many <=MSS segments, each decrypted + drained + incrementally MAC'd in turn. The buffer only
+; needs to hold one segment, and Seed advertises tcp_syn_mss in its SYN to cap the server's segment
+; size to match. 592 is also the floor for tls_rx_copy's other uses: the DNS qname lives at +512, so
+; 512 + dns_qname_max_len(80) = 592 (asserted in data.inc via dns_qname), and the ClientHello + DPI
+; input both fit. (Pre-collapse this buffer DID hold a whole record and 1460 was the hard floor -
+; shrinking to 640 then failed a long essay; the collapse is what made this shrink safe.)
+tls_payload_buffer_len equ tcp_syn_mss
 tls_pre_response_tail_len equ tls_app_record_buffer_len + (16 * 2) + (16 * 2) + tls_random_len + tls_master_secret_len + sha256_digest_len
 tls_stream_buffer_len equ tls_payload_buffer_len + tls_pre_response_tail_len
 critical_scratch_start equ 0x34c2
@@ -301,6 +308,11 @@ tcp_port_https_word equ 0xbb01
 tcp_wait_count equ 4
 tcp_wait_count_3c501 equ 128
 tcp_payload_wait_count equ 8192
+; Build 11 slice 2 (SYN retransmit): how many times the connect (re)sends the SYN, waiting
+; tcp_wait_count for a SYN-ACK each time, before giving up. A lost SYN or SYN-ACK is then a fast
+; in-place resend (the server dedups the duplicate SYN) instead of failing the whole connect. 3
+; attempts make the connect robust to a single dropped SYN/SYN-ACK on spotty links.
+tcp_syn_retry_count equ 3
 ; Keep-alive: during a long (~11min) render the connection would otherwise idle past
 ; Cloudflare's measured ~400s HTTP-idle timeout and be closed, forcing the next prompt to
 ; reconnect (a handshake that races the ~15s window). Ping the server with a lightweight
@@ -310,6 +322,9 @@ tcp_payload_wait_count equ 8192
 ; measured: a partial/CRLF ping does NOT reset the idle and can trigger an early close).
 ka_interval_ticks equ 5461
 ka_request_len equ 42
+; Build 11 ESC: byte length of the int 9 keyboard hook handler staged into the persistent pool at boot
+; (hardware_setup, mirroring the keep-alive template). Asserted against the source there.
+esc_int9_handler_len equ 86
 tls_client_base_len equ 88
 tls_body_base_len equ 79
 tls_record_base_len equ 83
