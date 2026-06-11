@@ -14,10 +14,14 @@ BASIC_BOOTSTRAP_16K_STACK_GUARD := 0x0100   # Build 9: mirror of basic_sidecar_s
 BASIC_BOOTSTRAP_MAX_ADDR := $(BASIC_BOOTSTRAP_RAM_TOP)
 BASIC_BOOTSTRAP_A_DRIVE := 0
 BASIC_BOOTSTRAP_B_DRIVE := 1
-HIGH_CRYPTO_SCRATCH_START := 0x3400
-HIGH_CRYPTO_SCRATCH_LEN := 194
-CRITICAL_SCRATCH_START := 0x34c2
-CRITICAL_SCRATCH_LEN := 2097
+# Build 12 (O7, single source of truth): derive the inspect/budget ranges from
+# layout.inc via check-layout.py rather than hand-syncing them here. The old
+# hardcoded CRITICAL_SCRATCH_LEN (2097) had silently drifted from the real value
+# (1229) after the Build 11 RX-buffer shrink — the inspect budget view was wrong.
+HIGH_CRYPTO_SCRATCH_START := $(shell python3 tools/check-layout.py --emit high_crypto_scratch_start)
+HIGH_CRYPTO_SCRATCH_LEN := $(shell python3 tools/check-layout.py --emit high_crypto_scratch_len)
+CRITICAL_SCRATCH_START := $(shell python3 tools/check-layout.py --emit critical_scratch_start)
+CRITICAL_SCRATCH_LEN := $(shell python3 tools/check-layout.py --emit critical_scratch_len)
 
 BOOT_SRC := targets/$(TARGET)/boot/boot.asm
 LOADER_SRC := targets/$(TARGET)/boot/loader.asm

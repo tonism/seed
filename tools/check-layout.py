@@ -81,18 +81,20 @@ def read_core(path: Path) -> dict:
     resident_sectors = u16(RESIDENT_SECTORS_OFF)
     table_off = u16(PHASE_TABLE_OFF_OFF)
     count = u16(PHASE_COUNT_OFF)
-    k_load = k_sectors = None
+    phases = []
     for i in range(count):
         e = table_off + i * PHASE_ENTRY
         pid = data[e : e + 2].decode("ascii", "replace").rstrip("\x00")
-        if pid == "K":
-            k_sectors = u16(e + 4)
-            k_load = u16(e + 6)
+        sectors = u16(e + 4)
+        load = u16(e + 6)
+        phases.append({"id": pid, "load": load, "sectors": sectors, "end": load + sectors * SECTOR})
+    k = next((p for p in phases if p["id"] == "K"), None)
     return {
         "resident_sectors": resident_sectors,
         "resident_bytes": resident_sectors * SECTOR,
-        "k_load": k_load,
-        "k_sectors": k_sectors,
+        "k_load": k["load"] if k else None,
+        "k_sectors": k["sectors"] if k else None,
+        "phases": phases,
         "total_bytes": len(data),
     }
 
@@ -128,7 +130,7 @@ def build_bands(c: dict[str, int], core: dict) -> list[dict]:
         ("low scratch window (phases + pkt/fs overlay)", c["low_scratch_start"], c["low_scratch_end"], "per-turn", "phase loader"),
         ("resident nucleus", c["core_load_addr"], nucleus_end, "resident", "nucleus"),
         ("K crypto window", k_start, k_end, "resident", "crypto code"),
-        ("high crypto scratch (session keys)", c["high_crypto_scratch_start"], c["high_crypto_scratch_end"], "reconnect", "tls keys"),
+        ("high crypto scratch (session keys)", c["high_crypto_scratch_start"], c["high_crypto_scratch_end"], "handshake", "tls keys (re-derived on reconnect)"),
         ("critical scratch (RX stream + AEAD)", c["critical_scratch_start"], c["critical_scratch_end"], "per-turn", "tls record"),
         ("tls app + chat-config caches", c["critical_scratch_end"], c["reconnect_state_start"], "session", "tls app state"),
         ("reconnect-safe state", c["reconnect_state_start"], c["reconnect_state_end"], "reconnect", "reconnect state"),
@@ -179,16 +181,41 @@ def run(core_path: Path, layout: Path, data: Path) -> int:
     missing = [s for pair in ALIASES for s in pair[:2] if s not in c]
     bands = build_bands(c, core)
 
+    # The reconnect-safe line (target architecture): above it the conversation
+    # context + arena + the state needed to rebuild a request must survive a
+    # mid-session reconnect handshake; below it everything is clobbered/rebuilt by
+    # that handshake. Today the line sits at critical_scratch_end, but the band
+    # just above it still interleaves per-turn tls_app_* with reconnect-survivor
+    # caches — the physical separation is the deferred reorg. Shown as a divider.
+    line = c["critical_scratch_end"]
     print("Seed memory layout — bands (16 KiB ceiling; arena scales with ram_top)\n")
     print(f"  {'range':<15} {'size':>6}  {'lifetime':<11} owner / region")
+    drawn = False
     for b in sorted(bands, key=lambda x: x["start"]):
+        if not drawn and b["start"] >= line:
+            print(f"  {'─' * 13} reconnect-safe line @ {line:#06x} {'─' * 8}")
+            drawn = True
         size = b["end"] - b["start"]
         print(
             f"  {b['start']:#06x}..{b['end']:#06x} {size:>6}  "
             f"{b['lifetime']:<11} {b['owner']} — {b['name']}"
         )
 
+    # Phase footprints: each demand-loaded phase below the nucleus must not run
+    # into the resident nucleus at core_load_addr (the "phase rounded up a sector
+    # and clobbered the nucleus" class). The K window is exempt (loads above it).
+    print("\nPhase load footprints (demand-loaded; must end <= nucleus):")
     errors: list[str] = []
+    for p in sorted(core["phases"], key=lambda x: (x["load"], x["id"])):
+        below = p["load"] < c["core_load_addr"]
+        flag = ""
+        if below and p["end"] > c["core_load_addr"]:
+            flag = "  << OVERRUNS NUCLEUS"
+            errors.append(
+                f"phase {p['id']} {p['load']:#06x}+{p['sectors']}s ends {p['end']:#06x} "
+                f"> nucleus {c['core_load_addr']:#06x}"
+            )
+        print(f"  {p['id']:<2} {p['load']:#06x}..{p['end']:#06x} ({p['sectors']}s){flag}")
 
     # 1. Bands must not collide (the address map is a partition, not an overlay).
     ordered = sorted(bands, key=lambda x: x["start"])
@@ -248,12 +275,31 @@ def run(core_path: Path, layout: Path, data: Path) -> int:
     return 0
 
 
+# Layout values other tooling needs (the inspect/budget ranges). Derived from
+# layout.inc so they cannot drift — replaces the Makefile's hand-synced copies.
+EMIT = {
+    "high_crypto_scratch_start": lambda c: c["high_crypto_scratch_start"],
+    "high_crypto_scratch_len": lambda c: c["high_crypto_scratch_end"] - c["high_crypto_scratch_start"],
+    "critical_scratch_start": lambda c: c["critical_scratch_start"],
+    "critical_scratch_len": lambda c: c["critical_scratch_len"],
+}
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("core_sys", type=Path, help="assembled CORE.SYS (for nucleus + K-window extents)")
+    ap.add_argument("core_sys", type=Path, nargs="?", help="assembled CORE.SYS (for nucleus + K-window extents)")
     ap.add_argument("--layout", type=Path, default=DEFAULT_LAYOUT)
     ap.add_argument("--data", type=Path, default=DEFAULT_DATA)
+    ap.add_argument("--emit", choices=sorted(EMIT), help="print one layout value (from layout.inc) and exit")
     args = ap.parse_args()
+    if args.emit:
+        c = parse_equates([args.layout, args.data])
+        value = EMIT[args.emit](c)
+        # starts as hex (addresses), lengths as decimal — matches inspect-range style.
+        print(f"{value:#06x}" if args.emit.endswith("_start") else value)
+        return 0
+    if args.core_sys is None:
+        ap.error("core_sys is required unless --emit is given")
     return run(args.core_sys, args.layout, args.data)
 
 
