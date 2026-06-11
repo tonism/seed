@@ -165,38 +165,50 @@ but on the 8088 the n² word-`mul`s dominate.)
 ECDHE 110.8 s + cheapest auth ~45 s + PRF ~5 s, all serial ≈ **~160 s ≈ 2.7 min**,
 **~11× over** Cloudflare's ~15 s patience.
 
-### Would adding an 8087 FPU unlock real secure crypto? — NO (measured)
-If the user plugs an 8087 into the empty socket, does real crypto become feasible?
-Measured the decisive primitive on 86Box (8087 enabled, `fpu_bench.asm`): a
-`32×32→64` multiply, 8088 (four 16×16 `MUL`s + carry) vs 8087 (`FILD/FMUL/FISTP`
-— the 64-bit product is exact in the 80-bit mantissa). Both give the identical
-correct product (ck `ACE6`): **8088 1074 cyc/op, 8087 585 cyc/op = 1.84× faster.**
+### Would offloading to an 8087 FPU unlock real secure crypto? — NO (measured + bounded)
+Question (the right framing): offload to the 8087 whatever gives the *fastest
+end-to-end* crypto — does real crypto then fit a usable handshake? Two cases:
 
-That 1.84× does NOT carry to the crypto:
-1. **Reduction is FPU-immune.** A P-256 field multiply is ~67% schoolbook multiply
-   + ~33% modular reduction (add/sub/shift). Even if the multiply went to *zero*,
-   the reduction alone floors one ECDHE scalar mult at **~36 s** (> the 15 s window).
-2. **Signed-load penalty.** `FILD` loads *signed* integers; unsigned limbs with the
-   top bit set are mishandled (verified — wrong product until inputs were kept
-   ≤31-bit). Correct unsigned use needs ≤31-bit limbs (~9×9 vs 8×8 limb-muls),
-   eroding 1.84× to ~1.45× on the multiply, ~1.3× on the field multiply.
-3. **SHA-256 gets nothing** — add/rotate/xor, zero multiplies. The symmetric
-   always-runs cost is unchanged.
+**Measured anchor** — the decisive primitive on 86Box (8087 enabled, `fpu_bench.asm`):
+a `32×32→64` multiply, 8088 (four 16×16 `MUL`s + carry) vs 8087 (`FILD/FMUL/FISTP`,
+exact in the 80-bit mantissa). Identical correct product (ck `ACE6`):
+**8088 1074 cyc/op, 8087 585 cyc/op = 1.84× faster.** (`FILD` is *signed* — verified:
+unsigned limbs with the top bit set come out wrong until kept ≤31-bit.)
 
-| metric | 8088 | 8087 (projected) | vs 15 s window |
-|---|---|---|---|
-| one ECDHE scalar mult | 110.8 s | ~76–85 s (ceiling 60 s; floor 36 s) | ✗ ~5× over |
-| RSA-2048 cert verify | ~43 s | ~30 s | ✗ |
-| ECDSA-P256 cert verify | ~220 s | ~155 s | ✗ |
-| full real-security handshake | ~160 s | ~115 s | ✗ ~8× over |
-| SHA-256 / PRF (always-runs) | 156 ms / 4.92 s | identical (no mul) | — |
+- **Naive drop-in** (FP multiply, integer reduction): ~1.3–1.45× on the field
+  multiply (reduction stays integer; per-multiply `FILD`/`FISTP` overhead).
+- **Optimal holistic offload** (the user's framing — keep the *entire* field
+  arithmetic in a floating-point-limb representation: multiply, add/sub, and the
+  modular reduction all as `FMUL`/`FADD` with carries deferred to a final pass,
+  converting to/from integer only at the point-arithmetic boundaries; overlap 8088
+  integer bookkeeping with 8087 multiplies): plausibly **~2–3.5×**.
 
-**Verdict: an 8087 does not unlock secure crypto.** It's a ~1.3–1.45× constant
-factor on the asymmetric multiply alone — never crosses the window (reduction
-floors ECDHE at ~36 s), nothing for the symmetric cost. Wrong instrument: the wall
-is 256-bit *modular integer* arithmetic, not float throughput. **No FPU crypto path
-is worth building**; keep FPU as a future-additive capability dimension for possible
-non-crypto uses only.
+Even the optimal case is hard-floored by the **`FMUL` count**, not by overhead we
+could engineer away. One 256-bit scalar mult needs ~3,700 field multiplies; each is
+~121 limb-`FMUL`s (11 limbs of ≤24 bits, schoolbook, bounded by exact accumulation)
+⇒ **~450,000 `FMUL`s**. At the 8087's ~130-clock `FMUL` (4.77 MHz) that is **~12 s of
+`FMUL` alone** — before a single `FADD`, conversion, reduction step, point
+double/add, or scalar-loop iteration. Realistic all-in: **~35–50 s** per scalar mult.
+
+| metric | 8088 | 8087 naive | 8087 optimal | vs 15 s window |
+|---|---|---|---|---|
+| field multiply | 137.6 K cyc | ~1.3× | ~2–3.5× | — |
+| one ECDHE scalar mult | 110.8 s | ~85 s | **~35–50 s** (FMUL-only floor ~12 s) | ✗ still 2–3× over |
+| ECDSA-P256 cert verify | ~220 s | ~155 s | ~70–100 s | ✗ |
+| RSA-2048 cert verify | ~43 s | ~30 s | ~15–20 s | ✗/borderline |
+| full real-security handshake | ~160 s | ~115 s | **~55–75 s** | ✗ ~4× over |
+| SHA-256 / PRF (always-runs) | 156 ms / 4.92 s | identical | identical | — no `FMUL`s to offload |
+
+**Verdict: even optimal 8087 offload does not unlock secure crypto.** Best case it
+~halves-to-thirds the asymmetric time (ECDHE 110.8 s → ~35–50 s), but the `FMUL`-count
+floor keeps one scalar mult well over the ~15 s window, cert-auth adds tens of seconds
+more, and the always-runs symmetric cost (SHA/PRF) has **no multiplies to offload** so
+it does not move at all. The wall is 256-bit *modular-integer* work at 4.77 MHz; a
+~130-clock float multiply is not enough leverage. **No FPU crypto path is worth
+building.** Keep FPU as a future-additive capability dimension for possible non-crypto
+uses only. (The optimal ~2–3.5× is a bounded projection from the measured primitive +
+the FMUL count; implementing a full FP-limb field mul would confirm it but cannot beat
+the ~12 s FMUL-only floor — the decision holds without it.)
 
 ---
 
