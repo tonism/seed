@@ -131,10 +131,11 @@ def build_bands(c: dict[str, int], core: dict) -> list[dict]:
         ("resident nucleus", c["core_load_addr"], nucleus_end, "resident", "nucleus"),
         ("K crypto window", k_start, k_end, "resident", "crypto code"),
         ("high crypto scratch (session keys)", c["high_crypto_scratch_start"], c["high_crypto_scratch_end"], "handshake", "tls keys (re-derived on reconnect)"),
-        ("critical scratch (RX stream + AEAD)", c["critical_scratch_start"], c["critical_scratch_end"], "per-turn", "tls record"),
-        ("tls app + chat-config caches", c["critical_scratch_end"], c["reconnect_state_start"], "session", "tls app state"),
-        ("reconnect-safe state", c["reconnect_state_start"], c["reconnect_state_end"], "reconnect", "reconnect state"),
-        ("keep-alive + ESC + stream state", c["ka_template_persistent"], c["chat_context_start"], "session", "keepalive/esc"),
+        ("critical scratch (RX stream + AEAD)", c["critical_scratch_start"], c["critical_scratch_end"], "per-turn", "tls record + handshake scratch"),
+        ("per-turn TLS app framing (tls_app_*)", c["critical_scratch_end"], c["chat_model_cache"], "per-turn", "tls_app_* record framing"),
+        ("chat config caches (reconnect rebuild)", c["chat_model_cache"], c["reconnect_state_start"], "reconnect", "model + key cache"),
+        ("reconnect-safe state", c["reconnect_state_start"], c["reconnect_state_end"], "reconnect", "reconnect/compaction/esc state"),
+        ("keep-alive + ESC handler", c["ka_template_persistent"], c["chat_context_start"], "reconnect", "keepalive + ESC (survive reconnect)"),
         ("conversation window", c["chat_context_start"], c["chat_context_end"], "persistent", "context"),
         ("user/agent arena -> ram_top", c["chat_arena_start"], g16, "persistent", "arena"),
         ("16K stack guard / stack", g16, c["basic_sidecar_stack_top_16k"], "reserved", "stack"),
@@ -181,13 +182,15 @@ def run(core_path: Path, layout: Path, data: Path) -> int:
     missing = [s for pair in ALIASES for s in pair[:2] if s not in c]
     bands = build_bands(c, core)
 
-    # The reconnect-safe line (target architecture): above it the conversation
-    # context + arena + the state needed to rebuild a request must survive a
-    # mid-session reconnect handshake; below it everything is clobbered/rebuilt by
-    # that handshake. Today the line sits at critical_scratch_end, but the band
-    # just above it still interleaves per-turn tls_app_* with reconnect-survivor
-    # caches — the physical separation is the deferred reorg. Shown as a divider.
-    line = c["critical_scratch_end"]
+    # The reconnect-safe line: above it, everything must survive a mid-session
+    # reconnect handshake (the conversation context + arena + the caches/state
+    # needed to rebuild a request); below it, everything is clobbered or rebuilt by
+    # that handshake (the keys are re-derived, the RX/AEAD scratch reused, the
+    # per-turn tls_app_* framing rebuilt). The boundary is chat_model_cache: the
+    # per-turn tls_app_* block sits just below it, the reconnect-survivor pool
+    # (caches -> reconnect state -> keepalive/ESC -> window -> arena) contiguous
+    # above. Enforced below.
+    line = c["chat_model_cache"]
     print("Seed memory layout — bands (16 KiB ceiling; arena scales with ram_top)\n")
     print(f"  {'range':<15} {'size':>6}  {'lifetime':<11} owner / region")
     drawn = False
@@ -224,6 +227,27 @@ def run(core_path: Path, layout: Path, data: Path) -> int:
             errors.append(
                 f"band overlap: {a['name']} ({a['start']:#06x}..{a['end']:#06x}) "
                 f"vs {b['name']} ({b['start']:#06x}..{b['end']:#06x})"
+            )
+
+    # 1b. The reconnect-safe-line invariant (the lifetime-band model, enforced):
+    #   - the survivor pool ABOVE the line is one CONTIGUOUS block (the arena does
+    #     not fragment; nothing per-turn wedges between survivors), and
+    #   - no survivor (reconnect/persistent lifetime) is stranded BELOW the line.
+    # Two transients (tls_retransmit_seq, chat_effective_cap) live inside the
+    # reconnect_state band for headroom — accepted: they are sub-fields rewritten
+    # before each use, and 16K has no room below the line to rehome them.
+    survivors = [b for b in ordered if b["start"] >= line and b["lifetime"] != "reserved"]
+    for a, b in zip(survivors, survivors[1:]):
+        if b["start"] != a["end"]:
+            errors.append(
+                f"reconnect-safe pool not contiguous: {a['name']} ends {a['end']:#06x} "
+                f"but {b['name']} starts {b['start']:#06x}"
+            )
+    for b in ordered:
+        if b["start"] < line and b["lifetime"] in ("reconnect", "persistent"):
+            errors.append(
+                f"survivor band below the reconnect-safe line {line:#06x}: "
+                f"{b['name']} ({b['lifetime']})"
             )
 
     # 2. Structural invariants (mirror the nasm %error guards, in one readable place).

@@ -175,10 +175,16 @@ Current `core/` mixes lifetimes in one crypto group. Conservative, increment-ali
 The parity pass established the structure + seams. The heavy, binary-changing work
 is teed up but intentionally NOT done here:
 
-- **Physical band reorg** — separate per-turn `tls_app_*` from reconnect-survivor
-  caches above `critical_scratch_end`; carve the handshake-only ⟷ per-turn overlay
-  zone as distinct regions. Then `check-layout.py` can *enforce* the reconnect-safe
-  line + arena contiguity (the hooks are already in the checker).
+- **Physical band reorg — DONE (checker-only, binary-identical).** Turned out the
+  layout already physically realizes the lifetime-band model (Builds 9–11 evolved
+  it: per-turn `tls_app_*` sits *below* the reconnect-survivor caches, survivors
+  contiguous, context+arena on top). So the reorg was: draw the reconnect-safe line
+  at the true survivor boundary (`chat_model_cache` / `0x3b9c`, not
+  `critical_scratch_end`), and make `check-layout.py` *enforce* it — survivor-pool
+  contiguity + "no survivor below the line". `CORE.SYS` byte-identical. The two
+  transients parked in the survivor block (`tls_retransmit_seq`, `chat_effective_cap`)
+  are declared accepted-exceptions — 16K has no room below the line to rehome them
+  and they're rewritten before each use.
 - **Land the fast SHA/PRF crypto** (r4_v42, 4.64×) — the forcing function. One
   impl, slow deleted. **Crypto port is fully DE-RISKED** (see grind log
   2026-06-11): r4_v42 is bit-exact (offline gate green) and an interface-safe
