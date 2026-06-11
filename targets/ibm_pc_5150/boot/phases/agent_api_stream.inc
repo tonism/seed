@@ -541,7 +541,16 @@ api_ledger_len equ api_ledger_labels_len + (4 + 4 * 15 + 3 + 4 + 3 + 12 + 4)
 agent_api_stream_append_ledger:
     mov si, PHASE_LOAD_ADDR + (api_ledger_ram_text - PHASE_BASE)
     call agent_api_stream_append_z_to_buffer
+    ; Build 12 (32K floppy-free loop): advertise the ARENA CEILING as ram=, not raw ram_top. On a 32K
+    ; direct boot the chat-loop preload cache sits between the arena and the stack, so the free arena
+    ; tops out at loop_cache_start; reporting ram_top (0x8000) would invite the agent to $w into the
+    ; cache and corrupt a preloaded phase. The field already means "arena spans a@ .. ram - reserve",
+    ; so the ceiling is the honest value here. (16K: ram_top is the true ceiling.)
     mov ax, [handoff_addr + handoff_ram_top]
+    cmp ax, ram_tier_32k_min
+    jb .ledger_ram_ready
+    mov ax, loop_cache_start
+.ledger_ram_ready:
     call agent_api_stream_ledger_hex16
     mov si, PHASE_LOAD_ADDR + (api_ledger_ip_text - PHASE_BASE)
     call agent_api_stream_append_z_to_buffer

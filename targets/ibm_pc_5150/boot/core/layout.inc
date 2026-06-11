@@ -26,6 +26,21 @@ nic_driver_slot equ 0x1600
 nic_driver_slot_len equ 0x200
 nic_driver_slot_end equ nic_driver_slot + nic_driver_slot_len
 nic_vt_slot_count equ 5
+; Build 12 (32K floppy-free chat loop): on a 32K DIRECT boot the chat-loop working set (the dpi,
+; agent_request, K crypto window, agent_api_stream, agent_response and tool phases) is preloaded into
+; a high RAM cache at boot, so the loop runs with NO mid-conversation floppy reads. The cache sits
+; ABOVE the conversation window/arena and BELOW the runtime stack guard, and exists ONLY on 32K (on
+; 16K ram_top=0x4000 is below loop_cache_start, so the region is absent and the preload is skipped).
+; ram_tier_32k_min gates it (ram_top >= this => 32K direct boot). loop_cache_max_sectors caps the
+; working set (Y/R/K/X/T/M = 25 sectors today); hardware_setup tops the 32K arena out at
+; loop_cache_start, and the ledger advertises that as the ceiling so the agent never $w's the cache.
+ram_tier_32k_min equ 0x6000
+loop_cache_max_sectors equ 26
+loop_cache_len equ loop_cache_max_sectors * 512
+loop_cache_end equ runtime_stack_top - runtime_stack_guard_len
+loop_cache_start equ loop_cache_end - loop_cache_len
+; (loop_cache_start must stay above the 16K ceiling so the region is 32K-only — asserted in core.asm,
+; where every equate is defined; %if here would precede basic_sidecar_stack_top_16k's definition.)
 net_setup_frame_scratch_len equ 512
 net_setup_phase_start equ low_scratch_start + net_setup_frame_scratch_len
 agent_response_phase_load_addr equ low_scratch_start + 0x0600

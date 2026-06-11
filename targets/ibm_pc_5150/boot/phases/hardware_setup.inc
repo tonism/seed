@@ -64,6 +64,13 @@ hardware_setup_phase_init_handoff:
     ; tops out near 32K until RAM detection lands (see HANDOFF.md context-management knobs).
     mov ax, [handoff_addr + handoff_ram_top]
     sub ax, 0x100
+    ; Build 12 (32K floppy-free loop): on a 32K direct boot the chat-loop preload cache + the stack sit
+    ; above loop_cache_start, so the conversation window/arena must top out THERE, not at ram_top, or
+    ; chatting would overwrite the cached phases. (16K keeps ram_top - stack reserve.)
+    cmp word [handoff_addr + handoff_ram_top], ram_tier_32k_min
+    jb .pool_ceiling_ready
+    mov ax, loop_cache_start
+.pool_ceiling_ready:
     sub ax, chat_context_start
     shr ax, 1
     mov [chat_context_len_var], ax

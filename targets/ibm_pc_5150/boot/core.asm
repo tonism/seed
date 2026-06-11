@@ -67,6 +67,16 @@ core_resident_end:
 %error "critical scratch overlaps 24KB BASIC stack guard"
 %endif
 
+; Build 12 (32K floppy-free loop): the chat-loop preload cache is a 32K-only high region. It must sit
+; ABOVE the 16K ceiling (so it is absent on a 16K machine and the preload is correctly skipped) and
+; BELOW the runtime stack guard (so a 32K boot's stack never collides with it).
+%if loop_cache_start <= basic_sidecar_stack_top_16k
+%error "32K loop cache base dipped to/below the 16K ceiling — it would collide with the 16K arena"
+%endif
+%if loop_cache_end > (runtime_stack_top - runtime_stack_guard_len)
+%error "32K loop cache overruns the runtime stack guard"
+%endif
+
 %if (core_resident_end - $$) > (runtime_stack_top - runtime_stack_guard_len - core_load_addr)
 %error "CORE.SYS exceeds 32KB runtime stack guard"
 %endif

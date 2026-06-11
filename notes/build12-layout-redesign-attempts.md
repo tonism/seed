@@ -167,11 +167,47 @@ a larger future driver (or Wi-Fi, which also wants scan/SSID UI phases + WPA cry
 the handshake-only band) may need a 2-sector slot, which on 16K would cost arena (the
 sizing seam the architecture flagged).
 
-## Remaining (deferred to fresh-context sessions)
+## 2026-06-12 — 32K floppy-free chat loop — IN PROGRESS
 
-- **32K floppy-free chat loop** — preload the loop's phases + IDENTITY/COMPACT
-  prompts at boot on 32 KiB; demand-load stays the 16 KiB path. The dispatch-vector
-  seam + the band model are ready.
+User: do the full preload incl. K; bigger floppy-free win over a bigger arena.
+
+Per-turn floppy reads today (BOTH tiers identically — no tier branch exists; ram_top
+only sizes the window): dpi/Y(1) + agent_request/R(3) + **K window(15)** +
+agent_api_stream/X(3) + agent_response/T(1) + tool/M(2) = ~25 sectors. K dominates;
+it reloads every turn because the `$x` tool phase can run arbitrary code into the K
+window (0x1800). All reads funnel through ONE routine, `load_core_sectors_at` (every
+`call_core_phase` / `load_core_window` / phase-internal load).
+
+**Design (one seam).** Intercept `load_core_sectors_at`: scan a small table; on a hit,
+`rep movsw` from a high RAM cache; else read the floppy. At boot on 32K, a preload step
+reads the working-set phases into the cache (reusing `load_core_sectors_at` with the
+table count = 0, so it floppy-fills) and sets the count; on 16K the preload never runs,
+the table stays empty, and every load hits the floppy (unchanged). No per-call-site
+changes. Tier gate = `ram_top >= ram_tier_32k_min (0x6000)`.
+
+**Layout.** Cache = `loop_cache_start (0x4600) .. loop_cache_end (0x7a00 = stack-guard
+floor)`, 26-sector cap (working set is 25). It sits ABOVE the conversation window/arena
+and BELOW the runtime stack guard, and is 32K-only (on 16K ram_top=0x4000 < 0x4600, so
+the region doesn't exist and the preload is skipped). hardware_setup caps the
+window/arena ceiling at `loop_cache_start` on 32K (instead of ram_top). 32K arena
+becomes ~2.2 KB (~5x the 16K arena) — the cost of preloading the full set incl. K.
+
+**The one subtle trap — the ledger arena ceiling.** The ledger advertises
+`ram=<ram_top>` and tells the model the arena spans `a@ .. (ram − stack reserve)`. The
+cache sits INSIDE that range, so the model would treat it as free and could `$w` into
+it, corrupting a preloaded phase → crash on the next load. Fix: on 32K advertise the
+CAPPED ceiling (`loop_cache_start`) as `ram=` so the model never reaches the cache. A
+32K smoke test (boot + chat) does NOT exercise this (a normal turn doesn't `$w`), so it
+must be handled by design, not caught by validation.
+
+**Increments (matrix-green each; never commit broken):** (1) mechanism + small phases
+(Y/R/X/T/M) + window-sizing + ledger-ceiling; validate 16K matrix (no regression, the
+code is 32K-gated) + a 32K direct-boot smoke (`--entry direct --ram-kib 32`). (2) add K
+to the preload (cache already sized for it). (3) IDENTITY/COMPACT preload + docs + a 32K
+matrix profile. Validation note: the 16K matrix only proves no-regression (the path is
+32K-only); the 32K direct-boot run is the real gate.
+
+## Remaining (deferred to fresh-context sessions)
 - **286 secure tier** — the orthogonal CPU-class capability; carries the 286@8+
   secure objective + the "full-286 needs a further crypto-opt pass" gate.
 - **Capability-vector field allocation** — when the first consumer (286 / Wi-Fi)

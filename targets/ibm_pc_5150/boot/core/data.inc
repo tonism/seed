@@ -16,6 +16,16 @@ nic_vt_restore     dw 0
 nic_vt_transmit    dw 0
 nic_vt_receive     dw 0
 nic_vt_rx_fallback dw 0
+; Build 12 (32K floppy-free chat loop): the preload-cache lookup table + count. On a 32K direct boot,
+; preload_loop_cache copies each chat-loop working-set phase into the high cache (loop_cache_start..)
+; and records {load-request key (sectors<<8|sector-offset), cache address} here; load_core_sectors_at
+; scans [0..loop_cache_count) and, on a key match, rep-movsw's from RAM instead of reading the floppy.
+; count = 0 on 16K (the preload is skipped, the cache region doesn't exist) AND during the preload
+; itself (so load_core_sectors_at floppy-fills the cache), then it is set to the entry count. Resident
+; (consulted on every phase load). loop_cache_max_entries = the working set (Y/R/K/X/T/M = 6).
+loop_cache_max_entries equ 6
+loop_cache_count dw 0
+loop_cache_table times (loop_cache_max_entries * 2) dw 0
 ; Build 11 never-blank reorg: the resident nucleus was full (2048/2048). Seven reconnect-safe vars
 ; that used to live here as nucleus db/dw -- chat_resend_prompt_len, chat_context_used, compact_next,
 ; compacting_msg, chat_compact_threshold, chat_context_len_var, scroll_br -- were relocated OUT of the

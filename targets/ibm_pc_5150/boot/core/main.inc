@@ -43,6 +43,11 @@ hal_start:
     call_core_phase core_packet_io_init_phase_start, core_packet_io_init_phase_end
     jc network_setup_error
 
+    ; Build 12: on a 32K direct boot, preload the chat-loop working set into the high cache so the
+    ; loop runs floppy-free (no-op on 16K). Done here, at boot, before the network bring-up — the
+    ; floppy is free, and the cache region above the (not-yet-populated) arena is available.
+    call preload_loop_cache
+
     call prepare_internet_path
     jc network_setup_error
 
@@ -94,6 +99,43 @@ run_core_phase_at:
     ret
 
 load_core_sectors_at:
+    ; Build 12 (32K floppy-free chat loop): if this phase was preloaded into the high RAM cache
+    ; (loop_cache_count > 0 and the load-request key in ax matches a loop_cache_table entry), copy it
+    ; from RAM instead of reading the floppy. On 16K loop_cache_count is 0 (the preload is skipped and
+    ; the cache region does not exist), so this is bypassed and every load hits the floppy as before.
+    cmp word [loop_cache_count], 0
+    je .floppy
+    push ax
+    push cx
+    push si
+    push di
+    mov cx, [loop_cache_count]
+    mov si, loop_cache_table
+.cache_scan:
+    cmp ax, [si]
+    je .cache_hit
+    add si, 4
+    loop .cache_scan
+    pop di
+    pop si
+    pop cx
+    pop ax
+    jmp .floppy
+.cache_hit:
+    mov di, bx
+    mov si, [si + 2]
+    xor cx, cx
+    mov ch, ah                 ; cx = sectors * 256 words = sectors * 512 bytes
+    push ds
+    pop es
+    rep movsw
+    pop di
+    pop si
+    pop cx
+    pop ax
+    clc
+    ret
+.floppy:
     push bx
     mov cl, ah
     xor ah, ah
@@ -124,3 +166,60 @@ clear_runtime_scratch:
     mov cx, (critical_scratch_end - high_crypto_scratch_start) / 2
     rep stosw
     ret
+
+; Build 12 (32K floppy-free chat loop): preload the chat-loop working-set phases into the high cache
+; so the loop reads no floppy mid-conversation. 32K direct boot only (gated on ram_top); a no-op on
+; 16K (the loop demand-loads, count stays 0). Each phase is read via load_core_sectors_at while
+; loop_cache_count is still 0 (so it floppy-fills the cache), its {key, cache addr} recorded; then the
+; count is set so subsequent loads of the same phase rep-movsw from RAM. Reuses the canonical load key
+; (sectors<<8 | sector-offset) so the loop's own loads match by construction.
+preload_loop_cache:
+    cmp word [handoff_addr + handoff_ram_top], ram_tier_32k_min
+    jb .done
+    push es
+    push ds
+    pop es
+    mov di, loop_cache_table
+    mov bx, loop_cache_start
+    mov si, loop_preload_list
+.next:
+    mov ax, [si]
+    or ax, ax
+    jz .commit
+    add si, 2
+    mov [di], ax
+    mov [di + 2], bx
+    add di, 4
+    push ax
+    push si
+    push di
+    call load_core_sectors_at
+    pop di
+    pop si
+    pop ax
+    xor cx, cx
+    mov ch, ah                 ; cx = sectors * 256 words ...
+    shl cx, 1                  ; ... * 2 = sectors * 512 bytes
+    add bx, cx
+    jmp .next
+.commit:
+    mov ax, di
+    sub ax, loop_cache_table
+    shr ax, 1
+    shr ax, 1                  ; entries = (di - loop_cache_table) / 4
+    mov [loop_cache_count], ax
+    pop es
+.done:
+    ret
+
+; The chat-loop working set, as canonical load keys (sectors<<8 | sector-offset). dpi/Y, agent_request/R,
+; agent_api_stream/X, agent_response/T, tool/M. The K crypto window is added in a later increment.
+; Must stay <= loop_cache_max_entries; their total sectors <= loop_cache_max_sectors (build-asserted
+; against the cache size once K joins). 0 terminates the list.
+loop_preload_list:
+    dw (((core_dpi_phase_end - core_dpi_phase_start + 511) / 512) << 8) | ((core_dpi_phase_start - $$) / 512)
+    dw (((core_agent_request_phase_end - core_agent_request_phase_start + 511) / 512) << 8) | ((core_agent_request_phase_start - $$) / 512)
+    dw (((core_agent_api_stream_phase_end - core_agent_api_stream_phase_start + 511) / 512) << 8) | ((core_agent_api_stream_phase_start - $$) / 512)
+    dw (((core_agent_response_phase_end - core_agent_response_phase_start + 511) / 512) << 8) | ((core_agent_response_phase_start - $$) / 512)
+    dw (((core_tool_phase_end - core_tool_phase_start + 511) / 512) << 8) | ((core_tool_phase_start - $$) / 512)
+    dw 0
