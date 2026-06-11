@@ -339,24 +339,43 @@ Summed with the measured ECDHE (6.6 s) -- they run sequentially, no overlap:
 | ECDHE (optimized real P-256) | 6.6 s | measured |
 | PRF + transcript (baseline SHA) | 4.94 s | measured |
 | PRF + transcript (4.64x SHA win) | 0.66 s | measured |
-| + RSA-2048 cert verify | ~2.5 s | projected (only unbuilt piece) |
-| + entropy | ~0.2 s | projected |
-| **full SECURE handshake, baseline SHA** | **~14.2 s** | ECDHE+PRF measured, RSA projected |
-| **full SECURE handshake, + SHA win** | **~10.0 s** | ECDHE+PRF measured, RSA projected |
+| RSA-2048 cert verify | **6.37 s** | **measured** (rsa_bench.asm, ck=54F2) |
+| + entropy | ~0.2 s | projected (gated/cosmetic) |
 
-### Slack vs the server hang-up (the flakiness question)
-The server (Cloudflare) closes a handshake that takes too long between its ServerHelloDone and
+### RSA-2048 verify MEASURED (rsa_bench.asm, was the one projection)
+s^65537 mod N = 16 squarings + 1 multiply = 19 CIOS Montgomery 128-limb modmuls (plain --
+squarings done as full multiplies, no squaring optimization). Verified correct on-device
+(ck=54F2 = wordsum of all 128 result limbs == pow(s,65537,N)). Implementation: rsa_verify.inc
+(host oracle: rsa_eval.py / rsa_bench_harness.py).
+| 286 clock | RSA-2048 verify | basis |
+|---|---|---|
+| @6 | 116 ticks = **6.37 s** | measured |
+| @8 | 87 ticks = **4.78 s** | measured (= 6.37 x 6/8 -> time scales linearly with clock; 286 has no cache) |
+This is ~2.5x the earlier ~2.5 s guess (that guess assumed squaring optimization). The honest
+plain-CIOS cost dominates the handshake budget more than ECDHE does.
+
+### Slack vs the server hang-up (the flakiness question) -- corrected with measured RSA
+The server (Cloudflare) closes a handshake that idles too long between its ServerHelloDone and
 the client's ClientKeyExchange+Finished -- the client is SILENT during the whole crypto grind
-(it can't send ClientKeyExchange until ECDHE produces the premaster). That patience was measured
-empirically for Seed at **~15 s** (the shipped ~14.5 s 8088 handshake "sat ~0.2 s inside" it --
-which is exactly why it was flaky on degraded links). It is a measured-for-Seed figure, not a
-published Cloudflare SLA, so the goal is comfortable margin, not "under 15".
-| 286@6 secure handshake | total | slack vs ~15 s | verdict |
-|---|---|---|---|
-| baseline SHA | ~14.2 s | ~0.8 s | **flaky** (the same knife-edge the 8088 had) |
-| + 4.64x SHA win | ~10.0 s | ~5 s | **robust** |
-So a NON-flaky "security begins at the 286" needs BOTH the optimized P-256 ECDHE AND the SHA win
-(or a faster 286 -- time scales ~linearly with clock: @8 = ~7.5 s, @12 = ~5 s). The bare path is
-too marginal. The one remaining projected piece (RSA ~2.5 s) is the main risk left to the ~5 s
-slack: even at 2x (5 s) the SHA-win path is ~12.5 s = ~2.5 s slack, still OK; the baseline path
-would blow the window. Building RSA-2048 verify on the 286 would make the whole handshake measured.
+(cert-verify -> ECDHE -> PRF -> Finished, all serial: it can't send ClientKeyExchange until ECDHE
+produces the premaster, and must verify the cert before trusting the server's key). That patience
+was measured empirically for Seed at **~15 s** (the shipped ~14.5 s 8088 handshake "sat ~0.2 s
+inside" it -- why it was flaky on degraded links). It's a measured-for-Seed figure, not a published
+SLA, so the goal is comfortable margin, not "under 15".
+
+Full SECURE handshake (ECDHE + PRF/transcript + RSA cert-verify + entropy), all crypto serial:
+| 286 clock | baseline SHA | + 4.64x SHA win | slack (SHA win) vs ~15 s | verdict |
+|---|---|---|---|---|
+| @6 (lowest) | ~18.1 s (over) | **~13.8 s** | ~1.2 s | **flaky** -- fits only with the SHA win, and barely |
+| @8 | ~13.6 s | **~10.4 s** | ~4.6 s | **robust** |
+| @12 (proj, linear) | ~9.1 s | ~6.9 s | ~8 s | comfortable |
+(@6 fully measured except entropy; @8 RSA measured, ECDHE/PRF linear-scaled from @6; @12 linear.)
+
+**Corrected verdict.** The measured RSA pushes the full secure handshake to ~13.8 s on the LOWEST
+286 -- it fits the ~15 s window ONLY with the 4.64x SHA win, and even then ~1.2 s slack = flaky (the
+8088's exact failure mode). Comfortable slack (~4.6 s) starts at the **8 MHz 286**; the 6 MHz part
+is the boundary, not the comfortable home. "Security begins at the 286" holds, but the practical,
+non-flaky secure tier is 286@8+ (or shave RSA: a dedicated squaring path would drop the 16 squarings
+to ~0.6x = RSA ~4.3 s -> @6 handshake ~11.7 s -> ~3.3 s slack -- a future lever, not built). The
+honest one-liner: a real cert-authenticated TLS handshake is *reachable* at the lowest 286 and
+*comfortable* by 8-12 MHz; the 16K / 4.77 MHz tier stays "encrypted, not secure."
