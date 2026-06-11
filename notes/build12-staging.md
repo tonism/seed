@@ -132,6 +132,19 @@ Current `core/` mixes lifetimes in one crypto group. Conservative, increment-ali
   budget correct (critical 1229); `CORE.SYS` byte-identical throughout — Build 11
   parity proven by md5 across every increment. No emulator run needed (no behavior
   change). No push (per policy).
+- 2026-06-11 — **Fast-crypto landing — crypto de-risked, fit is a hard wall.** Per
+  user "push now": confirmed r4_v42 (the 4.64× winner) bit-exact via the offline
+  gate (`cd tools/crypto-bench && python3 evaluate.py variants/r4_v42.inc`:
+  ok_sha+ok_prf, 5.27× PRF / 5.75× block in-env) and that it is an interface-safe
+  wholesale drop-in (defines all 7 externally-called symbols; the 12 extra
+  `core/sha256.inc` symbols are internal-only). **Measured fit infeasible at 16K via
+  base-raise:** r4_v42 grows the K window 14 → **16 sectors** (loader reads whole
+  sectors → loads 0x1800..0x3800), forcing the base up **+1024 B (2 sectors)** >
+  the whole 833 B arena (→ −191 B, build fails). Even v001 (+61 B) → 15 sectors →
+  +768 B → ~65 B arena (unusable). The K window MUST stay ≤ 14 sectors; the two
+  parity landings (golf ~586 B from the other crypto, or the holistic SHA-out
+  reorg) are both heavy/fresh-context. Reverted to clean parity (cb2c7d7d). The
+  crypto is ready; the fit is the deferred work.
 
 ## Deferred to fresh-context feature sessions (heavy)
 
@@ -142,9 +155,21 @@ is teed up but intentionally NOT done here:
   caches above `critical_scratch_end`; carve the handshake-only ⟷ per-turn overlay
   zone as distinct regions. Then `check-layout.py` can *enforce* the reconnect-safe
   line + arena contiguity (the hooks are already in the checker).
-- **Land the fast SHA/PRF crypto** (+595 B, 4.64×) into the overlay band — the
-  forcing function. One impl, slow deleted. Needs the spike routine ported under
-  `cpu 8086`/org constraints; crypto self-tests + matrix.
+- **Land the fast SHA/PRF crypto** (r4_v42, 4.64×) — the forcing function. One
+  impl, slow deleted. **Crypto port is fully DE-RISKED** (see grind log
+  2026-06-11): r4_v42 is bit-exact (offline gate green) and an interface-safe
+  wholesale drop-in for `core/sha256.inc`. **The wall is the fit, not the crypto.**
+  Hard constraint measured: the K window must stay **≤ 14 sectors (≤ 7168 B)** or
+  it sector-rounds past `high_crypto_scratch_start` and a base-raise eats the whole
+  833 B 16K arena (r4_v42 alone = 16 sectors → +1024 B → −191 B arena → build
+  fails). So landing it on 16K needs ONE of: (a) **size-golf ~586 B out of the
+  other K-window crypto** (chacha/poly/tls/agent_api) to keep K ≤ 14 sectors —
+  full parity, no arena cost, but risky bit-exact golf; or (b) the **holistic
+  reorg** making SHA handshake-only + non-resident (its ~2.5 KB out of the K
+  window, loaded-before-handshake into a region reused during chat — needs a real
+  handshake-time re-layout, since no existing region is both free-during-handshake
+  and reusable-during-chat). Either way: crypto self-tests (`evaluate.py`) + the
+  ne2k8 gate + the 7-NIC matrix.
 - **Capability-vector field allocation** — when the 286 secure tier (or Wi-Fi)
   adds the first consumer of CPU-class/FPU/link-type; reclaim low-runtime slack,
   bump the handoff version, re-verify via `check-layout.py`.
