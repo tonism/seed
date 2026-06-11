@@ -48,13 +48,13 @@ runtime file     one visible CORE.SYS
 Current measured image:
 
 ```text
-CORE.SYS total bytes:       28672
-CORE.SYS total sectors:     56
+CORE.SYS total bytes:       27648
+CORE.SYS total sectors:     54
 resident nucleus sectors:   4
 resident nucleus bytes:     2048
-phase count:                20
+phase count:                19
 provider-critical K window: 14 sectors / 7168 bytes
-16 KiB slack after critical: 781 bytes
+16 KiB slack after critical: 1393 bytes
 16 KiB guard:               ~256 B stack reserve, run thin (Build 9; see Guard Philosophy)
 ```
 
@@ -289,9 +289,9 @@ pacing, the receive latch, and large-record completion handling — are document
 The 16 KiB target ceiling is `0x4000`. Three regions stay permanently resident: the
 2 KiB nucleus at `0x1000`, the 7 KiB `K` crypto window at `0x1800`, and ~2.3 KiB of
 TLS/API scratch above it; cold phases stream through the shared low scratch at `0x0700`.
-Above the critical scratch sits a small, reconnect-safe context pool — the conversation
-window plus the user/agent arena — running the execution guard thin and scaling with RAM
-(~214 B on a 16 KiB machine, far larger on bigger ones).
+Above the critical scratch sits a reconnect-safe context pool — the conversation
+window plus the user/agent arena — split 50/50, run with a thin stack guard, and scaling
+with RAM (~961 B on a 16 KiB machine: ~480 B window + ~480 B arena; ~8.6 KiB each at 32 KiB).
 
 The byte-level entry-time and runtime layouts, and the per-stage maps, live in
 [`memory.md`](memory.md); regenerate them with `make memory-map` after any

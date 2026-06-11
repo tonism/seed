@@ -391,9 +391,11 @@ chat_cache_end equ chat_key_cache + seed_key_len
 
 ; Build 9 reconnect-safe context pool, reclaimed from the trimmed 16K stack reserve.
 ; Above the pinned chat config caches, below the (RAM-relative) stack. Holds the rolling
-; conversation summary; everything from chat_arena_start up to (ram_top - stack reserve) is
-; the user/agent arena - Seed never writes past chat_arena_start. Borders are compile-time
-; defaults in Build 9; publishing/moving them is Build 10. ram_top is already in the handoff
+; conversation summary; hardware_setup splits the pool (chat_context_start up to ram_top - stack
+; reserve) 50/50 into the conversation window and the user/agent arena. The arena base is dynamic
+; -- chat_context_start + the live window length -- published via the ledger a@ (the static
+; chat_arena_start / chat_context_len below are only the compile-time floor for the %error guard).
+; ram_top is already in the handoff
 ; (offset 0x2c), so the ledger carries it and the agent derives the arena ceiling itself.
 ; Build 9: keep-alive GET template at a fixed slot BEFORE the context pool, so the conversation
 ; window and the user/agent arena form one contiguous block - trivially scalable with RAM and

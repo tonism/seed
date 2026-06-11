@@ -115,7 +115,7 @@ cells, just more densely inside them.
   │ 0x0000 │██████████  hw,,,,,,,,,,,,,,,,, │
   │ 0x1000 │▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓                │
   │ 0x2000 │                                │
-  │ 0x3000 │                    tttttaaa  ||│
+  │ 0x3000 │              ttttaaaa        ||│
   └────────┴────────────────────────────────┘
 
 A + U + Q + E + R have run. seed_* loaded from AGENTS.CFG /
@@ -133,7 +133,7 @@ LINK window is still on the floppy — its 7.0 KiB slot at
   │ 0x0000 │██████████cchw,,,,,,,,,,,,,,,,cc│
   │ 0x1000 │▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒│
   │ 0x2000 │▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒│
-  │ 0x3000 │▒▒▒▒▒▒▒▒ttrrrrrrrrrrttttttaam+||│
+  │ 0x3000 │▒▒▒▒▒▒▒▒ttrrrrttttttaam+++++++||│
   └────────┴────────────────────────────────┘
 
 Densest moment. K LINK window loaded; persistent TLS state
@@ -153,7 +153,7 @@ is already reserved. Nothing is free here - 16 KiB at full pack.
   │ 0x0000 │██████████cchw,,,,,,,,,,,,,,,,cc│
   │ 0x1000 │▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒│
   │ 0x2000 │▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒│
-  │ 0x3000 │▒▒▒▒▒▒▒▒ttrrrrrrrrrrr:::::aam+||│
+  │ 0x3000 │▒▒▒▒▒▒▒▒ttrrrrr:::::aam+++++++||│
   └────────┴────────────────────────────────┘
 
 Chat loop after the first response. The K window, session keys, and
@@ -162,12 +162,12 @@ turn. The ':' band is the TLS handshake scratch (HMAC pads, server
 random, master secret, transcript hash): dormant once the session keys
 exist, but reserved - a reconnect re-runs the handshake and reuses it,
 and it sits below critical scratch (the reconnect-safe line), so it can
-never be permanent pool. The Build 9 context pool therefore lives ABOVE
+never be permanent pool. The context pool therefore lives ABOVE
 that line - reconnect-safe caches + keepalive (a), conversation window
 (m), user/agent arena (+) - so it survives an idle/walk-away reconnect.
-The pool is small here only because the reconnect-safe gap to the stack
-is ~256 B on 16 KiB; it scales with RAM, so larger machines get a far
-bigger window and arena. (Consolidating the dormant scratch into the
-pool would need a memory defrag, sequenced into Build 10.)
+Build 11's draining-FIFO receive let the RX buffer shrink (1460->592 B),
+and that freed budget went into this pool: ~961 B on 16 KiB, split 50/50
+by hardware_setup into ~480 B window + ~480 B arena. It scales with RAM,
+so larger machines get a far bigger window and arena (~8.6 KiB each at 32 KiB).
 ```
 <!-- END MAP: stage-dpi -->

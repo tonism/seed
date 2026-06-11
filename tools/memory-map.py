@@ -497,13 +497,13 @@ STAGE_FOOTER_BUILDERS = {
         "random, master secret, transcript hash): dormant once the session keys\n"
         "exist, but reserved - a reconnect re-runs the handshake and reuses it,\n"
         "and it sits below critical scratch (the reconnect-safe line), so it can\n"
-        "never be permanent pool. The Build 9 context pool therefore lives ABOVE\n"
+        "never be permanent pool. The context pool therefore lives ABOVE\n"
         "that line - reconnect-safe caches + keepalive (a), conversation window\n"
         "(m), user/agent arena (+) - so it survives an idle/walk-away reconnect.\n"
-        "The pool is small here only because the reconnect-safe gap to the stack\n"
-        "is ~256 B on 16 KiB; it scales with RAM, so larger machines get a far\n"
-        "bigger window and arena. (Consolidating the dormant scratch into the\n"
-        "pool would need a memory defrag, sequenced into Build 10.)"
+        "Build 11's draining-FIFO receive let the RX buffer shrink (1460->592 B),\n"
+        "and that freed budget went into this pool: ~961 B on 16 KiB, split 50/50\n"
+        "by hardware_setup into ~480 B window + ~480 B arena. It scales with RAM,\n"
+        "so larger machines get a far bigger window and arena (~8.6 KiB each at 32 KiB)."
     ),
     'cleanup': None,  # generated dynamically below
 }
