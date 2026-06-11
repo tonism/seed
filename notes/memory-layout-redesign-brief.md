@@ -14,6 +14,13 @@ instead of forcing another byte-scrounge. Get the foundational decisions right s
 > secure crypto on the 086 class, and (2) a full cert-authenticated TLS handshake becomes *reachable*
 > at the 286 and *comfortable* at 286@8+. Folded into the Principles / O2 / Investigations below — the
 > upshot is a concrete future objective: **"secure" is a 286@8+ tier, never the 16K/4.77 MHz floor.**
+>
+> **IMPORTANT — full 286 support requires further crypto optimisation (a Build-12 prerequisite, NOT
+> done).** The measured @6 fit is a knife-edge (~1.2 s slack) and ONLY holds with the 4.64× SHA win;
+> the heaviest piece — RSA-2048 verify at 6.37 s — was left deliberately unoptimised (plain CIOS). To
+> claim the FULL 286 range secure (down to the 6 MHz floor, with real slack), the crypto needs another
+> optimisation pass: a dedicated squaring path (RSA → ~4.3 s), and further ECDHE/PRF wins. The
+> secure-tier claim is gated on that work — it is part of this redesign's scope, not a free byproduct.
 
 ---
 
@@ -63,7 +70,11 @@ run its course for the constrained tier.
   stock 8088 they don't (real ECDHE alone = 110 s); the full secure handshake first FITS the ~15 s
   server window at the **286** — ~13.8 s on the lowest 6 MHz part (only with the fast SHA, on a
   knife-edge ~1.2 s slack) and a comfortable ~10.4 s by 8 MHz. So "secure" is a **286@8+ tier**, never
-  the 16K / 4.77 MHz floor — which stays honestly "encrypted, not secure."
+  the 16K / 4.77 MHz floor — which stays honestly "encrypted, not secure." **Full 286 support (down to
+  the 6 MHz floor, with real slack) is NOT free — it requires a further crypto-optimisation pass**
+  (RSA-2048 verify is the heaviest piece at 6.37 s and was left unoptimised; a dedicated squaring path
+  → ~4.3 s plus further ECDHE/PRF wins are the gate). Treat that optimisation as a prerequisite of the
+  secure-tier claim, in scope for this redesign (Build 12).
 - **Hardware-agnostic static prompts** (identity, compaction) never name the hardware — portability.
 
 ---
@@ -82,8 +93,10 @@ run its course for the constrained tier.
   perf nicety: it's what pulls the secure handshake from ~18 s (over the window) to ~13.8 s @6 / ~10.4 s
   @8. Leave room for the real-crypto slot the secure tier needs — measured on a 286@6: optimized real
   P-256 ECDHE 6.6 s + RSA-2048 cert-verify 6.37 s + fast PRF/transcript 0.66 s, all serial (the dormant
-  P-256 is ~3.4 KiB). The FPU does NOT earn a crypto slot (see Investigations). One mechanism, not a
-  per-feature byte-fight.
+  P-256 is ~3.4 KiB). The FPU does NOT earn a crypto slot (see Investigations). The secure tier also
+  carries a **crypto-optimisation backlog** (the IMPORTANT note above): a dedicated RSA squaring path
+  (→ ~4.3 s), further ECDHE/PRF wins — required for full 6 MHz coverage with real slack. One mechanism,
+  not a per-feature byte-fight.
 - **O3 — A floppy-free *conversational loop* on the 32K tier.** "Floppy-free" means specifically: once
   the chat loop is live, NO disk reads (no mid-chat latency, no keep-alive-fires-during-render →
   disk-read hazard, and a mid-session reconnect needs no phase reload). Achieve it by doing MORE at
