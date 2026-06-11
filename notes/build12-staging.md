@@ -147,7 +147,15 @@ Current `core/` mixes lifetimes in one crypto group. Conservative, increment-ali
   byte level there is no hole for the ~2 KB SHA *code* (the handshake uses all of
   low scratch incl. the packet buffer), so the fast SHA's extra sector costs ~512 B
   of arena. Recommended follow-up: the 7-NIC matrix (the change is NIC-independent;
-  ne2k8 is the documented gate). PRIOR ANALYSIS (kept for the record):
+  ne2k8 is the documented gate).
+- 2026-06-11 — **7-NIC matrix: effectively 7/7 on the fast-SHA build.** First pass
+  6/7 (3c503, ne1k, ne2k8, novell-ne1k, wd8003e, wd8003eb all PASS; 3c501 a lone
+  clean-failure). 3c501 ran FIRST (~20:14, before a stability ping was up);
+  re-ran it ×3 with a timestamped ping covering the windows → **3c501 3/3 PASS,
+  ping 1004 replies / 0 drops / 6–20 ms steady**. So the original 3c501 fail was a
+  **wifi transient** (spotty link, user-flagged), not the fast SHA and not a 3c501
+  timing interaction. Fast SHA validated across all 7 NIC families. Ready for the
+  single push when the user is satisfied. PRIOR ANALYSIS (kept for the record):
 - 2026-06-11 — **Fast-crypto landing — crypto de-risked, fit is a hard wall.** Per
   user "push now": confirmed r4_v42 (the 4.64× winner) bit-exact via the offline
   gate (`cd tools/crypto-bench && python3 evaluate.py variants/r4_v42.inc`:
