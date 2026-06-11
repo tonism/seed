@@ -1,5 +1,21 @@
 tls_app_data_ptr dw 0
 tls_app_plain_ptr dw 0
+; Build 12 NIC HAL vtable (the dispatch-vector for the active NIC driver). Boot-populated once by
+; populate_nic_vtable (hardware_setup, after family detection); the resident hot path then calls the
+; active family's ops INDIRECTLY through these slots instead of `cmp [nic_family]/je <override>`,
+; so a new NIC family is a new driver + a vtable fill, with no new branch woven into the hot path.
+; Lives resident (link==run) so the stored values are the resident routines' final addresses, and
+; the table survives every phase load AND a mid-session reconnect (the nucleus is never reloaded) --
+; the reconnect-survivor property for free. Net nucleus-negative: removing the per-family branches
+; frees more than these 5 words cost. Slots: enter/restore (wd8003 DP8390 windowing), transmit +
+; receive (3c501/el1 fully overrides, NE-family shares the ring path), rx_fallback (3c501 second-
+; frame quirk). See core/nic.inc, net_tx.inc, net_rx.inc, transport.inc and the population routine.
+nic_vtable:
+nic_vt_enter       dw 0
+nic_vt_restore     dw 0
+nic_vt_transmit    dw 0
+nic_vt_receive     dw 0
+nic_vt_rx_fallback dw 0
 ; Build 11 never-blank reorg: the resident nucleus was full (2048/2048). Seven reconnect-safe vars
 ; that used to live here as nucleus db/dw -- chat_resend_prompt_len, chat_context_used, compact_next,
 ; compacting_msg, chat_compact_threshold, chat_context_len_var, scroll_br -- were relocated OUT of the

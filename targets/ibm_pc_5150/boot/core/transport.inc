@@ -9,7 +9,7 @@ tcp_receive_payload:
     je .wait
     call parse_tcp_payload
     jnc .done
-    call tcp_parse_3c501_second_frame
+    call [nic_vt_rx_fallback]
     jnc .done
 .wait:
     mov cx, 0x0800
@@ -23,19 +23,20 @@ tcp_receive_payload:
 .done:
     ret
 
-tcp_parse_3c501_second_frame:
-    cmp byte [handoff_addr + handoff_nic_family], family_3c501
-    jne .failed
+; Build 12 NIC HAL: the 3c501 single-buffer RX fallback (drop a stale frame, parse a second),
+; reached via nic_vt_rx_fallback. nic_rx_fallback_none (CF=1 = "no usable second frame") is the
+; default every other family points at; the family `cmp` is gone -- the vtable routed the family in.
+el1_rx_second_frame:
     mov cx, 16
 .next_frame:
     call tcp_3c501_drop_first_frame
-    jc .failed
+    jc nic_rx_fallback_none
     call parse_tcp_payload
     jnc .done
     loop .next_frame
 .done:
     ret
-.failed:
+nic_rx_fallback_none:
     stc
     ret
 

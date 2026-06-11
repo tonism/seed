@@ -29,6 +29,7 @@ hardware_setup_phase:
     jc .failed
     call resolve_network_config
     call read_network_address
+    call populate_nic_vtable
     clc
     ret
 .failed:
@@ -210,6 +211,34 @@ store_auto_network_config:
     or word [handoff_addr + handoff_flags], handoff_flag_config_resolved
     mov cx, load_ticks
     phase_call_res wait_ticks
+    ret
+
+; Build 12 NIC HAL: fill the dispatch-vector for the detected NIC family, once at boot (the family is
+; final after resolve_network_config / the adapter-select menu). Default = the NE-family / no-op ops;
+; 3c501 (el1) is a full driver override (its own transmit, receive, and second-frame fallback);
+; wd8003 overrides only the DP8390-window enter/restore. This is the ONE remaining per-family `cmp`
+; for the hot path -- it runs once, off the hot path, and every resident TX/RX/packet-path call then
+; dispatches through the slots with no family branch. Each store writes a resident routine's address
+; (absolute) into a resident slot (absolute), so it runs correctly from this phase at low_scratch_start.
+populate_nic_vtable:
+    mov word [nic_vt_enter], nic_noop
+    mov word [nic_vt_restore], nic_noop
+    mov word [nic_vt_transmit], ne_transmit_frame
+    mov word [nic_vt_receive], ne_try_receive_frame
+    mov word [nic_vt_rx_fallback], nic_rx_fallback_none
+    mov al, [handoff_addr + handoff_nic_family]
+    cmp al, family_3c501
+    jne .check_wd
+    mov word [nic_vt_transmit], el1_transmit_frame
+    mov word [nic_vt_receive], el1_try_receive_frame
+    mov word [nic_vt_rx_fallback], el1_rx_second_frame
+    ret
+.check_wd:
+    cmp al, family_wd8003
+    jne .done
+    mov word [nic_vt_enter], wd_do_enter
+    mov word [nic_vt_restore], wd_do_restore
+.done:
     ret
 
 autodetect_io_280:

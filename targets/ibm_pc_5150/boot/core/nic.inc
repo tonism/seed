@@ -1,15 +1,17 @@
-wd_enter_packet_path:
-    cmp byte [handoff_addr + handoff_nic_family], family_wd8003
-    jne .done
-    add word [handoff_addr + handoff_nic_base], wd_dp8390_offset
-.done:
+; Build 12 NIC HAL: per-family packet-path ops reached via nic_vtable (populate_nic_vtable fills the
+; slots at boot). nic_noop is the shared default for families with no enter/restore work; wd_do_enter
+; / wd_do_restore window the DP8390 (wd8003 maps the NIC registers behind a +wd_dp8390_offset window
+; the packet path uses, then unmaps). The `cmp [nic_family]` is gone -- the vtable already routed the
+; active family in, so these run only for the family that needs them.
+nic_noop:
     ret
 
-wd_restore_dp8390_base:
-    cmp byte [handoff_addr + handoff_nic_family], family_wd8003
-    jne .done
+wd_do_enter:
+    add word [handoff_addr + handoff_nic_base], wd_dp8390_offset
+    ret
+
+wd_do_restore:
     sub word [handoff_addr + handoff_nic_base], wd_dp8390_offset
-.done:
     ret
 
 c503_select_dp8390:

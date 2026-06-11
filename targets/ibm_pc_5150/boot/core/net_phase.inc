@@ -1,5 +1,5 @@
 prepare_internet_path:
-    call wd_enter_packet_path
+    call [nic_vt_enter]
     call_core_phase_at core_dhcp_setup_phase_start, core_dhcp_setup_phase_end, net_setup_phase_start
     ; DHCP is the whole internet bring-up now. The old port-80 connectivity probe + its NET.CFG
     ; parse (probe_cfg) were removed (Build 11): they were a single-shot, un-retried connect to
@@ -20,7 +20,7 @@ prepare_agent_path:
     call_core_phase core_save_phase_start, core_save_phase_end
 .config_saved:
 prepare_agent_endpoint_path:
-    call wd_enter_packet_path
+    call [nic_vt_enter]
     ; Capture the prompt length durably BEFORE any receive. dpi_input_len_byte (and dpi_input_buf)
     ; alias tls_rx_copy, the TLS receive buffer, so a reconnect's dead-socket/cert receives
     ; clobber them. chat_resend_prompt_len lives in the resident nucleus (data.inc) so neither a
@@ -97,7 +97,7 @@ prepare_agent_endpoint_path:
     jnz .pass                         ; compaction summarize done -> loop for the real turn
 .restore:
     pushf
-    call wd_restore_dp8390_base
+    call [nic_vt_restore]
     popf
     ret
 .stream_and_exchange:

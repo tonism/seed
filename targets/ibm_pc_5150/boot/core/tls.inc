@@ -275,7 +275,7 @@ tls_load_server_payload:
     mov si, [tls_buffered_payload_ptr]
     jmp .loaded
 .receive:
-    call tcp_parse_3c501_second_frame
+    call [nic_vt_rx_fallback]
     jnc .loaded_from_tcp
     call tcp_receive_payload
     jc .done
@@ -1105,7 +1105,7 @@ tls_receive_large_application_record:
     cmp word [tls_app_record_len], 0
     je .record_done
 .receive_more:
-    call tcp_parse_3c501_second_frame
+    call [nic_vt_rx_fallback]
     jnc .received_payload
     call ne_transmit_tcp_ack
     jc .failed

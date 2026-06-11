@@ -12,7 +12,7 @@ packet_io_init_phase:
     push ds
     pop es
     call packet_io_init_phase_enable_wd_ram
-    phase_call_res wd_enter_packet_path
+    call [nic_vt_enter]
     call init_ne_packet_io_phase
     jc .done
     mov word [ne_rx_read_limit], ne_rx_sample_len
@@ -21,7 +21,7 @@ packet_io_init_phase:
     clc
 .done:
     pushf
-    phase_call_res wd_restore_dp8390_base
+    call [nic_vt_restore]
     popf
     ret
 
