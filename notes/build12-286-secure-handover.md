@@ -61,6 +61,51 @@ honest trust model are the bar, not speed.
   `tools/crypto-bench/rsa_verify.inc` (s^65537 mod N, 19 CIOS modmuls, 6.37 s @6 / 4.78 s
   @8 measured, ck=54F2 verified). Oracles: `check-p256.py`, `rsa_eval.py`.
 
+## Increment 2 LANDED + the integration analysis (2026-06-12)
+
+**Increment 2 DONE:** the optimized P-256 (`tools/crypto-bench/variants/p256_combined.inc`)
+is now `core/p256.inc` (verbatim faithful copy of the bench-verified variant). Validated:
+check-p256.py green; the default 16K/32K CORE.SYS is byte-identical (the file is NOT
+`%include`d yet — landed, not wired).
+
+**Key finding — it's a WIRE-UP of an absent subsystem, not a swap.** `core/p256.inc` was
+never `%include`d; the runtime compiles NO P-256. The live "secret" is the insecure raw
+server-X copy in `tls_parse_server_key_exchange` (tls.inc:1956-1960). The remaining work:
+provide the data, house the code, wire the call, seed a real scalar.
+
+**Authoritative external data set = `tools/crypto-bench/p256_data_bench.inc`** (~640 B, ALL
+new to the runtime): 2 CONSTANTS `p256_prime` (16 LE words) + `p256_three` (verbatim) +
+scratch `p256_jac_x/y/z`, `p256_s0..s8` (288 B), `p256_product` (72 B), `tls_server_ec_x/
+y_words`, `tls_shared_x_words`, `p256_client_private`, the `*_ptr` vars. The wNAF/Karatsuba/
+Solinas scratch (896 B, `p256_w_*`/`p256_k*`/`sol_acc`) ships INSIDE the variant's tail data
+block — do NOT re-add. No baked G-table (built at runtime), no reduce-coeff table (Solinas
+unrolled). `tls_premaster_secret` already exists (overlays `high_crypto_work`).
+
+**Size: ~5 KiB code + ~1.5 KiB data** (measured, not the earlier 3.4 KiB guess) — too big
+for the resident; needs the handshake-only overlay / 286-module (see Layout).
+
+**Two security landmines (from the analysis):**
+- **#3 (load-bearing):** `p256_client_private` MUST be seeded with a real per-session
+  scalar. The `_is_one`/`_is_two` fast paths SILENTLY shortcut to today's insecure
+  passthrough if it stays 1/2 — NO error. Forgetting to seed = false security.
+- **#4 (aliasing):** place the P-256 scratch so NONE of `p256_jac_*`/`p256_s*`/`p256_product`
+  /`sol_acc`/`p256_k*` overlaps `low_crypto_work` (==`ne_tx_frame`==0x0700) or a NIC RX buffer
+  (this repo's recurring 0x0700 crypto-aliasing bug). The premaster compute runs once before
+  key derivation (a no-NIC window) — safe there.
+
+**Parser rewrite (increment 3):** `tls_parse_server_key_exchange` (tls.inc:1931-1972) — store
+X→`tls_server_ec_x_words`, Y→`tls_server_ec_y_words` (point bytes at bx+5 / bx+5+32), then call
+`p256_compute_server_premaster_secret` (leaves the be32 secret in `tls_premaster_secret`, CF=0).
+
+**Offline correctness oracle:** the bench re-runs the actual 8086 code → `ck=D51E` (wordsum of
+the correct shared X): `tools/crypto-bench/p256_bench.asm` via `run86box.py`, `-DP256_SRC`
+pointed at `core/p256.inc`. (Plus check-p256.py for the math/constants.)
+
+**Remaining increments:** 3 = data → data.inc (gated, no-alias) + the parser rewrite + real
+client-scalar seeding/entropy; 4 = RSA-2048 cert-chain verify (BUILD from scratch — ASN.1 +
+PKCS#1 + pinned anchor; the most trust-critical, the false-security crux — fresh rigor); 5 =
+the 286-only overlay module + dispatch gate; 6 = the insecure splash.
+
 ## What must be BUILT (the real work — three parts)
 
 1. **Port the optimized real ECDHE into the runtime + wire it.** `core/p256.inc` is
