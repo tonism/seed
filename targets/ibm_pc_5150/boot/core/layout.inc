@@ -77,13 +77,20 @@ handoff_dns_addr equ 36
 handoff_subnet_addr equ 40
 handoff_ram_top equ 44
 handoff_size_bytes equ 46
-handoff_struct_version equ 3
+handoff_struct_version equ 4   ; Build 12: capability vector extended (handoff_flag_cpu_286plus / _fpu)
 basic_boot_magic_bx equ 0x5345
 basic_boot_magic_cx equ 0x4544
 handoff_flag_mda equ 0x0001
 handoff_flag_nic_present equ 0x0002
 handoff_flag_config_resolved equ 0x0004
 handoff_flag_mac_valid equ 0x0008
+; Build 12 capability vector: CPU class. The secure (real-crypto) tier gates on "is this a 286 or
+; better?" — a single bit is all that gate needs, so it rides the free handoff_flags bits rather than
+; growing the full-packed handoff + reclaiming low_runtime_state. hardware_setup detects it at boot.
+; A finer class enum (V20 / 386 / 486), FPU-present, and link-type stay RESERVED in the free bits
+; (0x0040+) until a consumer needs them (the FPU does not unlock secure crypto — measured).
+handoff_flag_cpu_286plus equ 0x0010
+handoff_flag_fpu equ 0x0020
 handoff_status_booting equ 1
 handoff_status_no_nic equ 2
 handoff_status_ready equ 3

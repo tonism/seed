@@ -9,6 +9,7 @@
 
 hardware_setup_phase:
     call hardware_setup_phase_init_handoff
+    call hardware_setup_detect_cpu
     call hardware_setup_phase_display
     ; Build 9 (compaction redesign): stage the keep-alive template into the persistent pool once at boot,
     ; so the renderer no longer carries it (frees its last bytes for compaction).
@@ -82,6 +83,29 @@ hardware_setup_phase_init_handoff:
     shr bx, 1          ; window/4 (two single-bit shifts; 8086 has no shr-by-immediate)
     add ax, bx         ; window*3/4
     mov [chat_compact_threshold], ax
+    ret
+
+; Build 12 capability vector: detect whether the CPU is a 286 or better and record it (the secure
+; real-crypto tier gates on this). Classic real-mode test: on an 8086/8088 (and the V20/V30) FLAGS
+; bits 12-15 are wired to 1 and cannot be cleared; a 286+ in real mode forces them to 0. So clear
+; them, reload, read back: still 1 => 8086-class (leave the bit clear); 0 => 286 or better. Runs
+; once at boot, after init_handoff has cleared the handoff. Preserves the live flags.
+hardware_setup_detect_cpu:
+    pushf
+    pop ax
+    mov cx, ax
+    and ah, 0x0f                 ; clear FLAGS bits 12-15
+    push ax
+    popf
+    pushf
+    pop ax
+    push cx
+    popf                         ; restore the original flags
+    and ah, 0xf0
+    cmp ah, 0xf0
+    je .done                     ; bits 12-15 stuck high => 8086/8088/V20 (leave 286+ bit clear)
+    or word [handoff_addr + handoff_flags], handoff_flag_cpu_286plus
+.done:
     ret
 
 hardware_setup_phase_display:

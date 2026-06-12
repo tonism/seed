@@ -49,32 +49,34 @@ offset  size  value
 
 This block is also Seed's **capability vector** — the boot-detected facts that
 drive what loads and where (see [../../docs/architecture.md](../../docs/architecture.md),
-"Capability Tiers" and "The One-Artifact Relocation Model"). Two dimensions are
-live today:
+"Capability Tiers" and "The One-Artifact Relocation Model"). Three dimensions are
+live today (struct version 4):
 
 ```text
 RAM tier     derived from RAM top (0x2c): < 32 KiB = 16K tier, >= 32 KiB = 32K tier.
              (Only 16K and 32K boot configurations exist; >32K reuses the 32K tier.)
 NIC family   0x10, used to select the active adapter path.
+CPU class    flags bit handoff_flag_cpu_286plus (0x0010): set when the CPU is a 286 or
+             better (hardware_setup's FLAGS bits-12-15 test) — gates the secure tier.
 ```
 
-Three dimensions are **reserved for later feature tiers** and are *not yet
-allocated* in the struct:
+The remaining capability dimensions are **reserved for later feature tiers**:
 
 ```text
-CPU class    8088 / V20 / 286 / 386+  — gates the secure (real-crypto) tier.
-FPU present  held but inert (the FPU does not unlock secure crypto; measured).
-link type    wired / Wi-Fi            — selects driver + setup-UI family.
+finer CPU class  V20 / 386 / 486 distinctions — only "is 286+" is needed today.
+FPU present      reserved flags bit 0x0020; held but inert (the FPU does not unlock
+                 secure crypto; measured), so detection is deferred until a consumer.
+link type        wired / Wi-Fi — selects driver + setup-UI family (no Wi-Fi yet).
 ```
 
-They are deferred deliberately, not forgotten. The struct is **full-packed**: it
-ends at offset `0x2e` and `low_runtime_state` begins immediately there and runs
-packed to the `0x0700` phase window, so there is no free byte to append a field
-without first reclaiming low-runtime-state slack. Allocating these belongs to the
-feature session that adds the first *consumer* (e.g. the 286 secure tier reading
-CPU class): bump the structure version, append the fields, and re-verify the low
-scratch fits via `tools/check-layout.py`. Until then the capability vector is the
-two live dimensions plus this documented seam.
+The CPU-class **gate** rides a free `flags` bit on purpose: the struct is
+**full-packed** (it ends at `0x2e`, and `low_runtime_state` begins immediately there
+and runs packed to the `0x0700` phase window), so a dedicated *byte* would have to
+grow the struct and reclaim low-runtime-state slack first. A single bit is all the
+secure tier's gate needs, so it avoids that. Promoting CPU class to a richer field,
+or allocating FPU / link-type as bytes, is the job of the session that adds a
+consumer needing the finer value: bump the struct version, append the field(s), and
+re-verify the low scratch fits via `tools/check-layout.py`.
 
 ## Flags
 
