@@ -6,10 +6,21 @@ org 0x0600
 %define LOADER_SECTORS 4
 %endif
 
+; Floppy geometry. Defaults = 160 KiB single-sided. The 360 KiB build (the 286 tier)
+; overrides FLOPPY_SPT/FLOPPY_HEADS via -D. Both images share the same FAT12 internal
+; layout (data at LBA 11) — only read_abs_sector's CHS gains a head axis when
+; heads > 1, and the defaults keep the 160K loader byte-identical.
+%ifndef FLOPPY_SPT
+%define FLOPPY_SPT 8
+%endif
+%ifndef FLOPPY_HEADS
+%define FLOPPY_HEADS 1
+%endif
+
 core_offset equ 0x1000
 loader_stack_top equ 0x8000
 sector_size equ 512
-floppy_sectors_per_track equ 8
+floppy_sectors_per_track equ FLOPPY_SPT
 fat_count equ 2
 root_sectors equ 4
 root_entries_per_sector equ 16
@@ -255,11 +266,20 @@ read_abs_sector:
     push ax
     push cx
     push dx
-    div byte [sectors_per_track]
+    div byte [sectors_per_track]    ; al = track (LBA/spt), ah = sector-in-track
+%if FLOPPY_HEADS > 1
+    mov cl, ah                      ; sector-in-track (0-based)
+    inc cl                          ; INT 13h sector is 1-based
+    mov ah, 0
+    div byte [floppy_heads]         ; al = cylinder (track/heads), ah = head (track%heads)
+    mov ch, al
+    mov dh, ah
+%else
     mov ch, al
     mov cl, ah
     inc cl
     xor dh, dh
+%endif
     mov dl, [boot_drive]
     mov ax, 0x0201
     int 0x13
@@ -294,6 +314,9 @@ core_dest dw 0
 core_sectors_left dw 0
 core_need_header db 0
 sectors_per_track db floppy_sectors_per_track
+%if FLOPPY_HEADS > 1
+floppy_heads db FLOPPY_HEADS
+%endif
 core_name db 'CORE    SYS'
 core_header_magic db 'SEEDCORE'
 missing_core_text db 'core missing', 0

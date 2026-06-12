@@ -37,6 +37,9 @@ BASIC_BOOT_A_BAS := $(BUILD_DIR)/SEED24A.BAS
 BASIC_BOOT_B_BIN := $(BUILD_DIR)/seed24b-loader.bin
 BASIC_BOOT_B_BAS := $(BUILD_DIR)/SEED24B.BAS
 FLOPPY_IMG := $(BUILD_DIR)/floppy-160k.img
+FLOPPY_IMG_360K := $(BUILD_DIR)/floppy-360k.img
+BOOT_360K_BIN := $(BUILD_DIR)/boot-360k.bin
+LOADER_360K_BIN := $(BUILD_DIR)/loader-360k.bin
 IMAGE_BUILDER := tools/build-fat12-image.py
 BASIC_BOOT_BUILDER := tools/build-basic-bootstrap.py
 CORE_SYS_INFO := tools/core-sys-info.py
@@ -53,6 +56,11 @@ INCLUDE_USER_CFG ?= 1
 IDENTITY_PROMPT := prompts/identity.txt
 COMPACT_PROMPT := prompts/compact.txt
 NASM_FLAGS := -DLOADER_SECTORS=$(LOADER_SECTORS) -Itargets/$(TARGET)/boot/ -I$(BUILD_DIR)/
+# 360 KiB double-sided geometry (the 286 tier — the IBM AT's drive rejects the
+# single-sided 160K image). Same CORE.SYS + same FAT12 internal layout (data at
+# LBA 11); only the physical geometry the AT requires differs. The .asm geometry
+# defines default to 160K, so the 160K artifacts stay byte-identical.
+NASM_FLAGS_360K := $(NASM_FLAGS) -DFLOPPY_TOTAL_SECTORS=720 -DFLOPPY_SPT=9 -DFLOPPY_HEADS=2 -DFLOPPY_MEDIA=0xfd
 FAT_FILES := --file $(CORE_SYS):CORE.SYS
 
 ifneq ($(AGENT_CFG),)
@@ -69,7 +77,7 @@ FAT_FILES += --file $(IDENTITY_PROMPT):IDENTITY --file $(COMPACT_PROMPT):COMPACT
 
 .PHONY: all clean inspect basic-bootstrap memory-map test
 
-all: $(FLOPPY_IMG)
+all: $(FLOPPY_IMG) $(FLOPPY_IMG_360K)
 
 $(BUILD_DIR):
 	mkdir -p $@
@@ -136,6 +144,28 @@ $(FLOPPY_IMG): $(BOOT_BIN) $(LOADER_BIN) $(CORE_SYS) $(AGENT_CFG) $(USER_CFG) $(
 		--boot $(BOOT_BIN) \
 		--loader $(LOADER_BIN) \
 		--loader-sectors $(LOADER_SECTORS) \
+		--output $@ \
+		$(FAT_FILES)
+
+$(BOOT_360K_BIN): $(BOOT_SRC) | $(BUILD_DIR)
+	nasm $(NASM_FLAGS_360K) -f bin -o $@ $<
+
+$(LOADER_360K_BIN): $(LOADER_SRC) | $(BUILD_DIR)
+	nasm $(NASM_FLAGS_360K) -f bin -o $@ $<
+
+$(FLOPPY_IMG_360K): $(BOOT_360K_BIN) $(LOADER_360K_BIN) $(CORE_SYS) $(AGENT_CFG) $(USER_CFG) $(IDENTITY_PROMPT) $(COMPACT_PROMPT) $(IMAGE_BUILDER) | $(BUILD_DIR)
+	@LC_ALL=C grep -l '["\\]' $(IDENTITY_PROMPT) $(COMPACT_PROMPT) >/dev/null 2>&1 \
+		&& { echo "error: a streamed prompt contains a \" or \\ (breaks JSON / Content-Length)"; exit 1; } || true
+	@test $$(wc -c < $(IDENTITY_PROMPT)) -le 512 \
+		|| { echo "error: $(IDENTITY_PROMPT) > 512 B (must fit one sector, streamed as <=440 B records)"; exit 1; }
+	@test $$(wc -c < $(COMPACT_PROMPT)) -le 512 \
+		|| { echo "error: $(COMPACT_PROMPT) > 512 B (contract staging reads one sector into tls_rx_copy)"; exit 1; }
+	python3 $(IMAGE_BUILDER) build \
+		--boot $(BOOT_360K_BIN) \
+		--loader $(LOADER_360K_BIN) \
+		--loader-sectors $(LOADER_SECTORS) \
+		--total-sectors 720 \
+		--media 0xFD \
 		--output $@ \
 		$(FAT_FILES)
 

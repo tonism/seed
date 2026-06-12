@@ -66,13 +66,13 @@ def build_image(args):
     if boot[-2:] != b"\x55\xaa":
         raise SystemExit("boot sector is missing the 55 aa signature")
 
-    image = bytearray(IMAGE_SIZE)
+    image = bytearray(args.total_sectors * BYTES_PER_SECTOR)
     image[0:BYTES_PER_SECTOR] = boot
     loader_start = BYTES_PER_SECTOR
     image[loader_start:loader_start + len(loader)] = loader
 
     fat = bytearray(SECTORS_PER_FAT * BYTES_PER_SECTOR)
-    fat[0:3] = bytes([MEDIA_DESCRIPTOR, 0xFF, 0xFF])
+    fat[0:3] = bytes([args.media, 0xFF, 0xFF])
     root = bytearray(ROOT_DIR_SECTORS * BYTES_PER_SECTOR)
 
     next_cluster = 2
@@ -89,8 +89,10 @@ def build_image(args):
             start = cluster_offset * BYTES_PER_SECTOR
             end = start + BYTES_PER_SECTOR
             sector = data_start + (cluster - 2) * SECTORS_PER_CLUSTER
-            if sector >= TOTAL_SECTORS:
-                raise SystemExit("files do not fit in the 160 KiB image")
+            if sector >= args.total_sectors:
+                raise SystemExit(
+                    f"files do not fit in the {args.total_sectors * BYTES_PER_SECTOR // 1024} KiB image"
+                )
             image_offset = sector * BYTES_PER_SECTOR
             image[image_offset:image_offset + BYTES_PER_SECTOR] = data[start:end].ljust(
                 BYTES_PER_SECTOR,
@@ -110,8 +112,8 @@ def build_image(args):
 
 def list_image(args):
     image = args.image.read_bytes()
-    if len(image) != IMAGE_SIZE:
-        raise SystemExit(f"expected a 160 KiB image, got {len(image)} bytes")
+    if len(image) == 0 or len(image) % BYTES_PER_SECTOR != 0:
+        raise SystemExit(f"image size {len(image)} is not a whole number of sectors")
 
     reserved = int.from_bytes(image[14:16], "little")
     fat_count = image[16]
@@ -152,6 +154,10 @@ def main():
     build.add_argument("--loader-sectors", required=True, type=int)
     build.add_argument("--output", required=True, type=Path)
     build.add_argument("--file", action="append", type=parse_file_arg, default=[])
+    build.add_argument("--total-sectors", type=int, default=TOTAL_SECTORS,
+                       help="image size in 512-byte sectors (320 = 160K SS, 720 = 360K DS)")
+    build.add_argument("--media", type=lambda v: int(v, 0), default=MEDIA_DESCRIPTOR,
+                       help="FAT media-descriptor byte (0xFC = 160K SS, 0xFD = 360K DS)")
     build.set_defaults(func=build_image)
 
     listing = subparsers.add_parser("list")

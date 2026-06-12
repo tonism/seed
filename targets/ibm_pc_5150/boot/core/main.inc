@@ -35,6 +35,9 @@ start:
     call clear_runtime_scratch
     mov byte [handoff_addr + handoff_boot_drive], dl
     mov word [handoff_addr + handoff_ram_top], bp
+    ; Build 12 (2-image): adopt the floppy geometry from the boot-sector BPB before the first
+    ; phase load, so one CORE.SYS works on a 160K single-sided or 360K double-sided image.
+    call detect_floppy_geometry
 
 hal_start:
     call_core_phase core_hardware_setup_phase_start, core_hardware_setup_phase_end

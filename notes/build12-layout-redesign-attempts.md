@@ -237,15 +237,68 @@ to the preload (cache already sized for it). (3) IDENTITY/COMPACT preload + docs
 matrix profile. Validation note: the 16K matrix only proves no-regression (the path is
 32K-only); the 32K direct-boot run is the real gate.
 
+## 2-image build (160K + 360K) + one-CORE.SYS geometry auto-detect
+
+**Decision (user):** ship TWO floppy images — the 160K single-sided (the 1981 IBM PC
+5150 weakest-config headline) AND a 360K double-sided (the 286: the AT's 1.2 MB drive
+rejects the single-sided 160K geometry). Same CORE.SYS in both. The "one artifact"
+principle bends to "one runtime, two image containers" so the 1981 config stays headline.
+
+**Build (the boot chain is parametric).** `boot.asm` + `loader.asm` geometry (BPB
+total/spt/heads/media + the loader's LBA→CHS) parameterised via NASM `%define`s defaulting
+to 160K (`FLOPPY_TOTAL_SECTORS=320 / SPT=8 / HEADS=1 / MEDIA=0xfc`); the 360K target
+overrides them (`720 / 9 / 2 / 0xfd`). `build-fat12-image.py` gained `--total-sectors` +
+`--media` (default 160K). The Makefile builds both (`floppy-160k.img` + `floppy-360k.img`,
+via `boot-360k.bin`/`loader-360k.bin` with `NASM_FLAGS_360K`); `all` makes both. Lowest-risk
+design: the 360K reuses the EXACT 160K FAT12 internal layout (data at LBA 11, 1 FAT sector,
+64 root entries) — only the physical geometry the AT needs changes; the dual-head LBA→CHS
+(`%if FLOPPY_HEADS>1`) reduces to the byte-identical head-0 path when heads=1. VERIFIED:
+the 160K artifacts (boot.bin/loader.bin/floppy-160k.img) are byte-for-byte the baseline.
+
+**The bug the 286 surfaced — CORE.SYS is ONE binary, two geometries.** The boot sector +
+loader were geometry-parametric, but CORE.SYS's OWN on-demand phase loader
+(`core/fs.inc read_abs_sector`) hardcoded `mov cl,8 / div cl` + `xor dh,dh` (160K, single
+head). On the 360K it computed the wrong CHS for every phase read → garbage phase →
+black-screen hang on the 286 (floppy LED active = it WAS reading, just the wrong sectors).
+The crypto-bench booted the 286 because `bench_boot.asm` is single-stage (loads everything
+up front, no on-demand reads) — the user's pointer to "lend ideas from there" cracked it.
+Fix (the architecturally-right one, per the user "same seed.sys works on 160K or 360K"):
+the nucleus AUTO-DETECTS its geometry at startup. `detect_floppy_geometry` (called from
+the nucleus entry, before the first phase load) reads the boot sector (LBA 0 = CHS 0/0/1,
+which is geometry-independent) and adopts its BPB spt (offset 0x18) + heads (0x1a);
+`read_abs_sector` uses those runtime values. Works on 160K (8/1), 360K (9/2), and the
+BASIC-sidecar path alike — one CORE.SYS, any floppy, no build-time geometry baked in.
+Resident nucleus stays 4 sectors (the routine fits the existing free space, check-layout OK).
+
+**Failure-screen spacing (user).** `failure_action.inc` typed the error message at
+`seed_col+1`, adjacent to the load marker → `.no network card`. Bumped to `seed_col+2` →
+`. no network card` (a blank column after the marker, now aligned with retry/restart).
+
+**286 test harness (new, reusable).** `tools/run-286-86box.py` boots a Seed image on
+86Box's `ibmat` (286) with a crafted CMOS (360K floppy A, 512K base, CGA, no FPU) at a
+chosen MHz and screenshots the window. Reuses the crypto-bench's `run86box.py`
+launch/screenshot + `at286_ladder.py`'s CMOS. Default 6 MHz = the security clock.
+
+**Validated.** 360K boots on the 286 @16 MHz → Seed runs its phases to `. no network card`
+(no NIC in this minimal config). 8088/16K regression (ne2k8, full ROM-BASIC → network →
+DHCP → TLS → chat) PASS verdict=success — the fix is NIC-independent (floppy geometry +
+failure-screen text), so the full 7-NIC matrix was skipped (user). Build green (resident 4
+sectors, check-layout OK).
+
 ## Remaining (deferred to fresh-context sessions)
-- **286 secure tier** — the orthogonal CPU-class capability; carries the 286@8+
-  secure objective + the "full-286 needs a further crypto-opt pass" gate.
-- **Capability-vector field allocation** — when the first consumer (286 / Wi-Fi)
-  needs CPU-class / FPU / link-type; reclaim low-runtime slack, bump the handoff
-  version, re-verify via `check-layout.py`.
-- **Doc-staleness sweep** — `AGENTS.md` still references shipped `NET.CFG`;
-  `HANDOFF.md` "Context-management knobs (Build 9)" describes the recap-first
-  compaction Build 10 removed. Verify against code first.
+- **286 secure tier — real crypto** — the harness now boots Seed on the 286 (above), so
+  this is unblocked: land the optimised real P-256 ECDHE + RSA-2048 cert-chain verify +
+  entropy, 286-gated on `handoff_flag_cpu_286plus`, fitting the ~15 s window. Test policy:
+  6 MHz 286 + always the 4.77 MHz 8088/16K regression. Brief: `notes/build12-286-secure-handover.md`.
+- **"insecure" splash warning** — once secure crypto ships, a dim "insecure" on the
+  splash's 2nd line (right-aligned with "seed build 12") for pre-286 machines (gate on
+  `handoff_flag_cpu_286plus` clear).
+- **Capability-vector field allocation** — when the first consumer needs a richer CPU
+  class / FPU / link-type; reclaim low-runtime slack, bump the handoff version, re-verify.
+- **Doc-staleness sweep (partly done)** — `NET.CFG` refs removed from `config.md` +
+  `AGENTS.md` (commit e4f82de). STILL pending: `HANDOFF.md` struct version (now 4) + the
+  new flags bits (0x0010 CPU, 0x0020 FPU) + the stale "Context-management knobs (Build 9)"
+  recap section + its `NET.CFG`/port-80 network narrative; regenerate `docs/memory.md`.
 
 Build 12 lives on `work/scaling`, NOT pushed. The release (fast-forward `main`,
 annotated tag `build-12`, per `AGENTS.md`) is the user's single push when satisfied.

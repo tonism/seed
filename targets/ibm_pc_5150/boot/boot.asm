@@ -6,6 +6,23 @@ org 0x7c00
 %define LOADER_SECTORS 4
 %endif
 
+; Floppy geometry. Defaults = the 160 KiB single-sided format (the 1981 IBM PC 5150
+; headline). The 360 KiB build (the 286 tier — the AT's drive rejects single-sided
+; 160K) overrides these via -D in the Makefile. The defaults keep the 160K boot
+; sector byte-identical.
+%ifndef FLOPPY_TOTAL_SECTORS
+%define FLOPPY_TOTAL_SECTORS 320
+%endif
+%ifndef FLOPPY_SPT
+%define FLOPPY_SPT 8
+%endif
+%ifndef FLOPPY_HEADS
+%define FLOPPY_HEADS 1
+%endif
+%ifndef FLOPPY_MEDIA
+%define FLOPPY_MEDIA 0xfc
+%endif
+
 jmp short start
 nop
 
@@ -15,11 +32,11 @@ db 1
 dw 1 + LOADER_SECTORS
 db 2
 dw 64
-dw 320
-db 0xfc
+dw FLOPPY_TOTAL_SECTORS
+db FLOPPY_MEDIA
 dw 1
-dw 8
-dw 1
+dw FLOPPY_SPT
+dw FLOPPY_HEADS
 dd 0
 dd 0
 db 0
@@ -30,7 +47,7 @@ db 'BOOT       '
 db 'FAT12   '
 
 loader_offset equ 0x0600
-floppy_sectors_per_track equ 8
+floppy_sectors_per_track equ FLOPPY_SPT
 
 start:
     cli

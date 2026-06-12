@@ -13,8 +13,8 @@ failure_action_phase:
     phase_call_res show_load_marker
     mov byte [cursor_row], seed_row
     mov al, [seed_col]
-    inc al
-    mov [cursor_col], al
+    add al, 2                    ; leave a blank column between the load marker (seed_col) and
+    mov [cursor_col], al         ; the message -> ". no network card", aligned with retry/restart
     call failure_action_phase_notify_failure
     mov bl, [error_attr]
     call .message_ptr
