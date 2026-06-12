@@ -1,10 +1,9 @@
 # Agent And User Config
 
-Seed has three configuration files on the boot floppy:
+Seed has two configuration files on the boot floppy:
 
 ```text
 AGENTS.CFG  optional shipped override for agent interface declarations
-NET.CFG     optional shipped override for generic internet probe settings
 USER.CFG    ignored, optional local user choices and secrets
 ```
 
@@ -23,17 +22,6 @@ google
 When `AGENTS.CFG` parses successfully, it overrides the built-in list.
 Seed stores agent IDs in 12-byte slots, so IDs may use up to 11 visible
 characters plus the terminator. The shipped IDs fit this cap.
-
-`NET.CFG` holds generic network-readiness probe settings. It currently supports
-one line:
-
-```text
-probe <host-or-url>
-```
-
-The default tracked value is `probe example.com`. If `NET.CFG` is missing,
-unreadable, or invalid, Seed falls back to `example.com` for the dark `"."`
-internet-readiness proof.
 
 `USER.CFG` is user-local state. It should only contain values that were entered
 by the user and validated by Seed, such as selected agent interface, endpoint

@@ -18,6 +18,31 @@ with the fast SHA and ~1.2 s slack (flaky), 286@8 is the comfortable home (~4.6 
 a cert-verify that accepts a forged chain is a *false* security claim. Correctness + an
 honest trust model are the bar, not speed.
 
+## Decisions locked (user, 2026-06-12)
+
+1. **Ship TWO images — 160K AND 360K.** The 160K single-sided image stays as a
+   first-class, **headline** target: the 1981 original IBM PC 5150 in its *weakest*
+   config (4.77 MHz 8088, 16 KiB, single-sided 160K drive) must keep booting + running
+   everything. The 360K double-sided image is ADDED for the 286 (the AT's 1.2 MB drive
+   rejects the single-sided 160K geometry) and for DS-drive 8088s. Same CORE.SYS in
+   both — only the FAT12 image geometry + the boot/loader/sidecar CHS differ (the boot
+   chain, not the runtime). This *resolves* the "286 harness" open problem below: build
+   the 360K image, the 286 boots that. (The architecture's "one artifact" principle
+   bends here to "one runtime, two image containers" — a deliberate exception so the
+   1981 weakest config stays the headline.)
+2. **Test policy going forward (once crypto lands):** validate the secure tier on a
+   **6 MHz 286** (the lowest secure CPU — the knife-edge), AND **ALWAYS** keep the
+   **4.77 MHz 8088 / 16 KiB regression** test (the 160K headline must never regress).
+   Both, every secure-tier change. (The 8088 path is gated off from the secure crypto,
+   but the regression proves it.)
+3. **"insecure" splash warning on pre-286 machines.** Once secure crypto ships, the
+   splash shows a **dim/dark "insecure"** on the **second line**, RIGHT-aligned so the
+   *tail* of "insecure" lines up with the tail of the "seed build 12" line above it —
+   warning the user that everything runs but the channel is NOT secure. Gated on the CPU
+   class: shown when `handoff_flag_cpu_286plus` is CLEAR (8088-class), hidden on a 286+
+   (which gets the real secure channel). It is a deliberate, honest contrast that only
+   makes sense once the secure tier exists, hence "once secure crypto is here."
+
 ## Already done (the prerequisites + the R&D)
 
 - **#2 CPU-class gate — LANDED (commit `700f267`).** `handoff_flag_cpu_286plus` (handoff
@@ -77,16 +102,16 @@ there is arena room; the 286 secure tier is inherently 32K (a 286 with ≥32K). 
 overlay-zone model (handshake-only ⟷ chat scratch, max not sum). check-layout must model
 the 286 module's band.
 
-## The 286 test harness — an OPEN PROBLEM to solve first
+## The 286 test harness — RESOLVED by Decision 1 (ship the 360K image)
 
-The matrix is 8088 (16K sidecar / 32K direct). The crypto-bench booted a **crafted 360K
-image on 86Box `ibmat` (286) with a hand-built CMOS** (the AT halts on blank CMOS; the XT
-has none) — and the AT **rejects Seed's 160K single-sided image**. So validating the
-product on a 286 needs one of: (a) a 286-capable 86Box profile that boots Seed's 160K image
-(investigate the AT's floppy support / a different 286 machine model), (b) adapting Seed to a
-360K image for the 286 tier, or (c) a real-hardware path. **Solve this before claiming the
-tier works** — the bench's component measurements (ECDHE/RSA/SHA on `ibmat`) are the proof
-the crypto FITS, but the integrated product handshake on a 286 must be demonstrated.
+The AT's 1.2 MB drive rejects Seed's single-sided 160K geometry, so the 286 boots the new
+**360K** image (Decision 1). Build path: a DS/9-spt/2-head FAT12 image + a 360K boot-sector
+BPB + 360K CHS in the loader; the crypto-bench's `bench_boot.asm` is the **360K BPB
+precedent**. 86Box: the `ibmat` (286) needs a hand-built CMOS (the AT halts on blank CMOS;
+the XT has none) — see the crypto-bench's `at286_ladder.py` / `class_matrix.py` for how it
+crafted one + mounted a DS image. The 286 boots the 360K image; the 160K image stays for the
+8088 (incl. the 16K sidecar). The bench proved the crypto FITS on `ibmat`; the NEW bar is the
+integrated *product* handshake on a 286 booting the 360K image.
 
 ## Crypto-opt lever (optional — for 6 MHz slack)
 
@@ -98,8 +123,11 @@ multiplies) would drop 16 squarings to ~0.6× → RSA ~6.37 s → ~4.3 s → han
 
 ## Suggested increments (each build-green + validated; never commit broken)
 
-1. **The 286 test harness** (solve the boot problem) — without it nothing else is
-   validatable. Get Seed booting on a 286 86Box VM.
+1. **Build the two images + the 286 harness** (Decision 1) — add the 360K DS image
+   alongside the 160K headline (FAT12 builder + boot BPB + loader/sidecar CHS; same
+   CORE.SYS), and stand up the 86Box `ibmat` (286, crafted CMOS) booting the 360K image.
+   Verify: 160K still boots the 8088 (16K sidecar + 32K direct), 360K boots an 8088
+   DS-drive 5150 AND the 286. Nothing else is validatable without this.
 2. **Land the optimized real P-256** in `core/` (assembles 8086-clean, `check-p256.py`
    green), still gated OFF (present, not wired) — proves the port.
 3. **Wire ECDHE + entropy** behind the 286 gate (the secure key agreement), validate the
@@ -109,7 +137,11 @@ multiplies) would drop 16 squarings to ~0.6× → RSA ~6.37 s → ~4.3 s → han
 5. **Integrate + the 286 layout** (handshake-only module, dispatch-gated), validate the
    full real handshake fits the window on the 286 harness; re-validate 8088 16K/32K
    UNCHANGED (the secure path is 286-gated).
-6. Optional: the RSA-squaring crypto-opt for 6 MHz slack.
+6. **The "insecure" splash warning** (Decision 3) — once the secure tier works, add a
+   dim "insecure" on the splash's second line, right-aligned so its tail aligns with the
+   "seed build 12" line's tail, shown only when `handoff_flag_cpu_286plus` is clear
+   (8088-class). Bounded UI change in `splash.inc`; gate on the CPU flag.
+7. Optional: the RSA-squaring crypto-opt for 6 MHz slack.
 
 ## Honest-framing guardrails
 
@@ -120,8 +152,11 @@ multiplies) would drop 16 squarings to ~0.6× → RSA ~6.37 s → ~4.3 s → han
 
 ## Validation
 
-- Component proofs exist (crypto-bench, `ibmat` @6/8). The NEW bar: the **integrated
-  product handshake on a 286 86Box VM** completing a real authenticated TLS exchange within
-  the window, + the 8088 matrix 7/7 unchanged (the 286 path must not regress the 8088 tiers).
+- **Test policy (Decision 2), every secure-tier change:** the **6 MHz 286** (`ibmat`,
+  the lowest secure CPU + the ~1.2 s-slack knife-edge — the security gate) AND **always**
+  the **4.77 MHz 8088 / 16 KiB** regression (the 160K headline must never regress; the
+  secure path is 286-gated, the regression proves it). Component proofs exist (crypto-bench
+  `ibmat` @6/8); the NEW bar is the **integrated product handshake on the 286** completing a
+  real authenticated TLS exchange within the window.
 - `pkill -f 86Box` before any canary; read FULL build output; confirm fresh CORE.SYS md5
   before trusting a `--no-build` run (see [[feedback_verify_full_build_fresh_artifact]]).

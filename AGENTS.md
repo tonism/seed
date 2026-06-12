@@ -43,10 +43,9 @@ explicitly scoped.
 That image is a 160 KiB FAT12 floppy image with a stage 1 boot sector, a small
 reserved-sector FAT12 loader, FAT copies, a root directory, and file data. The
 loader reads the visible root `CORE.SYS` file through its FAT12 cluster chain
-and jumps to it at `0000:1000`. The tracked `AGENTS.CFG` and `NET.CFG` files
-are shipped in the root directory when present. `AGENTS.CFG` overrides built-in
-`openai`, `anthropic`, and `google` agent interfaces; `NET.CFG` overrides the
-built-in `example.com` probe. Optional `USER.CFG` user-local state is ignored
+and jumps to it at `0000:1000`. The tracked `AGENTS.CFG` file is shipped in the
+root directory when present and overrides the built-in `openai`, `anthropic`, and
+`google` agent interfaces. Optional `USER.CFG` user-local state is ignored
 and included only when `config/USER.CFG` exists. The build may also generate
 ROM BASIC bootstrap sidecar text under `build/ibm_pc_5150/` for sub-32 KiB
 entry. Do not package those BASIC helpers into the release floppy FAT root
@@ -182,7 +181,7 @@ returned `ok` on all seven 16 KiB NIC profiles: `vm-net-3c501`,
 `vm-net-wd8003e`, and `vm-net-wd8003eb`; the no-card CGA and MDA profiles
 failed cleanly with no NIC.
 Retest individual profiles when changing TLS timing/shared packet code.
-The current runtime provides FAT12 `AGENTS.CFG` and `NET.CFG` parsing, built-in
+The current runtime provides FAT12 `AGENTS.CFG` parsing, built-in
 fallback agent interfaces, optional `USER.CFG` persistence for selected
 agent/model/reasoning/key/endpoint values, with `server?` shown for LiteLLM's
 stored endpoint value on the same form panel as `key?`, selected-agent DNS/TCP
