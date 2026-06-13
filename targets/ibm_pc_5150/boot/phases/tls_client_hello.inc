@@ -9,6 +9,15 @@
 
 tls_client_hello_phase:
     call build_tls_client_hello_phase
+    jc .done
+    ; Build 12 286 secure tier: generate the client ephemeral ECDHE keypair (real entropy -> client
+    ; scalar -> client_public = scalar x G) HERE in the L phase -- before the TCP connect (C) and the
+    ; ClientHello send -- so the ~6.6s scalar mult falls OUTSIDE the server's ServerHelloDone->Finished
+    ; patience window. 286-only (gated on the boot-detected CPU class); the 8088 sends the fixed G.
+    test word [handoff_addr + handoff_flags], handoff_flag_cpu_286plus
+    jz .done
+    call tls_client_hello_secure_prep            ; CF on module-load or keypair-gen failure -> retry
+.done:
     ret
 
 build_tls_client_hello_phase:
@@ -137,6 +146,54 @@ tls_seed_client_random_phase:
     pop bx
     pop ax
     ret
+
+; Build 12 286 secure tier: generate the client ephemeral ECDHE keypair. Loads the P-256 module (a
+; floppy read -- fine here: pre-connect, before the ~15s handshake race), mixes a real entropy pool
+; into a SHA-256 client scalar, then computes client_public = scalar x G into the module. CF=1 on a
+; module-load or degenerate-keypair failure (the caller retries). The 86Box emulator is cycle-exact,
+; so the pool is reproducible under test; on real hardware the BIOS tick + PIT phase carry entropy
+; (keystrokes are unavailable at boot). The pool is REAL; its emulated determinism is documented, and
+; it matters only bundled with the real ECDHE secret below -- not a cosmetic standalone fix.
+tls_client_hello_secure_prep:
+    ; 1. load the 286-only P-256 module (whole sectors) into its overlay band at p256_module_load.
+    mov ax, (((core_p256_module_end - core_p256_module_start + 511) / 512) << 8) | ((core_p256_module_start - $$) / 512)
+    mov bx, p256_module_load
+    phase_call_res load_core_sectors_at
+    jc .sp_fail
+    ; 2. entropy pool -> SHA-256 -> 32-byte client secret. The K crypto window (sha256_*) is resident
+    ;    here (loaded in prepare_agent_endpoint_path before this phase). The digest temporarily uses
+    ;    tls_premaster_secret (0x3600), which the real premaster overwrites later in tls_probe.
+    phase_call_res sha256_init
+    mov si, tls_random                          ; LCG client random (already tick/MAC-seeded), 32 B
+    mov cx, tls_random_len
+    phase_call_res sha256_update
+    mov si, handoff_addr + handoff_mac          ; NIC MAC (per machine), 6 B
+    mov cx, 6
+    phase_call_res sha256_update
+    mov si, 0x046c                              ; BIOS tick count @ 0040:006C (boot timing), 4 B
+    mov cx, 4
+    phase_call_res sha256_update
+    mov al, 0                                   ; latch PIT channel 0 (the system timer sub-tick)
+    out 0x43, al
+    in al, 0x40
+    mov [low_scratch_start + (entropy_pit_buf - PHASE_BASE)], al
+    in al, 0x40
+    mov [low_scratch_start + (entropy_pit_buf - PHASE_BASE) + 1], al
+    mov si, low_scratch_start + (entropy_pit_buf - PHASE_BASE)
+    mov cx, 2
+    phase_call_res sha256_update
+    mov di, tls_premaster_secret
+    phase_call_res sha256_finish
+    ; 3. seed the client scalar (LANDMINE #3: a SHA-256 digest is never exactly 1 or 2, so the module's
+    ;    insecure _is_one/_is_two fast paths never trigger) and compute the client public point.
+    mov si, tls_premaster_secret
+    call word [p256_ep_set_client_private]
+    call word [p256_ep_gen_client_public]       ; CF=1 if priv x G is degenerate
+    ret
+.sp_fail:
+    stc
+    ret
+entropy_pit_buf: times 2 db 0
 
 tls_client_hello_after_random db 0
                               db 0, 2

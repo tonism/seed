@@ -26,12 +26,14 @@ CRITICAL_SCRATCH_LEN := $(shell python3 tools/check-layout.py --emit critical_sc
 BOOT_SRC := targets/$(TARGET)/boot/boot.asm
 LOADER_SRC := targets/$(TARGET)/boot/loader.asm
 CORE_SRC := targets/$(TARGET)/boot/core.asm
+P256_MODULE_SRC := targets/$(TARGET)/boot/core/p256_module.asm
 BASIC_BOOT_SRC := targets/$(TARGET)/basic/bootstrap.asm
 CORE_INCLUDES := $(wildcard targets/$(TARGET)/boot/core/*.inc)
 CORE_PHASE_INCLUDES := $(wildcard targets/$(TARGET)/boot/phases/*.inc)
 BOOT_BIN := $(BUILD_DIR)/boot.bin
 LOADER_BIN := $(BUILD_DIR)/loader.bin
 CORE_SYS := $(BUILD_DIR)/CORE.SYS
+P256_MODULE_BIN := $(BUILD_DIR)/p256_module.bin
 BASIC_BOOT_A_BIN := $(BUILD_DIR)/seed24a-loader.bin
 BASIC_BOOT_A_BAS := $(BUILD_DIR)/SEED24A.BAS
 BASIC_BOOT_B_BIN := $(BUILD_DIR)/seed24b-loader.bin
@@ -88,7 +90,13 @@ $(BOOT_BIN): $(BOOT_SRC) | $(BUILD_DIR)
 $(LOADER_BIN): $(LOADER_SRC) | $(BUILD_DIR)
 	nasm $(NASM_FLAGS) -f bin -o $@ $<
 
-$(CORE_SYS): $(CORE_SRC) $(CORE_INCLUDES) $(CORE_PHASE_INCLUDES) $(CORE_SYS_INFO) $(LAYOUT_CHECK) | $(BUILD_DIR)
+# Build 12 286 secure tier: the P-256 ECDHE module is assembled as its own flat binary at its run
+# address (so p256.inc's absolute self-references resolve), then incbin'd into CORE.SYS below. It
+# depends on the same core includes (layout.inc / p256.inc / p256_data.inc all live in core/*.inc).
+$(P256_MODULE_BIN): $(P256_MODULE_SRC) $(CORE_INCLUDES) | $(BUILD_DIR)
+	nasm $(NASM_FLAGS) -f bin -o $@ $<
+
+$(CORE_SYS): $(CORE_SRC) $(CORE_INCLUDES) $(CORE_PHASE_INCLUDES) $(P256_MODULE_BIN) $(CORE_SYS_INFO) $(LAYOUT_CHECK) | $(BUILD_DIR)
 	nasm $(NASM_FLAGS) -f bin -o $@ $<
 	python3 $(CORE_SYS_INFO) --check $@
 	python3 $(LAYOUT_CHECK) $@

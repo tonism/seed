@@ -493,4 +493,16 @@ align 512, db 0
 %error "32K chat-loop preload working set + 2 prompt sectors exceeds the loop cache (raise loop_cache_max_sectors)"
 %endif
 
+; Build 12 286 secure tier: the handshake-only P-256 ECDHE module. Assembled separately at its run
+; address (core/p256_module.asm -> p256_module.bin, org p256_module_load) and incbin'd here so it
+; lands as whole sectors at the END of CORE.SYS — every existing phase/driver sector offset is
+; unchanged. Loaded ONLY on the 286 secure path (prepare_secure_ecdhe in tls_client_hello), 286-gated;
+; the 16K/8088 tier never loads it, so on those tiers it is inert weight on the floppy and 0 resident
+; RAM. The module's own code+data size assert is inside p256_module.asm (vs p256_module_max_len).
+align 512, db 0
+core_p256_module_start:
+incbin "p256_module.bin"
+core_p256_module_end:
+align 512, db 0
+
 core_image_end:

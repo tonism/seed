@@ -45,6 +45,28 @@ loop_cache_start equ loop_cache_end - loop_cache_len
 ; (si = slot) instead of reading the floppy on 32K, making the chat loop FULLY floppy-free.
 prompt_id_cache equ loop_cache_end - 2 * 512
 prompt_compact_cache equ loop_cache_end - 512
+; Build 12 286 secure tier: the handshake-only P-256 ECDHE module (core/p256_module.asm, incbin'd into
+; CORE.SYS). Loaded ONLY on the 286 secure path (handoff_flag_cpu_286plus) into a high overlay band
+; that ALIASES the 32K loop cache — lifetime-disjoint: the module runs during the boot handshake; the
+; loop cache is preloaded AFTER it (a reconnect reloads the module, then re-preloads the cache). The
+; 286 secure tier is inherently 32K (it needs this high region), so the 16K floor never reaches here;
+; p256_module_load == loop_cache_start keeps the band above the 16K ceiling (absent on 16K). The module
+; (code + data) must fit p256_module_max_sectors (build-asserted in p256_module.asm) AND the loop cache.
+p256_module_load equ loop_cache_start
+p256_module_max_sectors equ 16
+p256_module_max_len equ p256_module_max_sectors * 512
+p256_module_end equ p256_module_load + p256_module_max_len
+%if p256_module_end > loop_cache_end
+%error "p256 module band overruns the 32K loop cache region"
+%endif
+; The entry-point-only ABI: a 5-entry near-pointer WORD table at the module base (mirrored + asserted
+; in p256_module.asm). Each equate IS a table-slot address; the resident code calls in via
+; `call word [p256_ep_*]` (a near indirect call through the slot -- no jmp-size ambiguity).
+p256_ep_set_client_private equ p256_module_load + 0
+p256_ep_gen_client_public  equ p256_module_load + 2
+p256_ep_set_server_ec      equ p256_module_load + 4
+p256_ep_compute_premaster  equ p256_module_load + 6
+p256_ep_copy_client_public equ p256_module_load + 8
 ; (loop_cache_start must stay above the 16K ceiling so the region is 32K-only — asserted in core.asm,
 ; where every equate is defined; %if here would precede basic_sidecar_stack_top_16k's definition.)
 net_setup_frame_scratch_len equ 512

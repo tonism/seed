@@ -77,6 +77,17 @@ tls_probe_server:
     call tls_hold_flight_segment
     cmp byte [tls_key_schedule_ready], 1
     je .key_schedule_ready
+    ; Build 12 286 secure: derive the real ECDHE premaster (client_private x server_public) -> the
+    ; be32 shared X in tls_premaster_secret. Placed HERE deliberately: AFTER the CKE is on the wire
+    ; (so the heavy ~6.6s scalar mult does not delay the CKE's arrival within the server's window) and
+    ; BEFORE the PRF reads the premaster. A no-NIC window (LANDMINE #4 is moot: the module scratch is
+    ; high at 0x4400+, and nothing transmits between the CKE send and the PRF). 286-only; on the 8088
+    ; the parser already wrote the insecure server-X passthrough into the premaster.
+    test word [handoff_addr + handoff_flags], handoff_flag_cpu_286plus
+    jz .premaster_ready
+    call word [p256_ep_compute_premaster]
+    jc .failed
+.premaster_ready:
     call tls_prepare_master_secret
     jc .failed
     call tls_prepare_key_block
@@ -1953,11 +1964,25 @@ tls_parse_server_key_exchange:
     ja .failed
     cmp byte [bx + 4], 0x04
     jne .failed
+    ; Build 12 286 secure: hand the server's ephemeral public point (X at bx+5, Y at bx+5+32) to the
+    ; P-256 module; the real premaster (client_private x server_public) is computed later in tls_probe,
+    ; after the CKE is on the wire. The 8088 path keeps the insecure passthrough -- the server's X
+    ; coordinate IS the premaster, so NO key agreement happens (the honest "encrypted, not secure" floor).
+    test word [handoff_addr + handoff_flags], handoff_flag_cpu_286plus
+    jz .insecure_premaster_passthrough
+    mov si, bx
+    add si, 5                                   ; -> server X (32 big-endian bytes)
+    mov di, bx
+    add di, 5 + tls_ec_coordinate_len           ; -> server Y (32 big-endian bytes)
+    call word [p256_ep_set_server_ec]
+    jmp .server_point_stored
+.insecure_premaster_passthrough:
     mov si, bx
     add si, 5
     mov di, tls_premaster_secret
     mov cx, tls_ec_coordinate_len
     rep movsb
+.server_point_stored:
     mov bx, [tls_next_handshake_body_ptr]
     add bx, tls_ec_public_uncompressed_len + 4
     mov ah, [bx + 2]
@@ -2025,6 +2050,15 @@ build_tls_client_key_exchange:
     call tls_write_be16
     mov al, tls_ec_public_uncompressed_len
     stosb
+    ; Build 12 286 secure: send the REAL client ephemeral public key (client_private x G), generated
+    ; pre-connect into the P-256 module (tls_client_hello_secure_prep). The 8088 path sends the fixed
+    ; generator G -- i.e. client_private == 1, the insecure passthrough. DI points at the 65-byte slot.
+    test word [handoff_addr + handoff_flags], handoff_flag_cpu_286plus
+    jz .fixed_client_public
+    call word [p256_ep_copy_client_public]      ; copies 0x04||X||Y (65 B) to DI, advances DI
+    clc
+    ret
+.fixed_client_public:
     mov si, tls_client_ec_public_constant
     mov cx, tls_ec_public_uncompressed_len
     rep movsb
