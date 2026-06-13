@@ -115,13 +115,13 @@ cells, just more densely inside them.
   │ 0x0000 │██████████  hw,,,,,,,,,,,,,,,,, │
   │ 0x1000 │▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓                │
   │ 0x2000 │                                │
-  │ 0x3000 │              ttttaaaa        ||│
+  │ 0x3000 │                  ttttaaaa    ||│
   └────────┴────────────────────────────────┘
 
 A + U + Q + E + R have run. seed_* loaded from AGENTS.CFG /
 USER.CFG, the HTTP POST built into api_request_plain. The K
-LINK window is still on the floppy — its 7.0 KiB slot at
-0x1800..0x3400 stands empty, the largest visible free band.
+LINK window is still on the floppy — its 7.5 KiB slot at
+0x1800..0x3600 stands empty, the largest visible free band.
 ```
 <!-- END MAP: stage-agent-prep -->
 
@@ -133,7 +133,7 @@ LINK window is still on the floppy — its 7.0 KiB slot at
   │ 0x0000 │██████████cchw,,,,,,,,,,,,,,,,cc│
   │ 0x1000 │▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒│
   │ 0x2000 │▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒│
-  │ 0x3000 │▒▒▒▒▒▒▒▒ttrrrrttttttaam+++++++||│
+  │ 0x3000 │▒▒▒▒▒▒▒▒▒▒▒▒ttrrrrttttttaam+++||│
   └────────┴────────────────────────────────┘
 
 Densest moment. K LINK window loaded; persistent TLS state
@@ -153,7 +153,7 @@ is already reserved. Nothing is free here - 16 KiB at full pack.
   │ 0x0000 │██████████cchw,,,,,,,,,,,,,,,,cc│
   │ 0x1000 │▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒│
   │ 0x2000 │▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒│
-  │ 0x3000 │▒▒▒▒▒▒▒▒ttrrrrr:::::aam+++++++||│
+  │ 0x3000 │▒▒▒▒▒▒▒▒▒▒▒▒ttrrrrr:::::aam+++||│
   └────────┴────────────────────────────────┘
 
 Chat loop after the first response. The K window, session keys, and

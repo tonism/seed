@@ -22,7 +22,7 @@ All multi-byte values are little-endian.
 ```text
 offset  size  value
 0x00    4     magic: "SEED"
-0x04    1     structure version: 3
+0x04    1     structure version: 4
 0x05    1     structure size: 46
 0x06    2     build number
 0x08    2     flags
@@ -85,6 +85,8 @@ re-verify the low scratch fits via `tools/check-layout.py`.
 0x0002  NIC responded
 0x0004  adapter family resolved
 0x0008  MAC address valid
+0x0010  CPU is 286 or better (handoff_flag_cpu_286plus) — gates the secure tier
+0x0020  FPU present (reserved; held but inert — the FPU does not unlock secure crypto)
 ```
 
 ## NIC Families
@@ -187,12 +189,13 @@ readiness, one receive-frame read when a packet is already pending,
 DHCPDISCOVER transmit, and a two-pass bounded filtered DHCPOFFER wait. When an
 offer is available, Seed sends DHCPREQUEST and performs a bounded DHCPACK wait.
 After DHCPACK, it sends a bounded ARP request for the DHCP-provided DNS server
-and records the resolved MAC internally for the DNS packet step. It then reads
-the optional `NET.CFG` probe host, falls back to `example.com` if that file is
-missing or invalid, sends a minimal DNS A query, and records the returned IPv4
-address internally. Seed selects the TCP next hop using the DHCP subnet mask and
-router, ARPs that next hop, opens a TCP connection to port 80, and sends the
-final ACK after receiving a matching SYN-ACK.
+and records the resolved MAC internally for the DNS packet step. It then resolves
+the selected agent host with a minimal DNS A query and records the returned IPv4
+address internally. (Build 11 removed the old standalone `example.com` port-80
+connectivity probe and its `NET.CFG` parse; the DNS and TCP path now targets the
+agent endpoint directly.) Seed selects the TCP next hop using the DHCP subnet mask
+and router, ARPs that next hop, opens a TCP connection to the agent endpoint, and
+sends the final ACK after receiving a matching SYN-ACK.
 The NE receive path records separate DMA, ring-header, and byte-count failures
 so DHCP receive behavior can be diagnosed without changing user-facing text.
 When status is 7, the IP, subnet mask, router, and DNS fields contain
@@ -224,28 +227,26 @@ writing the validated values back best-effort.
 If agent endpoint reachability fails, status is set to 5 and Seed enters the
 agent setup error path before the ready splash.
 
-## Context-management knobs (Build 9)
+## Context-management knobs
 
-Build 9 adds a conversation context window with model-driven compaction, governed by three knobs:
+Seed runs a conversation context window with model-driven compaction (see
+[../../docs/architecture.md](../../docs/architecture.md), "User/Agent Environment").
+Three knobs govern it:
 
 ```text
-window      conversation window address. Recent turns accumulate here (raw, JSON-escaped only at
-            send) and ride in the request "input" ahead of the prompt.
+window      conversation window address. Recent turns accumulate here (raw, JSON-escaped
+            only at send) and ride in the request ahead of the prompt.
 arena       user/agent arena address - the free RAM Seed leaves for the agent to build in.
 threshold   the compaction-threshold byte: address + value, default 3/4 of the window.
 ```
 
-Compaction is **measured before each request**: when the window is past the threshold (default
-3/4) Seed appends a directive asking the model to emit a one-line recap FIRST, then its answer. The
-renderer captures that recap straight into the window and never draws it (recap-first invisible
-compaction); the user sees only a dim, fast-typed `compacting context` status line and then the
-answer, while the recap silently replaces the verbatim history. Measuring
-before send guarantees the reply has room to land. The window scales with RAM on larger machines,
-so a bigger machine holds more verbatim context and compacts less often with no mechanism change.
+Compaction is measured before each request: when the window is past the threshold, Seed
+compacts the older turns into a rolling model-written summary (the `COMPACT` static prompt's
+contract) and keeps the recent turns verbatim, so context is preserved while the window stays
+bounded; the user sees a dim, fast-typed `compacting context` status line. Measuring before
+send guarantees the reply has room to land. The window and arena scale with RAM on a larger
+machine, so it holds more verbatim context and compacts less often with no mechanism change.
 
-These knobs are intended to be advertised to the agent in the ledger (the model-facing text
-serialization of this block) as `win@<hex> arena@<hex> compact@<hex>=<dec>` so the agent can
-discover and tune them - writing the threshold byte retunes when compaction fires (higher = less
-often, lower = sooner). **Deferred to Build 10:** advertising actionable addresses in Build 9,
-before any memory-write tool exists, makes the model try to act on them and hallucinate
-memory-write tool calls; the ledger advertisement lands with the Build 10 write tool.
+These knobs are advertised to the agent in the ledger (the model-facing serialization of this
+block) as `win@<hex> arena@<hex> compact@<hex>=<dec>`, so the agent can discover and tune them -
+writing the threshold byte retunes when compaction fires (higher = less often, lower = sooner).
