@@ -300,5 +300,47 @@ sectors, check-layout OK).
   new flags bits (0x0010 CPU, 0x0020 FPU) + the stale "Context-management knobs (Build 9)"
   recap section + its `NET.CFG`/port-80 network narrative; regenerate `docs/memory.md`.
 
+## 286 secure tier — increment A LANDED (real ECDHE), 2026-06-14
+
+Provider list first stripped to OpenAI-only (commit 584ef80): the others were never wired end
+to end (agent_request builds only `/v1/responses`); AGENTS.CFG + the dead host switch + the
+built-in fallback IDs all cut.
+
+**Increment A — real ECDHE key agreement (commit c87a411), VALIDATED END TO END @286@6.**
+- **Module mechanism.** `core/p256.inc` makes thousands of absolute self-references, so it
+  can't use the per-label PHASE_BASE fixup small phases use. Solved by assembling it as its OWN
+  flat binary at its run address — `core/p256_module.asm` (`org p256_module_load`) +
+  `core/p256_data.inc` — `incbin`'d into CORE.SYS (Makefile rule + a core.asm incbin AFTER the
+  NIC drivers, so existing phase/driver offsets are unchanged; resident bytes byte-identical bar
+  the header total-sectors field). 14 sectors. Loaded ONLY on the 286 path into a high band
+  aliasing the 32K loop cache (lifetime-disjoint; 16K never loads it -> 0 resident RAM).
+  Code+data all at 0x4400+ -> LANDMINE #4 holds by construction. ABI = an entry-point-only
+  near-POINTER word table at the module base (NOT a jmp table -- `jmp near` shortens to short and
+  broke the fixed stride); resident calls in via `call word [p256_ep_*]`.
+- **Wiring (286-gated):** L phase mixes a real entropy pool (LCG random + MAC + BIOS tick + PIT
+  phase) -> SHA-256 -> client scalar (never 1/2 -> LANDMINE #3 holds), then client_public =
+  scalar x G PRE-CONNECT (outside the server window). CKE sends real client_public (8088: fixed
+  G); SKE parser hands the server point to the module (8088: X-passthrough); premaster =
+  client_private x server_public, computed after the CKE is on the wire, before the PRF.
+- **286-network blocker (separate fix, commit 42f47b5).** The 286 harness never had a NIC;
+  adding ne2k8/SLiRP, the boot died "network setup failed 01/01". A temporary on-screen hex dump
+  showed base=**0x320**, family=0, flags=0x0012 (cpu_286plus + nic_present, NO mac_valid). Root
+  cause: `resolve_network_config` dispatched ONLY base 0x300 to the NE path, but
+  `hardware_nic_ports` probes 0x300..0x3a0 -- a NIC above 0x300 was found yet left unresolved.
+  Fix: `jae 0x300` (8088-safe). After it the dump read 0x320 / 02 / 001E (all flags set).
+- **Validation:** check-p256.py + `p256_eval.py --full` (scalar_mult==PEER_PUBLIC, unicorn);
+  8088 16K ne2k8 greets (secure gated off, no regression); **286 @6 MHz completes the full
+  real-ECDHE handshake and greets** -- the server accepted our Finished => keys matched => a
+  correct premaster => bidirectional key agreement. Channel now has REAL key agreement; cert
+  AUTH is increment B (confidential-but-unauthenticated until then).
+
+REMAINING: B = RSA-2048 cert-chain verify (ASN.1 + PKCS#1 + pinned anchor + the mandatory SKE-
+signature verify; switch cipher to ECDHE_RSA 0xcca8 + advertise rsa_pkcs1_sha256). C = the 286
+module band in check-layout.py + reconnect (reload module, then re-preload the loop cache). D =
+the pre-286 "insecure" splash. Trust model (user-delegated): real cert-chain verify, pinned
+issuing-CA key; 8 MHz the comfortable secure floor (6 MHz a labelled knife-edge). The pinned
+anchor bytes + the live-accept test need the user's network (none in this env); api.openai.com
+is Cloudflare-fronted (HTTPS remotes 172.66/162.159 on the wire).
+
 Build 12 lives on `work/scaling`, NOT pushed. The release (fast-forward `main`,
 annotated tag `build-12`, per `AGENTS.md`) is the user's single push when satisfied.
