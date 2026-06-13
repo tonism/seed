@@ -32,7 +32,7 @@ agents_cfg_phase_load_builtin:
     pop es
     mov si, low_scratch_start + (agents_cfg_phase_builtin_ids - PHASE_BASE)
     mov di, agent_ids
-    mov bx, 3
+    mov bx, 1
 .next_builtin:
     mov cx, agent_id_len
 .copy:
@@ -42,7 +42,7 @@ agents_cfg_phase_load_builtin:
     add di, 16 - agent_id_len
     dec bx
     jnz .next_builtin
-    mov byte [agent_count], 3
+    mov byte [agent_count], 1
     ret
 
 agents_cfg_phase_find:
@@ -212,11 +212,9 @@ agents_cfg_phase_find_prompts:
 agents_cfg_phase_identity_name db 'IDENTITY   '
 agents_cfg_phase_compact_name db 'COMPACT    '
 agents_cfg_phase_name db 'AGENTS  CFG'
+; Build 12: OpenAI-only. The other providers (litellm/openrouter/anthropic/google) were never wired
+; end-to-end (agent_request builds only the openai-responses path) so they are removed until tested.
 agents_cfg_phase_builtin_ids db 'openai', 0
-                            times agent_id_len - 7 db 0
-                            db 'anthropic', 0
-                            times agent_id_len - 10 db 0
-                            db 'google', 0
                             times agent_id_len - 7 db 0
 
 agents_cfg_phase_find_root_file:

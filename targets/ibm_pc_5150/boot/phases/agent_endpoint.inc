@@ -47,36 +47,11 @@ agent_endpoint_phase:
     stc
     ret
 .endpoint_body:
+    ; Build 12: OpenAI-only. The other providers (litellm/openrouter/anthropic/google) were never
+    ; wired end-to-end (agent_request builds only the openai-responses path) and are removed until
+    ; tested, so the DNS/SNI host is always api.openai.com -- the cold connect AND a chat reconnect.
     mov word [tcp_dest_port_word], tcp_port_https_word
-    cmp byte [handoff_addr + handoff_status], handoff_status_ready
-    je .open_provider
-    call agent_endpoint_phase_selected_agent_needs_endpoint
-    jc .known_provider
-    mov si, seed_endpoint
-    jmp .set_dns_target_from_text
-.known_provider:
-    cmp byte [seed_agent_id], 'o'
-    je .open_provider
-    cmp byte [seed_agent_id], 'a'
-    je .anthropic
-    cmp byte [seed_agent_id], 'g'
-    je .google
-    stc
-    ret
-.open_provider:
-    cmp byte [seed_agent_id + 4], 'r'
-    je .openrouter
     mov si, low_scratch_start + (host_openai_text - PHASE_BASE)
-    jmp .set_dns_target_from_text
-.openrouter:
-    mov si, low_scratch_start + (host_openrouter_text - PHASE_BASE)
-    jmp .set_dns_target_from_text
-.anthropic:
-    mov si, low_scratch_start + (host_anthropic_text - PHASE_BASE)
-    jmp .set_dns_target_from_text
-.google:
-    mov si, low_scratch_start + (host_google_text - PHASE_BASE)
-
 .set_dns_target_from_text:
     call .skip_endpoint_prefix
     cmp byte [si], 0
@@ -223,18 +198,6 @@ reconnect_word_len equ 11
 reconnect_failed_text equ reconnect_msg_text + reconnect_word_len
 reconnect_failed_len equ 7
 
-host_openrouter_text db 'openrouter.ai', 0
 host_openai_text db 'api.openai.com', 0
-host_anthropic_text db 'api.anthropic.com', 0
-host_google_text db 'generativelanguage.googleapis.com', 0
-
-agent_endpoint_phase_selected_agent_needs_endpoint:
-    cmp byte [seed_agent_id], 'l'
-    jne .no
-    clc
-    ret
-.no:
-    stc
-    ret
 
 %unmacro phase_call_res 1
