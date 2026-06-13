@@ -6,10 +6,15 @@ single-sided 160K image, so this boots the 360K double-sided image (the 2-image
 decision). A crafted CMOS gets the AT past SETUP (it halts on a blank CMOS; the XT
 has none). 6 MHz is the security clock (the lowest secure CPU); --speed picks others.
 
+An ne2k8 NIC on SLiRP is attached so the 286 can run the REAL secure handshake end to
+end (the 286 secure tier needs the network -- without a NIC the boot dies at DHCP). The
+286 is a direct floppy boot, so ram_top is the loader's 0x8000 (the 32K tier): the
+floppy-free loop cache + the 286-only P-256 module both live in that high region.
+
 Reuses run86box.py's emulator launch + macOS window screenshot + COM1 capture.
 
-  python3 tools/run-286-86box.py                      # boot floppy-360k.img @6 MHz
-  python3 tools/run-286-86box.py --speed 8 --timeout 60
+  python3 tools/run-286-86box.py                      # boot floppy-360k.img @6 MHz, networked
+  python3 tools/run-286-86box.py --speed 8 --timeout 90
 """
 from __future__ import annotations
 import argparse
@@ -62,6 +67,15 @@ keyboard_type = keyboard_at
 mouse_type = none
 [Ports (COM & LPT)]
 serial1_passthrough_enabled = 1
+[Network]
+net_01_card = ne2k8
+net_01_link = 1
+net_01_net_type = slirp
+net_01_promisc = 0
+net_01_switch_group = 0
+net_02_link = 0
+net_03_link = 0
+net_04_link = 0
 [Storage controllers]
 
 [Floppy and CD-ROM drives]
@@ -75,7 +89,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--image", default=str(DEFAULT_IMG))
     ap.add_argument("--speed", type=int, default=6, help="286 clock in MHz (default 6 = security clock)")
-    ap.add_argument("--timeout", type=float, default=45.0, help="seconds to wait before the screenshot")
+    ap.add_argument("--timeout", type=float, default=120.0,
+                    help="seconds to wait before the screenshot (default 120: the @6 secure handshake "
+                         "is the slow case -- ECDHE keypair gen ~6.6s + handshake ~14s + the model reply)")
     ap.add_argument("--out", default=str(ROOT / "build" / "ibm_pc_5150" / "boot-286-360k.png"))
     args = ap.parse_args()
 

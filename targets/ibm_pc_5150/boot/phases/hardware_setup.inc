@@ -213,8 +213,13 @@ resolve_network_config:
     je .known_3c503
     cmp ax, 0x280
     je .detect_io_280
+    ; Build 12: any probed base at/above 0x300 is the NE-family range. hardware_nic_ports probes
+    ; 0x300..0x3a0, but resolve only dispatched the exact 0x300 -> an NE2000 jumpered higher (real
+    ; cards vary; 86Box's ibmat puts ne2k8 at 0x320) was found by the probe yet left unresolved
+    ; (no family -> no MAC -> packet_io_init "01/01"). `jae` routes the whole range to detect_ne.
+    ; 8088-safe: 0x300 still goes NE; bases below 0x300 (0x2a0/0x2c0/0x2e0) keep the old ELSE.
     cmp ax, 0x300
-    je .detect_ne
+    jae .detect_ne
     mov cx, load_ticks
     phase_call_res wait_ticks
     ret
