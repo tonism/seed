@@ -99,10 +99,27 @@ it (re-derived from WR1 each boot after a rotation; the floppy is read-only). CA
 match Python AND the strongest gate — running rsa_adopt then rsa_verify reproduces pow(sig,65537,n).
 ~3M instrs for the doublings (~2s @6, off-race, once per rotation — fine).
 
-### Remaining port work (see PARSER_CONTRACT.md checklist)
-- 2c orchestration in p256_module.asm: a new entry point that calls the parser, SHA-256(tbs span),
-  loads WR1 constants into rsa_verify, reconstruct+compare (reuse the SKE path), then the
-  validity-vs-RTC compare, then adopt the leaf key.
-- 2d recertify state machine + the dim `> recertify` line.
-- 2e network-time -> CMOS RTC (HTTP Date header) + the validity gate (task 7).
-- 2f K-window fit (golf) + hardware @6/@8 + 8088/16K NIC-matrix regression.
+### 2c — the full chain-verify (standalone, asm) — DONE, unicorn-green
+`core/x509_chain_verify.inc` (`x509_chain_verify`, in: SI=leaf DER, CX=len): x509_parse_leaf ->
+SHA-256 over the captured TBS span -> load the baked WR1 constants -> rsa_pkcs1_verify. On accept,
+x509_mod_ptr/nb_ptr/na_ptr are ready for the caller's validity-vs-RTC compare + rsa_adopt.
+`core/rsa_pkcs1.inc` factors the EMSA-PKCS1-v1.5 reconstruct+256-byte-compare (+ the be<->LE
+conversions) out of the shipped SKE path so both the in-race verify and the chain-verify share it
+(the module's inline copy stays untouched for now; dedup happens at wiring time to avoid re-validating
+the shipped path off-hardware). `tools/crypto-bench/chain_eval.py`: against the BAKED real WR1 anchor,
+the real leaf ACCEPTS, and sig-bit-flip / TBS-tamper / non-WR1-CA / truncation all REJECT. ~7.1M
+instrs (≈ one RSA verify ≈ 6.4s @6, off-race — fine).
+
+### Trust core COMPLETE in asm + offline-proven: parse (2a) + adopt (2b) + chain-verify (2c).
+
+### Remaining = module integration + hardware (the fresh-context-worthy phase)
+- 2d wire into p256_module.asm: a new entry point exposing x509_chain_verify; %include the new incs;
+  dedup the SKE path onto rsa_pkcs1.inc; locate the leaf in the TLS Certificate message (3-byte
+  length prefixes, first cert); the recertify state machine (in-race SKE verify fails -> off-race
+  chain-verify -> adopt -> retry) + the dim `> recertify` line (analogous to `> reconnect`).
+- 2e network-time -> CMOS RTC (parse the HTTP Date response header) + the validity-vs-RTC gate (task
+  7); cold-boot-before-first-response = validity best-effort.
+- 2f K-window fit (golf -- 15 sectors, no slack) + hardware: 286 @6/@8 steady-state, a simulated
+  rotation (pin an old leaf, present the real WR1-signed one) -> silent recertify -> greets; tampered
+  -> reject; 8088/16K NIC-matrix regression. Read the FULL build output + confirm a fresh CORE.SYS
+  md5 before any --no-build run.
