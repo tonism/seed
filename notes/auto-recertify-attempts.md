@@ -152,6 +152,15 @@ demand-loaded phase to free resident space (architectural), (3) a leaner capture
 footprint, stream to the high buffer). The orchestration BODY (parse→SHA→chain→adopt→retry) can be a
 PHASE; only the capture + the fail-trigger are forced resident. This fit problem is the real 2d-ii
 gate and wants careful, fresh attention.
+
+**FIT LARGELY SOLVED (2026-06-14): the NUCLEUS has ~159 bytes free** (0x1000..0x1600 = 1536 B; last
+nonzero at 1377; the 0x1600 active-driver slot is separately reserved). Put the capture ROUTINE
+(~50-60 B) in the NUCLEUS (call it from the K-window drain via `phase_call_res`) and the
+orchestration BODY in a PHASE — so the K window only needs the tiny CALL-SITE hook + SKE-fail
+trigger. That cuts the golf from ~50-100 B of fragile crypto math down to **~10 B** of K-window hook
+— far more tractable. Net 2d-ii: capture→nucleus; orchestration→a recertify phase; ~10 B K-window
+golf; `> recertify` in the endpoint phase. Still intricate (fragmented-capture correctness, retry
+wiring, rotation-sim hardware test, 8088 regression) but no longer fragile-crypto-golf-gated.
 - 2e network-time -> CMOS RTC (parse the HTTP Date response header) + the validity-vs-RTC gate (task
   7); cold-boot-before-first-response = validity best-effort.
   **OFFLINE ORACLE DONE** (`tools/x509/http_date_rtc.py`, 2026-06-14, user said prototype it
