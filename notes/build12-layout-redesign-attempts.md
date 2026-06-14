@@ -334,13 +334,53 @@ built-in fallback IDs all cut.
   correct premaster => bidirectional key agreement. Channel now has REAL key agreement; cert
   AUTH is increment B (confidential-but-unauthenticated until then).
 
-REMAINING: B = RSA-2048 cert-chain verify (ASN.1 + PKCS#1 + pinned anchor + the mandatory SKE-
-signature verify; switch cipher to ECDHE_RSA 0xcca8 + advertise rsa_pkcs1_sha256). C = the 286
-module band in check-layout.py + reconnect (reload module, then re-preload the loop cache). D =
-the pre-286 "insecure" splash. Trust model (user-delegated): real cert-chain verify, pinned
-issuing-CA key; 8 MHz the comfortable secure floor (6 MHz a labelled knife-edge). The pinned
-anchor bytes + the live-accept test need the user's network (none in this env); api.openai.com
-is Cloudflare-fronted (HTTPS remotes 172.66/162.159 on the wire).
+## 286 secure tier — COMPLETE (B/C/D landed), 2026-06-14
+
+**Trust model RE-DECIDED with the user once the real chain was in hand.** api.openai.com's leaf
+is RSA-2048 but issued by Google Trust Services WR1 (RSA-2048 intermediate) under an RSA-4096 root
+(too slow to chain to) with ~90-day leaves. Each RSA-2048 verify is ~6.4s@6 / ~4.8s@8; the
+mandatory ServerKeyExchange-signature verify is already 1. Chaining to WR1 (2 verifies) needs
+~12 MHz; so the user chose **PIN THE LEAF KEY** (1 verify -> fits the 6 MHz window / the FINDINGS
+budget). Real cert auth (possession proof of the pinned key); brittle to leaf rotation (re-pin).
+
+**B — RSA cert authentication (commit 4e330a6).** tools/gen-rsa-pinned-key.py bakes the leaf
+modulus + Montgomery params (generator self-tested vs the bench, ck=54F2) into core/rsa_pinned_key.inc
+(documents subject/issuer/dates/SHA-256 fingerprint; re-pin on rotation). The module gained the bench
+RSA modexp (core/rsa_verify.inc) + p256_ep_verify_ske_sig: reconstruct the FULL EMSA-PKCS1-v1.5
+block + whole-256-byte memcmp (no lax parsing -> forgery-resistant). 286 ClientHello (patched
+pre-build) offers ECDHE_RSA (0xcca8) + only rsa_pkcs1_sha256; the ServerHello cipher-accept folds
+0xcca8/0xcca9 with one masked compare (8088-harmless). The SKE parser (286-gated) requires
+{sha256,rsa,256-byte sig}, hashes client_random||server_random||ServerECDHParams (save/restore the
+transcript SHA), verifies vs the pinned key BEFORE the CKE/premaster; a mismatch fails the handshake.
+**DEBUG TRAIL (the cipher switch broke the handshake before the verify):** a verify-stub + temp
+net_status milestones localized it -- net_status stuck at tcp_connected (18) => failed in
+tls_wait_for_server_hello, where `cmp word [di],0xa9cc` rejected the server's 0xcca8 echo. The
+masked accept fixed it; then the stubbed handshake greeted (cipher/cert/SKE/premaster all OK with
+the bigger RSA chain), so only the verify needed unstubbing + a K-window fit (15 sectors, no slack
+-> golfed a redundant `mov di` + the masked accept). Also surfaced: the RSA Certificate message is
+~4 KB (3 certs) vs the smaller ECDSA chain, but Seed's streaming cert drain handles it fine.
+
+**C — module layout (commit 868b4c6).** check-layout.py now models the 286 module band
+(0x4400..0x7400, overlays the 32K loop cache, 0 RAM on 16K) + asserts it stays above the critical
+scratch (no 0x0700/0x36c2 alias) and within the loop cache. Reconnect safety: the secure-prep zeroes
+loop_cache_count when it loads the module (the module clobbers the cached chat phases on a mid-chat
+reconnect) -> later phase loads demand-read the floppy; no-op on the boot path.
+
+**D — pre-286 "insecure" splash (commit f2a2b7e).** A dim "insecure" on the splash's 2nd line,
+right-aligned under "seed build NN", shown only when handoff_flag_cpu_286plus is CLEAR (8088).
+
+**VALIDATED end to end (the networked 286 harness made this real):**
+- 286 @8 MHz: ACCEPTS OpenAI's real signature and greets (authenticated handshake); a 1-bit-tampered
+  pinned modulus REJECTS it (handshake fails) -> the pin is enforced. No "insecure" on the splash.
+- 286 @6 MHz: greets too -- the FULL secure handshake (ECDHE + RSA cert auth + PRF) fits the lowest
+  6 MHz 286. "Security begins at the 286" holds; per FINDINGS @6 is a ~1.2s-slack knife-edge (may
+  flake), @8 the comfortable floor.
+- 8088 16K (ne2k8): greets (secure gated off, no regression) and shows the dim "insecure".
+- Offline: check-p256.py + rsa_eval.py (modexp) + the generator self-test.
+
+NOTE: api.openai.com's leaf is GTS-issued (NOT Cloudflare as the handover assumed; the 172.66/
+162.159 IPs are a Cloudflare front, but the cert chain is GTS). The pinned leaf is valid ->
+2026-08-08; re-pin with tools/gen-rsa-pinned-key.py before then.
 
 Build 12 lives on `work/scaling`, NOT pushed. The release (fast-forward `main`,
 annotated tag `build-12`, per `AGENTS.md`) is the user's single push when satisfied.

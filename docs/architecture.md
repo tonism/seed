@@ -545,22 +545,40 @@ And the part that is *not* tractable on the 8088 — the honest gap:
 - So on a stock 8088 the public-key story is CPU-gated to minutes, and the
   product stays honestly **encrypted but not secure**.
 
-**Security begins at the 286** (measured, same harness). An FPU does *not*
-rescue the 8088 (SHA is FPU-immune; the P-256 reduction/carry work dominates) —
-the real lever is CPU class. An optimised real ECDHE (Solinas + Karatsuba +
-wNAF P-256, OpenSSL-verified) is 6.6 s on the lowest 6 MHz 286, and a full
-cert-authenticated handshake (ECDHE + RSA-2048 verify 6.37 s + the fast PRF)
-fits the provider's ~15 s window: **~13.8 s at 6 MHz** (a knife-edge, and only
-with the 4.64× SHA win) and a comfortable **~10.4 s at 8 MHz**. So a real secure
-channel is a **286@8+ tier** today.
+**Security begins at the 286 — implemented (Build 12).** An FPU does *not* rescue
+the 8088 (SHA is FPU-immune; the P-256 reduction/carry work dominates) — the real
+lever is CPU class. On a 286 the secure channel is now **real, not skipped**:
 
-> **Full 286 coverage is a Build-12 prerequisite, not a free byproduct.** The
-> 6 MHz fit is a ~1.2 s knife-edge and leans entirely on the fast SHA; the
-> heaviest piece, RSA-2048 verify (6.37 s), is still plain CIOS. Claiming the
-> full 286 range secure down to 6 MHz with real slack needs a further
-> crypto-optimisation pass — a dedicated squaring path (RSA → ~4.3 s) plus
-> further ECDHE/PRF wins. That work is in scope for the secure-tier claim.
-> Detail + reproducible benchmarks: `tools/crypto-bench/results/FINDINGS.md`.
+- **Real ECDHE key agreement.** The optimised constant-time P-256 (Solinas +
+  Karatsuba + wNAF, OpenSSL-verified, ~6.6 s/scalar-mult on the lowest 6 MHz 286)
+  is wired as a 286-only handshake module: the client generates a real ephemeral
+  keypair from an entropy pool (PIT/MAC/tick → SHA-256), sends its real public
+  point, and derives the premaster = client_private × server_public. No more
+  scalar-1 stub — the session keys are a genuine secret.
+- **Real server authentication.** The 286 negotiates ECDHE_RSA and verifies the
+  ServerKeyExchange's RSA-2048-PKCS#1 signature (the one in-race RSA verify) against
+  a **pinned provider leaf public key** — proving the server holds that key. The
+  trust anchor is the pinned `api.openai.com` leaf (Google Trust Services-issued,
+  RSA-2048); pinning the leaf (vs chaining to its RSA-4096 root, ~3 verifies, too
+  slow) keeps the verify to one RSA op so it fits the lowest 286. It is brittle by
+  design — re-pin with `tools/gen-rsa-pinned-key.py` on leaf rotation — but it is
+  *real* authentication, not a cosmetic flag.
+
+The 286-only crypto (P-256 + RSA verify + cert glue, ~10 KiB) lives in a
+handshake-only module that overlays the 32 KiB loop cache (0 resident RAM on
+16 KiB); the 16 KiB hot path never loads it.
+
+**Validated** on the 6 MHz 286 (the knife-edge) and the 8 MHz 286: both complete a
+full real-ECDHE + RSA-cert-authenticated handshake and reach the model, and a
+one-bit-tampered pinned key is *rejected* (the handshake fails) — the pin is
+enforced. The full secure handshake fits the provider's ~15 s window even at 6 MHz,
+though per the measurements that is a ~1.2 s-slack knife-edge that may flake on a
+degraded link; **8 MHz is the comfortable secure floor**. The 16 KiB / 4.77 MHz
+8088 floor is unchanged — still honestly **encrypted, not secure** (no key
+agreement, no authentication), and a pre-286 machine now shows a dim **"insecure"**
+on the splash to say so. Detail + reproducible benchmarks:
+`tools/crypto-bench/results/FINDINGS.md`; the secure-tier build log is
+`notes/build12-layout-redesign-attempts.md`.
 
 The handshake race is also why the chat loop reuses one session instead of
 reconnecting per turn — a fresh mid-chat handshake can lose the race:
