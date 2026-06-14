@@ -63,4 +63,37 @@ checklist): new module entry point, port the strict reader + positional walk, re
 with WR1 constants, port the adopt math (n0inv Newton + r2 doubling), the recertify state machine +
 `> recertify` line, fit the K window, then validate 286 @6/@8 + 8088/16K regression.
 
-## Phase 2 — 286 port — NOT STARTED
+## Phase 2 — 286 port — IN PROGRESS
+
+User picked "start the port now" + chose to set the clock from the network (HTTP Date header) into
+the CMOS RTC so cert validity has a correct "now" (the VM clock is unreliable), and "scope an ECDSA
+tier next" (captured in notes/ecdsa-tier-scoping.md).
+
+### 2a — the strict-DER parser in asm — DONE, unicorn-green on the full matrix
+`core/x509_verify.inc` (`x509_parse_leaf`): the strict TLV reader + positional Certificate/TBS walk
++ structural/policy gates (sigalg sha256RSA inner==outer, leaf RSA-2048/e=65537, exactly-one-SAN
+with the exact host) + field extraction (tbs span, signature, leaf modulus, notBefore/notAfter).
+The signature verify (vs WR1) and the validity-vs-RTC compare are the orchestrator's job, NOT the
+parser's. Stack discipline: a BP frame so any reject is `mov sp,bp` (no per-site SP counting) +
+balanced DER_DESCEND/DER_ASCEND macros on the happy path.
+
+Offline-validated via unicorn (the project's pre-86Box rigor):
+- `tools/crypto-bench/x509_bench_harness.py` assembles the REAL .inc + a caller, runs the parser on
+  a cert in RAM, reads back accept/reject + the extracted field pointers.
+- `tools/crypto-bench/x509_eval.py` runs it against the SAME 27 tamper vectors: **asm matches the
+  oracle's parser-stage decision (parse_and_policy) on all 27**, and the asm-extracted TBS span /
+  signature / modulus equal the oracle's on all 12 accept-vectors. Real leaf: tbs_off=4 tbs_len=1062
+  sig_off=1086 mod_off=200, ~2462 instrs.
+- Oracle refactor to stay faithful: parse extracts time STRUCTURE only (tag/len/Z); the date
+  semantics (digit ranges) convert lazily in verify_leaf's RTC compare — matching the asm, which
+  also leaves validity to the orchestrator. Added `parse_and_policy` (the parser-stage oracle).
+  Tamper matrix re-run green after the refactor.
+
+### Remaining port work (see PARSER_CONTRACT.md checklist)
+- 2b adopt math (n0inv Newton + r2 = 2^4096 mod n doublings) in asm, oracle-gated under unicorn.
+- 2c orchestration in p256_module.asm: a new entry point that calls the parser, SHA-256(tbs span),
+  loads WR1 constants into rsa_verify, reconstruct+compare (reuse the SKE path), then the
+  validity-vs-RTC compare, then adopt the leaf key.
+- 2d recertify state machine + the dim `> recertify` line.
+- 2e network-time -> CMOS RTC (HTTP Date header) + the validity gate (task 7).
+- 2f K-window fit (golf) + hardware @6/@8 + 8088/16K NIC-matrix regression.

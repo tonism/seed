@@ -125,9 +125,18 @@ class DER:
 # Parsed certificate
 # ---------------------------------------------------------------------------
 @dataclass
+class RawTime:
+    raw: bytes               # the time string bytes, e.g. b"260510011306Z"
+    tag: int                 # 0x17 UTCTime / 0x18 GeneralizedTime
+
+    def to_datetime(self) -> datetime:
+        return _parse_time(self.raw, self.tag)
+
+
+@dataclass
 class Validity:
-    not_before: datetime
-    not_after: datetime
+    not_before: RawTime      # parse extracts structure only (matches the asm parser, which leaves
+    not_after: RawTime       # the date semantics to the orchestrator's RTC compare)
 
 
 @dataclass
@@ -147,26 +156,38 @@ class ParsedCert:
     subject_der: bytes = field(repr=False, default=b"")
 
 
-def _parse_time(buf: bytes, tag: int) -> datetime:
-    s = buf.decode("ascii")
+def _check_time_structure(raw: bytes, tag: int) -> None:
+    """Structural-only validation (what the asm parser does): right tag, right length, trailing 'Z'.
+    The date SEMANTICS (digit ranges, ordering) are validated lazily in _parse_time, used by the
+    validity-vs-clock compare in verify_leaf — NOT at parse time."""
     if tag == TAG_UTCTIME:
-        if len(s) != 13 or s[-1] != "Z":
-            raise DERError("UTCTime must be YYMMDDHHMMSSZ")           # strict: seconds + Z required
-        yy = int(s[0:2])
-        year = 2000 + yy if yy < 50 else 1900 + yy                   # RFC 5280 §4.1.2.5.1
-        rest = s[2:]
+        if len(raw) != 13 or raw[-1:] != b"Z":
+            raise DERError("UTCTime must be YYMMDDHHMMSSZ")
     elif tag == TAG_GENTIME:
-        if len(s) != 15 or s[-1] != "Z":
+        if len(raw) != 15 or raw[-1:] != b"Z":
             raise DERError("GeneralizedTime must be YYYYMMDDHHMMSSZ")
-        year = int(s[0:4])
-        rest = s[4:]
     else:
         raise DERError(f"unexpected time tag {tag:#04x}")
-    mo, da, ho, mi, se = (int(rest[0:2]), int(rest[2:4]), int(rest[4:6]),
-                          int(rest[6:8]), int(rest[8:10]))
-    if not (1 <= mo <= 12 and 1 <= da <= 31 and ho <= 23 and mi <= 59 and se <= 60):
-        raise DERError("time field out of range")
-    return datetime(year, mo, da, ho, mi, se, tzinfo=timezone.utc)
+
+
+def _parse_time(buf: bytes, tag: int) -> datetime:
+    _check_time_structure(buf, tag)
+    s = buf.decode("ascii", "replace")
+    try:
+        if tag == TAG_UTCTIME:
+            yy = int(s[0:2])
+            year = 2000 + yy if yy < 50 else 1900 + yy               # RFC 5280 §4.1.2.5.1
+            rest = s[2:]
+        else:
+            year = int(s[0:4])
+            rest = s[4:]
+        mo, da, ho, mi, se = (int(rest[0:2]), int(rest[2:4]), int(rest[4:6]),
+                              int(rest[6:8]), int(rest[8:10]))
+        if not (1 <= mo <= 12 and 1 <= da <= 31 and ho <= 23 and mi <= 59 and se <= 60):
+            raise DERError("time field out of range")
+        return datetime(year, mo, da, ho, mi, se, tzinfo=timezone.utc)
+    except ValueError:
+        raise DERError("non-numeric time field")
 
 
 def _parse_spki(buf: bytes, cs: int, cl: int) -> tuple[int, int, int]:
@@ -259,9 +280,11 @@ def parse_certificate(der: bytes) -> ParsedCert:
     _, vlcs, vlcl, _ = tbs.read_tlv(TAG_SEQUENCE)                    # validity
     vrd = DER(der, vlcs, vlcs + vlcl)
     nbt, nbcs, nbcl, _ = vrd.read_tlv()
-    not_before = _parse_time(der[nbcs:nbcs + nbcl], nbt)
+    _check_time_structure(der[nbcs:nbcs + nbcl], nbt)               # structure only at parse time
+    not_before = RawTime(der[nbcs:nbcs + nbcl], nbt)
     nat, nacs, nacl, _ = vrd.read_tlv()
-    not_after = _parse_time(der[nacs:nacs + nacl], nat)
+    _check_time_structure(der[nacs:nacs + nacl], nat)
+    not_after = RawTime(der[nacs:nacs + nacl], nat)
     vrd.expect_exhausted("validity")
 
     _, sjcs, sjcl, sjstart = tbs.read_tlv(TAG_SEQUENCE)              # subject Name
@@ -411,12 +434,39 @@ def verify_leaf(leaf_der: bytes, anchor_n: int, anchor_e: int = 65537, *,
     if not host_matches(cert.dns_names, host):
         return VerifyResult(False, f"SAN {cert.dns_names} does not cover {host}", cert)
 
-    # 5. validity window
-    if now < cert.validity.not_before:
+    # 5. validity window — semantic time conversion happens HERE (the orchestrator's RTC compare),
+    #    not at parse time; a malformed date fails closed
+    try:
+        not_before = cert.validity.not_before.to_datetime()
+        not_after = cert.validity.not_after.to_datetime()
+    except DERError as e:
+        return VerifyResult(False, f"validity: {e}", cert)
+    if now < not_before:
         return VerifyResult(False, "not yet valid (notBefore in the future)", cert)
-    if now > cert.validity.not_after:
+    if now > not_after:
         return VerifyResult(False, "expired (past notAfter)", cert)
 
+    return VerifyResult(True, "ok", cert, adopted_modulus=cert.spki_modulus)
+
+
+def parse_and_policy(leaf_der: bytes, host: str = "api.openai.com") -> VerifyResult:
+    """The parser-stage decision the 286 ASM parser makes: strict DER parse + sigalg(sha256RSA,
+    inner==outer) + leaf-key RSA-2048/e=65537 + exactly-one-SAN with the exact host. EXCLUDES the
+    signature verify and the validity-vs-clock compare (the orchestrator's job). This is the oracle
+    that tools/crypto-bench/x509_eval.py gates the asm parser against, so it must mirror exactly
+    what the asm decides at parse time."""
+    try:
+        cert = parse_certificate(leaf_der)
+    except DERError as e:
+        return VerifyResult(False, f"parse: {e}")
+    if cert.outer_sigalg != cert.inner_sigalg or not _sigalg_is_sha256rsa(cert.outer_sigalg):
+        return VerifyResult(False, "signatureAlgorithm not sha256WithRSAEncryption (or inner!=outer)", cert)
+    if cert.spki_bits != 2048 or cert.spki_exponent != 65537:
+        return VerifyResult(False, f"leaf key not RSA-2048/e=65537 ({cert.spki_bits}-bit e={cert.spki_exponent})", cert)
+    if cert.san_count != 1:
+        return VerifyResult(False, f"expected exactly 1 SubjectAltName, found {cert.san_count}", cert)
+    if not host_matches(cert.dns_names, host):
+        return VerifyResult(False, f"SAN {cert.dns_names} does not cover {host}", cert)
     return VerifyResult(True, "ok", cert, adopted_modulus=cert.spki_modulus)
 
 
@@ -483,7 +533,8 @@ def main() -> int:
     if res.cert:
         c = res.cert
         print(f"leaf:   serial={c.serial:#x} SAN={c.dns_names}")
-        print(f"        validity {c.validity.not_before.isoformat()} .. {c.validity.not_after.isoformat()}")
+        print(f"        validity {c.validity.not_before.to_datetime().isoformat()} .. "
+              f"{c.validity.not_after.to_datetime().isoformat()}")
         print(f"        SPKI RSA-{c.spki_bits} e={c.spki_exponent}")
     print(f"RESULT: {'ACCEPT' if res.accepted else 'REJECT'} — {res.reason}")
     if res.accepted:
