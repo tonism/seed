@@ -89,8 +89,17 @@ Offline-validated via unicorn (the project's pre-86Box rigor):
   also leaves validity to the orchestrator. Added `parse_and_policy` (the parser-stage oracle).
   Tamper matrix re-run green after the refactor.
 
+### 2b — the adopt math in asm — DONE, unicorn-green end-to-end
+`core/rsa_adopt.inc` (`rsa_adopt`, in: SI = the 256-byte big-endian leaf modulus): byte-swap to the
+128 LE limbs (rsa_n) + n0inv via 4-step Newton (16-bit) + r2 = 2^4096 mod n via 4096 modular
+doublings. Installs rsa_n/rsa_n0inv/rsa_r2 = the new leaf, so the retry handshake's SKE verify uses
+it (re-derived from WR1 each boot after a rotation; the floppy is read-only). CARRY DISCIPLINE: the
+128-limb shift/subtract loops advance pointers with INC (preserves CF), never ADD.
+`tools/crypto-bench/adopt_eval.py`: on the real leaf + 3 synthetic moduli, the derived n/n0inv/r2 all
+match Python AND the strongest gate — running rsa_adopt then rsa_verify reproduces pow(sig,65537,n).
+~3M instrs for the doublings (~2s @6, off-race, once per rotation — fine).
+
 ### Remaining port work (see PARSER_CONTRACT.md checklist)
-- 2b adopt math (n0inv Newton + r2 = 2^4096 mod n doublings) in asm, oracle-gated under unicorn.
 - 2c orchestration in p256_module.asm: a new entry point that calls the parser, SHA-256(tbs span),
   loads WR1 constants into rsa_verify, reconstruct+compare (reuse the SKE path), then the
   validity-vs-RTC compare, then adopt the leaf key.
