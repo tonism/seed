@@ -154,6 +154,16 @@ PHASE; only the capture + the fail-trigger are forced resident. This fit problem
 gate and wants careful, fresh attention.
 - 2e network-time -> CMOS RTC (parse the HTTP Date response header) + the validity-vs-RTC gate (task
   7); cold-boot-before-first-response = validity best-effort.
+  **OFFLINE ORACLE DONE** (`tools/x509/http_date_rtc.py`, 2026-06-14, user said prototype it
+  independently). Real header `Date: Sun, 14 Jun 2026 11:52:14 GMT` (RFC 7231 IMF-fixdate is
+  FIXED-WIDTH → strict fixed-offset asm parse: month table + BCD). Produces the CMOS register writes
+  (MC146818: 0x00 sec/0x02 min/0x04 hour/0x07 day/0x08 month/0x09 year, BCD via ports 0x70/0x71) AND
+  the validity-compare spec: a byte-lexicographic `YYMMDDHHMMSS` compare of the RTC vs the cert
+  notBefore/notAfter (real leaf window 260510011306..260808021049). 12 checks green incl. strict
+  rejects (wrong zone/truncated/bad-month/non-digit/out-of-range → fail closed, clock stays unset).
+  REMAINING (asm, integrates with 2d-ii): find "Date:" in the response (a phase in the response path,
+  has room — not K-window-constrained), parse, write CMOS; the validity-vs-RTC compare in the
+  recertify flow. The RTC SET (response path) and the RTC READ+compare (recertify) are decoupled.
 - 2f K-window fit (golf -- 15 sectors, no slack) + hardware: 286 @6/@8 steady-state, a simulated
   rotation (pin an old leaf, present the real WR1-signed one) -> silent recertify -> greets; tampered
   -> reject; 8088/16K NIC-matrix regression. Read the FULL build output + confirm a fresh CORE.SYS
