@@ -173,7 +173,49 @@ wiring, rotation-sim hardware test, 8088 regression) but no longer fragile-crypt
   REMAINING (asm, integrates with 2d-ii): find "Date:" in the response (a phase in the response path,
   has room — not K-window-constrained), parse, write CMOS; the validity-vs-RTC compare in the
   recertify flow. The RTC SET (response path) and the RTC READ+compare (recertify) are decoupled.
-- 2f K-window fit (golf -- 15 sectors, no slack) + hardware: 286 @6/@8 steady-state, a simulated
-  rotation (pin an old leaf, present the real WR1-signed one) -> silent recertify -> greets; tampered
-  -> reject; 8088/16K NIC-matrix regression. Read the FULL build output + confirm a fresh CORE.SYS
-  md5 before any --no-build run.
+### 2d-ii TURN-KEY EXECUTION PLAN (fully mapped 2026-06-14; every region located + sized)
+Entangled + every-region-tight — best built mostly-whole and validated by the rotation-sim test
+(below), with care to not regress the shipped @6/@8 greet. The pieces, with homes:
+1. **Capture buffer** = `chat_arena_start` (~0x3dbf; on 32K the arena runs to loop_cache_start
+   ~0x4400 = ~1.6 KB, EMPTY during the boot handshake; the ~1.3 KB leaf fits; 286-only, handshake-
+   only, lifetime-disjoint with the chat). The captured leaf survives handshake-1's drain → the
+   handshake-1 abort → `net_phase.retry` (nothing touches the arena in that path; the module reload
+   at 0x4400+ is disjoint).
+2. **Capture state** (recertify_needed flag, leaf_len, capture offset): need a home surviving
+   drain→.retry. Reconnect-safe block (0x3c9c, tight — measure) OR a handshake-scratch var not
+   clobbered between tls_probe-fail and .retry. ~5 bytes.
+3. **Capture routine** → NUCLEUS (159 B free): 286-gated INTERNALLY (so each call site is a bare
+   3-byte `call`), tracks the offset, skips the 6-byte cert framing (3-byte cert_list_len + 3-byte
+   cert0_len), copies cert0 (the leaf) bytes to the arena bounded by cert0_len, across fragments.
+   Reset at cert start. CAUTION: align EXACTLY to the drain's byte stream (tls.inc
+   tls_drain_server_certificate: the initial tls_copy_current_payload + the .need_more loop) — the
+   intricate correctness risk; the offsets must match what the drain sees.
+4. **Drain hooks** (K window): a bare `call capture_leaf` at the drain points (~3-6 B). **SKE-fail
+   flag** (K window): `mov byte [recertify_needed],1` at tls.inc:2047 CF=1 (~5 B). Total ~8-11 B in
+   the 4-free K window → golf ~5-7 B (small; the stc;ret-consolidation route is blocked by short-jump
+   reach, so hunt elsewhere — a redundant load/branch).
+5. **Recertify orchestration** → a NEW PHASE loaded at .retry (room at 0x0700; calls K-window sha256
+   + the module entries DIRECTLY like net_phase calls tls_probe, since both are loaded): parse
+   (p256_ep_parse_leaf, captured leaf) → SHA-256 over [p256_x509_result_tbs_ptr,len] (K-window
+   sha256) → p256_ep_chain_verify_sig(result sig_ptr, hash) → validity-vs-RTC (2e) → p256_ep_adopt_
+   leaf(result mod_ptr). The orchestration could also live in net_phase (nucleus) but it + the
+   capture routine together exceed the 159 free → put orchestration in the phase, capture in nucleus.
+6. **net_phase.inc `.retry` branch** (net_phase.inc:80): BEFORE `dec reconnect_retries`, if
+   recertify_needed: run the recertify phase (module still loaded from handshake-1's tls_client_hello
+   at :65; leaf intact in the arena). Accept → clear flag, render `> recertify`, fall to retry
+   (handshake-2 passes SKE with the adopted key). Reject → fail closed (continue to normal retry/fail).
+7. **`> recertify` render** (endpoint phase, agent_endpoint.inc `.render_dim_run`): analogous to
+   `> reconnect`; the text + a " done"/" failed" append.
+8. **2e asm** (decoupled, oracle = tools/x509/http_date_rtc.py): in the RESPONSE path (a phase, has
+   room) find "Date:" → fixed-offset parse → write CMOS (ports 0x70/0x71, BCD). The validity-vs-RTC
+   compare (step 5) reads CMOS → YYMMDDHHMMSS → byte-compare vs notBefore/notAfter. cold-boot-before-
+   first-response = validity best-effort (skip the gate if the RTC was never set this session).
+
+### 2f hardware validation (the gate for the whole flow)
+- **Rotation sim:** rebuild with a WRONG pinned leaf (`gen-rsa-pinned-key.py` from a different
+  modulus into rsa_pinned_key.inc) so the real leaf's SKE sig fails the pin → recertify chain-verifies
+  the real captured leaf vs WR1 → adopt → retry → **greet** (the silent re-pin). Then restore the pin.
+- **Tamper:** present a leaf that doesn't chain to WR1 → recertify rejects → fail closed.
+- **No-regression:** normal 286 @6/@8 greet (correct pin, no recertify path taken) + the 8088/16K
+  NIC-matrix (the whole flow is 286-gated; the 8088 path is untouched).
+- **GUARDRAIL: full build output + fresh CORE.SYS md5 before any --no-build run.**
