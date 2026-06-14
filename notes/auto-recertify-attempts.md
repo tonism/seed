@@ -142,6 +142,16 @@ p256_ep_chain_verify_sig(result.sig_ptr, hash) → validity-vs-RTC → p256_ep_a
 `.render_dim_run` pattern). CAUTION: the resident K window has ~no slack — the orchestration code +
 the result-readback live resident (they need sha256); measure the fit (golf if needed). This is the
 intricate, shipped-path-touching, hardware-looped part.
+
+**MEASURED GATE (2026-06-14): the K window has exactly 4 BYTES FREE** (15 sectors = 0x1800..0x3600 =
+7680 B; trailing-zero bytes in CORE.SYS = 4). The leaf CAPTURE is unavoidably resident (it hooks the
+resident drain) + the SKE-fail recertify trigger is resident — together ~50+ B that don't exist. So
+2d-ii is BLOCKED on freeing resident bytes; genuine fork: (1) bit-exact golf ~50+ B out of the
+K-window crypto (fragile — prior 74 B golfs flagged risky), (2) move a chunk of K-window code into a
+demand-loaded phase to free resident space (architectural), (3) a leaner capture (minimum resident
+footprint, stream to the high buffer). The orchestration BODY (parse→SHA→chain→adopt→retry) can be a
+PHASE; only the capture + the fail-trigger are forced resident. This fit problem is the real 2d-ii
+gate and wants careful, fresh attention.
 - 2e network-time -> CMOS RTC (parse the HTTP Date response header) + the validity-vs-RTC gate (task
   7); cold-boot-before-first-response = validity best-effort.
 - 2f K-window fit (golf -- 15 sectors, no slack) + hardware: 286 @6/@8 steady-state, a simulated
