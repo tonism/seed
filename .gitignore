@@ -5,3 +5,4 @@ build/
 /USER.CFG
 /config/USER.CFG
 /config/USER.CFG.bak-*
+openai-chain.pem

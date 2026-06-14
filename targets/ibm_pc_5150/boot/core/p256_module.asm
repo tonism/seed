@@ -34,6 +34,7 @@ p256_ep_table:
     dw p256_ep_set_server_ec_impl               ; [+4]
     dw p256_ep_compute_premaster_impl           ; [+6]
     dw p256_ep_copy_client_public_impl          ; [+8]
+    dw p256_ep_verify_ske_sig_impl              ; [+10]  (286 secure tier increment B: RSA cert auth)
 p256_ep_table_end:
 
 ; ---- entry implementations (thin wrappers over the verified p256.inc primitives) ----
@@ -99,15 +100,130 @@ p256_ep_copy_client_public_impl:
     rep movsb
     ret
 
-; ---- the verified P-256 implementation + its module-resident data ----
+; ---- 286 secure tier increment B: RSA cert authentication (leaf-key pin) ----
+; Verify the ServerKeyExchange's RSA-PKCS1-v1.5-SHA256 signature against the PINNED leaf public key
+; (rsa_pinned_key.inc). This is the ONE in-race RSA verify; passing it proves the server holds the
+; pinned api.openai.com leaf private key (possession proof) -> the channel is authenticated.
+; in:  SI = the 256-byte signature (big-endian wire bytes), DI = the 32-byte expected hash h =
+;          SHA-256(client_random || server_random || ServerECDHParams) -- the resident K window does
+;          the SHA (the module has none) and hands h in.
+; out: CF=0 valid, CF=1 invalid. Rigour: the recovered block is compared to a fully RECONSTRUCTED
+;      EMSA-PKCS1-v1.5 block (00 01 FF..FF 00 DigestInfo h) with a whole-256-byte memcmp -- no lax
+;      structural parsing, so padding-forgery vectors (e.g. Bleichenbacher-style) cannot slip through.
+p256_ep_verify_ske_sig_impl:
+    push di                                      ; save h ptr
+    mov di, rsa_sig
+    call rsa_from_be256                          ; rsa_sig <- the wire signature (BE -> LE words)
+    pop si                                       ; si = h
+    call rsa_build_expected_block                ; rsa_expected <- EMSA-PKCS1-v1.5(h)
+    call rsa_verify                              ; rsa_result = rsa_sig^65537 mod rsa_n (LE words)
+    mov si, rsa_result
+    mov di, rsa_recovered
+    call rsa_to_be256                            ; rsa_recovered <- the recovered block (LE words -> BE)
+    push ds
+    pop es
+    cld
+    mov si, rsa_recovered
+    mov di, rsa_expected
+    mov cx, tls_ec_coordinate_len * 8            ; 256 bytes
+    repe cmpsb
+    jne .invalid
+    clc
+    ret
+.invalid:
+    stc
+    ret
+
+; si = 256 big-endian bytes, di = 128 LE-word dest. Preserves SI/DI (so the caller's h ptr survives).
+rsa_from_be256:
+    push ax
+    push bx
+    push cx
+    push si
+    push di
+    mov bx, si
+    add bx, 255                                  ; -> the least-significant byte
+    mov cx, 128
+.next:
+    mov al, [bx]
+    mov ah, [bx - 1]
+    mov [di], ax
+    add di, 2
+    sub bx, 2
+    loop .next
+    pop di
+    pop si
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; si = 128 LE words, di = 256 big-endian bytes dest.
+rsa_to_be256:
+    push ax
+    push bx
+    push cx
+    push si
+    push di
+    mov bx, si
+    add bx, 254                                  ; -> the most-significant word
+    mov cx, 128
+.next:
+    mov ax, [bx]
+    mov [di], ah                                 ; high byte first (big-endian)
+    mov [di + 1], al
+    add di, 2
+    sub bx, 2
+    loop .next
+    pop di
+    pop si
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; si = the 32-byte hash h. Reconstructs the EMSA-PKCS1-v1.5(SHA-256) block (big-endian) into
+; rsa_expected: 00 01 [FF x 202] 00 [19-byte SHA-256 DigestInfo prefix] [h x 32] (= 256 bytes).
+rsa_build_expected_block:
+    push ds
+    pop es
+    cld
+    mov dx, si                                   ; stash h ptr
+    mov di, rsa_expected
+    mov al, 0x00
+    stosb
+    mov al, 0x01
+    stosb
+    mov al, 0xff
+    mov cx, 202
+    rep stosb
+    mov al, 0x00
+    stosb
+    mov si, rsa_sha256_digestinfo
+    mov cx, 19
+    rep movsb
+    mov si, dx
+    mov cx, 32
+    rep movsb
+    ret
+
+; The DER DigestInfo prefix for SHA-256 (RFC 8017): SEQ{ SEQ{ OID sha256, NULL }, OCTET STRING(32) }.
+rsa_sha256_digestinfo:
+    db 0x30,0x31,0x30,0x0d,0x06,0x09,0x60,0x86,0x48,0x01,0x65,0x03,0x04,0x02,0x01,0x05,0x00,0x04,0x20
+rsa_expected:  times 256 db 0
+rsa_recovered: times 256 db 0
+
+; ---- the verified P-256 + RSA implementations + the module-resident data ----
 %include "core/p256.inc"
 %include "core/p256_data.inc"
+%include "core/rsa_verify.inc"
+%include "core/rsa_pinned_key.inc"
 
 p256_module_image_end:
 
 ; ---- tail asserts (label DIFFERENCES, org-independent, so NASM %if evaluates them correctly) ----
-%if (p256_ep_table_end - p256_module_entry) != 10
-%error "p256 module ABI table must be exactly 5 near-pointer words (the +0/+2/+4/+6/+8 stride)"
+%if (p256_ep_table_end - p256_module_entry) != 12
+%error "p256 module ABI table must be exactly 6 near-pointer words (the +0/+2/+4/+6/+8/+10 stride)"
 %endif
 %if (p256_module_image_end - p256_module_entry) > p256_module_max_len
 %error "p256 module (code + data) exceeds its band -- raise p256_module_max_sectors (must fit the loop cache)"

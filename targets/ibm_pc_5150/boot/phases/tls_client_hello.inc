@@ -8,6 +8,16 @@
 %endmacro
 
 tls_client_hello_phase:
+    ; Build 12 286 secure increment B: patch the ClientHello for the RSA cert-auth path BEFORE building
+    ; it -- offer ECDHE_RSA (0xcca8) + advertise rsa_pkcs1_sha256 (0x0401), so the server presents an
+    ; RSA cert + an RSA-PKCS1-SHA256 ServerKeyExchange signature we verify against the pinned leaf key.
+    ; 286-only; the 8088 keeps ECDHE_ECDSA (0xcca9) -- unauthenticated, and its smaller ECDSA cert
+    ; keeps the tight 8088 handshake window. The patch rides the L-phase image (re-applied per load).
+    test word [handoff_addr + handoff_flags], handoff_flag_cpu_286plus
+    jz .build
+    mov byte [low_scratch_start + (tls_ch_cipher_lo - PHASE_BASE)], 0xa8
+    mov byte [low_scratch_start + (tls_ch_sigalg_lo - PHASE_BASE)], 1
+.build:
     call build_tls_client_hello_phase
     jc .done
     ; Build 12 286 secure tier: generate the client ephemeral ECDHE keypair (real entropy -> client
@@ -196,13 +206,14 @@ tls_client_hello_secure_prep:
 entropy_pit_buf: times 2 db 0
 
 tls_client_hello_after_random db 0
-                              db 0, 2
-                              db 0xcc, 0xa9
+                              db 0, 2, 0xcc
+tls_ch_cipher_lo:             db 0xa9          ; cipher 0xcca9 (ECDHE_ECDSA); 286 patches -> 0xa8 (ECDHE_RSA 0xcca8)
                               db 1, 0
 tls_client_hello_extensions_prefix db 0xff, 1, 0, 1, 0
 tls_client_hello_extensions_tail db 0, 11, 0, 2, 1, 0
                                  db 0, 10, 0, 4, 0, 2, 0, 23
-                                 db 0, 13, 0, 4, 0, 2, 4, 3
+                                 db 0, 13, 0, 4, 0, 2, 4
+tls_ch_sigalg_lo:                db 3           ; sigalg {sha256(4), ecdsa(3)}; 286 patches -> 1 (rsa) = rsa_pkcs1_sha256
 tls_low_constants_constant:
 tls_label_master_secret_constant db 'master secret'
 tls_label_client_finished_constant db 'client finished'

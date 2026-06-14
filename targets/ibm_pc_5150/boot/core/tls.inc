@@ -219,7 +219,13 @@ tls_wait_for_server_hello:
     mov di, si
     add di, 44
     add di, bx
-    cmp word [di], 0xa9cc
+    ; Accept the negotiated ChaCha20-Poly1305 suite: 0xcca9 (ECDHE_ECDSA, 8088/default) OR 0xcca8
+    ; (ECDHE_RSA, the 286 secure tier offers it to RSA-verify the server). The low suite bit is the
+    ; only difference, so `or ah,1` folds 0xa8cc->0xa9cc and one compare accepts both (harmless on the
+    ; 8088, which only ever offers 0xcca9). Cheaper than a gated branch -- the K window has no slack.
+    mov ax, [di]
+    or ah, 1
+    cmp ax, 0xa9cc
     jne .failed
     cmp byte [di + 2], 0
     jne .failed
@@ -1993,10 +1999,52 @@ tls_parse_server_key_exchange:
     add ax, dx
     cmp ax, [tls_server_next_handshake_len_low]
     jne .failed
+    ; Build 12 286 secure increment B: authenticate the server -- verify the ServerKeyExchange's
+    ; RSA-PKCS1-SHA256 signature against the PINNED leaf key (the one in-race RSA verify). 286-only;
+    ; the 8088 path is gated off (insecure, unauthenticated -- the honest floor). On the 286 we
+    ; required ECDHE_RSA + rsa_pkcs1_sha256 in the ClientHello, so the SKE sig must be {sha256,rsa}
+    ; over a 256-byte (RSA-2048) value. Reject (fail the handshake, before the CKE) on any mismatch.
+    test word [handoff_addr + handoff_flags], handoff_flag_cpu_286plus
+    jz .ske_ok
+    mov bx, [tls_next_handshake_body_ptr]
+    cmp byte [bx + tls_ec_public_uncompressed_len + 4], 4      ; sig hash alg == sha256
+    jne .failed
+    cmp byte [bx + tls_ec_public_uncompressed_len + 5], 1      ; sig signature alg == rsa
+    jne .failed
+    cmp dx, 256                                                ; sig length == 256 (RSA-2048)
+    jne .failed
+    call tls_verify_ske_signature
+    jc .failed
+.ske_ok:
     clc
     ret
 .failed:
     stc
+    ret
+
+; Build 12 286 secure increment B: verify the ServerKeyExchange RSA signature against the pinned leaf
+; key. Computes h = SHA-256(client_random || server_random || ServerECDHParams[69]) WITHOUT disturbing
+; the handshake transcript (save/restore the SHA context, same pattern as the Finished hash), then
+; hands the signature + h to the module's verifier. Reuses tls_premaster_secret (0x3600) as the
+; transient h buffer -- dead here (the real premaster is computed later in tls_probe). out: CF=valid?
+tls_verify_ske_signature:
+    call sha256_save_context
+    call sha256_init
+    mov si, tls_random                                  ; client_random (32)
+    mov cx, tls_random_len
+    call sha256_update
+    mov si, tls_server_random                           ; server_random (32)
+    mov cx, tls_random_len
+    call sha256_update
+    mov si, [tls_next_handshake_body_ptr]               ; ServerECDHParams = body[0..68]
+    mov cx, tls_ec_public_uncompressed_len + 4          ; 69 bytes (curve_type+curve+len+point)
+    call sha256_update
+    mov di, tls_premaster_secret                        ; h (transient); DI survives finish+restore
+    call sha256_finish
+    call sha256_restore_context
+    mov si, [tls_next_handshake_body_ptr]
+    add si, tls_ec_public_uncompressed_len + 8          ; -> the 256-byte signature (body+73); DI still = h
+    call word [p256_ep_verify_ske_sig]                  ; CF=0 valid (server holds the pinned key)
     ret
 
 tls_finish_server_key_exchange:

@@ -53,7 +53,9 @@ prompt_compact_cache equ loop_cache_end - 512
 ; p256_module_load == loop_cache_start keeps the band above the 16K ceiling (absent on 16K). The module
 ; (code + data) must fit p256_module_max_sectors (build-asserted in p256_module.asm) AND the loop cache.
 p256_module_load equ loop_cache_start
-p256_module_max_sectors equ 16
+; Sized for the P-256 ECDHE code+data (incr A, 14 sectors) PLUS the RSA-2048 modexp + the pinned leaf
+; key + the SKE-signature verify (incr B). Must stay <= the loop cache (asserted below).
+p256_module_max_sectors equ 24
 p256_module_max_len equ p256_module_max_sectors * 512
 p256_module_end equ p256_module_load + p256_module_max_len
 %if p256_module_end > loop_cache_end
@@ -67,6 +69,7 @@ p256_ep_gen_client_public  equ p256_module_load + 2
 p256_ep_set_server_ec      equ p256_module_load + 4
 p256_ep_compute_premaster  equ p256_module_load + 6
 p256_ep_copy_client_public equ p256_module_load + 8
+p256_ep_verify_ske_sig     equ p256_module_load + 10
 ; (loop_cache_start must stay above the 16K ceiling so the region is 32K-only — asserted in core.asm,
 ; where every equate is defined; %if here would precede basic_sidecar_stack_top_16k's definition.)
 net_setup_frame_scratch_len equ 512
