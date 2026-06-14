@@ -112,11 +112,36 @@ instrs (≈ one RSA verify ≈ 6.4s @6, off-race — fine).
 
 ### Trust core COMPLETE in asm + offline-proven: parse (2a) + adopt (2b) + chain-verify (2c).
 
-### Remaining = module integration + hardware (the fresh-context-worthy phase)
-- 2d wire into p256_module.asm: a new entry point exposing x509_chain_verify; %include the new incs;
-  dedup the SKE path onto rsa_pkcs1.inc; locate the leaf in the TLS Certificate message (3-byte
-  length prefixes, first cert); the recertify state machine (in-race SKE verify fails -> off-race
-  chain-verify -> adopt -> retry) + the dim `> recertify` line (analogous to `> reconnect`).
+### 2d-i — module wiring (the module now CONTAINS + EXPOSES the trust core) — DONE, 286 @8 greets
+p256_module.asm gained 3 entry points + a fixed-offset result block; layout.inc the equates +
+band-budget bump (24→26 sectors; loop cache is 27). Key low-risk move: `p256_ep_chain_verify_sig`
+loads WR1 into the rsa_verify constants then `jmp`s into the SHIPPED, UNCHANGED SKE-verify routine
+(it's modulus-agnostic), so no shipped crypto code was touched — only new entry points added:
+- `p256_ep_parse_leaf` (+12): call x509_parse_leaf, copy the 6 field pointers to the result block.
+- `p256_ep_chain_verify_sig` (+14): x509_load_wr1 (copy baked wr1_*→rsa_*) then jmp the SKE verify.
+- `p256_ep_adopt_leaf` (+16): call rsa_adopt.
+- result block at +18 (tbs_ptr/len, sig_ptr, mod_ptr, nb_ptr, na_ptr) for the resident orchestrator
+  to read across the module boundary; build-asserted at offset 18.
+%include'd x509_verify.inc + rsa_adopt.inc + rsa_anchor_wr1.inc into the module. (rsa_pkcs1.inc is
+NOT in the module — the module reuses its own inline SKE verify; rsa_pkcs1.inc stays bench-only. A
+future dedup could unify them, but that touches the shipped path → deferred.) Module 20→25 sectors
+(878 B free in the 26 budget); check-layout OK; all offline evals still green. **286 @6 AND @8
+BOTH GREET** (shipped flow unchanged, bigger module loads fine at both the knife-edge and the
+comfortable clock = no regression). Big leaf-cert
+RAM note: the leaf-capture buffer (~1.5 KB) can alias the top of the loop cache (p256_module_end,
+above the 26-sector band, sectors 26-27) — handshake-only, 286-only, like the module itself.
+
+### 2d-ii — resident orchestration (REMAINING — the flow that CALLS the entry points)
+The shipped handshake DRAINS the Certificate into the 592 B tls_rx_copy and discards it
+(tls.inc:tls_drain_server_certificate), so the leaf must be CAPTURED at drain time into a buffer
+that survives to the off-race chain-verify. Then: on the in-race SKE verify failing
+(tls.inc:2047, p256_ep_verify_ske_sig CF=1 = leaf rotated), run the off-race flow — call
+p256_ep_parse_leaf(captured leaf) → resident SHA-256 over [result.tbs_ptr,len] →
+p256_ep_chain_verify_sig(result.sig_ptr, hash) → validity-vs-RTC → p256_ep_adopt_leaf(result.mod_ptr)
+→ retry the handshake (reuses the reconnect path) + the dim `> recertify` line (agent_endpoint.inc
+`.render_dim_run` pattern). CAUTION: the resident K window has ~no slack — the orchestration code +
+the result-readback live resident (they need sha256); measure the fit (golf if needed). This is the
+intricate, shipped-path-touching, hardware-looped part.
 - 2e network-time -> CMOS RTC (parse the HTTP Date response header) + the validity-vs-RTC gate (task
   7); cold-boot-before-first-response = validity best-effort.
 - 2f K-window fit (golf -- 15 sectors, no slack) + hardware: 286 @6/@8 steady-state, a simulated

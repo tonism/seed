@@ -35,7 +35,20 @@ p256_ep_table:
     dw p256_ep_compute_premaster_impl           ; [+6]
     dw p256_ep_copy_client_public_impl          ; [+8]
     dw p256_ep_verify_ske_sig_impl              ; [+10]  (286 secure tier increment B: RSA cert auth)
+    dw p256_ep_parse_leaf_impl                  ; [+12]  (auto-recertify: X.509 strict-DER parse)
+    dw p256_ep_chain_verify_sig_impl            ; [+14]  (auto-recertify: verify leaf sig vs WR1)
+    dw p256_ep_adopt_leaf_impl                  ; [+16]  (auto-recertify: adopt the new leaf key)
 p256_ep_table_end:
+; Auto-recertify result block at a FIXED ABI offset (p256_module_load + 18, right after the 9-word
+; table) -- p256_ep_parse_leaf copies the parser's extracted field pointers here so the resident
+; orchestration can read them across the module boundary (the parser's own labels are module-internal).
+p256_x509_results:
+    dw 0    ; [+18] tbs_ptr
+    dw 0    ; [+20] tbs_len
+    dw 0    ; [+22] sig_ptr
+    dw 0    ; [+24] mod_ptr (the leaf modulus to adopt)
+    dw 0    ; [+26] notBefore ptr
+    dw 0    ; [+28] notAfter ptr
 
 ; ---- entry implementations (thin wrappers over the verified p256.inc primitives) ----
 
@@ -213,17 +226,84 @@ rsa_sha256_digestinfo:
 rsa_expected:  times 256 db 0
 rsa_recovered: times 256 db 0
 
+; ---- auto-recertify entry points (off-race X.509 chain-verify + adopt; 286 secure path) ----
+; p256_ep_parse_leaf: strict-DER parse the leaf cert. in: SI=cert DER, CX=len. out: CF; on accept,
+; the extracted field pointers are copied to the fixed result block for the resident orchestrator.
+p256_ep_parse_leaf_impl:
+    call x509_parse_leaf
+    jc .pl_fail
+    mov ax, [x509_tbs_ptr]
+    mov [p256_x509_results + 0], ax
+    mov ax, [x509_tbs_len]
+    mov [p256_x509_results + 2], ax
+    mov ax, [x509_sig_ptr]
+    mov [p256_x509_results + 4], ax
+    mov ax, [x509_mod_ptr]
+    mov [p256_x509_results + 6], ax
+    mov ax, [x509_nb_ptr]
+    mov [p256_x509_results + 8], ax
+    mov ax, [x509_na_ptr]
+    mov [p256_x509_results + 10], ax
+    clc
+    ret
+.pl_fail:
+    stc
+    ret
+
+; p256_ep_chain_verify_sig: verify the leaf signature chains to the pinned WR1. in: SI=256-byte
+; signature, DI=32-byte SHA-256(TBS) hash (the resident K window computes the hash, as for the SKE
+; sig). out: CF=0 valid. Loads WR1 into the rsa_verify constants, then REUSES the shipped SKE-verify
+; routine verbatim (it is modulus-agnostic -- it verifies against whatever rsa_n is loaded).
+p256_ep_chain_verify_sig_impl:
+    call x509_load_wr1
+    jmp p256_ep_verify_ske_sig_impl
+
+; p256_ep_adopt_leaf: install a chain-verified leaf as the fast-path pin. in: SI=256-byte BE modulus.
+p256_ep_adopt_leaf_impl:
+    call rsa_adopt
+    clc
+    ret
+
+; x509_load_wr1: copy the baked WR1 anchor constants into the rsa_verify working constants. The
+; off-race chain-verify and the in-race leaf verify never overlap, so they share the rsa_* constants;
+; after a successful chain-verify + adopt, rsa_* hold the new leaf for the retry handshake's SKE verify.
+x509_load_wr1:
+    push ds
+    pop es
+    cld
+    mov si, wr1_n
+    mov di, rsa_n
+    mov cx, 128
+    rep movsw
+    mov si, wr1_r2
+    mov di, rsa_r2
+    mov cx, 128
+    rep movsw
+    mov si, wr1_one
+    mov di, rsa_one
+    mov cx, 128
+    rep movsw
+    mov ax, [wr1_n0inv]
+    mov [rsa_n0inv], ax
+    ret
+
 ; ---- the verified P-256 + RSA implementations + the module-resident data ----
 %include "core/p256.inc"
 %include "core/p256_data.inc"
 %include "core/rsa_verify.inc"
 %include "core/rsa_pinned_key.inc"
+%include "core/x509_verify.inc"
+%include "core/rsa_adopt.inc"
+%include "core/rsa_anchor_wr1.inc"
 
 p256_module_image_end:
 
 ; ---- tail asserts (label DIFFERENCES, org-independent, so NASM %if evaluates them correctly) ----
-%if (p256_ep_table_end - p256_module_entry) != 12
-%error "p256 module ABI table must be exactly 6 near-pointer words (the +0/+2/+4/+6/+8/+10 stride)"
+%if (p256_ep_table_end - p256_module_entry) != 18
+%error "p256 module ABI table must be exactly 9 near-pointer words (+0..+16; auto-recertify added +12/+14/+16)"
+%endif
+%if (p256_x509_results - p256_module_entry) != 18
+%error "p256_x509_results must sit at module offset +18 (the layout.inc p256_x509_result_* equates depend on it)"
 %endif
 %if (p256_module_image_end - p256_module_entry) > p256_module_max_len
 %error "p256 module (code + data) exceeds its band -- raise p256_module_max_sectors (must fit the loop cache)"

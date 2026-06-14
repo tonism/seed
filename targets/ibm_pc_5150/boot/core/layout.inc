@@ -54,8 +54,9 @@ prompt_compact_cache equ loop_cache_end - 512
 ; (code + data) must fit p256_module_max_sectors (build-asserted in p256_module.asm) AND the loop cache.
 p256_module_load equ loop_cache_start
 ; Sized for the P-256 ECDHE code+data (incr A, 14 sectors) PLUS the RSA-2048 modexp + the pinned leaf
-; key + the SKE-signature verify (incr B). Must stay <= the loop cache (asserted below).
-p256_module_max_sectors equ 24
+; key + the SKE-signature verify (incr B) PLUS the auto-recertify trust core (X.509 strict parser +
+; adopt math + WR1 anchor). Must stay <= the loop cache (asserted below; loop cache = 27 sectors).
+p256_module_max_sectors equ 26
 p256_module_max_len equ p256_module_max_sectors * 512
 p256_module_end equ p256_module_load + p256_module_max_len
 %if p256_module_end > loop_cache_end
@@ -70,6 +71,18 @@ p256_ep_set_server_ec      equ p256_module_load + 4
 p256_ep_compute_premaster  equ p256_module_load + 6
 p256_ep_copy_client_public equ p256_module_load + 8
 p256_ep_verify_ske_sig     equ p256_module_load + 10
+; auto-recertify entry points (off-race X.509 chain-verify + adopt; 286 secure path only):
+p256_ep_parse_leaf         equ p256_module_load + 12
+p256_ep_chain_verify_sig   equ p256_module_load + 14
+p256_ep_adopt_leaf         equ p256_module_load + 16
+; the parser's extracted field pointers, written by p256_ep_parse_leaf at a FIXED ABI offset (right
+; after the 9-word table) so the resident orchestrator reads them across the module boundary:
+p256_x509_result_tbs_ptr   equ p256_module_load + 18
+p256_x509_result_tbs_len   equ p256_module_load + 20
+p256_x509_result_sig_ptr   equ p256_module_load + 22
+p256_x509_result_mod_ptr   equ p256_module_load + 24
+p256_x509_result_nb_ptr    equ p256_module_load + 26
+p256_x509_result_na_ptr    equ p256_module_load + 28
 ; (loop_cache_start must stay above the 16K ceiling so the region is 32K-only — asserted in core.asm,
 ; where every equate is defined; %if here would precede basic_sidecar_stack_top_16k's definition.)
 net_setup_frame_scratch_len equ 512
