@@ -332,6 +332,24 @@ def run(core_path: Path, layout: Path, data: Path) -> int:
     need("arena-floor", c["chat_arena_start"] + c["chat_arena_floor_min"] <= g16,
          f"arena floor {c['chat_arena_start'] + c['chat_arena_floor_min']:#06x} exceeds guard {g16:#06x}")
 
+    # 2b. The 286-only P-256/RSA secure-crypto module (Build 12 secure tier). It is loaded ONLY on the
+    #     286 secure path into a high band that OVERLAYS the 32K loop cache (lifetime-disjoint: the
+    #     module runs during the boot handshake; the loop cache preloads after, and a reconnect disables
+    #     the cache). So it is NOT part of the 16K partition above. Model it here: print its band and
+    #     assert it stays clear of the low crypto/NIC scratch (no 0x0700 / 0x36c2 alias — LANDMINE #4)
+    #     and fits the loop cache. A future edit that moves it down into live scratch fails the build.
+    if "p256_module_load" in c and "p256_module_end" in c:
+        pm_start, pm_end = c["p256_module_load"], c["p256_module_end"]
+        print("\n286 secure-crypto module (286-only; overlays the 32K loop cache, 0 RAM on 16K):")
+        print(f"  P-256 ECDHE + RSA cert-verify  {pm_start:#06x}..{pm_end:#06x} "
+              f"({(pm_end - pm_start) // SECTOR} sectors max)")
+        need("module>crit", pm_start >= c["critical_scratch_end"],
+             f"module loads {pm_start:#06x}, must be above critical scratch {c['critical_scratch_end']:#06x} (no 0x0700/0x36c2 alias)")
+        need("module==loopcache", pm_start == c["loop_cache_start"],
+             f"module loads {pm_start:#06x}, expected loop_cache_start {c['loop_cache_start']:#06x} (the overlay band)")
+        need("module<=loopcache-end", pm_end <= c["loop_cache_end"],
+             f"module ends {pm_end:#06x}, loop cache ends {c['loop_cache_end']:#06x}")
+
     # 3. Intended aliases must stay intact.
     print("\nIntended overlays (lifetime-disjoint reuse — must stay equal):")
     for sym_a, sym_b, why in ALIASES:

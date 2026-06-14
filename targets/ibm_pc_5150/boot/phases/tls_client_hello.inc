@@ -170,6 +170,13 @@ tls_client_hello_secure_prep:
     mov bx, p256_module_load
     phase_call_res load_core_sectors_at
     jc .sp_fail
+    ; Reconnect safety: the module overlays the 32K loop cache (lifetime-disjoint -- the boot preload
+    ; runs AFTER this). But a mid-chat RECONNECT reloads the module here, clobbering the cached chat
+    ; phases. Disable the cache so every later phase load demand-reads the floppy instead of the now-
+    ; stale cache. On the BOOT this is a no-op (count is still 0; preload_loop_cache sets it AFTER the
+    ; handshake). Net: a 286 chat loop demand-loads after its first reconnect -- correct, just not
+    ; floppy-free (the secure handshake's correctness outranks the chat-loop convenience on the 286).
+    mov word [loop_cache_count], 0
     ; 2. entropy pool -> SHA-256 -> 32-byte client secret. The K crypto window (sha256_*) is resident
     ;    here (loaded in prepare_agent_endpoint_path before this phase). The digest temporarily uses
     ;    tls_premaster_secret (0x3600), which the real premaster overwrites later in tls_probe.
