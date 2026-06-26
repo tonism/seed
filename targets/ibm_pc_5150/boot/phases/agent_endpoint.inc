@@ -40,10 +40,13 @@ agent_endpoint_phase:
     jmp .endpoint_body
 .render_recertify:
     ; Build 12 auto-recertify: net_phase set recert_flag because a leaf rotation was detected and the
-    ; captured leaf chained to the pinned WR1 (off-race). Show "> recertify" in place of "> reconnect"
-    ; -- both are 11 chars, so on a mid-chat recert this cleanly overwrites the earlier "> reconnect"
-    ; on the same row (reconnect-then-recertify reads as a single line transitioning). Drawn on each
-    ; post-recert attempt; on exhaustion the retries==0 path appends " failed" to the parked line.
+    ; captured leaf chained to the pinned WR1 (off-race). Show "> recertify" ONLY mid-chat -- a live
+    ; session (handoff_status_ready) where the user is watching. During the cold-boot loading sequence
+    ; the recertify is silent (no status line), exactly like "> reconnect"; the dots/splash cover it.
+    ; "> recertify" is 11 chars (== "> reconnect"), so a mid-chat recert cleanly overwrites the earlier
+    ; "> reconnect" on the same row (reads as one line transitioning reconnect -> recertify).
+    cmp byte [handoff_addr + handoff_status], handoff_status_ready
+    jne .endpoint_body
     mov byte [cursor_col], dpi_prompt_col
     mov si, low_scratch_start + (recertify_msg_text - PHASE_BASE)
     mov cx, recertify_word_len
