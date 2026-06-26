@@ -267,7 +267,86 @@ p256_ep_chain_verify_sig_impl:
     call x509_load_wr1
     pop di
     pop si
-    jmp p256_ep_verify_ske_sig_impl
+    call p256_ep_verify_ske_sig_impl             ; (1) leaf sig chains to the pinned WR1?
+    jc .cv_reject
+    call ntp_validity_ok                         ; (2) auto-recertify task#7: leaf in its validity window
+    jc .cv_reject                                ;     per the NTP-synced CMOS RTC (skips if RTC unset)
+    clc
+    ret
+.cv_reject:
+    stc
+    ret
+
+; Task #7 cert-validity gate: is the parsed leaf currently within [notBefore, notAfter]? Reads the
+; CMOS RTC (set from NTP at boot, before any TLS, so "now" is independent of this connection), renders
+; it as the leaf's own UTCTime form "YYMMDDHHMMSS", and does a byte-lexicographic compare against the
+; leaf's notBefore/notAfter (result block +8/+10, already UTCTime content from the parser). FAIL-OPEN:
+; if the RTC read fails or reads an implausible century (NTP never synced), SKIP -> CF=0 (best-effort,
+; matching the cold-recertify-skips design). Mirrors tools/x509/http_date_rtc.py's compare. cpu 8086.
+ntp_validity_ok:
+    push    ds
+    pop     es                                   ; ES=DS=0 for the stosb/cmpsb below
+    mov     ah, 0x04
+    int     0x1a                                 ; CH=century CL=year DH=month DL=day (BCD); CF=1 = not set
+    jc      .skip
+    ; Sanity on the YEAR (CL), not the century byte (CH): the CMOS century reg is unreliable (BIOSes
+    ; vary; 86Box's crafted CMOS leaves it unset), and the leaf's UTCTime is 2-digit-year anyway
+    ; (RFC 5280: 00-49 -> 20xx), so the whole compare runs in 2-digit-year space. A plausible synced
+    ; year is BCD 0x24..0x49 (2024..2049); anything else means the RTC was never NTP-synced -> skip.
+    cmp     cl, 0x24
+    jb      .skip
+    cmp     cl, 0x50
+    jae     .skip
+    cld
+    mov     di, ntp_now_str
+    mov     al, cl                               ; year
+    call    .emit_bcd
+    mov     al, dh                               ; month
+    call    .emit_bcd
+    mov     al, dl                               ; day
+    call    .emit_bcd
+    mov     ah, 0x02
+    int     0x1a                                 ; CH=hour CL=min DH=sec (BCD)
+    jc      .skip
+    mov     al, ch                               ; hour
+    call    .emit_bcd
+    mov     al, cl                               ; minute
+    call    .emit_bcd
+    mov     al, dh                               ; second
+    call    .emit_bcd
+    ; now = "YYMMDDHHMMSS"; require notBefore <= now <= notAfter (12-byte lexicographic).
+    mov     si, ntp_now_str
+    mov     di, [p256_x509_results + 8]          ; notBefore (UTCTime content)
+    mov     cx, 12
+    repe    cmpsb
+    jb      .reject                              ; now < notBefore -> not yet valid
+    mov     si, ntp_now_str
+    mov     di, [p256_x509_results + 10]         ; notAfter
+    mov     cx, 12
+    repe    cmpsb
+    ja      .reject                              ; now > notAfter -> expired
+.skip:
+    clc
+    ret
+.reject:
+    stc
+    ret
+.emit_bcd:                                       ; al = BCD byte -> two ASCII digits at [di]; di += 2
+    mov     ah, al
+    push    cx
+    mov     cl, 4
+    shr     al, cl
+    pop     cx
+    add     al, '0'
+    stosb
+    mov     al, ah
+    and     al, 0x0f
+    add     al, '0'
+    stosb
+    ret
+
+align 2
+ntp_now_str: times 12 db 0
 
 ; p256_ep_adopt_leaf: install a chain-verified leaf as the fast-path pin. in: SI=256-byte BE modulus.
 p256_ep_adopt_leaf_impl:
