@@ -68,6 +68,14 @@ prepare_agent_endpoint_path:
     jc .retry
     call run_tcp_connect_phase
     jc .retry
+    ; auto-recertify: reset the leaf-capture cursor before the handshake (286-only; the secure module
+    ; is loaded by tls_client_hello above, so the drain's capture hooks have a clean cursor + the dest
+    ; buffer). On 8088 the module is absent -> skip (the drain's trampoline also no-ops there).
+    test word [handoff_addr + handoff_flags], handoff_flag_cpu_286plus
+    jz .cap_reset_done
+    mov di, leaf_capture_buf
+    call word [p256_ep_capture_reset]
+.cap_reset_done:
     call tls_probe_server
     jc .retry
     ; Do NOT reset tls_app_len here: agent_request (above) already rebuilt the send-state,
@@ -105,4 +113,16 @@ prepare_agent_endpoint_path:
     jc .se_done
     call agent_api_exchange
 .se_done:
+    ret
+
+; secure_capture_chunk -- resident 286-gated trampoline so the K-window cert-drain can fold one
+; fragment into the captured leaf with a bare near call. The leaf capture lives in the 286-only
+; secure module (not loaded on the 8088 path), so calling its entry directly from the SHARED drain
+; would crash on the 8088; this gate makes it a no-op there. in: SI=fragment, CX=len. Preserves all
+; registers (the module's capture_leaf_chunk does), so the drain's SI/CX/AX survive the call.
+secure_capture_chunk:
+    test word [handoff_addr + handoff_flags], handoff_flag_cpu_286plus
+    jz .scc_ret
+    call word [p256_ep_capture_chunk]
+.scc_ret:
     ret

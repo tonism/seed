@@ -376,6 +376,8 @@ tls_drain_server_certificate:
     jc .failed
     mov ax, [tls_server_certificate_total_len]
     mov cx, [tls_current_payload_len]
+    mov si, tls_rx_copy                                ; auto-recertify: fold the first cert fragment
+    call secure_capture_chunk                          ; (286-gated trampoline; preserves AX/CX/SI)
     cmp cx, ax
     jb .need_more
     call tls_save_payload_after_current_offset
@@ -402,15 +404,15 @@ tls_drain_server_certificate:
     jc .failed
     mov si, [tls_current_payload_ptr]
     mov cx, [tls_current_payload_len]
+    call secure_capture_chunk                          ; auto-recertify: fold this cert fragment
     call tls_transcript_update_certificate_chunk
     jc .failed
     mov ax, [tls_stream_skip_remaining]
     mov cx, [tls_current_payload_len]
     cmp cx, ax
     jb .consume_all
-    mov bx, [tls_current_payload_ptr]
-    mov [tls_current_payload_ptr], bx
-    mov [tls_current_payload_len], cx
+    ; (removed a no-op that read tls_current_payload_ptr/len and wrote the same values back --
+    ;  reclaimed for the auto-recertify capture hooks below; the saved fragment is already current)
     call tls_save_payload_after_current_offset
     jmp .done
 .consume_all:
