@@ -149,6 +149,20 @@ core_dhcp_setup_phase_end:
 
 align 512, db 0
 
+core_ntp_setup_phase_start:
+%define PHASE_BASE core_ntp_setup_phase_start
+%define PHASE_LOAD_ADDR net_setup_phase_start
+%include "phases/ntp_setup.inc"
+%undef PHASE_LOAD_ADDR
+%undef PHASE_BASE
+core_ntp_setup_phase_end:
+
+%if (((core_ntp_setup_phase_end - core_ntp_setup_phase_start + 511) / 512) * 512) > (low_scratch_end - net_setup_phase_start)
+%error "ntp setup phase rounds to too many sectors for the net setup window (would clobber the resident nucleus at 0x1000)"
+%endif
+
+align 512, db 0
+
 core_tcp_connect_phase_start:
 %define PHASE_BASE core_tcp_connect_phase_start
 %define PHASE_LOAD_ADDR net_setup_phase_start
@@ -354,6 +368,11 @@ core_phase_table:
     db 'D', 0
     dw (core_dhcp_setup_phase_start - $$) / 512
     dw (core_dhcp_setup_phase_end - core_dhcp_setup_phase_start + 511) / 512
+    dw net_setup_phase_start
+    dw 0
+    db 'N', 0
+    dw (core_ntp_setup_phase_start - $$) / 512
+    dw (core_ntp_setup_phase_end - core_ntp_setup_phase_start + 511) / 512
     dw net_setup_phase_start
     dw 0
     db 'C', 0

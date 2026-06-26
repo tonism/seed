@@ -96,6 +96,19 @@ leaf_capture_max equ 1536
 ; where every equate is defined; %if here would precede basic_sidecar_stack_top_16k's definition.)
 net_setup_frame_scratch_len equ 512
 net_setup_phase_start equ low_scratch_start + net_setup_frame_scratch_len
+; Build 12 task#7: transient scratch for the NTP->RTC conversion (NTP setup phase only). Lives in the
+; net-setup frame-scratch tail -- free once the ~90 B NTP frame is sent/received. The CMOS RTC, not
+; this scratch, carries the time forward to the recertify validity gate, so it need not persist.
+ntp_rtc_scratch equ low_scratch_start + net_setup_frame_scratch_len - 16
+ntp_seconds equ ntp_rtc_scratch            ; dd: unsigned seconds-since-1900 from the NTP reply
+rtc_fields equ ntp_seconds + 4             ; 7 contiguous BCD bytes (sec..century):
+rtc_sec equ rtc_fields
+rtc_min equ rtc_sec + 1
+rtc_hour equ rtc_min + 1
+rtc_day equ rtc_hour + 1
+rtc_month equ rtc_day + 1
+rtc_year equ rtc_month + 1
+rtc_century equ rtc_year + 1
 agent_response_phase_load_addr equ low_scratch_start + 0x0600
 basic_sidecar_stack_top_16k equ 0x4000
 basic_sidecar_stack_guard_len_16k equ 0x0100   ; Build 9: 0x200->0x100; ~196 B static worst-case stack (Phase 4 tripwire confirms); frees 256 B -> context pool

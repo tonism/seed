@@ -9,6 +9,14 @@
     call run_core_phase_at
 %endmacro
 
+; Like call_core_phase_at but for the net-setup window specifically: the load address is implicit in
+; the shared run_net_setup_phase launcher, so the call site is 3 bytes smaller than call_core_phase_at.
+; Used for every net_setup_phase_start phase (dhcp / tcp_connect / api_stream / ntp).
+%macro run_net_phase 2
+    mov ax, (((%2 - %1 + 511) / 512) << 8) | ((%1 - $$) / 512)
+    call run_net_setup_phase
+%endmacro
+
 %macro load_core_window 2
     mov ax, (((%2 - %1 + 511) / 512) << 8) | ((%1 - $$) / 512)
     mov bx, %1
@@ -49,6 +57,12 @@ hal_start:
     call prepare_internet_path
     jc network_setup_error
 
+    ; Build 12 task#7: 286-only network-time sync -- set the CMOS RTC for the recertify validity gate,
+    ; right after the internet is up and BEFORE the first connect, so the clock is established
+    ; out-of-band (not from the connection it authenticates). The phase self-gates on 286 and fails
+    ; open; CF here is irrelevant (the next op is a mov), so no result handling is needed.
+    run_net_phase core_ntp_setup_phase_start, core_ntp_setup_phase_end
+
     mov bl, [load_attr]
     mov al, 'o'
     call show_load_marker
@@ -87,8 +101,7 @@ network_setup_error:
     mov al, handoff_status_network_failed
     jmp show_failure
 
-run_tcp_connect_phase:
-    mov ax, (((core_tcp_connect_phase_end - core_tcp_connect_phase_start + 511) / 512) << 8) | ((core_tcp_connect_phase_start - $$) / 512)
+run_net_setup_phase:
     mov bx, net_setup_phase_start
     jmp run_core_phase_at
 

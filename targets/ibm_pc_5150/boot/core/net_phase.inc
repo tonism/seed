@@ -1,6 +1,6 @@
 prepare_internet_path:
     call [nic_vt_enter]
-    call_core_phase_at core_dhcp_setup_phase_start, core_dhcp_setup_phase_end, net_setup_phase_start
+    run_net_phase core_dhcp_setup_phase_start, core_dhcp_setup_phase_end
     ; DHCP is the whole internet bring-up now. The old port-80 connectivity probe + its NET.CFG
     ; parse (probe_cfg) were removed (Build 11): they were a single-shot, un-retried connect to
     ; example.com that (a) was the dominant spotty-network boot failure, (b) could FALSE-FAIL when
@@ -66,7 +66,7 @@ prepare_agent_endpoint_path:
     jc .retry
     call_core_phase core_agent_cache_phase_start, core_agent_cache_phase_end
     jc .retry
-    call run_tcp_connect_phase
+    run_net_phase core_tcp_connect_phase_start, core_tcp_connect_phase_end
     jc .retry
     ; auto-recertify: reset the leaf-capture cursor before the handshake (286-only; the secure module
     ; is loaded by tls_client_hello above, so the drain's capture hooks have a clean cursor + the dest
@@ -144,7 +144,7 @@ prepare_agent_endpoint_path:
     popf
     ret
 .stream_and_exchange:
-    call_core_phase_at core_agent_api_stream_phase_start, core_agent_api_stream_phase_end, net_setup_phase_start
+    run_net_phase core_agent_api_stream_phase_start, core_agent_api_stream_phase_end
     jc .se_done
     call agent_api_exchange
 .se_done:

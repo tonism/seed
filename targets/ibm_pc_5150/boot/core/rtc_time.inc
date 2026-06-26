@@ -1,10 +1,20 @@
 ; Build 12 task #7 -- NTP seconds-since-1900 -> calendar -> BCD RTC fields.
 ; Mirrors tools/x509/ntp_rtc.py (ntp_seconds_to_calendar) + http_date_rtc.to_cmos(). Pure 8086 logic,
-; no network/BIOS I/O: the caller loads [ntp_seconds] (unsigned 32-bit, big -- 2026 is > 2^31), calls
-; ntp_to_rtc_fields, then writes the resulting BCD bytes to the CMOS RTC (int 1Ah AH=03h/05h).
-; Offline-validated by tools/crypto-bench/date_eval.py against the oracle's dense sweep BEFORE wiring.
-; 286-only path in practice (the 8088 has no CMOS RTC + skips the secure tier), but the code is 8086.
+; no network/BIOS I/O: the caller stores [ntp_seconds] (unsigned 32-bit, big -- 2026 is > 2^31), calls
+; ntp_to_rtc_fields, then writes the rtc_* BCD bytes to the CMOS RTC (int 1Ah AH=03h/05h).
+; POSITION-INDEPENDENT: the only data refs are the fixed ntp_seconds/rtc_* scratch (layout.inc
+; equates), so this runs correctly inside the NTP setup phase (which loads at net_setup_phase_start,
+; not where it is assembled). Month lengths are inlined -- no const table to find a fixed home for.
+; Offline-validated by tools/crypto-bench/date_eval.py against the oracle's dense sweep.
 ; cpu 8086.
+
+; one fixed-length month: subtract it from the day-of-year (SI); if it doesn't fit, this is the month.
+%macro ntp_month 1
+    cmp     si, %1
+    jb      .month_done
+    sub     si, %1
+    inc     di
+%endmacro
 
 ntp_to_rtc_fields:
     ; split seconds-since-1900 into time-of-day + day count via /60 /60 /24
@@ -29,25 +39,32 @@ ntp_to_rtc_fields:
     mov     ax, 365
     add     ax, bp                  ; 365 or 366 days this year
     cmp     si, ax
-    jb      .year_done
+    jb      .months
     sub     si, ax
     inc     cx
     jmp     .year_loop
-.year_done:
-    ; CX = year, BP = its leap flag, SI = day-of-year (0-based)
-    mov     di, 1                   ; month 1..12
-.month_loop:
-    mov     al, [ntp_days_in_month + di]
-    xor     ah, ah
-    cmp     di, 2
-    jne     .not_feb
-    add     ax, bp                  ; February: 28 (+1 if leap)
-.not_feb:
+
+.months:
+    ; SI = day-of-year (0-based), BP = leap flag, CX = year. Walk months with inline lengths -> DI.
+    mov     di, 1                   ; January
+    ntp_month 31                    ; Jan
+    ; February = 28 (+1 if leap) -- the only variable-length month
+    mov     ax, 28
+    add     ax, bp
     cmp     si, ax
     jb      .month_done
     sub     si, ax
     inc     di
-    jmp     .month_loop
+    ntp_month 31                    ; Mar
+    ntp_month 30                    ; Apr
+    ntp_month 31                    ; May
+    ntp_month 30                    ; Jun
+    ntp_month 31                    ; Jul
+    ntp_month 31                    ; Aug
+    ntp_month 30                    ; Sep
+    ntp_month 31                    ; Oct
+    ntp_month 30                    ; Nov
+    ; whatever remains is December
 .month_done:
     mov     ax, di
     mov     [rtc_month], al
@@ -108,17 +125,3 @@ ntp_to_bcd:
     pop     cx
     or      al, ah
     ret
-
-align 2
-ntp_days_in_month db 0,31,28,31,30,31,30,31,31,30,31,30,31
-; Input + outputs. The device places these in a scratch region (set [ntp_seconds] from the NTP reply,
-; read the rtc_* BCD bytes into int 1Ah). The harness supplies its own copy via the same labels.
-ntp_seconds:  dd 0
-rtc_fields:
-rtc_sec:      db 0
-rtc_min:      db 0
-rtc_hour:     db 0
-rtc_day:      db 0
-rtc_month:    db 0
-rtc_year:     db 0
-rtc_century:  db 0
