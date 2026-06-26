@@ -588,12 +588,18 @@ which would otherwise force a rebuild every quarter. So the 286 pins a second, *
 anchor — the issuing CA, **Google Trust Services WR1** (RSA-2048, valid for years) — in
 addition to the leaf. When the in-race verify fails against a stale leaf, the device runs
 a full X.509 chain-verify *off the ~15 s race*: it parses the freshly-presented leaf,
-confirms its SAN is exactly `api.openai.com`, and verifies the leaf's signature against the
-pinned WR1. If it chains, the new leaf is adopted as the pin and the handshake retried; a
-dim `> recertify` marks the pause, and a mid-chat rotation keeps the conversation (history
-lives in RAM). This is deliberately **not** trust-on-first-use: a leaf is adopted only if a
-CA we *already* pinned signed it, for the *exact* host we expect — anything else fails
-closed (and falls through to the normal reconnect-failed path). WR1 itself rotates on the
+confirms its SAN is exactly `api.openai.com`, verifies the leaf's signature against the
+pinned WR1, **and** checks the leaf is currently within its `notBefore`/`notAfter` window. If
+all three pass, the new leaf is adopted as the pin and the handshake retried; a dim
+`> recertify` marks the pause (mid-chat only — silent during cold-boot loading), and a
+mid-chat rotation keeps the conversation (history lives in RAM). This is deliberately **not**
+trust-on-first-use: a leaf is adopted only if a CA we *already* pinned signed it, for the
+*exact* host we expect, and only while it is in date — anything else fails closed (and falls
+through to the normal reconnect-failed path). The validity clock is independent of the
+connection being authenticated: a 286-only setup phase syncs the CMOS RTC from an NTP server
+(`time1.google.com`) at boot, *before* any TLS, and the gate reads that RTC — so a hostile
+server can't backdate the check via its own response. If NTP is unreachable, the date check
+is skipped (best-effort), not failed. WR1 itself rotates on the
 order of years and still needs a human re-pin then (`tools/gen-rsa-pinned-key.py --mode
 anchor`). Like the rest of the secure tier this is 286-only; the captured leaf and the
 chain-verify run inside the handshake-only module (the WR1 anchor is shrunk to just its
