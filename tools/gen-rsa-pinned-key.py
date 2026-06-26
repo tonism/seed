@@ -123,9 +123,10 @@ def emit(n: int, host: str, meta: str, *, prefix: str = "rsa_", constants_only: 
     hdr += [";"]
     if constants_only:
         hdr += [
-            f"; e = 65537 (the on-device modexp hardcodes s^65537). {prefix}n/r2/one/n0inv are CONSTANTS",
-            "; derived from the modulus. Layout matches core/rsa_verify.inc (CIOS Montgomery, 128 x",
-            "; 16-bit little-endian limbs).",
+            f"; e = 65537 (the on-device modexp hardcodes s^65537). ONLY {prefix}n is baked; the Montgomery",
+            "; constants (r2, n0inv) are DERIVED at chain-verify time via rsa_adopt_derive -- this saves",
+            "; ~514 B in the 286 module so the captured leaf fits the handshake-transient slot above it",
+            "; (not the arena -> mid-chat recertify is safe). 128 x 16-bit little-endian limbs.",
         ]
     else:   # leaf mode -- preserve the original wording byte-for-byte (shipped pin file)
         hdr += [
@@ -134,14 +135,14 @@ def emit(n: int, host: str, meta: str, *, prefix: str = "rsa_", constants_only: 
             "; working scratch. Layout matches core/rsa_verify.inc (CIOS Montgomery, 128 x 16-bit limbs).",
         ]
     hdr += ["align 2"]
-    body = [
-        bignum_lines(prefix + "n", n),
-        bignum_lines(prefix + "r2", r2),
-        bignum_lines(prefix + "one", 1),
-        f"{prefix}n0inv: dw {n0inv}\n",
-    ]
-    if not constants_only:
-        body += [
+    if constants_only:   # anchor: bake only the modulus; rsa_adopt_derive computes r2 + n0inv on the fly
+        body = [bignum_lines(prefix + "n", n)]
+    else:
+        body = [
+            bignum_lines(prefix + "n", n),
+            bignum_lines(prefix + "r2", r2),
+            bignum_lines(prefix + "one", 1),
+            f"{prefix}n0inv: dw {n0inv}\n",
             "rsa_sig: times 128 dw 0       ; the ServerKeyExchange signature (set from the wire)\n",
             "rsa_result: times 128 dw 0\n",
             "rsa_sm: times 128 dw 0\n",

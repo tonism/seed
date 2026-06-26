@@ -25,6 +25,11 @@ rsa_adopt:
     sub     bx, 2
     loop    .swap
 
+; rsa_adopt_derive -- derive n0inv + r2 assuming rsa_n is ALREADY set (the LE modulus). x509_load_wr1
+; (WR1 chain-verify) copies the LE wr1_n into rsa_n then jumps here, reusing this proven math instead
+; of baking WR1's r2/one/n0inv constants -- saves ~514 B in the module so the captured leaf fits the
+; handshake-transient slot above the module (not the arena -> mid-chat-safe recertify).
+rsa_adopt_derive:
     ; ---- 2. rsa_n0inv <- (-n^-1) mod 2^16  (Newton: inv=1; 4x inv = inv*(2 - n0*inv)) ----
     ; n is odd, so inv=1 is correct mod 2^1; each step doubles the correct bits -> mod 2^16 after 4.
     mov     bx, [rsa_n]             ; n0 = low 16 bits of n

@@ -34,9 +34,12 @@ x509_chain_verify:
     stc
     ret
 
-; copy the baked WR1 anchor constants into the rsa_verify inputs (rsa_one is the shared constant 1).
-; The off-race chain-verify and the in-race leaf verify never run at the same time, so they share the
-; rsa_* working constants; after a successful chain-verify, rsa_adopt overwrites them with the new leaf.
+; Install the pinned WR1 modulus into the rsa_verify inputs. We bake ONLY wr1_n (256 B) and DERIVE the
+; Montgomery constants (rsa_r2 / rsa_n0inv) on the fly via rsa_adopt_derive -- ~514 B less in the module
+; so the captured leaf fits the handshake-transient slot above the module (not the arena -> mid-chat
+; safe). rsa_one is the shared constant 1. The ~2s r2 derivation is fully off-race. The off-race
+; chain-verify and the in-race leaf verify never run at once, so they share the rsa_* constants; after a
+; successful chain-verify, rsa_adopt overwrites them with the new leaf.
 x509_load_wr1:
     push    ds
     pop     es
@@ -44,18 +47,9 @@ x509_load_wr1:
     mov     si, wr1_n
     mov     di, rsa_n
     mov     cx, 128
-    rep     movsw
-    mov     si, wr1_r2
-    mov     di, rsa_r2
-    mov     cx, 128
-    rep     movsw
-    mov     si, wr1_one
-    mov     di, rsa_one
-    mov     cx, 128
-    rep     movsw
-    mov     ax, [wr1_n0inv]
-    mov     [rsa_n0inv], ax
-    ret
+    rep     movsw                            ; rsa_n <- WR1 modulus (already LE limbs)
+    mov     word [rsa_one], 1                ; rsa_one = the integer 1 (shared; rsa_adopt_derive leaves it, rest stays 0)
+    jmp     rsa_adopt_derive                 ; derive rsa_r2 + rsa_n0inv from rsa_n; tail-call (rets to caller)
 
 align 2
 x509_tbs_hash: times 32 db 0

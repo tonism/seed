@@ -55,8 +55,10 @@ prompt_compact_cache equ loop_cache_end - 512
 p256_module_load equ loop_cache_start
 ; Sized for the P-256 ECDHE code+data (incr A, 14 sectors) PLUS the RSA-2048 modexp + the pinned leaf
 ; key + the SKE-signature verify (incr B) PLUS the auto-recertify trust core (X.509 strict parser +
-; adopt math + WR1 anchor). Must stay <= the loop cache (asserted below; loop cache = 27 sectors).
-p256_module_max_sectors equ 26
+; adopt math + WR1 anchor). 26->24: the WR1 anchor now bakes only wr1_n (r2/n0inv derived via
+; rsa_adopt_derive), freeing ~514 B -- so the captured leaf gets the 24..27 slot above the module
+; (leaf_capture_buf, mid-chat-safe; see data.inc). Must stay <= the loop cache (asserted; cache = 27).
+p256_module_max_sectors equ 24
 p256_module_max_len equ p256_module_max_sectors * 512
 p256_module_end equ p256_module_load + p256_module_max_len
 %if p256_module_end > loop_cache_end

@@ -506,18 +506,21 @@ chat_context_start equ esc_int9_old + 4
 chat_context_len equ 128
 chat_context_end equ chat_context_start + chat_context_len
 chat_arena_start equ chat_context_end
-; Build 12 auto-recertify: the captured rotated leaf (286 secure path only) lands here.
-; *** TEMPORARY HOME -- the arena is NOT a safe long-term home. *** It is used here ONLY to validate
-; the recertify flow end-to-end; the arena cannot be assumed free even at boot (env save/load will
-; restore a conversation), and a mid-chat recertify must not clobber the live conversation. Finding
-; the captured leaf a real home (a dedicated handshake-only region that survives the drain ->
-; net_phase.retry without overlapping the conversation OR the loaded module) is a SEPARATE follow-up
-; tracked after the flow is proven. A leaf larger than leaf_capture_max (a layout constant) aborts
-; the capture -> recertify refuses (fail closed). The resident caller passes this buffer to
-; capture_leaf_reset (the module can't see the arena address); assert the 32K arena holds it.
-leaf_capture_buf equ chat_arena_start
-%if leaf_capture_max > (loop_cache_start - chat_arena_start)
-%error "leaf_capture_max exceeds the 32K arena span -- the captured leaf would overflow the arena"
+; Build 12 auto-recertify: the captured rotated leaf (286 secure path only) lands in the handshake-
+; transient TAIL of the 32K loop cache -- just above the P-256 module's budget end
+; (p256_module_load + p256_module_max_len) up to loop_cache_end. This is the MID-CHAT-SAFE home:
+;  - every 286 connect's tls_client_hello sets loop_cache_count=0, so the chat loop demand-loads its
+;    phases + prompt streams from floppy afterward; the cache content here (including
+;    prompt_id_cache/prompt_compact_cache, which sit in this same tail) is therefore already invalid
+;    when the capture overwrites it -- harmless;
+;  - the LIVE CONVERSATION arena (chat_arena_start) is far below and is never touched;
+;  - the loaded module (<= 24 sectors) ends at/below leaf_capture_buf, so it doesn't overlap either.
+; A leaf larger than leaf_capture_max aborts the capture -> recertify fails closed. The resident caller
+; passes this buffer to capture_leaf_reset (the module can't see the address). (Was chat_arena_start --
+; a TEMPORARY validation home; this tail relocation is the real, mid-chat-safe home.)
+leaf_capture_buf equ p256_module_load + p256_module_max_len
+%if leaf_capture_buf + leaf_capture_max > loop_cache_end
+%error "leaf-capture slot overflows the loop cache / runtime stack guard"
 %endif
 chat_arena_floor_min equ 64
 %if (chat_arena_start + chat_arena_floor_min) > (basic_sidecar_stack_top_16k - basic_sidecar_stack_guard_len_16k)

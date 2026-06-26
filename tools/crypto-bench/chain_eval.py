@@ -52,6 +52,7 @@ INCLUDES = (
     '%include "core/rsa_verify.inc"\n'
     '%include "core/rsa_pkcs1.inc"\n'
     '%include "core/rsa_anchor_wr1.inc"\n'
+    '%include "core/rsa_adopt.inc"\n'          # x509_load_wr1 now derives WR1 r2/n0inv via rsa_adopt_derive
     '%include "core/x509_chain_verify.inc"\n'
 )
 

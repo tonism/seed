@@ -275,7 +275,10 @@ p256_ep_adopt_leaf_impl:
     clc
     ret
 
-; x509_load_wr1: copy the baked WR1 anchor constants into the rsa_verify working constants. The
+; x509_load_wr1: install the pinned WR1 modulus into the rsa_verify working constants. Only wr1_n is
+; baked; rsa_adopt_derive computes the Montgomery constants (r2, n0inv) on the fly -- ~514 B less in
+; the module so the captured leaf fits the handshake-transient slot above the module (not the arena ->
+; mid-chat-safe recertify). rsa_one is the shared 1; the ~2s r2 derivation is fully off-race. The
 ; off-race chain-verify and the in-race leaf verify never overlap, so they share the rsa_* constants;
 ; after a successful chain-verify + adopt, rsa_* hold the new leaf for the retry handshake's SKE verify.
 x509_load_wr1:
@@ -285,18 +288,9 @@ x509_load_wr1:
     mov si, wr1_n
     mov di, rsa_n
     mov cx, 128
-    rep movsw
-    mov si, wr1_r2
-    mov di, rsa_r2
-    mov cx, 128
-    rep movsw
-    mov si, wr1_one
-    mov di, rsa_one
-    mov cx, 128
-    rep movsw
-    mov ax, [wr1_n0inv]
-    mov [rsa_n0inv], ax
-    ret
+    rep movsw                            ; rsa_n <- WR1 modulus (already LE limbs)
+    mov word [rsa_one], 1                ; rsa_one = the integer 1 (shared; rsa_adopt_derive leaves it, rest stays 0)
+    jmp rsa_adopt_derive                 ; derive rsa_r2 + rsa_n0inv from rsa_n; tail-call (rets to caller)
 
 ; ---- auto-recertify capture entry points (286-only; the leaf capture lives in the module) ----
 ; p256_ep_capture_reset: reset the capture cursor; call once at the cert-drain start (from net_phase,

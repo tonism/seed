@@ -439,3 +439,30 @@ machine, so kept separate from the now-committed cold-boot win):
      transient, NOT chat_arena_start -> mid-chat safe (the arena was the TEMPORARY validation home).
   5. Validate: extend recertify_eval to drive the streaming capture (oracle-gate) THEN hardware
      (rotation-sim greets + correct-pin + 8088 + a mid-chat reconnect leaves the conversation intact).
+
+## Phase 3 DONE (2026-06-26) — mid-chat-safe leaf home, via RELOCATE (simpler than the streaming plan)
+
+The streaming design (Phase 3 above) turned out HARDER than it looked (a streaming X.509 parser + a
+second SHA context juggled against the handshake transcript SHA = handshake-corruption risk, on a maxed
+layout). A much simpler path achieves the same goal -- and it's what I shipped:
+
+  1. SHRINK THE WR1 ANCHOR to just wr1_n (256 B). The baked wr1_r2/wr1_one/wr1_n0inv (~514 B) are gone;
+     x509_load_wr1 now copies wr1_n -> rsa_n, sets rsa_one=1 (the shared constant), and jumps to a new
+     `rsa_adopt_derive` entry (rsa_adopt minus the byte-swap) to compute r2 + n0inv on the fly. ~2s, fully
+     off-race. (rsa_adopt_derive is the proven adopt math; adopt_eval still green.)
+  2. That frees the module to 24 sectors (12100 B, was 12634) -> the slot above it in the loop cache
+     grows to 1536 B >= the leaf (1342).
+  3. leaf_capture_buf moves from chat_arena_start to the TAIL (p256_module_load + p256_module_max_len ..
+     loop_cache_end). MID-CHAT SAFE: every 286 connect's tls_client_hello sets loop_cache_count=0 (the
+     chat loop then demand-loads), so the cache tail there -- including prompt_id_cache/prompt_compact_
+     cache -- is already invalid when the capture overwrites it; the live conversation arena is untouched.
+
+No streaming parser, no dual-SHA, full rigor preserved (the same x509_parse_leaf + chain-verify, just
+relocated; the SAN check is intact). streaming_eval.py is kept as a documented fallback if the module
+ever outgrows the slot.
+
+VALIDATED: offline recertify_eval + chain_eval (real leaf ACCEPT, every forgery REJECT, via the DERIVED
+WR1 constants) + adopt_eval all green; hardware 286 @8 wrong-pin rotation-sim GREETS (leaf in tail +
+adopt-derived WR1), correct-pin 286 GREETS, 8088 ne2k8 GREETS w/ insecure splash -- no regression. The
+chain_eval bench needed rsa_adopt.inc included + rsa_one=1 set in x509_load_wr1 (the module bakes
+rsa_one; the bench didn't). Task 12 (captured-leaf real home) = DONE.
