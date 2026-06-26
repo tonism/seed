@@ -39,6 +39,16 @@ tcp_connect_phase:
 .nic_clean:
     cmp byte [handoff_addr + handoff_status], handoff_status_ready
     je tcp_reopen_cached_target
+    ; COLD path (no live session). On a RECONNECT (reconnect_retries<3 -- e.g. recertify's retry) the RX
+    ; ring still holds the prior attempt's handshake frames; the FIRST cold connect's ring is clean from
+    ; boot, but a reconnect's is not, so the re-ARP's reply lands behind stale frames and is missed
+    ; (net_error_arp / arp_request_sent). Flush first, as the warm reconnect (tcp_reopen_cached_target)
+    ; already does. Never hit before recertify: a cold attempt-1 failure went straight to the fatal
+    ; screen, so the cold-reconnect path was never exercised.
+    cmp byte [reconnect_retries], 3
+    jae .cold_connect
+    call ne_flush_receive_frames
+.cold_connect:
     call tcp_connect_target
     ret
 

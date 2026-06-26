@@ -373,3 +373,37 @@ FIX OPTIONS (genuine design fork -- pending user):
       config-clobber as a separate robustness item.
 Tree reverted to the committed 250c21b base (builds green, correct-pin 286 greets, no regression). New
 tool tools/analyze-tls-pcap.py (pure-Python pcap + TLS-handshake walker, no deps).
+
+## Phase 2 DONE (2026-06-26) — AUTO-RECERTIFY GREETS END-TO-END ON HARDWARE
+
+The cold-reconnect bugs the rotation-sim surfaced are both fixed, and the wrong-pin sim now GREETS:
+  1. CONFIG CLOBBER (cache-reuse fix, agent_request.inc + agent_cache.inc): on a cold RECONNECT
+     (reconnect_retries<3) agent_request now reuses chat_key_cache/chat_model_cache (safe copies the
+     handshake never touches -- they sit above the critical-scratch tail) and SKIPS the redundant
+     .selected_agent_is_openai recheck (seed_* overlays the TLS PRF scratch and is handshake-clobbered;
+     the agent was already validated on attempt 1). agent_cache also skips re-parsing on a cold reconnect
+     (cache already valid from attempt 1). The first connect (retries==3) is byte-unchanged.
+  2. STALE RX RING (RX-flush fix, tcp_connect.inc): the cold reconnect re-does full ARP but didn't flush
+     the RX ring first (the warm reconnect's tcp_reopen_cached_target already does), so the re-ARP's
+     reply landed behind attempt 1's leftover handshake frames and was missed (net_error_arp 09 /
+     arp_request_sent 0A). Added ne_flush_receive_frames before the cold tcp_connect_target on a
+     reconnect (gated reconnect_retries<3). First connect unchanged (boot ring is clean).
+Both were PRE-EXISTING cold-reconnect bugs, latent because a cold-greeting failure historically went
+straight to the fatal screen -- recertify is the first thing to systematically retry a cold connect.
+
+VALIDATED on hardware (all 286 @8 unless noted):
+  - WRONG-pin rotation-sim -> recertify -> cold reconnect -> **GREETS** ("seed build 12" + the greeting).
+    The full silent re-pin works: rotated/stale leaf -> SKE verify fails -> chain-verify the real leaf
+    vs the pinned WR1 (off-race) -> adopt -> reconnect+re-handshake -> greet. (The 09/0A ARP failure was
+    confirmed deterministic across a re-run before the flush fix.)
+  - CORRECT-pin 286 -> greets (recertify dormant; no regression on the normal secure path).
+  - 8088 ne2k8 (16K) -> greets with the dim "insecure" splash (shared agent_request/agent_cache/
+    tcp_connect path unaffected; the gates skip on the first connect). Other NIC families pending a
+    broader matrix pass, but the first-connect path is byte-identical so regression risk is ~nil.
+Fail-closed (a leaf that does NOT chain to WR1 is rejected) was already proven offline (tamper matrix)
++ on hardware (the Build-12 1-bit-tamper REJECT); the recertify reuses that same chain-verify.
+
+Committed on work/scaling: 250c21b (flow) + 1db972a (eval) + c825daf (root cause) + this commit
+(the two cold-reconnect fixes). NOT pushed (user does the single push). Remaining polish: the dim
+`> recertify` mid-chat status line (cosmetic), the captured-leaf's real (non-arena) home (task 12),
+and a full 7-NIC 8088 matrix pass for completeness.

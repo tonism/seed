@@ -14,6 +14,11 @@
 agent_request_phase:
     cmp byte [handoff_addr + handoff_status], handoff_status_ready
     je .session_ready
+    ; A RECONNECT (reconnect_retries<3) reuses the cold connect's cached config: seed_* was read on the
+    ; first attempt and is now handshake-clobbered (it overlays the TLS PRF scratch -- tls_server_random
+    ; equ seed_agent_id), so the agent was already validated on attempt 1; skip the (now-garbage) recheck.
+    cmp byte [reconnect_retries], 3
+    jb .session_ready
     call .selected_agent_is_openai
     jc .failed
 .session_ready:
@@ -83,6 +88,8 @@ agent_request_phase:
     call agent_request_phase_append_z_to_buffer
     cmp byte [handoff_addr + handoff_status], handoff_status_ready
     je .reuse_key
+    cmp byte [reconnect_retries], 3          ; reconnect: seed_key is handshake-clobbered -> use the cache
+    jb .reuse_key
     mov si, seed_key
     call agent_request_phase_append_z_to_buffer
     jmp .key_done
@@ -230,6 +237,8 @@ agent_request_phase:
     call agent_request_phase_append_z_to_buffer
     cmp byte [handoff_addr + handoff_status], handoff_status_ready
     je .reuse_model
+    cmp byte [reconnect_retries], 3          ; reconnect: seed_model is handshake-clobbered -> use the cache
+    jb .reuse_model
     mov si, seed_model
     call agent_request_phase_append_z_to_buffer
     jmp .model_done

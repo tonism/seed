@@ -13,6 +13,8 @@ agent_cache_phase:
     ; cache is still valid, so skip re-caching and keep the live prompt length.
     cmp byte [handoff_addr + handoff_status], handoff_status_ready
     je .done
+    cmp byte [reconnect_retries], 3      ; reconnect: the cache is already valid from the cold connect's
+    jb .done                              ; first attempt (seed_* is now handshake-clobbered) -- don't re-parse
     call .cache_key
     jc .failed
     call .cache_model
