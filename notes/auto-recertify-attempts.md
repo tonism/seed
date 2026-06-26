@@ -466,3 +466,37 @@ WR1 constants) + adopt_eval all green; hardware 286 @8 wrong-pin rotation-sim GR
 adopt-derived WR1), correct-pin 286 GREETS, 8088 ne2k8 GREETS w/ insecure splash -- no regression. The
 chain_eval bench needed rsa_adopt.inc included + rsa_one=1 set in x509_load_wr1 (the module bakes
 rsa_one; the bench didn't). Task 12 (captured-leaf real home) = DONE.
+
+## Recertify-polish: the dim `> recertify` status line (2026-06-26) — DONE + validated
+
+The orchestration (recertify_prep -> SHA -> chain_verify -> save mod_ptr + recert_flag in net_phase
+.retry) + the pre-tls_probe re-adopt were already wired; the remaining UX piece was the status line so
+the user SEES a silent re-pin happen. Added to the endpoint phase (agent_endpoint.inc), the first phase
+re-run on .rebuild_and_connect, so the line lands BEFORE attempt 2's crypto:
+  - new `.render_recertify` branch gated on `recert_flag` (set in net_phase when a captured leaf chains
+    to WR1), checked just AFTER the retries==0 "failed" gate and BEFORE the "> reconnect" logic, so a
+    recert overrides the reconnect line.
+  - new string `recertify_msg_text db '> recertify'` (recertify_word_len=11). EXACTLY 11 chars == the
+    "> reconnect" line, so on a MID-CHAT recert it cleanly overwrites the earlier "> reconnect" on the
+    same row (reads as reconnect->recertify transitioning, not two stacked lines). On a COLD recert
+    (handoff not ready) no "> reconnect" was drawn, so it's a clean single "> recertify".
+  - on exhaustion the shared retries==0 path appends " failed" to whatever is parked -> "> recertify
+    failed" if the parked line was the recert one. No new failed-string needed.
+Endpoint phase fit (clean build, check-layout OK 17 bands / 19 overlays; CORE.SYS 66dff81b, 42496 B).
+
+VALIDATED against the fresh real-pin binary (all 286 @8 / 8088 ne2k8):
+  - ROTATION-SIM (wrong baked pin): dim "> recertify" renders top-left -> "seed build 12" -> greet. The
+    new line works end-to-end (attempt 1 fails on the wrong pin -> off-race chain-verify accepts the
+    captured leaf -> recert_flag set -> "> recertify" -> attempt 2 greets).
+  - CORRECT-PIN 286: NO "> recertify" (recert_flag stays 0 -> the cmp/jne is inert) -> normal greet. The
+    added instruction is confirmed inert on the hot path when the pin matches.
+  - 8088 ne2k8: NO "> recertify" (the recertify orchestration is 286-gated, recert_flag never set) ->
+    insecure splash + greet. No 8088 regression on the shared endpoint phase.
+
+NB a TRUE mid-chat rotation sim can't be authentically staged: the pin is baked at build time, so the
+device can't "rotate" it between connects at runtime, and a wrong baked pin fails the cold connect too
+(can't first-greet to get mid-chat). But the .retry recert path is IDENTICAL cold vs mid-chat (gated on
+recert_flag, not handoff_status); the only mid-chat delta is "> reconnect" drawn at attempt 1 then
+overwritten, + the chat-history-survives concern, which is the existing reconnect machinery (recertify
+touches only recert_flag/recert_mod_ptr/the leaf buffer, never the in-RAM history). So the cold sim
+covers the render + mechanism; mid-chat history-survival is inherited. Task 10 (> recertify render) = DONE.
