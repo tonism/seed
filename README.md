@@ -40,16 +40,25 @@ Three things make Seed unusual:
   Boot to first token is seconds, not minutes.
 
 **Status — what's real, and what isn't.** The record layer genuinely runs —
-ChaCha20-Poly1305, SHA-256, and the full TLS 1.2 handshake, over a live session — but
-it is **not a secure channel yet.** The shipped build skips the ECDH key exchange (a
-stub takes the server's public value as the premaster, and client randomness is a
-placeholder), so a passive observer could derive the keys. The full P-256 is written
-and OpenSSL-checked, just compiled out — and it *fits* the RAM (~3.4 KB); the blocker is
-CPU time, not space: a real scalar multiply is ~110 s on the 4.77 MHz part, minutes past
-the server's handshake window. (Measured: it's the CPU — a real secure handshake first
-fits the window on a 286, never the stock 8088.) So wiring in a secure exchange (ephemeral
-scalar plus real entropy) is the headline open problem on this hardware. Full story:
-[docs/architecture.md](docs/architecture.md).
+ChaCha20-Poly1305, SHA-256, and the full TLS 1.2 handshake, over a live session. Whether
+that channel is *secure* is CPU-tiered, and the product says so honestly:
+
+- **On a stock 8088 (4.77 MHz) it is encrypted, not secure.** A real ECDH scalar
+  multiply is ~110 s here — minutes past the server's handshake window — so the boot
+  path substitutes a stub (the server's public value becomes the premaster) and a passive
+  observer could derive the keys. The full P-256 is written and OpenSSL-checked, just
+  compiled out; it *fits* the RAM (~3.4 KB), so the wall is CPU time, not space. A pre-286
+  machine shows a dim **"insecure"** on the splash to say so.
+- **On a 286 it is a real secure channel (shipped, Build 12).** The optimised
+  constant-time P-256 does a genuine ephemeral ECDHE key agreement, and the server is
+  authenticated by verifying its RSA-2048 signature against a **pinned `api.openai.com`
+  key** — one in-race RSA verify, which is what makes a secure handshake fit the window
+  (8 MHz is the comfortable floor; 6 MHz is a knife-edge). When the pinned leaf rotates
+  (~90 days), the device silently re-pins — it checks the freshly-presented leaf is signed
+  by the pinned Google Trust Services CA that issued it, off the handshake race, and adopts
+  it. No rebuild, fail-closed.
+
+Full story: [docs/architecture.md](docs/architecture.md).
 
 ## Try it
 
@@ -76,11 +85,12 @@ key sk-your-openai-key
 `mcopy -i seed-160k.img USER.CFG ::USER.CFG` — or rebuild from source with
 `config/USER.CFG` in place.
 
-> ⚠️ **Use a throwaway, rate-limited key.** seed's TLS is **not a secure channel**
-> (the key exchange is stubbed — see Status above), so the `Authorization` header is
-> exposed to anyone on the network path. Use a disposable key with strict limits and
-> revoke it afterward. `USER.CFG` also stores the key in plaintext on the image — don't
-> share an image that has your key in it.
+> ⚠️ **Use a throwaway, rate-limited key.** On a pre-286 machine seed's channel is
+> **not secure** (the key exchange is stubbed — see Status above), so the `Authorization`
+> header is exposed to anyone on the network path — and the "Try it" steps above boot
+> exactly such a machine. Even on a secure 286, `USER.CFG` stores the key in plaintext on
+> the image. Use a disposable key with strict limits, revoke it afterward, and don't share
+> an image that has your key in it.
 
 ## Authorship
 
@@ -165,9 +175,10 @@ Seed is a working agent on real 1981 hardware, with the rough edges that implies
   prompt, where re-sending runs the reconnect loop again. Never a blank turn.
 - **Long replies render slowly.** Drawing to the text screen is the bottleneck,
   not the network; a very long reply can take minutes to fully render.
-- **The TLS path is not a secure channel.** The hand-rolled handshake does no real
-  key agreement — enough to reach the provider, not to protect the traffic. See
-  [docs/networking.md](docs/networking.md).
+- **Security is CPU-tiered.** On a stock 8088 the hand-rolled handshake does no real
+  key agreement — encrypted, but not a secure channel. Security begins at the 286: real
+  ECDHE plus a pinned-key RSA certificate verify, with silent re-pinning when the leaf
+  rotates (shipped, Build 12). See [docs/architecture.md](docs/architecture.md).
 
 ## Build
 

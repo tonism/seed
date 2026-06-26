@@ -126,19 +126,20 @@ applied: the chat-loop request pins `"reasoning":{"effort":"high"}` rather than 
 the saved value back. The saved `model`, by contrast, IS substituted into the request.
 Honoring the stored reasoning effort, and dynamic model/reasoning capability fetches,
 remain later work. The `key` value is
-plaintext on the boot medium. The shipped build does not perform real key agreement: the P-256 scalar multiply
-is compiled out (one real scalar multiply is 110.8 s measured on this CPU — it fits the
+plaintext on the boot medium. On a stock 8088 the build does not perform real key agreement: the P-256 scalar multiply
+is compiled out (one real scalar multiply is 110.8 s measured on that CPU — it fits the
 size budget, the wall is speed), so the premaster is taken from the server's public
 value rather than a Diffie-Hellman exchange, and client randomness is a placeholder LCG.
 Seed still runs the rest of the path for real — it
 sends ClientKeyExchange, ChangeCipherSpec, and an encrypted client Finished, can send
 the API request early as TLS application data before the server Finished, and
 receives, authenticates, decrypts, and verifies the server Finished and application
-records on the ChaCha20-Poly1305 path — but because the key exchange is stubbed, the
-session is not confidential. Real key agreement is the blocker: the premaster is public,
-so a better client-random RNG alone would not make the session confidential (entropy
-matters only once a secret per-session value exists). Both real key agreement and
-server-certificate authentication are out of reach on this CPU (minutes per handshake),
-so this is not secure TLS — see `docs/architecture.md` (CPU And Crypto Budget) for the
-measured costs. Capability fetches, model selection, reasoning selection,
+records on the ChaCha20-Poly1305 path — but because the key exchange is stubbed there, the
+session is not confidential. The premaster is public, so a better client-random RNG alone
+would not make the session confidential (entropy matters only once a per-session secret
+exists), and both real key agreement and server-certificate authentication are out of 8088
+CPU reach (minutes per handshake). A 286 *does* run the real secure handshake — genuine
+ECDHE plus a pinned-key RSA certificate verify — so confidentiality and authentication are
+tier-dependent; see `docs/architecture.md` (CPU And Crypto Budget) for the measured costs
+and the tier split. Capability fetches, model selection, reasoning selection,
 and environment handoff remain later work.

@@ -7,10 +7,12 @@ hardware differences. These are durable behavioral requirements, not status note
 The lane-validation history and per-card evidence behind these contracts are
 recorded in `docs/builds.md` (the Build 6 and Build 8 checkpoints).
 
-**Security note:** this path is not yet a secure channel — the ECDH key exchange is
-stubbed (the premaster is the server's public value) and client randomness is a
-placeholder. See [`architecture.md`](architecture.md), "CPU And Crypto Budget." The
-contracts below are about transport *reliability*, not confidentiality.
+**Security note:** confidentiality is CPU-tiered. On a stock 8088 this path is *not* a
+secure channel — the ECDH key exchange is stubbed (the premaster is the server's public
+value) and client randomness is a placeholder; a 286 runs the real secure handshake
+(ECDHE + pinned-key RSA cert verify, shipped Build 12). See
+[`architecture.md`](architecture.md), "CPU And Crypto Budget." The contracts below are
+about transport *reliability* — identical on both tiers — not confidentiality.
 
 ## Shared transport rules
 

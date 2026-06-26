@@ -560,9 +560,10 @@ lever is CPU class. On a 286 the secure channel is now **real, not skipped**:
   a **pinned provider leaf public key** — proving the server holds that key. The
   trust anchor is the pinned `api.openai.com` leaf (Google Trust Services-issued,
   RSA-2048); pinning the leaf (vs chaining to its RSA-4096 root, ~3 verifies, too
-  slow) keeps the verify to one RSA op so it fits the lowest 286. It is brittle by
-  design — re-pin with `tools/gen-rsa-pinned-key.py` on leaf rotation — but it is
-  *real* authentication, not a cosmetic flag.
+  slow) keeps the verify to one RSA op so it fits the lowest 286. A pinned leaf would
+  normally be brittle — leaves rotate ~90 days — but that rotation is now handled
+  automatically (see *Silent re-pinning* below); only a CA change needs a manual
+  re-pin (`tools/gen-rsa-pinned-key.py`). It is *real* authentication, not a cosmetic flag.
 
 The 286-only crypto (P-256 + RSA verify + cert glue, ~10 KiB) lives in a
 handshake-only module that overlays the 32 KiB loop cache (0 resident RAM on
@@ -579,6 +580,23 @@ agreement, no authentication), and a pre-286 machine now shows a dim **"insecure
 on the splash to say so. Detail + reproducible benchmarks:
 `tools/crypto-bench/results/FINDINGS.md`; the secure-tier build log is
 `notes/build12-layout-redesign-attempts.md`.
+
+**Silent re-pinning (auto-recertify).** A pinned leaf rotates roughly every 90 days,
+which would otherwise force a rebuild every quarter. So the 286 pins a second, *durable*
+anchor — the issuing CA, **Google Trust Services WR1** (RSA-2048, valid for years) — in
+addition to the leaf. When the in-race verify fails against a stale leaf, the device runs
+a full X.509 chain-verify *off the ~15 s race*: it parses the freshly-presented leaf,
+confirms its SAN is exactly `api.openai.com`, and verifies the leaf's signature against the
+pinned WR1. If it chains, the new leaf is adopted as the pin and the handshake retried; a
+dim `> recertify` marks the pause, and a mid-chat rotation keeps the conversation (history
+lives in RAM). This is deliberately **not** trust-on-first-use: a leaf is adopted only if a
+CA we *already* pinned signed it, for the *exact* host we expect — anything else fails
+closed (and falls through to the normal reconnect-failed path). WR1 itself rotates on the
+order of years and still needs a human re-pin then (`tools/gen-rsa-pinned-key.py --mode
+anchor`). Like the rest of the secure tier this is 286-only; the captured leaf and the
+chain-verify run inside the handshake-only module (the WR1 anchor is shrunk to just its
+modulus and the Montgomery constants are re-derived on the fly to make room), so the
+16 KiB hot path carries none of it.
 
 The handshake race is also why the chat loop reuses one session instead of
 reconnecting per turn — a fresh mid-chat handshake can lose the race:

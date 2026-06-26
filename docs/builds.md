@@ -1,9 +1,10 @@
 # Build Scope
 
 Status: latest tagged release is Build 11 (release hardening: draining-FIFO transport, robust
-reconnect, real LLM compaction, ESC-to-interrupt, tool-directive rendering), `build-11`. See its
-section for the shipped features and "Forward-looking ideas" for the backlog. The next cycle
-(Build 12) is the capability-tiered memory-layout redesign on `work/scaling`.
+reconnect, real LLM compaction, ESC-to-interrupt, tool-directive rendering), `build-11`. Build 12 —
+the capability-tiered memory-layout redesign **and the 286 secure tier** (real ECDHE + pinned-key RSA
+cert auth, with silent re-pinning on leaf rotation) — is built and validated on `work/scaling`, not
+yet tagged. See the build sections for shipped features and "Forward-looking ideas" for the backlog.
 
 Seed's loading marker has four semantic states plus the final splash:
 
@@ -34,6 +35,7 @@ build 8   Default Prompt Interface chat loop
 build 9   minimal context management for agentic continuity
 build 10  minimal tool calling through controlled RAM access
 build 11  release hardening: FIFO budget, robust reconnect, real compaction, ESC, tool-directive rendering
+build 12  capability-tiered layout (one CORE.SYS, NIC HAL, 32K floppy-free loop, 2-image) + 286 secure tier (real ECDHE + pinned RSA cert auth, auto-recertify)
 ```
 
 Builds 1–4 are the boot-presentation and hardware-setup milestones listed above; the substantive
@@ -56,9 +58,10 @@ the full handshake through ServerHelloDone, 8086 P-256 field/point/scalar primit
 checked), a SHA-256 transcript + TLS-PRF key schedule, ChaCha20-Poly1305 records, and a minimal
 OpenAI Responses request that returns `ok`. Validated on all seven 4.77 MHz NIC profiles.
 
-Honest caveat: the shipped path substitutes a scalar-1 stub for the ECDHE scalar (the premaster
+Honest caveat: this path substitutes a scalar-1 stub for the ECDHE scalar (the premaster
 becomes the server's public X), so no real key agreement runs — fast boot, not a secure channel.
-Closing that is tracked under Forward-looking and in the README security status.
+Closed at the 286 in Build 12 (real ECDHE + pinned-key RSA cert auth, silent re-pin on leaf
+rotation); the stock-8088 floor stays this way.
 
 ## Build 7 — 16 KiB entry contract
 
@@ -131,6 +134,35 @@ Validated 7/7 NICs (boot+greeting) on the final transport state; the compaction,
 tool-directive paths deep-validated on ne2k8 @ 16K/32K with wd8003e + 3c501 spot-checks. Working
 record in `notes/build11-hardening-attempts.md`.
 
+## Build 12 — capability-tiered layout + the secure tier
+
+A RAM-layout redesign that lets one `CORE.SYS` scale from the 16 KiB floor up to the 286 — and, on
+the headroom it buys, makes the channel genuinely secure on a 286.
+
+```text
+capability-tiered layout - one CORE.SYS, two build-time-fixed layouts dispatched through vectors;
+  lifetime-ordered bands + a reconnect-safe block; layout.inc is authoritative and tools/check-layout.py
+  enforces it on every build. Fast crypto is the 16K baseline (the slow path deleted).
+NIC HAL - a boot-populated dispatch vtable + four floppy-loaded driver modules (ne / wd8003 / 3c503 /
+  3c501); only the detected family loads into a resident slot, so inactive drivers cost 0 RAM.
+32K floppy-free chat loop - the K window + identity/compaction prompt streams preload into a high cache,
+  so per-turn floppy I/O drops ~25 -> 0 sectors. The 16K floor still demand-loads.
+two-image build - 160K (headline) and 360K (for the 286) from one CORE.SYS that auto-detects floppy
+  geometry from the boot-sector BPB. Seed boots on the 286.
+286 secure tier - real ECDHE key agreement (optimised constant-time P-256) + RSA-2048 server-cert auth
+  against a pinned api.openai.com key; a 286-only handshake module overlays the 32K loop cache (0 resident
+  RAM on 16K). A pre-286 machine shows a dim "insecure" splash.
+auto-recertify - silent re-pin on leaf rotation: pin the issuing CA (Google Trust Services WR1) as a
+  durable anchor, off-race X.509 chain-verify a freshly-presented leaf against it (+ exact-SAN), then
+  adopt + retry behind a dim "> recertify". Fail-closed, never trust-on-first-use.
+```
+
+Validated on the 6 MHz (knife-edge) and 8 MHz 286 — a full real-ECDHE + RSA-cert handshake reaches the
+model, a one-bit-tampered pin is rejected, and a wrong-pin rotation sim recertifies and greets; the
+16 KiB / 4.77 MHz 8088 matrix is unchanged (encrypted-not-secure, "insecure" splash). Working records in
+`notes/build12-layout-redesign-attempts.md` and `notes/auto-recertify-attempts.md`; the secure-tier
+crypto budget + the tier split is in `docs/architecture.md` (CPU And Crypto Budget).
+
 ## Forward-looking ideas
 
 Not yet built — the backlog beyond what ships today. The render-room and handshake-speed items
@@ -182,9 +214,9 @@ true security on larger / faster machines (separate exploration, CPU-gated) - ME
   begins at the 286. An optimized real ECDHE (Solinas+Karatsuba+wNAF P-256, OpenSSL-verified) runs in
   6.6 s on the lowest 6 MHz part, and a full cert-authenticated handshake (ECDHE + RSA-2048 verify
   6.37 s + fast PRF) fits the ~15 s server window: ~13.8 s @6 MHz (a knife-edge, only with the 4.64x
-  SHA win) and a comfortable ~10.4 s @8 MHz. So "secure" is a 286@8+ tier; full 286 coverage (the
-  6 MHz floor with real slack) needs a further crypto-optimisation pass and is scoped to the
-  capability-tiered redesign (Build 12, branch work/scaling). The stock-8088 product stays honestly
+  SHA win) and a comfortable ~10.4 s @8 MHz. This shipped in Build 12: the secure 286 tier greets at
+  6 MHz (still the ~1.2 s knife-edge) and comfortably at 8 MHz; widening the 6 MHz slack is the one
+  residual crypto-optimisation follow-up (handshake speed, below). The stock-8088 product stays honestly
   "encrypted but not secure" (per-record app-data IS MAC-verified after the FIFO collapse - record
   integrity, not a secure channel); real entropy + a pinned key is the honest middle ground there.
 reach / perf - beyond segment 0 (>64 KiB); render-rate optimization for very long replies; drop the
@@ -200,10 +232,11 @@ handshake speed (crypto optimization) - MEASURED (spike: tools/crypto-bench/, re
   8088 grinding the TLS-PRF: measured 4.92 s (SHA-256 block 156 ms; bit-at-a-time rotr + memory-to-memory
   32-bit math dominate). A 20-variant evolutionary search (byte rotation -> inline sigmas -> register-fold
   the round body -> state base-ptr+disp8 -> xchg register-rename rotates) got SHA-256/PRF to 4.64x on real
-  86Box hardware (PRF 4.92 s -> 1.06 s), output bit-exact. Catch: +595 B of code and the K crypto window
-  has 9 B free, so landing it is a sized follow-up - free ~590 B in the K window, or bump
-  high_crypto_scratch_start ~600 B (free at 32 KiB, costs conversation arena at the 16 KiB floor; needs
-  7-NIC + 16K re-validation). The verified variant is tools/crypto-bench/variants/r4_v42.inc.
+  86Box hardware (PRF 4.92 s -> 1.06 s), output bit-exact. This LANDED in Build 12 as the 16K crypto
+  baseline (the slow path was deleted): the faster SHA is bigger, so it took the predicted sector —
+  high_crypto_scratch base-raised ~512 B, paid from the conversation arena at the 16 KiB floor, free at
+  32 KiB (see architecture.md, "The honest 16K cost"). It is also load-bearing for the 286 secure
+  handshake fitting the window. The spike's verified variant is tools/crypto-bench/variants/r4_v42.inc.
 receive-side loss tolerance - a bigger receive wait so the seed out-waits the server's RTO under heavy
   loss (the wire-proven heavy-loss bottleneck is the dropped server->client download). The high-value
   heavy-loss lever; the client-retransmit slices do not address it. Trade-off: a genuinely dead link then
