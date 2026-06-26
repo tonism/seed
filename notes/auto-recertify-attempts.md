@@ -284,3 +284,48 @@ in api_request_plain, not the arena); the real home is task 12.
 COMMITTED state: capture (ec979f4/b186d47/2c88856) + this WIP (SI/DI fix + the net_phase orchestration
 + re-adopt + recertify_eval). Builds green (correct pin), correct-pin path unaffected (recertify
 dormant on a pin match). Rotation-sim pending the orchestration->phase + integration debug.
+
+## Phase 2 UPDATE #2 (2026-06-26) — recertify CORE proven; blocker is the 286-secure RECONNECT (post-SKE)
+
+Decisive debug pass. Added a TEMP net_status terminal in .retry (drops the re-adopt to fit the nucleus):
+boot showed **net_status 0x43** = recertify_prep OK (0x41) AND chain_verify OK (0x43) ON HARDWARE. So
+the recertify core (capture -> parse -> SHA(TBS) -> verify-vs-WR1) WORKS on the 286. recertify_eval
+also now checks result_mod_ptr survives chain_verify (PASS, 0x28c8 before+after).
+
+Tried TWO independent pin-restoration mechanisms for the retry:
+  1. save+re-adopt (committed 250c21b): save result_mod_ptr in .retry; re-adopt pre-tls_probe after
+     tls_client_hello reloads the module.
+  2. skip-reload (experiment): adopt in .retry, gate tls_client_hello's module reload on recert_flag so
+     the adopted pin survives (no fragile arena pointer).
+BOTH fail IDENTICALLY at attempt 2's TLS: net_error_tls(0x0D) / net_status_tcp_connected(0x12=18, the
+generic "TCP up, handshake failed"; tls_fail_error->net_fail_al sets only net_error, not net_status).
+That two-different-mechanisms-same-failure is the tell: **the bug is NOT the pin mechanism -- it's
+attempt 2's handshake itself = the 286-secure RECONNECT path.** Recertify just happens to be the first
+thing that exercises a 286 secure reconnect.
+
+RULED OUT (by reading + offline proof):
+  - reconnect double-send: .done clears tls_app_len and the 286 path reaches .done (tls.inc:127-138).
+  - stale keys: tls_transcript_start (tls.inc:463) zeroes tls_key_schedule_ready, and tls_probe calls
+    it first (line 6), so attempt 2 re-derives fresh keys (the line-78 reuse-skip never triggers).
+  - mod_ptr clobber: recertify_eval confirms result_mod_ptr survives chain_verify.
+  - bad adopted rsa_n: adopt_eval proves adopt->rsa_n does correct modexp (s^e mod n reproduces the
+    modulus == a correct RSA verify). So attempt 2's SKE verify SHOULD pass (rsa_n=leaf is correct).
+=> by elimination the failure is POST-SKE in attempt 2's handshake (ECDHE premaster / master / key_block
+   / Finished / app) -- a reconnect issue, NOT recertify. [NB: "SKE passes" is an INFERENCE; the
+   hardware milestone that would confirm it OVERFLOWS -- see below.]
+
+INSTRUMENTATION WALL: both the resident nucleus AND the K crypto window are MAXED (the 286 secure tier
+left no slack). A net_status milestone in .retry overflows the nucleus (>1536); even ONE 5-byte
+milestone in tls_probe overflows the K window ("LINK window overlaps high crypto scratch"). So hardware
+step-localization needs room first.
+
+NEXT (the real question -- does a 286 secure reconnect work AT ALL, independent of recertify?):
+  (a) host WIRE CAPTURE: `sudo tcpdump -i <iface> host <api.openai.com ip> and port 443 -w cap.pcap`
+      during a wrong-pin sim. Plaintext handshake msgs localize attempt 2's break: no ClientKeyExchange
+      after the SKE = SKE-verify fail (wrong rsa_n, contradicts adopt_eval); CKE-then-Alert/FIN = post-
+      SKE. (App data is real-ECDHE-encrypted, but the handshake frames + the RST/Alert are plaintext.)
+  (b) free K-window/nucleus room (golf) for a single milestone -- risky on a maxed layout.
+  (c) move the recertify orchestration to a PHASE to free the nucleus (orthogonal cleanup; doesn't help
+      the K-window milestone, which is where the post-SKE step lives).
+Committed base = 250c21b (save+re-adopt, degrades gracefully). The skip-reload experiment is reverted
+(it crashes multi-turn: post-greet the loop cache overwrites the never-reloaded module).

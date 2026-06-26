@@ -115,12 +115,17 @@ def main() -> int:
         tbs_ok = hashlib.sha256(tbs).hexdigest() == hashlib.sha256(leaf[4:4 + 1062]).hexdigest()
         print(f"  [{'PASS' if tbs_ok else 'FAIL'}] result TBS span correct (sha {h.hex()[:8]})")
         # 3. chain_verify_sig: leaf sig (result sig_ptr) chains to the baked WR1, over the TBS hash
+        mod_before = m.res("mod_ptr")                            # net_phase reads result_mod_ptr AFTER chain_verify
         hash_buf = 0x3600                                        # high_crypto_work (as net_phase uses)
         m.uc.mem_write(hash_buf, h)
         cf = m.call(m.ep("chain_verify_sig"), si=sig_ptr, di=hash_buf)
         chain_ok = not cf
         print(f"  [{'PASS' if chain_ok else 'FAIL'}] chain_verify_sig CF=0 (leaf chains to WR1)")
-        ok = cap_ok and prep_ok and tbs_ok and chain_ok
+        mod_after = m.res("mod_ptr")                             # did chain_verify's RSA scratch clobber it?
+        mod_ok = mod_before == mod_after and mod_after != 0
+        print(f"  [{'PASS' if mod_ok else 'FAIL'}] result_mod_ptr survives chain_verify "
+              f"(before={mod_before:#06x} after={mod_after:#06x}) <- net_phase reads it AFTER")
+        ok = cap_ok and prep_ok and tbs_ok and chain_ok and mod_ok
     else:
         ok = False
     print(f"\nOVERALL: {'ALL GREEN — the module recertify path works' if ok else 'FAILURE LOCALIZED above'}")
