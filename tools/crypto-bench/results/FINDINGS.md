@@ -1,5 +1,11 @@
 # Handshake-crypto speed + real-crypto feasibility on the 4.77 MHz 8088 — findings
 
+> **The canonical, reader-facing writeup is now [`docs/crypto-feasibility.md`](../../../docs/crypto-feasibility.md)**
+> — it tells the full story (method → 8088 limits → 286 threshold → shipped decisions + why),
+> reorganised to lead with the result. This file is the original spike *log*: the raw tables,
+> every measurement, and the reproduce commands behind that narrative. Start with the doc; come
+> here for the granular detail.
+
 A measurement spike. Question: **what TLS-handshake crypto speed is achievable on
 the original 4.77 MHz 8088**, with benchmarked evidence, so we can decide what to
 build. Two fronts: (1) speed up the symmetric crypto that always runs (SHA-256 /

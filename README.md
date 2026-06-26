@@ -210,6 +210,7 @@ config/                        shipped AGENTS.CFG / NET.CFG defaults
 docs/architecture.md           how Seed works + the hardware/memory contract
 docs/memory.md                 stage-by-stage byte-level memory maps
 docs/builds.md                 milestone and scope history (the roadmap)
+docs/crypto-feasibility.md     why a secure handshake needs a 286 (the crypto research)
 docs/{config,networking,ui,testing}.md   config, transport, UI, and test reference
 notes/                         design notes and the dated implementation logs
 targets/ibm_pc_5150/           8088 boot sector, loader, and CORE.SYS core source

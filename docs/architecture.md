@@ -577,8 +577,10 @@ though per the measurements that is a ~1.2 s-slack knife-edge that may flake on 
 degraded link; **8 MHz is the comfortable secure floor**. The 16 KiB / 4.77 MHz
 8088 floor is unchanged — still honestly **encrypted, not secure** (no key
 agreement, no authentication), and a pre-286 machine now shows a dim **"insecure"**
-on the splash to say so. Detail + reproducible benchmarks:
-`tools/crypto-bench/results/FINDINGS.md`; the secure-tier build log is
+on the splash to say so. The full feasibility study — the method, the 8088 limits,
+the 286 threshold, and which crypto variants shipped and why — is
+[`crypto-feasibility.md`](crypto-feasibility.md) (raw benchmarks:
+`tools/crypto-bench/results/FINDINGS.md`); the secure-tier build log is
 `notes/build12-layout-redesign-attempts.md`.
 
 **Silent re-pinning (auto-recertify).** A pinned leaf rotates roughly every 90 days,
