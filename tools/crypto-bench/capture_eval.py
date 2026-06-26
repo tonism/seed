@@ -48,6 +48,7 @@ DATA = (
 # caller: force the 286 flag, reset, then walk the fragment-length table calling capture_leaf_chunk.
 CALLER = """
     or word [handoff_addr + handoff_flags], handoff_flag_cpu_286plus
+    mov di, leaf_capture_buf
     call capture_leaf_reset
     mov bx, frag_lens
     xor di, di

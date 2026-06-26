@@ -503,10 +503,13 @@ chat_arena_start equ chat_context_end
 ; restore a conversation), and a mid-chat recertify must not clobber the live conversation. Finding
 ; the captured leaf a real home (a dedicated handshake-only region that survives the drain ->
 ; net_phase.retry without overlapping the conversation OR the loaded module) is a SEPARATE follow-up
-; tracked after the flow is proven. The cap is the current arena span; a leaf larger than this aborts
-; the capture -> recertify refuses (fail closed).
+; tracked after the flow is proven. A leaf larger than leaf_capture_max (a layout constant) aborts
+; the capture -> recertify refuses (fail closed). The resident caller passes this buffer to
+; capture_leaf_reset (the module can't see the arena address); assert the 32K arena holds it.
 leaf_capture_buf equ chat_arena_start
-leaf_capture_max equ loop_cache_start - chat_arena_start
+%if leaf_capture_max > (loop_cache_start - chat_arena_start)
+%error "leaf_capture_max exceeds the 32K arena span -- the captured leaf would overflow the arena"
+%endif
 chat_arena_floor_min equ 64
 %if (chat_arena_start + chat_arena_floor_min) > (basic_sidecar_stack_top_16k - basic_sidecar_stack_guard_len_16k)
 %error "context pool leaves no minimum arena floor below the 16K stack reserve"

@@ -83,6 +83,13 @@ p256_x509_result_sig_ptr   equ p256_module_load + 22
 p256_x509_result_mod_ptr   equ p256_module_load + 24
 p256_x509_result_nb_ptr    equ p256_module_load + 26
 p256_x509_result_na_ptr    equ p256_module_load + 28
+; auto-recertify capture entry points (second pointer block at +30, after the result block):
+p256_ep_capture_reset      equ p256_module_load + 30
+p256_ep_capture_chunk      equ p256_module_load + 32
+p256_ep_recertify_prep     equ p256_module_load + 34
+; Max leaf the capture buffer holds (a layout constant the module references; the resident caller
+; supplies the actual buffer to capture_leaf_reset). data.inc asserts the arena is at least this big.
+leaf_capture_max equ 1536
 ; (loop_cache_start must stay above the 16K ceiling so the region is 32K-only — asserted in core.asm,
 ; where every equate is defined; %if here would precede basic_sidecar_stack_top_16k's definition.)
 net_setup_frame_scratch_len equ 512

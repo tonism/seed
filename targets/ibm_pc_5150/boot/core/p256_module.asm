@@ -49,6 +49,13 @@ p256_x509_results:
     dw 0    ; [+24] mod_ptr (the leaf modulus to adopt)
     dw 0    ; [+26] notBefore ptr
     dw 0    ; [+28] notAfter ptr
+; Auto-recertify capture entry points, a second fixed pointer block at +30 (the leaf capture is
+; 286-only, so it lives in the module; the K-window drain calls these via the table). Placed after
+; the result block so the existing +0..+28 ABI offsets are unchanged.
+p256_capture_ep_table:
+    dw p256_ep_capture_reset_impl               ; [+30]  reset the capture cursor (drain start)
+    dw p256_ep_capture_chunk_impl               ; [+32]  fold one drained fragment into the leaf
+    dw p256_ep_recertify_prep_impl              ; [+34]  if a leaf was captured, parse it -> result block
 
 ; ---- entry implementations (thin wrappers over the verified p256.inc primitives) ----
 
@@ -287,6 +294,27 @@ x509_load_wr1:
     mov [rsa_n0inv], ax
     ret
 
+; ---- auto-recertify capture entry points (286-only; the leaf capture lives in the module) ----
+; p256_ep_capture_reset: reset the capture cursor; call once at the cert-drain start (from net_phase,
+; before the handshake, so it costs no K-window bytes).
+p256_ep_capture_reset_impl:
+    jmp capture_leaf_reset
+; p256_ep_capture_chunk: fold one drained fragment into the captured leaf. in: SI=fragment, CX=len.
+p256_ep_capture_chunk_impl:
+    jmp capture_leaf_chunk
+; p256_ep_recertify_prep: if a leaf was captured this handshake, strict-DER parse it and publish the
+; field pointers to the result block. out: CF=0 = a leaf was captured + parsed OK (the resident
+; orchestration then does SHA -> chain-verify-vs-WR1 -> validity -> adopt); CF=1 = no leaf OR bad parse.
+p256_ep_recertify_prep_impl:
+    cmp word [capture_leaf_len], 0
+    je .none
+    mov si, [capture_buf_ptr]
+    mov cx, [capture_leaf_len]
+    jmp p256_ep_parse_leaf_impl                  ; parses + copies results to the block + returns CF
+.none:
+    stc
+    ret
+
 ; ---- the verified P-256 + RSA implementations + the module-resident data ----
 %include "core/p256.inc"
 %include "core/p256_data.inc"
@@ -295,6 +323,7 @@ x509_load_wr1:
 %include "core/x509_verify.inc"
 %include "core/rsa_adopt.inc"
 %include "core/rsa_anchor_wr1.inc"
+%include "core/x509_capture.inc"
 
 p256_module_image_end:
 
@@ -304,6 +333,9 @@ p256_module_image_end:
 %endif
 %if (p256_x509_results - p256_module_entry) != 18
 %error "p256_x509_results must sit at module offset +18 (the layout.inc p256_x509_result_* equates depend on it)"
+%endif
+%if (p256_capture_ep_table - p256_module_entry) != 30
+%error "p256_capture_ep_table must sit at module offset +30 (the layout.inc p256_ep_capture_* equates depend on it)"
 %endif
 %if (p256_module_image_end - p256_module_entry) > p256_module_max_len
 %error "p256 module (code + data) exceeds its band -- raise p256_module_max_sectors (must fit the loop cache)"

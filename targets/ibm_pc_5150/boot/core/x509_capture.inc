@@ -22,7 +22,11 @@
 
 %define X509_LEAF_FRAME_OFF 15          ; record offset where the leaf DER begins
 
-capture_leaf_reset:                     ; call once at the start of a Certificate drain
+; capture_leaf_reset -- call once at the start of a Certificate drain. in: DI = destination buffer
+; (the resident caller supplies it, since the module can't see the arena address); stored for the
+; chunk handler. The module references only this pointer + the layout constant leaf_capture_max.
+capture_leaf_reset:
+    mov [capture_buf_ptr], di
     mov word [capture_pos], 0
     mov word [capture_leaf_len], 0
     mov word [capture_done], 0
@@ -75,8 +79,8 @@ capture_leaf_chunk:
     or bx, bx
     jz .done
     add si, ax                          ; src = fragment + skip
-    mov di, leaf_capture_buf
-    add di, [capture_done]              ; dst = leaf_capture_buf + done
+    mov di, [capture_buf_ptr]
+    add di, [capture_done]              ; dst = capture buffer + done
     mov cx, bx
     push ds
     pop es
@@ -98,6 +102,7 @@ capture_leaf_chunk:
     jmp .done
 
 align 2
+capture_buf_ptr:  dw 0                  ; destination buffer (set by capture_leaf_reset)
 capture_pos:      dw 0
 capture_leaf_len: dw 0
 capture_done:     dw 0
