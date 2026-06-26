@@ -407,3 +407,35 @@ Committed on work/scaling: 250c21b (flow) + 1db972a (eval) + c825daf (root cause
 (the two cold-reconnect fixes). NOT pushed (user does the single push). Remaining polish: the dim
 `> recertify` mid-chat status line (cosmetic), the captured-leaf's real (non-arena) home (task 12),
 and a full 7-NIC 8088 matrix pass for completeness.
+
+## Phase 3 (2026-06-26) — streaming leaf capture (task 12: mid-chat-safe home), DESIGN + OFFLINE-VALIDATED
+
+Goal: stop buffering the whole ~1.3 KB leaf in the arena (a mid-chat recertify clobbers the live
+conversation). Instead, as the cert streams off the wire, hash the TBS incrementally and keep only the
+two fields we can't recompute -- modulus (256 B) + signature (256 B) = 512 B -- in a small
+handshake-transient slot (NOT the arena), so mid-chat is safe.
+
+Real-leaf structure (tools/crypto-bench shows): leaf 1342 B; TBS element = leaf[4 .. 8+tbs_clen]
+(tbs_clen from leaf[6:8]); modulus = the UNAMBIGUOUS `02 82 01 01 00` INTEGER (exactly 1 in the leaf,
+followed by `02 03 01 00 01` e=65537); signature = after the TBS + the short-form sha256RSA sigAlg
+SEQUENCE + the `03 82 01 01 00` BIT STRING. The chain-verify (sig over SHA(TBS) vs WR1) authenticates
+the whole cert; the modulus is extracted from that authenticated TBS, and any extraction error fails
+closed (attempt-2 SKE verify fails) -- a MITM can't exploit it (their leaf won't chain to WR1).
+
+OFFLINE-VALIDATED: tools/crypto-bench/streaming_eval.py models the streaming extraction (fragment the
+cert, carry state across chunks) and proves sha/modulus/sig MATCH a full parse on: the real leaf @
+592/256/1500-byte frags; 3 rotated synthetic leaves (different keys + subject lengths -> different
+modulus offsets, 705-819 B); and a tampered byte changes the hash (verify rejects). ALL GREEN.
+
+ASM PLAN (x509_capture.inc rewrite, the next focused effort -- a rigor-sensitive cross-fragment state
+machine, so kept separate from the now-committed cold-boot win):
+  1. Read tbs_clen from the TBS header (first fragment) -> the TBS span; sha256_init when the TBS starts.
+  2. Per fragment: sha256_update the TBS-overlap span; roll a 5-byte window scanning for `02 82 01 01 00`
+     (within the TBS) -> capture the next 256 B (modulus), carrying the capture across fragments; after
+     the TBS, skip the sigAlg + BIT-STRING header and capture 256 B (signature), carrying across frags.
+  3. The recertify path (net_phase.retry) uses the streamed SHA + captured modulus/sig directly --
+     recertify_prep's full-leaf parse is dropped (the parse work moved into the streaming capture).
+  4. leaf_capture_buf: 512 B in the loop-cache tail (p256_module_end..loop_cache_end), 286/handshake-
+     transient, NOT chat_arena_start -> mid-chat safe (the arena was the TEMPORARY validation home).
+  5. Validate: extend recertify_eval to drive the streaming capture (oracle-gate) THEN hardware
+     (rotation-sim greets + correct-pin + 8088 + a mid-chat reconnect leaves the conversation intact).
