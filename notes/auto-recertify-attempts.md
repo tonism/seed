@@ -219,3 +219,68 @@ Entangled + every-region-tight — best built mostly-whole and validated by the 
 - **No-regression:** normal 286 @6/@8 greet (correct pin, no recertify path taken) + the 8088/16K
   NIC-matrix (the whole flow is 286-gated; the 8088 path is untouched).
 - **GUARDRAIL: full build output + fresh CORE.SYS md5 before any --no-build run.**
+
+## Phase 2 LIVE INTEGRATION (2026-06-26) — flow fully wired; rotation-sim fails, debugging next
+
+COMMITTED + working: the capture (offline byte-exact + runs live during the real drain; 286 @8 greets,
+no regression). ec979f4 / b186d47 / 2c88856. The no-op at tls.inc .need_more (read+write-back-same)
+was removed to fund the ~9 K-window bytes for the two drain hooks (call a resident 286-gated trampoline
+secure_capture_chunk -> the module's capture_leaf_chunk).
+
+UNCOMMITTED (builds clean, correct pin = f3a984d4, nucleus 1496/1536; correct-pin path UNAFFECTED —
+the recertify code is dormant when the in-race pin verify passes): the recertify trigger in
+net_phase.inc `.retry` — recertify_prep -> SHA-256(TBS, resident K-window) -> chain_verify_sig (vs the
+baked WR1) -> save the leaf modulus ptr + recert_flag (data.inc, reconnect_state block) -> re-adopt
+before tls_probe (the module reload reverts rsa_n, so re-install). recert_flag boot-zeroed in
+hardware_setup (a phase, not the nucleus). Two bugs found + fixed en route: (1) the module reload each
+connect wiped the in-.retry adopt -> moved to a pre-tls_probe re-adopt from the saved modulus ptr
+(which points into the still-resident captured leaf in the arena); (2) that overflowed the nucleus by
+5 B -> moved the recert_flag zeroing to the hardware_setup boot-zero.
+
+ROTATION-SIM (the validation) STILL FAILS: pin a WRONG (synthetic) leaf so the real leaf fails the
+in-race pin verify; expect recertify -> greet. Result: "agent setup failed" net_error=0x0D
+net_status=0x12 (18 = tcp_connected; the handshake fails in TLS and recertify does NOT rescue it).
+The recertify path runs but something in it isn't succeeding. NEXT = net_status-milestone debug of the
+.retry recertify (add a milestone after recertify_prep [leaf captured? capture_leaf_len!=0], after
+chain_verify [sig chains to WR1 on-device?], after the re-adopt), boot the wrong-pin sim, read which
+step it reaches. Likely culprits in order: the ON-WIRE capture (offline-proven with a constructed cert,
+but the real fragmented drain may differ -> capture_leaf_len=0 -> recertify_prep CF=1 -> no recertify);
+the on-device chain-verify; the re-adopt. ALSO: the arena leaf must survive .retry->the pre-tls_probe
+re-adopt — agent_request builds in api_request_plain (0x3912), NOT the arena, so it should (for the
+cold-boot first greet). Multi-turn needs the real capture home (task 12).
+
+ROTATION-SIM PROCEDURE: `cp .../rsa_pinned_key.inc /tmp/...real`; WRONG=$(python3 -c "import sys;
+sys.path.insert(0,'tools/x509'); import der_build; n,_,_=der_build.gen_rsa(2048,seed=0xBADB10C);
+print(hex(n)[2:])"); `gen-rsa-pinned-key.py --modulus $WRONG --out .../rsa_pinned_key.inc`; make;
+`run-286-86box.py --speed 8 --timeout 135`; RESTORE the real pin after.
+
+## Phase 2 UPDATE (2026-06-26 cont.) — module path PROVEN; bug is the net_phase integration
+
+Found + fixed a REAL bug the offline chain_eval couldn't catch: the module's p256_ep_chain_verify_sig
+did `call x509_load_wr1` (whose rep movsw CLOBBER SI/DI) then `jmp p256_ep_verify_ske_sig_impl` (which
+needs SI=sig, DI=hash) -> it verified garbage. Fixed by push/pop SI/DI around x509_load_wr1.
+(chain_eval tests x509_chain_verify.inc, which reloads SI/DI after load_wr1, so it never hit this.)
+
+New harness `tools/crypto-bench/recertify_eval.py` drives the REAL module .bin's entry points
+(capture_reset/chunk -> recertify_prep -> chain_verify_sig) exactly as net_phase does, full visibility.
+**ALL GREEN**: module capture == leaf.der, recertify_prep parses, result TBS span correct, and
+chain_verify_sig CF=0 (chains to WR1, with the SI/DI fix). So the MODULE LOGIC IS PROVEN CORRECT.
+
+But the hardware rotation-sim STILL fails (net_error 0D / net_status 18). 18=tcp_connected is the
+handshake's last milestone and the clean recertify code doesn't touch net_status, so 18 is
+UNINFORMATIVE about recertify. The bug is in the net_phase INTEGRATION that recertify_eval doesn't
+replicate: the resident SHA-256(TBS) call (net_phase -> K-window sha256) and/or the pre-tls_probe
+re-adopt (attempt 2). Localizing needs net_status milestones IN the .retry recertify -- but those
+OVERFLOW the nucleus (the orchestration already fills it; the re-adopt fix was tight; +debug = +28 B).
+
+NEXT (the unblock): MOVE the recertify orchestration (recertify_prep -> SHA -> chain_verify -> save)
+OUT of net_phase (nucleus) INTO A PHASE -- (1) frees the nucleus (it's for the hot path, not a
+between-handshakes op), (2) gives room for milestone debug. The phase loads at .retry (between
+handshakes, floppy-OK) and calls K-window sha256 + the module entries directly (both loaded). Then
+add milestones in the phase, boot the wrong-pin sim, localize the SHA/re-adopt bug, fix, greet.
+The arena-as-temporary-capture-home still holds for the cold-boot first greet (agent_request builds
+in api_request_plain, not the arena); the real home is task 12.
+
+COMMITTED state: capture (ec979f4/b186d47/2c88856) + this WIP (SI/DI fix + the net_phase orchestration
++ re-adopt + recertify_eval). Builds green (correct pin), correct-pin path unaffected (recertify
+dormant on a pin match). Rotation-sim pending the orchestration->phase + integration debug.

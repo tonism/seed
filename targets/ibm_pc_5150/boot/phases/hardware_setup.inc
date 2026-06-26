@@ -138,6 +138,8 @@ hardware_setup_phase_display:
     mov byte [dpi_reached], 0       ; Build 11 ESC gate: hook stays inert until dpi_phase sets this post-boot
     mov word [chat_context_used], 0
     mov word [note_len], 0          ; #4 note-as-memory: no compacted note until the first compaction
+    mov byte [recert_flag], 0       ; Build 12 auto-recertify: net_phase reads it pre-handshake before
+                                    ; any recertify writes it; boot-zero here (a phase, not the nucleus)
     sub ah, seed_len
     shr ah, 1
     mov [seed_col], ah

@@ -262,7 +262,11 @@ p256_ep_parse_leaf_impl:
 ; sig). out: CF=0 valid. Loads WR1 into the rsa_verify constants, then REUSES the shipped SKE-verify
 ; routine verbatim (it is modulus-agnostic -- it verifies against whatever rsa_n is loaded).
 p256_ep_chain_verify_sig_impl:
+    push si                                      ; x509_load_wr1's rep movsw clobber SI/DI, but the
+    push di                                      ; SKE-verify routine below needs SI=sig, DI=hash
     call x509_load_wr1
+    pop di
+    pop si
     jmp p256_ep_verify_ske_sig_impl
 
 ; p256_ep_adopt_leaf: install a chain-verified leaf as the fast-path pin. in: SI=256-byte BE modulus.

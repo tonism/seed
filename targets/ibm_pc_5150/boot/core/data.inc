@@ -486,7 +486,16 @@ prompt_compact_size equ prompt_compact_cluster + 2
 ; the first compaction. This is what makes the post-compaction turn ANSWER the user's question instead
 ; of continuing the note (the note reads as system memory, not the latest conversation turn).
 note_len equ prompt_compact_size + 2
-reconnect_state_end equ note_len + 2
+; Build 12 auto-recertify: re-adopt a chain-verified leaf across the module reload. The reload (each
+; connect) reverts the module's pin to the baked one, so net_phase re-installs the verified leaf
+; before tls_probe. recert_flag=1 = the off-race chain-verify accepted the captured leaf this
+; prepare_agent_endpoint_path; recert_mod_ptr = its modulus (inside the capture buffer). Boot/entry
+; zeroed (set at the prepare_agent_endpoint_path entry). (TEMPORARY-arena caveat: the modulus must
+; still be in the capture buffer at re-adopt time -- true for the cold-boot recertify; the real home
+; makes it robust across turns -- tracked follow-up.)
+recert_flag equ note_len + 2
+recert_mod_ptr equ recert_flag + 1
+reconnect_state_end equ recert_mod_ptr + 2
 ka_template_persistent equ reconnect_state_end
 ; Build 11 ESC: the int 9 keyboard hook handler is staged to this pool slot at boot (position-independent
 ; code; runs from here so it survives the phase-overlay churn). esc_int9_old saves the BIOS int 9 vector

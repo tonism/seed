@@ -73,6 +73,13 @@ prepare_agent_endpoint_path:
     ; buffer). On 8088 the module is absent -> skip (the drain's trampoline also no-ops there).
     test word [handoff_addr + handoff_flags], handoff_flag_cpu_286plus
     jz .cap_reset_done
+    ; re-install a recertified leaf: tls_client_hello above reloaded the module, reverting the pin to
+    ; the baked one; restore the chain-verified leaf so this handshake's SKE verify passes.
+    cmp byte [recert_flag], 0
+    je .no_readopt
+    mov si, [recert_mod_ptr]
+    call word [p256_ep_adopt_leaf]
+.no_readopt:
     mov di, leaf_capture_buf
     call word [p256_ep_capture_reset]
 .cap_reset_done:
@@ -92,6 +99,34 @@ prepare_agent_endpoint_path:
     ; appends " failed" once the counter reaches 0. On exhaustion, re-run the endpoint phase ONCE so
     ; it renders that "failed" tail, then fall through to .restore (back to DPI). The user's next
     ; prompt re-inits reconnect_retries=3 (the word write above) and runs the same loop again.
+    ; --- auto-recertify (286 secure path) -------------------------------------------------------
+    ; A rotated leaf makes the in-race pin verify fail. Off the race (we're between handshakes, no
+    ; socket held), verify the leaf captured during this attempt's cert-drain chains to the PINNED
+    ; WR1, and if so adopt it as the new pin -- the retry below then re-handshakes against it and
+    ; passes. recertify_prep returns CF=1 when no leaf was captured (a pre-cert failure) -> normal
+    ; retry. FAIL CLOSED: a leaf that does not chain to WR1 is NOT adopted (-> normal retry -> the
+    ; eventual reconnect-failed). The TBS SHA-256 runs in the resident K window (loaded, since a
+    ; captured leaf means the cert-drain ran); the hash parks in high_crypto_work (dead here).
+    test word [handoff_addr + handoff_flags], handoff_flag_cpu_286plus
+    jz .retry_dec
+    call word [p256_ep_recertify_prep]              ; parse the captured leaf -> result block; CF=1 = none/bad
+    jc .retry_dec
+    call sha256_init
+    mov si, [p256_x509_result_tbs_ptr]
+    mov cx, [p256_x509_result_tbs_len]
+    call sha256_update
+    mov di, high_crypto_work
+    call sha256_finish
+    mov si, [p256_x509_result_sig_ptr]
+    mov di, high_crypto_work
+    call word [p256_ep_chain_verify_sig]            ; leaf sig chains to WR1?  CF=1 = no -> fail closed
+    jc .retry_dec
+    ; The leaf is genuine. Don't adopt now -- the retry below reloads the module (reverting the pin).
+    ; Save the verified modulus pointer + flag; the pre-tls_probe re-adopt installs it after the reload.
+    mov ax, [p256_x509_result_mod_ptr]
+    mov [recert_mod_ptr], ax
+    mov byte [recert_flag], 1
+.retry_dec:
     dec byte [reconnect_retries]
     jnz .rebuild_and_connect
     call_core_phase core_agent_endpoint_phase_start, core_agent_endpoint_phase_end
