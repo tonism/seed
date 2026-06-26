@@ -497,6 +497,16 @@ chat_context_start equ esc_int9_old + 4
 chat_context_len equ 128
 chat_context_end equ chat_context_start + chat_context_len
 chat_arena_start equ chat_context_end
+; Build 12 auto-recertify: the captured rotated leaf (286 secure path only) lands here.
+; *** TEMPORARY HOME -- the arena is NOT a safe long-term home. *** It is used here ONLY to validate
+; the recertify flow end-to-end; the arena cannot be assumed free even at boot (env save/load will
+; restore a conversation), and a mid-chat recertify must not clobber the live conversation. Finding
+; the captured leaf a real home (a dedicated handshake-only region that survives the drain ->
+; net_phase.retry without overlapping the conversation OR the loaded module) is a SEPARATE follow-up
+; tracked after the flow is proven. The cap is the current arena span; a leaf larger than this aborts
+; the capture -> recertify refuses (fail closed).
+leaf_capture_buf equ chat_arena_start
+leaf_capture_max equ loop_cache_start - chat_arena_start
 chat_arena_floor_min equ 64
 %if (chat_arena_start + chat_arena_floor_min) > (basic_sidecar_stack_top_16k - basic_sidecar_stack_guard_len_16k)
 %error "context pool leaves no minimum arena floor below the 16K stack reserve"
