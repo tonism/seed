@@ -329,3 +329,47 @@ NEXT (the real question -- does a 286 secure reconnect work AT ALL, independent 
       the K-window milestone, which is where the post-SKE step lives).
 Committed base = 250c21b (save+re-adopt, degrades gracefully). The skip-reload experiment is reverted
 (it crashes multi-turn: post-greet the loop cache overwrites the never-reloaded module).
+
+## Phase 2 ROOT CAUSE (2026-06-26) — it's a pre-existing COLD-RECONNECT bug, NOT recertify
+
+WIRE CAPTURE (host tcpdump on SLiRP, tools/analyze-tls-pcap.py parses it) settled it. The seed sent
+EXACTLY ONE ClientHello (attempt 1 -> 162.159.140.245, ServerHello/Cert/SKE/ServerHelloDone then NO
+ClientKeyExchange = SKE-verify fail on the wrong pin, exactly as expected). The other 3 "api.openai.com"
+SNIs in the 24 MB capture are the host's own apps (no 0xcca8 fingerprint). So **attempt 2 NEVER
+re-handshakes** -- my "post-SKE" inference was WRONG. The retry dies in SETUP.
+
+net_status milestones (in the PHASES, which have room -- unlike the maxed nucleus/K-window) walked it
+back: attempt 2 reaches agent_request (0x84) and fails INSIDE it, before any net_status write. The only
+agent_request failure that leaves net_status untouched is `.selected_agent_is_openai` (it checks
+seed_agent_id spells "openai", no net_status on fail). Capturing seed_agent_id[0] on that failure showed
+**0x6A ('j'), not 0x6F ('o')** -> seed_agent_id is CLOBBERED between attempt 1 and attempt 2.
+
+WHY: `seed_agent_id equ hmac_prepared_outer_state + (16*2)` (data.inc:298). **The seed_* config block
+(agent_id 0x3b1f / model 0x3b2b / key 0x3b6b / endpoint 0x3c2b) OVERLAYS the TLS HMAC/PRF crypto
+scratch.** sha256.inc:260 writes hmac_prepared_outer_state on every PRF/HMAC during the handshake, so
+attempt 1's handshake clobbers the config. attempt 1's agent_request read it intact BEFORE the
+handshake; the cold-reconnect attempt 2 re-reads it AFTER -> "openai" check fails -> agent_request
+returns CF -> .restore. NO reconnect. The recertify CORE is fine (already proven 0x43 + recertify_eval);
+it just can't complete because the cold-reconnect path it triggers is broken.
+
+KEY INSIGHT: the WARM/mid-chat reconnect (handoff_status==ready) takes a DIFFERENT agent_request path --
+it SKIPS .selected_agent_is_openai (line 17 `je .session_ready`) and reuses chat_key_cache /
+chat_model_cache (safe copies, not the clobbered seed_*). So a **mid-chat** leaf rotation would recertify
++ reconnect fine; only the **cold-boot** rotation-sim hits this. (Reasoned, not yet HW-confirmed -- a
+mid-chat sim is the confirm.)
+
+This is INDEPENDENT of recertify -- ANY cold reconnect (not just a rotated-leaf one) re-reads the
+handshake-clobbered config. It was latent because the cold greeting normally succeeds (config read once,
+before the handshake) and a cold-greeting FAILURE historically went straight to the fatal screen; the
+recertify is the first thing to systematically retry a cold connect.
+
+FIX OPTIONS (genuine design fork -- pending user):
+  (a) Cache the cold-path config (agent_id/key/model) into a safe region on the FIRST connect (gated on
+      reconnect_retries==3, before the handshake) + have the cold reconnect read the cache. Mirrors the
+      warm path's chat_*_cache.
+  (b) Re-load the config (re-run the agents_cfg/agent_setup phase) at the top of .rebuild_and_connect.
+  (c) Move the seed_* config OUT of the crypto-scratch overlay (root fix; needs RAM on a tight layout).
+  (d) Accept it: recertify works mid-chat (confirm with a mid-chat sim); treat the cold-reconnect
+      config-clobber as a separate robustness item.
+Tree reverted to the committed 250c21b base (builds green, correct-pin 286 greets, no regression). New
+tool tools/analyze-tls-pcap.py (pure-Python pcap + TLS-handshake walker, no deps).
