@@ -66,15 +66,17 @@ prepare_agent_endpoint_path:
     jc .retry
     call_core_phase core_agent_cache_phase_start, core_agent_cache_phase_end
     jc .retry
-    run_net_phase core_tcp_connect_phase_start, core_tcp_connect_phase_end
-    jc .retry
-    ; auto-recertify: reset the leaf-capture cursor before the handshake (286-only; the secure module
-    ; is loaded by tls_client_hello above, so the drain's capture hooks have a clean cursor + the dest
-    ; buffer). On 8088 the module is absent -> skip (the drain's trampoline also no-ops there).
+    ; auto-recertify (286-only): re-adopt the recertified leaf + reset the leaf-capture cursor BEFORE
+    ; tcp_connect, so the ~3.3s rsa_adopt_derive (R^2 mod N for the new modulus) runs OFF the server's
+    ; handshake window -- before the SYN -- NOT between the SYN-ACK and the ClientHello. Wire-confirmed
+    ; @6: with the re-adopt in-window the ClientHello left at +3.3s and the client Finished at +16.6s,
+    ; ~1.6s past Cloudflare's ~15s window (server FIN at +15.0s -> recertify failed); off-window the
+    ; ClientHello is prompt and the Finished lands inside the window -> the server completes -> greet.
+    ; (tls_client_hello above reloaded the module, reverting the pin to the baked one; restore the
+    ; chain-verified leaf here so the handshake's SKE verify passes. On 8088 the module is absent -> skip;
+    ; the cap_reset gives the drain's capture hooks a clean cursor + dest buffer before tls_probe.)
     test word [handoff_addr + handoff_flags], handoff_flag_cpu_286plus
     jz .cap_reset_done
-    ; re-install a recertified leaf: tls_client_hello above reloaded the module, reverting the pin to
-    ; the baked one; restore the chain-verified leaf so this handshake's SKE verify passes.
     cmp byte [recert_flag], 0
     je .no_readopt
     mov si, [recert_mod_ptr]
@@ -83,6 +85,8 @@ prepare_agent_endpoint_path:
     mov di, leaf_capture_buf
     call word [p256_ep_capture_reset]
 .cap_reset_done:
+    run_net_phase core_tcp_connect_phase_start, core_tcp_connect_phase_end
+    jc .retry
     call tls_probe_server
     jc .retry
     ; Do NOT reset tls_app_len here: agent_request (above) already rebuilt the send-state,

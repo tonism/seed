@@ -179,50 +179,12 @@ montmul:
     jnz     .outer
 
     ; ======================================================================
-    ; conditional subtract: if t[n] != 0 OR t[0..n-1] >= N: t[0..n-1] -= N
+    ; conditional subtract of N + copy result -> u  (shared cond_sub_copy):
+    ;   result low limb is t[0]; the top carry word is t[n].
     ; ======================================================================
-    ; check t[n] first
-    mov     ax, [rsa_t + RSA_N_LIMBS*2]     ; t[n]
-    or      ax, ax
-    jnz     .do_sub                         ; t[n] != 0 -> definitely >= N (and >= 2^2048)
-
-    ; compare t[0..n-1] vs N, most-significant limb down
-    mov     si, rsa_t + (RSA_N_LIMBS-1)*2   ; -> t[n-1]
-    mov     di, rsa_n + (RSA_N_LIMBS-1)*2   ; -> n[n-1]
-    mov     cx, RSA_N_LIMBS
-.cmp_loop:
-    mov     ax, [si]
-    cmp     ax, [di]
-    ja      .do_sub                         ; t > N at this limb -> t >= N
-    jb      .no_sub                         ; t < N
-    sub     si, 2
-    sub     di, 2
-    loop    .cmp_loop
-    ; all equal -> t == N -> t >= N, subtract
-
-.do_sub:
-    ; t[0..n-1] -= N  (128-limb subtract with borrow)
-    mov     si, rsa_n               ; -> n[0]
-    mov     di, rsa_t               ; -> t[0]
-    mov     cx, RSA_N_LIMBS
-    clc
-.sub_loop:
-    mov     ax, [di]
-    sbb     ax, [si]
-    mov     [di], ax
-    inc     si
-    inc     si
-    inc     di
-    inc     di
-    loop    .sub_loop
-
-.no_sub:
-    ; ---- copy t[0..n-1] -> u ----
-    mov     si, rsa_t
-    mov     di, [bp-6]
-    mov     cx, RSA_N_LIMBS
-    cld
-    rep     movsw
+    mov     bx, rsa_t               ; t_base -> t[0]
+    mov     dx, [bp-6]              ; out ptr u
+    call    cond_sub_copy
 
     mov     sp, bp
     pop     bp
@@ -311,14 +273,7 @@ montsqr:
     loop    .od_inner
 
     ; propagate the final carry C up from the current word t[k] (di) while != 0
-.od_carry:
-    or      bx, bx
-    jz      .od_next
-    add     [di], bx
-    mov     bx, 0
-    adc     bx, 0                   ; carry out of this add
-    add     di, 2
-    jmp     .od_carry
+    call    carry_up                ; in: di -> word, bx = carry
 
 .od_next:
     inc     word [bp-10]            ; i++
@@ -366,14 +321,7 @@ montsqr:
     mov     bx, 0
     adc     bx, 0                   ; carry out -> bx
     add     di, 2                   ; -> t[2i+2]
-.dg_carry:
-    or      bx, bx
-    jz      .dg_next
-    add     [di], bx
-    mov     bx, 0
-    adc     bx, 0
-    add     di, 2
-    jmp     .dg_carry
+    call    carry_up                ; propagate carry bx up from [di]
 
 .dg_next:
     inc     word [bp-10]
@@ -419,14 +367,7 @@ montsqr:
     loop    .sos_red
 
     ; add the final carry C into t[i+n] (di now points there) and propagate up
-.sos_carry:
-    or      bx, bx
-    jz      .sos_advance
-    add     [di], bx
-    mov     bx, 0
-    adc     bx, 0
-    add     di, 2
-    jmp     .sos_carry
+    call    carry_up                ; in: di -> t[i+n], bx = carry
 
 .sos_advance:
     add     word [bp-12], 2         ; ibase -> t[i+1]
@@ -434,35 +375,57 @@ montsqr:
     jnz     .sos_outer
 
     ; ======================================================================
-    ; result = t[n .. 2n-1]  (the high half).  Conditional subtract:
-    ;   if t[2n] != 0 OR t[n..2n-1] >= N:  t[n..2n-1] -= N
-    ; (t[2n] is the top carry word; with a^2 < N*R it stays 0, but check anyway.)
+    ; result = t[n .. 2n-1]  (the high half).  Conditional subtract + copy via
+    ; the shared cond_sub_copy: result low limb is t[n]; its top carry word is
+    ; t[n + n] = t[2n].  (With a^2 < N*R the top word stays 0, but check anyway.)
     ; ======================================================================
-    mov     ax, [rsa_t + RSA_N_LIMBS*2*2]   ; t[2n]
-    or      ax, ax
-    jnz     .sq_do_sub
+    mov     bx, rsa_t + RSA_N_LIMBS*2   ; t_base -> t[n]  (high half)
+    mov     dx, [bp-4]                  ; out ptr u
+    call    cond_sub_copy
 
-    ; compare t[n..2n-1] vs N, most-significant limb down
-    mov     si, rsa_t + (RSA_N_LIMBS*2 - 1)*2   ; -> t[2n-1]
-    mov     di, rsa_n + (RSA_N_LIMBS-1)*2       ; -> n[n-1]
+    mov     sp, bp
+    pop     bp
+    ret
+
+
+; ==========================================================================
+; cond_sub_copy  --  shared conditional-subtract-N + copy-to-output tail used
+; by BOTH montmul and montsqr (their tails were bit-identical bar the t offset).
+;   in:  BX = t_base   = byte addr of the result's LOW limb in rsa_t
+;        DX = out ptr   = destination for the n result limbs
+;   The result occupies t_base[0..n-1]; its top carry word is at t_base+n*2.
+;   if topcarry != 0 OR result >= N:  result -= N   (n-limb borrow subtract)
+;   then copy result[0..n-1] -> [out].
+;   clobbers all GP regs (called as the very last act before the epilogue).
+; ==========================================================================
+cond_sub_copy:
+    mov     si, bx
+    mov     ax, [si + RSA_N_LIMBS*2]    ; top carry word (t_base + n*2)
+    or      ax, ax
+    jnz     .do_sub                     ; nonzero -> definitely >= N
+
+    ; compare result[0..n-1] vs N, most-significant limb down
+    mov     si, bx
+    add     si, (RSA_N_LIMBS-1)*2       ; -> result[n-1]
+    mov     di, rsa_n + (RSA_N_LIMBS-1)*2   ; -> n[n-1]
     mov     cx, RSA_N_LIMBS
-.sq_cmp:
+.cmp_loop:
     mov     ax, [si]
     cmp     ax, [di]
-    ja      .sq_do_sub
-    jb      .sq_no_sub
+    ja      .do_sub                     ; result > N at this limb -> >= N
+    jb      .no_sub                     ; result < N
     sub     si, 2
     sub     di, 2
-    loop    .sq_cmp
-    ; all equal -> t == N -> subtract
+    loop    .cmp_loop
+    ; all equal -> result == N -> subtract
 
-.sq_do_sub:
-    ; t[n..2n-1] -= N
-    mov     si, rsa_n                          ; -> n[0]
-    mov     di, rsa_t + RSA_N_LIMBS*2          ; -> t[n]
+.do_sub:
+    ; result[0..n-1] -= N  (n-limb subtract with borrow)
+    mov     si, rsa_n                   ; -> n[0]
+    mov     di, bx                      ; -> result[0]
     mov     cx, RSA_N_LIMBS
     clc
-.sq_sub:
+.sub_loop:
     mov     ax, [di]
     sbb     ax, [si]
     mov     [di], ax
@@ -470,16 +433,32 @@ montsqr:
     inc     si
     inc     di
     inc     di
-    loop    .sq_sub
+    loop    .sub_loop
 
-.sq_no_sub:
-    ; ---- copy t[n..2n-1] -> u ----
-    mov     si, rsa_t + RSA_N_LIMBS*2          ; -> t[n]
-    mov     di, [bp-4]
+.no_sub:
+    ; ---- copy result[0..n-1] -> [out] ----
+    mov     si, bx
+    mov     di, dx
     mov     cx, RSA_N_LIMBS
     cld
     rep     movsw
+    ret
 
-    mov     sp, bp
-    pop     bp
+
+; ==========================================================================
+; carry_up  --  propagate a carry upward through the accumulator while nonzero.
+; Shared by montsqr's three carry-propagation sites (.od / .dg / .sos rows).
+;   in:  DI -> the word to add the carry into, BX = carry
+;   out: BX = 0, DI advanced past the last word touched
+;   clobbers DI, BX, flags only (leaves SI/CX/AX/DX intact).
+; ==========================================================================
+carry_up:
+    or      bx, bx
+    jz      .done
+    add     [di], bx
+    mov     bx, 0
+    adc     bx, 0                   ; carry out of this add
+    add     di, 2
+    jmp     carry_up
+.done:
     ret

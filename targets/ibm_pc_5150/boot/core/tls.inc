@@ -843,18 +843,22 @@ tls_send_prebuilt_after_server_finished:
 tls_read_server_finished_with_retry:
     mov cx, tcp_syn_retry_count
 .try:
+    ; Keep the retry counter on the stack across BOTH the record read AND the resend below.
+    ; tls_resend_second_flight clobbers CX (mov cx,[tls_stream_skip_remaining]); the pre-fix
+    ; `pop cx` BEFORE the resend lost the counter, so on a reconnect that needs a resend (the
+    ; @6 case: the server Finished is slow, the first read fails) CX was reset to the flight
+    ; length every iteration and the loop never terminated -> the @6 recertify hang.
     push cx
     call tls_read_server_finished_records
+    jc .retry
     pop cx
-    jnc .ok
-    dec cx
-    jz .fail
-    call tls_resend_second_flight
-    jmp .try
-.ok:
     clc
     ret
-.fail:
+.retry:
+    call tls_resend_second_flight
+    pop cx
+    dec cx
+    jnz .try
     stc
     ret
 
