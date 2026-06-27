@@ -46,10 +46,72 @@ the 286 does real ECDHE today. The new work is purely **authentication**:
 - The K-window fit is the usual wall (15 sectors, no slack) — the ECDSA-verify code competes with
   the RSA-verify code; likely they can't both be resident. A 286 build might pick ONE auth path at
   build/config time, or overlay them (both are handshake-only).
-- **Biggest unknown:** does ECDSA-verify @6/@8 fit the time budget? Needs a measured spike before
-  committing — the RSA path's ~6.4s modexp is the current knife-edge; 2× P-256 mults is worse.
+- **Biggest unknown -- RESOLVED 2026-06-27, see "Measured spike" below:** ECDSA-verify @6 does NOT
+  fit by field-level tuning (~15.1 to 15.9 s vs the ~15 s window); @8 does (~12.4 s). The live open
+  question is now whether the in-race SKE-sig verify can be off-raced (the real @6 determinant).
+
+## Measured spike (2026-06-27) -- does ECDSA-verify fit @6?
+
+A fan-out optimization spike (11 agents; findings adversarially checked against the shipped code)
+answered the "biggest unknown":
+
+- **Field-level tuning does NOT make @6.** The best non-overlapping stack (Comba dedicated squaring
+  -- 5 of 8 mul_mod in point-double are squares; tighter Shamir/JSF; a Solinas-reduction micro-tune;
+  Montgomery batch-inversion) saves ~1.0 to 1.4 s, landing @6 at ~15.1 s (optimistic) to ~15.9 s
+  (worst-credible) -- on or over the ~15 s window, not under it. And there is no room: the built
+  p256_module.bin is exactly 24/24 sectors (0 B headroom), and the 3-sector gap to the loop-cache
+  cap is already taken by the recertify leaf-capture buffer, so the new code does not fit without
+  growing the band.
+- **The fixed-base comb on G is off-race, not a window lever.** u1*G cannot beat Shamir (variable-base
+  u2*Q dominates and is not comb-able); the comb's ~4-5 s win lands on the client d*G keygen in the
+  ClientHello phase, before the window opens -- a cold-boot latency win, ~0 to the race.
+- **Refined numbers.** Shamir's realistic interleave is ~1.58x (not the 1.3x first guessed --
+  doublings dominate), so the verify is ~8.3 s and the in-race handshake (premaster 6.6 + verify 8.3
+  + PRF 0.8) ~= ~15.7 s @6. The mod-n inverse (binary ext-GCD), wNAF window (w=4), 286 ISA, and the
+  modular reduction are already optimal / baked into the measured 6.6 s.
+- **THE high-leverage lever (unmodeled until now): off-race the SKE-sig verify.** In-race cost is two
+  irreducible general scalar mults (premaster + the verify's u2*Q). Auto-recertify already off-races
+  the cert-CHAIN verify; if the in-race SKE-SIGNATURE verify can be deferred the same way (cache the
+  verified leaf point off-race, keep only a light in-race binding check), it removes ~one scalar mult
+  (~8 s) -> @6 fits with large margin. This dwarfs every field-mul win. OPEN QUESTION -- now answered
+  by the Off-race feasibility spike below (NO-GO as proposed): can the SKE sig be structurally
+  separated from the leaf-chain verify the way RSA's was?
+- **Fallback if not:** 286 @8 MHz is the clean ECDSA floor (~12.4 s). Minor unexplored micro-avenues:
+  a lower-mul doubling formula (3M+5S vs 8-mul), fused multi-squaring, an inverse-free verify.
+
+## Off-race feasibility spike (2026-06-27) -- NO-GO as proposed
+
+The follow-up spike (8 agents; adversarial security + feasibility review) answered the open question:
+off-racing the SKE-sig verify does NOT cleanly unlock @6.
+
+- **Security: sound for confidentiality, but a real downgrade.** Deferring the SKE-sig verify behind a
+  strict fail-closed app-data gate leaks no durable secret (the CKE ephemeral public is public by ECDH
+  design; the client Finished is a per-session PRF MAC useless off-connection; the client keypair is
+  fresh per handshake -> no key-reuse). BUT it is strictly weaker than today's authenticate-before-use:
+  a MITM gets a COMPLETED session + the client Finished (an interactive oracle) before rejection -- a
+  documented downgrade, not free. CODE GOTCHA: on 3c503/3c501 the app record (the API key) is sent
+  BEFORE the server Finished (tls.inc:901-909) to win the window, so the gate must block app-data on
+  EVERY NIC path, not merely "after the server Finished".
+- **The "reuse auto-recertify's off-race hook" premise is FALSE.** Recertify verifies the cert-CHAIN
+  sig DISCONNECTED between handshakes, no socket held (net_phase.inc:107) -- a connection-INDEPENDENT
+  artifact (the leaf, stable ~90 days). The SKE sig is PER-CONNECTION (signs THIS handshake's ephemeral
+  point), so off-racing it means HOLDING the live connection idle ~8 s before the first app send -- or
+  aborting and paying a SECOND full handshake (another ~6.6 s premaster mult, erasing the win). It
+  cannot inherit recertify's disconnected safety.
+- **The decisive blocker is timing, and it is UNMEASURED.** The synthesis called NO-GO by extrapolating
+  the wire-proven @6 fragility (a 3.3 s in-span slip already pushed the client Finished ~1.6 s late and
+  the server closed the connection; ~8 s idle is ~2.4x worse). A dissenting reviewer countered that this
+  extrapolates the wrong span -- the post-client-Finished idle budget (server holds the client Finished,
+  awaits the request) is characterized nowhere and MUST be wire-measured (sudo-tcpdump, like tls-flow.py)
+  before any held-connection deferral is trusted.
+- **Conclusion: 286 @8 MHz (~12.4 s, no deferral, no downgrade) is the clean ECDSA floor.** Reviving @6
+  via off-race would need BOTH a wire measurement showing the held connection survives ~8 s idle AND
+  acceptance of the security downgrade -- not worth it, especially as a 2029 contingency.
 
 ## Recommendation
 Track WR1's RSA leaf availability. Stay RSA while it's offered (through 2029 at the latest). When
-motivated to start: (1) measure ECDSA-verify @6/@8 first (spike), (2) reuse the X.509 parser +
-p256.inc, (3) decide resident-vs-overlay for the two auth primitives. Until then, no code.
+motivated to start: (1) both spikes are done (see above) -- @6 is not reachable cleanly (field tuning
+misses ~15.1-15.9 s; off-racing the SKE verify is a held-connection timing risk + a security
+downgrade), so 286 @8 MHz (~12.4 s) is the floor; (2) reuse the X.509 parser + p256.inc; (3) decide
+resident-vs-overlay -- the module is already 24/24 sectors, so overlay is likely forced. Until then,
+no code.

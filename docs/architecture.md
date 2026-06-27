@@ -72,7 +72,7 @@ There are exactly **two RAM tiers, locked**, plus one CPU-class capability:
 
 286+     — a CPU-class capability, orthogonal to RAM: the first processor fast
           enough to run a real, authenticated TLS handshake inside the
-          provider's window (see CPU And Crypto Budget). "Secure" is a 286 tier,
+          provider's window (see [security.md](security.md)). "Secure" is a 286 tier,
           never the 16 KiB / 4.77 MHz floor.
 ```
 
@@ -527,88 +527,25 @@ separate). **32 KiB is unaffected** — its arena is large and 512 B is noise, w
 is the real shape of the trade: faster crypto everywhere, paid for in 16K arena,
 free on the scale tier. It is also *load-bearing for the 286 secure tier* (below).
 
-And the part that is *not* tractable on the 8088 — the honest gap:
+And the part that is *not* tractable on the 8088 — the honest gap, and where it closes —
+is **capability-tiered security**, covered in full in [security.md](security.md). In short:
 
-- **The P-256 key exchange is skipped — a speed wall, not a size one.** The real
-  constant-time primitives are written, cross-checked against OpenSSL, and fit
-  in ~3.4 KiB, but one scalar multiply is 110.8 s here, so they are compiled
-  out. The boot path substitutes a scalar-1 stub: the server's public X
-  coordinate *is* the premaster, so **no key agreement happens** — anyone
-  capturing the handshake derives every session key (`tools/tls-decrypt.py` does
-  exactly that). Server-certificate authentication is also skipped (RSA-2048
-  verify ~43 s, ECDSA-P256 ~220 s on the 8088 — both out of reach), so the
-  channel is unauthenticated.
-- **Real entropy would not help on its own.** The client random is only a nonce;
-  with a public premaster, making it unpredictable buys no confidentiality.
-  Entropy matters only once a real per-session *secret* exists. It is a cheap
-  *prerequisite* (~0.16 s), never a standalone fix.
-- So on a stock 8088 the public-key story is CPU-gated to minutes, and the
-  product stays honestly **encrypted but not secure**.
+- **On the 8088 the channel is encrypted but not secure.** The P-256 key exchange is
+  skipped (a scalar-1 stub: the server's public X *is* the premaster, so no key agreement
+  happens — anyone capturing the handshake derives every session key), and certificate
+  authentication is skipped too (RSA/ECDSA verify is tens of seconds to minutes here). Real
+  entropy would not help on its own. A pre-286 machine shows a dim **"insecure"** on the
+  splash to say so.
+- **Security begins at the 286 (Build 12).** The 286 runs a *real* authenticated handshake —
+  real ECDHE key agreement (the optimised P-256, ~6.6 s/scalar-mult @6), a pinned-key
+  RSA-2048 certificate verify, and **silent re-pinning** when the leaf rotates — inside a
+  handshake-only module that overlays the 32 KiB loop cache (0 resident RAM on 16 KiB; the
+  hot path never loads it). The fast SHA above is load-bearing for it. The full handshake
+  fits the provider's ~15 s window even at 6 MHz (a ~1.2 s knife-edge; 8 MHz is the
+  comfortable floor), tamper-rejecting a bad pin.
 
-**Security begins at the 286 — implemented (Build 12).** An FPU does *not* rescue
-the 8088 (SHA is FPU-immune; the P-256 reduction/carry work dominates) — the real
-lever is CPU class. On a 286 the secure channel is now **real, not skipped**:
-
-- **Real ECDHE key agreement.** The optimised constant-time P-256 (Solinas +
-  Karatsuba + wNAF, OpenSSL-verified, ~6.6 s/scalar-mult on the lowest 6 MHz 286)
-  is wired as a 286-only handshake module: the client generates a real ephemeral
-  keypair from an entropy pool (PIT/MAC/tick → SHA-256), sends its real public
-  point, and derives the premaster = client_private × server_public. No more
-  scalar-1 stub — the session keys are a genuine secret.
-- **Real server authentication.** The 286 negotiates ECDHE_RSA and verifies the
-  ServerKeyExchange's RSA-2048-PKCS#1 signature (the one in-race RSA verify) against
-  a **pinned provider leaf public key** — proving the server holds that key. The
-  trust anchor is the pinned `api.openai.com` leaf (Google Trust Services-issued,
-  RSA-2048); pinning the leaf (vs chaining to its RSA-4096 root, ~3 verifies, too
-  slow) keeps the verify to one RSA op so it fits the lowest 286. A pinned leaf would
-  normally be brittle — leaves rotate ~90 days — but that rotation is now handled
-  automatically (see *Silent re-pinning* below); only a CA change needs a manual
-  re-pin (`tools/gen-rsa-pinned-key.py`). It is *real* authentication, not a cosmetic flag.
-
-The 286-only crypto (P-256 + RSA verify + cert glue, ~10 KiB) lives in a
-handshake-only module that overlays the 32 KiB loop cache (0 resident RAM on
-16 KiB); the 16 KiB hot path never loads it.
-
-**Validated** on the 6 MHz 286 (the knife-edge) and the 8 MHz 286: both complete a
-full real-ECDHE + RSA-cert-authenticated handshake and reach the model, and a
-one-bit-tampered pinned key is *rejected* (the handshake fails) — the pin is
-enforced. The full secure handshake fits the provider's ~15 s window even at 6 MHz,
-though per the measurements that is a ~1.2 s-slack knife-edge that may flake on a
-degraded link; **8 MHz is the comfortable secure floor**. The 16 KiB / 4.77 MHz
-8088 floor is unchanged — still honestly **encrypted, not secure** (no key
-agreement, no authentication), and a pre-286 machine now shows a dim **"insecure"**
-on the splash to say so. The full feasibility study — the method, the 8088 limits,
-the 286 threshold, and which crypto variants shipped and why — is
-[`crypto-feasibility.md`](crypto-feasibility.md) (raw benchmarks:
-`tools/crypto-bench/results/FINDINGS.md`); the secure-tier build log is
-`notes/build12-layout-redesign-attempts.md`.
-
-**Silent re-pinning (auto-recertify).** A pinned leaf rotates roughly every 90 days,
-which would otherwise force a rebuild every quarter. So the 286 pins a second, *durable*
-anchor — the issuing CA, **Google Trust Services WR1** (RSA-2048, valid for years) — in
-addition to the leaf. When the in-race verify fails against a stale leaf, the device runs
-a full X.509 chain-verify *off the ~15 s race*: it parses the freshly-presented leaf,
-confirms its SAN is exactly `api.openai.com`, verifies the leaf's signature against the
-pinned WR1, **and** checks the leaf is currently within its `notBefore`/`notAfter` window. If
-all three pass, the new leaf is adopted as the pin and the handshake retried; a dim
-`> recertify` marks the pause (mid-chat only — silent during cold-boot loading), and a
-mid-chat rotation keeps the conversation (history lives in RAM). This is deliberately **not**
-trust-on-first-use: a leaf is adopted only if a CA we *already* pinned signed it, for the
-*exact* host we expect, and only while it is in date — anything else fails closed (and falls
-through to the normal reconnect-failed path). The validity clock is independent of the
-connection being authenticated: a 286-only setup phase syncs the CMOS RTC from an NTP server
-(`time1.google.com`) at boot, *before* any TLS, and the gate reads that RTC — so a hostile
-server can't backdate the check via its own response. If NTP is unreachable, the date check
-is skipped (best-effort), not failed. WR1 itself rotates on the
-order of years and still needs a human re-pin then (`tools/gen-rsa-pinned-key.py --mode
-anchor`). Like the rest of the secure tier this is 286-only; the captured leaf and the
-chain-verify run inside the handshake-only module (the WR1 anchor is shrunk to just its
-modulus and the Montgomery constants are re-derived on the fly to make room), so the
-16 KiB hot path carries none of it. That re-derive (~3.3 s on a 6 MHz part) runs *before* the
-reconnect opens its socket — off the server's ~15 s handshake window. It has to: when it ran
-between the SYN and the ClientHello instead, the 6 MHz client Finished landed ~1.6 s past the
-deadline and the server closed (wire-confirmed), so the @6 re-pin silently failed until the
-derive was moved ahead of the connect.
+The trust model, the off-race re-pin mechanics, the NTP-synced validity clock, and the
+scoped-but-unbuilt ECDSA contingency are all in [security.md](security.md).
 
 The handshake race is also why the chat loop reuses one session instead of
 reconnecting per turn — a fresh mid-chat handshake can lose the race:

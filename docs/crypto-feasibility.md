@@ -12,12 +12,13 @@ the 8088 tier stays honestly **"encrypted, not secure."** Security *begins at th
 286*: with an optimised P-256, a pinned-key RSA verify, and a faster SHA-256, a
 full cert-authenticated handshake first fits the window on the lowest 6 MHz 286
 (on a ~1.2 s knife-edge) and is comfortable by 8 MHz. That tier shipped in Build 12;
-see [architecture.md](architecture.md) for the implementation.
+see [security.md](security.md) for the security posture and
+[architecture.md](architecture.md) for the system mechanics.
 
 The rest of this document is *how* we know that: the method, the symmetric-crypto
 optimisation hunt, the asymmetric-crypto wall, the levers we ruled out (the 8087
-FPU and the V20/80186 ISA), the 286 threshold, and the specific variants we shipped
-and why.
+FPU and the V20/80186 ISA), the 286 threshold, the specific variants we shipped
+and why, and the ECDSA tier we scoped but did not build.
 
 ---
 
@@ -297,6 +298,46 @@ architecture is still what makes silent re-pin fit @6.
 | **Entropy** | not shipped standalone | gated — cosmetic without real key agreement; would cut against honest framing. Ships only bundled with the secret it protects. |
 | **Tier** | secure begins at the 286, comfortable at @8; the 8088 stays "encrypted, not secure" | measured: the 8088 is ~11× over the window and cannot be optimised across it; the label is precise, not aspirational. |
 | **FPU / 80186** | neither | measured to not unlock crypto (FMUL-count floor; the bus beats the 186 ISA). FPU stays a future *non-crypto* capability dimension. |
+
+---
+
+## The ECDSA question — scoped, not built
+
+The shipped 286 tier pins an RSA leaf — but `api.openai.com` is **dual-cert
+load-balanced** and migrating to ECDSA. The 286's forced `ECDHE_RSA` profile still draws
+the RSA-2048 leaf (via GTS WR1, valid to 2029-02-20); default clients now get a P-256/WE1
+ECDSA leaf. Today's pin survives only because the 286 forces RSA. So we asked the obvious
+next question — *if the RSA leaf ever goes away, can the 286 do ECDSA?* — and scoped it with
+two more parallel-agent spikes (the same method, findings adversarially checked against the
+shipped code).
+
+**First: is ECDSA verify even affordable @6?** ECDSA verify is `u1·G + u2·Q` — *two* scalar
+mults — against RSA's one modexp, so on this CPU it is ~2× the RSA verify (the opposite of a
+desktop, where ECDSA is the cheap one). With Shamir's trick the two mults interleave to
+~8.3 s, putting the in-race handshake at ~15.7 s @6 — *over* the ~15 s window. A fan-out of
+optimisations (a fixed-base comb on `G`, tighter Shamir/JSF, field-mul and Solinas-reduction
+micro-tuning, 286-ISA, the mod-n inverse) lands a best honest, non-overlapping stack at only
+~15.1–15.9 s — still on or over the line — and the comb's big win turns out to be *off-race*
+(it accelerates the client `d·G` keygen, which runs before the window even opens). Worse, the
+secure module is already **24/24 sectors with zero headroom**: there is nowhere to put the new
+code. Field tuning does not make @6.
+
+**Then: can we move the verify off the race?** Auto-recertify already verifies the cert
+*chain* off the window — so could the in-race SKE-signature verify be deferred the same way? A
+second spike (security-first, with an adversarial security reviewer) said **no, as proposed**.
+It is *sound for confidentiality* — behind a strict fail-closed app-data gate nothing durable
+leaks — but it is a **security downgrade**: a MITM gets a completed session and the client
+Finished (an interactive oracle) before rejection, which the shipped authenticate-before-use
+never grants. And the tempting "just reuse recertify's hook" is false: recertify verifies
+*disconnected, between handshakes*, while the SKE signature is *per-connection*, so off-racing
+it means holding the live connection **idle ~8 s** — a timing risk the wire-proven @6 fragility
+makes a bad bet, and one nobody has measured.
+
+**Verdict: ECDSA @6 is not reachable cleanly; 286 @8 MHz (~12.4 s, no deferral, no downgrade)
+is the floor** if the contingency fires. It stays design-intent — no code while the RSA leaf is
+served to 2029. The decision reference is
+[security.md](security.md#the-future-ecdsa-tier--scoped-not-built); the raw spike record is
+`notes/ecdsa-tier-scoping.md`.
 
 ---
 
