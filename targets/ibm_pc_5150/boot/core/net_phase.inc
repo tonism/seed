@@ -19,6 +19,16 @@ prepare_agent_path:
     je .config_saved
     call_core_phase core_save_phase_start, core_save_phase_end
 .config_saved:
+    ; Build 12 env save/load (step 3): before the cold greeting, try to restore a saved environment
+    ; from the boot drive. CF=0 => the conversation window is populated; skip the greeting entirely
+    ; (ret to main, which sets status ready + enters chat_loop; the user's first prompt does the cold
+    ; handshake carrying the restored window). CF=1 (no/invalid ENV.DAT, or a load failure) => fall
+    ; through to the normal greeting. Restore is a READ, so it is not gated on writable media. Runs
+    ; ONLY on this cold-boot fall-through, never on the per-turn chat_loop call below. (Funded by the
+    ; build_tcp_segment_frame golf in net_tx.inc -- the nucleus was exactly full.)
+    call_core_phase core_restore_env_phase_start, core_restore_env_phase_end
+    jc prepare_agent_endpoint_path
+    ret
 prepare_agent_endpoint_path:
     call [nic_vt_enter]
     ; Capture the prompt length durably BEFORE any receive. dpi_input_len_byte (and dpi_input_buf)

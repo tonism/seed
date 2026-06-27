@@ -519,3 +519,38 @@ fat_dir_entries_per_sector equ 16
 fat_dir_entry_size equ 32
 fat_first_data_cluster equ 2
 fat_max_cluster equ 300
+; Build 12 env save/load (notes/env-save-load-design.md): the ENV.DAT snapshot format. The restore
+; phase (read) and the save phase (write) share these; tools/env-dat.py is the byte-for-byte
+; reference implementation and MUST stay in sync. The header is little-endian; "SEDV" magic stored
+; as two words (distinct from the handoff "SEED"). format is the compatibility axis: seed restores
+; only when env_format_min <= file.format <= env_format_current.
+env_magic_w0 equ 0x4553           ; 'S','E'
+env_magic_w1 equ 0x5644           ; 'D','V'
+env_format_current equ 1
+env_format_min equ 1
+env_hdr_magic equ 0               ; header field offsets (mirror tools/env-dat.py)
+env_hdr_format equ 4
+env_hdr_flags equ 5
+env_hdr_build equ 6
+env_hdr_ram_top equ 8
+env_hdr_window_cap equ 10         ; chat_context_len_var at save time (the split boundary)
+env_hdr_used equ 12               ; chat_context_used (valid conversation bytes)
+env_hdr_note_len equ 14
+env_hdr_region_len equ 16         ; window+arena bytes -> chat_context_start (for the MODEL)
+env_hdr_screen_cols equ 18        ; (byte) screen snapshot width; 0 = no snapshot
+env_hdr_screen_rows equ 19        ; (byte) screen snapshot height
+env_hdr_payload_checksum equ 20   ; (word) 16-bit sum of the whole payload [0 .. region_len+screen_len)
+env_hdr_checksum equ 22           ; (word) 16-bit sum of header bytes [0 .. 22)
+env_hdr_len equ 24                ; payload follows: [region_len window][screen_cols*screen_rows*2 snapshot]
+; The screen snapshot is the literal video text buffer (char+attr cells) captured at save time and
+; painted back verbatim at restore, so the user lands on the EXACT screen they left (dim tool lines,
+; prompts, wrapping -- all of it), not a semantic You:/Assistant reconstruction of the model-facing
+; window. The window is still restored underneath (for the model); the snapshot is purely for the
+; user's eyes. Painted only when the saved screen_cols matches this machine's (else skipped).
+; The restore phase stages the whole ENV.DAT file HERE before validating + copying. This is the K
+; crypto window base (0x1800), NOT yet loaded during prepare_agent_path (restore runs BEFORE the
+; greeting connect that load_core_window's K), so it is ~7 KiB of free scratch (0x1800..0x3600). The
+; max-size cap keeps the staged file (header + window + an 80x25 char+attr snapshot ~= 4 KiB) under
+; that, and bounds a corrupt/hostile root-dir size before any staging read.
+env_restore_stage equ nic_driver_slot_end
+env_restore_max_size equ 7168

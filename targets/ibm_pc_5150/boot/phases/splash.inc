@@ -40,7 +40,7 @@ splash_phase:
     add al, insecure_warning_col_offset
     mov [cursor_col], al
     mov si, low_scratch_start + (insecure_text - PHASE_BASE)
-    mov bl, [build_attr]                      ; dim/dark -- matches the "build NN" rendering
+    mov bl, [error_attr]                      ; red (bright red on CGA) -- a warning, not just dim
     call splash_phase_type_z
 .secure_no_warning:
     mov cx, done_ticks

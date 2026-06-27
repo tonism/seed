@@ -338,6 +338,15 @@ core_dpi_phase_end:
 
 times 512 - (core_dpi_phase_end - core_dpi_phase_start) db 0
 
+core_restore_env_phase_start:
+%define PHASE_BASE core_restore_env_phase_start
+%include "phases/restore_env.inc"
+%undef PHASE_BASE
+core_restore_env_phase_end:
+%if (core_restore_env_phase_end - core_restore_env_phase_start) > 1024
+%error "restore env phase exceeds its 2-sector window"
+%endif
+
 core_save_phase_start:
 %define PHASE_BASE core_save_phase_start
 %include "phases/save_user_cfg.inc"
@@ -443,6 +452,11 @@ core_phase_table:
     db 'S', 0
     dw (core_save_phase_start - $$) / 512
     dw (core_save_phase_end - core_save_phase_start + 511) / 512
+    dw low_scratch_start
+    dw 0
+    db 'P', 0
+    dw (core_restore_env_phase_start - $$) / 512
+    dw (core_restore_env_phase_end - core_restore_env_phase_start + 511) / 512
     dw low_scratch_start
     dw 0
 core_phase_table_end:

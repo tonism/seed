@@ -55,17 +55,37 @@ DPI prompt         the live session sits underneath; the first real prompt carri
 ```
 
 Restore **pre-loads memory; it does not resume a session.** The TLS session cannot survive a
-power-off, so the boot always re-handshakes. There is no cold-greeting round-trip on a restore
-boot — the handshake established the live session, and the first real prompt both proves the API
-path and carries the restored context.
+power-off. There is no cold-greeting round-trip on a restore boot.
 
-## The redisplay UX
+**Boot integration (verified against the code).** The cold greeting is the bare `"Greet."`
+request sent while `handoff_status != ready`, and it happens *inside* `prepare_agent_path`
+(`net_phase.inc:12`) — that routine does config (A/U/Q/S) and then **falls through into
+`prepare_agent_endpoint_path`** (the connect + handshake + exchange). So the clean hook is
+**after config, before that fall-through**: try restore; if it restores, **`ret` (skip the
+greeting entirely)**; else fall through to the normal greeting. Consequences, all decided:
+- **Restore is not gated on the writable-media bit** — it is a *read*, so it works from a
+  write-protected floppy too. The bit gates only `$s` (save).
+- **The handshake is deferred.** A restore boot opens no connection; the user's first message
+  does the (cold) handshake carrying the restored window. (A fresh boot makes you wait ~14.5 s
+  for the greeting anyway; this just moves the wait to when you engage. Establishing a live
+  session at boot with no message sent is a later polish.)
+- **The splash is rendered explicitly** by the restore path (the `"seed build N / insecure"`
+  identity normally rides inside the skipped greeting's stream phase), then the redisplay.
 
-On a successful restore, after the splash, Seed **redisplays the recent dialogue** from the
-restored window so the user sees where they left off, then drops to the prompt. The window holds
-raw conversation text with ` You:` role cues; the redisplay iterates the recent tail and emits it
-with the DPI's scroll-aware screen primitives. (This is new cold code — the existing role labels
-serialize the window into the *request*, not onto the screen.)
+## The redisplay UX — repaint the actual screen
+
+Seed persists **the literal screen** the user was looking at — the video text buffer (char+attr
+cells) — and **paints it back to video memory verbatim** at restore, so the user lands on the
+*exact* screen they left: the model's prose, the dim tool lines, the prompts, the wrapping, all of
+it. This is deliberately **not** a reconstruction from the conversation window: the window is the
+*model-facing* serialization (role-labeled `You:`/`Assistant:` turns, the compacted note), which
+looks materially different from what was on screen and would land the user somewhere unfamiliar.
+
+So restore handles two representations for two audiences: the **window** (restored into
+`chat_context_start`, rides into the next request — the model remembers) and the **screen snapshot**
+(painted to `0xB800`/`0xB000` — the user's familiar view). The paint is a straight `rep movsw`;
+it runs only when the saved `screen_cols` matches this machine's (a 40↔80 mismatch can't be
+painted — then the screen is just cleared, the window still restored). `$s` captures both (step 4).
 
 ## Medium
 
@@ -95,8 +115,8 @@ addresses hold), then redisplays.
 
 ## Format: `ENV.DAT`
 
-A single contiguous payload (the user region is one block; the window/arena split is captured as
-metadata, so no section table is needed):
+A header plus two payload sections — the window+arena region (for the model) and the screen
+snapshot (for the user). The window/arena split is metadata, so neither section needs a table:
 
 ```text
 offset  size  field
@@ -108,11 +128,17 @@ offset  size  field
 0x0a    2     chat_context_len_var     (the OLD window/arena split boundary)
 0x0c    2     chat_context_used        (valid conversation bytes)
 0x0e    2     note_len                 (compacted-memory prefix length)
-0x10    2     region_len               (bytes of the saved [chat_context_start, ceiling) block)
-0x12    2     header checksum
-0x14    ..    region payload           (region_len bytes, verbatim)
-tail    2     payload checksum
+0x10    2     region_len               (window+arena bytes -> chat_context_start, for the model)
+0x12    1     screen_cols              (snapshot width; 0 = no snapshot)
+0x13    1     screen_rows              (snapshot height)
+0x14    2     payload checksum         (16-bit sum of the whole payload)
+0x16    2     header checksum          (16-bit sum of bytes 0x00..0x16)
+0x18    ..    payload: [region_len window+arena bytes][screen_cols*screen_rows*2 snapshot cells]
 ```
+
+The snapshot cells are row-major char+attr, exactly as in CGA/MDA text memory, painted back to the
+video segment verbatim. `tools/env-dat.py` is the byte-for-byte reference; `layout.inc` mirrors the
+offsets in asm.
 
 **Versioning.** Compatibility hinges on `format_version`, not the build number (a later build
 that does not touch the format stays compatible). Seed carries `min_supported_format` and
@@ -218,11 +244,18 @@ an offline-generated `ENV.DAT` — the project's proven read-path-first pattern 
 2. **Format + offline tool.** Freeze the `ENV.DAT` layout; build `tools/env-dat.py` to
    create/inspect one. *Validate:* the tool round-trips a known file; checksum + header verified.
 
-3. **Restore path + fit gate + redisplay.** Boot reads `ENV.DAT` (resident `read_abs_sector`),
-   runs the two-tier gate, copies the region back + sets the metadata vars, neutralizes line-start
-   `$`, redisplays the recent dialogue; the fit menu (`continue`/`new`/`restart`) for the mismatch
-   cases. *Validate (via a tool-made `ENV.DAT`):* conversation restored + redisplayed; corrupt →
-   clean boot; oversized → error menu; bigger-machine → warning.
+3. **Restore path + fit gate + redisplay.** A new cold phase (its own FAT root scan + cluster read,
+   like `user_cfg`; the FS find/read helpers are phase-local, not resident), hooked into
+   `prepare_agent_path` after config (skip the greeting on a successful restore — see Boot
+   integration). Decomposed:
+   - **3a** find `ENV.DAT` + validate (magic/format/header+payload checksum) + fit check + copy the
+     region to `chat_context_start` + set `chat_context_len_var`/`used`/`note_len` + neutralize
+     line-start `$`. *Validate (tool-made `ENV.DAT`):* type a follow-up → the model answers from the
+     restored context (it remembers); corrupt/foreign → clean boot (normal greeting).
+   - **3b** render the splash, then redisplay the recent dialogue on screen. *Validate:* the prior
+     conversation shows before the prompt.
+   - **3c** the fit menu (`continue`/`new`/`restart`, `int 19h` reboot) for the bigger-machine
+     warning + the won't-fit error.
 
 4. **Save path + `$s`.** The real FAT12 writer: free-cluster scan, room check (free clusters +
    reclaim of any existing `ENV.DAT`), cluster allocation, FAT-chain write, root-dir

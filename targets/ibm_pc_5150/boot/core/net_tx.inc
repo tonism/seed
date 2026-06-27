@@ -111,12 +111,13 @@ build_tcp_segment_frame:
     rep stosb
 .padding_done:
 
-    mov ax, bp
-    add ax, tcp_payload_offset
-    cmp ax, tcp_tx_frame_len
-    jae .tx_len_ready
-    mov ax, tcp_tx_frame_len
-.tx_len_ready:
+    ; Build 12 (env save/load): the frame length is just di - ne_tx_frame. di already points past the
+    ; payload AND the min-frame padding above, so this equals the old explicit max(tcp_payload_offset +
+    ; payload, tcp_tx_frame_len) in BOTH the padded (short payload) and long-payload cases. 9 B smaller,
+    ; which funds the env-restore hook in prepare_agent_path (the shared resident nucleus is otherwise
+    ; exactly full at the 0x1600 driver slot). di is dead after the frame is built. (xchg ax,di is 1 B.)
+    xchg ax, di
+    sub ax, ne_tx_frame
     push ax
     call write_ipv4_checksum
     call write_tcp_checksum
