@@ -155,13 +155,19 @@ two-image build - 160K (headline) and 360K (for the 286) from one CORE.SYS that 
 auto-recertify - silent re-pin on leaf rotation: pin the issuing CA (Google Trust Services WR1) as a
   durable anchor, off-race X.509 chain-verify a freshly-presented leaf against it (+ exact-SAN), then
   adopt + retry behind a dim "> recertify". Fail-closed, never trust-on-first-use.
+montsqr - a Montgomery squaring shortcut for the RSA-2048 verify's 16 squarings (~19% fewer instrs),
+  widening the @6 secure-tier margin; golfed back into the 24-sector module, so it costs no context.
 ```
 
 Validated on the 6 MHz (knife-edge) and 8 MHz 286 — a full real-ECDHE + RSA-cert handshake reaches the
-model, a one-bit-tampered pin is rejected, and a wrong-pin rotation sim recertifies and greets; the
-16 KiB / 4.77 MHz 8088 matrix is unchanged (encrypted-not-secure, "insecure" splash). Working records in
-`notes/build12-layout-redesign-attempts.md` and `notes/auto-recertify-attempts.md`; the secure-tier
-crypto budget + the tier split is in `docs/architecture.md` (CPU And Crypto Budget).
+model, a one-bit-tampered pin is rejected, and a wrong-pin rotation sim recertifies and greets at both
+clocks; the 16 KiB / 4.77 MHz 8088 matrix is unchanged (encrypted-not-secure, "insecure" splash).
+Getting recertify to greet at 6 MHz took two reconnect-path fixes the hang had masked — a retry-counter
+clobber (`tls_resend_second_flight` overwrote `with_retry`'s `CX`, an infinite loop on any lost
+server-Finished) and the leaf re-adopt's ~3.3 s `rsa_adopt_derive` running *inside* the server's ~15 s
+handshake window (moved before the connect; the @6 client Finished had landed ~1.6 s late, wire-confirmed).
+Working records in `notes/build12-layout-redesign-attempts.md` and `notes/auto-recertify-attempts.md`; the
+secure-tier crypto budget + the tier split is in `docs/architecture.md` (CPU And Crypto Budget).
 
 ## Forward-looking ideas
 
@@ -215,8 +221,9 @@ true security on larger / faster machines (separate exploration, CPU-gated) - ME
   6.6 s on the lowest 6 MHz part, and a full cert-authenticated handshake (ECDHE + RSA-2048 verify
   6.37 s + fast PRF) fits the ~15 s server window: ~13.8 s @6 MHz (a knife-edge, only with the 4.64x
   SHA win) and a comfortable ~10.4 s @8 MHz. This shipped in Build 12: the secure 286 tier greets at
-  6 MHz (still the ~1.2 s knife-edge) and comfortably at 8 MHz; widening the 6 MHz slack is the one
-  residual crypto-optimisation follow-up (handshake speed, below). The stock-8088 product stays honestly
+  6 MHz (still a knife-edge) and comfortably at 8 MHz; the 6 MHz slack was since widened by montsqr — a
+  Montgomery squaring shortcut for the RSA verify, ~19% fewer instrs (see crypto-feasibility.md, Follow-up).
+  The stock-8088 product stays honestly
   "encrypted but not secure" (per-record app-data IS MAC-verified after the FIFO collapse - record
   integrity, not a secure channel); real entropy + a pinned key is the honest middle ground there.
 reach / perf - beyond segment 0 (>64 KiB); render-rate optimization for very long replies; drop the

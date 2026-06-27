@@ -500,3 +500,29 @@ recert_flag, not handoff_status); the only mid-chat delta is "> reconnect" drawn
 overwritten, + the chat-history-survives concern, which is the existing reconnect machinery (recertify
 touches only recert_flag/recert_mod_ptr/the leaf buffer, never the in-RAM history). So the cold sim
 covers the render + mechanism; mid-chat history-survival is inherited. Task 10 (> recertify render) = DONE.
+
+## @6 RECERTIFY FIXED — two reconnect bugs the hang masked (2026-06-27; 3616a4e)
+
+The @6 rotation-sim hung (dim 'o', no greet/fatal even at 540s); @8 greeted, and the @6 secure TIER
+(correct pin) greeted — so it was NOT the crypto budget. Method: short-circuit bisection (same-size
+`stc;ret;nop` patches to skip a routine and watch the hang move) + a host wire-capture (sudo tcpdump on
+the SLiRP egress, walked by tools/tls-flow.py, which prints per-connection "server sent CCS+Finished?").
+
+(1) cx-clobber (the HANG). Every receive/timeout path was bounded, yet it hung. Bisection put it in
+tls_read_server_finished_with_retry's resend. `tls_resend_second_flight` does `mov cx,[tls_stream_skip_
+remaining]` — clobbering CX, which IS with_retry's retry counter; the pre-fix `pop cx` ran BEFORE the
+resend, so after it CX was the flight length, not the countdown -> the loop never hit 0 -> infinite
+resend+read on ANY lost server-Finished. Hit @6-reconnect: the slow first read fails -> resend -> clobber.
+@8 greeted because the Finished arrived on the first read (no resend). Fix: keep the counter on the stack
+across the resend (now bounded 3x). Helps all configs.
+
+(2) re-adopt-in-window (the NO-GREET). With (1) fixed it failed gracefully (fatal screen) but still didn't
+greet. Wire @6 (CONN 2 = attempt 2): ClientHello at +3.3 s after the SYN (vs attempt 1's +0.1 s), client
+CCS+Finished at +16.6 s, server FIN at +15.0 s -> RST. The ~3.3 s pre-ClientHello gap was the leaf
+re-adopt: rsa_adopt_derive (R^2 mod N for the recertified modulus) ran between tcp_connect (SYN) and
+tls_probe (ClientHello), INSIDE Cloudflare's ~15 s window. Fix: moved the re-adopt (net_phase.inc) before
+tcp_connect -> ClientHello prompt -> Finished fits -> server completes -> greet.
+
+Validated @6: recertify greets, secure-tier greets; @8 recertify greets (no regression). montsqr (RSA
+squaring) + #21 (loading-silent "> recertify", gate chat_context_used>0 not handoff_status) landed
+alongside. Commits 3616a4e / 81e8a69 / 9b1d781 on work/scaling.

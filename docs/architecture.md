@@ -604,7 +604,11 @@ order of years and still needs a human re-pin then (`tools/gen-rsa-pinned-key.py
 anchor`). Like the rest of the secure tier this is 286-only; the captured leaf and the
 chain-verify run inside the handshake-only module (the WR1 anchor is shrunk to just its
 modulus and the Montgomery constants are re-derived on the fly to make room), so the
-16 KiB hot path carries none of it.
+16 KiB hot path carries none of it. That re-derive (~3.3 s on a 6 MHz part) runs *before* the
+reconnect opens its socket — off the server's ~15 s handshake window. It has to: when it ran
+between the SYN and the ClientHello instead, the 6 MHz client Finished landed ~1.6 s past the
+deadline and the server closed (wire-confirmed), so the @6 re-pin silently failed until the
+derive was moved ahead of the connect.
 
 The handshake race is also why the chat loop reuses one session instead of
 reconnecting per turn — a fresh mid-chat handshake can lose the race:

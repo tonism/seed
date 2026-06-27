@@ -207,6 +207,26 @@ vm-net-wd8003e       auto family, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK,
 vm-net-wd8003eb      auto family, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, encrypted client Finished, server Finished verification, application data, Default Prompt Interface chat loop (model greeting, prompt input, streamed multi-turn responses), then splash
 ```
 
+## Commits
+
+**Ask before every commit** — do not commit on your own initiative, not even tested-and-working
+code. At a validated checkpoint, present what is done + its validation + a proposed message, and
+wait for the maintainer's go. Unprompted commits, however clean, are the failure mode this section
+exists to prevent.
+
+A commit must be a **working checkpoint** — never a broken or mid-refactor state. Working means the
+build is green (`make` succeeds, fresh `CORE.SYS`) **and** the change is validated for what it
+touches: the relevant target boots and greets, or its offline gate passes (a crypto eval,
+`tools/check-layout.py`, the X.509 tamper matrix). If you cannot show it works, it is not a
+checkpoint — keep iterating or stash, but do not commit it.
+
+- One commit per coherent change, not per edit. No "increment A / B / C" chains and no
+  "fix the previous commit" commits — fold them into the one meaningful unit.
+- Revert diagnostic scaffolding first (debug markers, short-circuit patches, a deliberately
+  wrong test pin): commit the fix, not the investigation.
+- Do not push. The maintainer does the single push (and the Release ceremony below); local
+  commits accumulate on the work branch until then.
+
 ## Release
 
 Releasing is a git convention, not a build artifact:

@@ -242,7 +242,7 @@ Each piece measured on `ibmat @ 6` (entropy projected, gated/cosmetic):
 | component | 286 @ 6 | basis |
 |---|---|---|
 | ECDHE (optimised P-256) | 6.6 s | measured |
-| RSA-2048 cert verify | **6.37 s** | measured (`rsa_bench.asm`) — 16 squarings + 1 multiply as plain Montgomery modmuls, no squaring shortcut |
+| RSA-2048 cert verify | **6.37 s** | measured (`rsa_bench.asm`) — 16 squarings + 1 multiply as plain Montgomery modmuls, no squaring shortcut at first (a later Build-12 increment, `montsqr`, adds one — see *Follow-up* below) |
 | PRF + transcript (baseline SHA) | 4.94 s | measured |
 | PRF + transcript (with the fast-SHA win) | **0.66 s** | measured (~7.5× here — it is almost pure SHA) |
 | entropy | ~0.2 s | projected (gated) |
@@ -267,6 +267,23 @@ tier is **286 @ 8 MHz and up**.
 > in) put the threshold at ~16–20 MHz. The optimisation work closed that gap by ~3×: the
 > lowest 6 MHz 286 reaches it, knife-edge; 8 MHz is comfortable. That is the corrected,
 > measured verdict.
+
+### Follow-up — the squaring shortcut, built (`montsqr`)
+
+The budget above assumed the RSA verify away with no squaring shortcut. A later Build-12
+increment built one: **`montsqr`**, a Montgomery SOS squaring used for the modexp's 16
+squaring steps. Squaring `a²` is cheaper than a generic `a·b` because the off-diagonal
+products `a[i]·a[j]` (i<j) each appear twice — computed once and the partial sum doubled
+(a single left shift), halving the multiply-phase multiplies. It cuts the verify **~19%**
+in the `rsa_eval` instruction proxy (6.92M → 5.60M), correct against `pow(s,65537,N)` and
+on the real `api.openai.com` signature. So the @6 secure handshake greets with more margin
+than the ~1.2 s above, and the off-race re-pin (auto-recertify) is correspondingly faster.
+It is 286-only (the handshake module) and was golfed back into the original 24-sector module
+band — sharing the montmul/montsqr conditional-subtract + carry tails and factoring the
+strict-DER parser's repeated idioms into helpers reclaimed 312 B — so it costs **no**
+conversation context. The RSA-squaring lever the earlier scoping called "slack-polish, not
+the @6 enabler" is exactly that: it widens the shipped tier's margin; the off-race
+architecture is still what makes silent re-pin fit @6.
 
 ---
 
