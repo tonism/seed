@@ -14,16 +14,16 @@ agent_endpoint_phase:
     ;   retries==0            : the 3x loop is exhausted -> append " failed" to the parked
     ;                           "> reconnect" line, advance a line, and RETURN (this is net_phase's one
     ;                           sacrificial endpoint call; the DNS body is skipped -- we fail out to DPI).
-    ;   retries==3 + mid-chat : a reconnect's FIRST attempt (handoff_status==ready means we are in the
-    ;                           chat loop, so a prior session existed -> a reconnect, NOT the cold first
-    ;                           connect) -> draw "> reconnect" ONCE and park the cursor after it so the
-    ;                           answer (or " failed") appends in place. Retries 2/1 re-enter here
-    ;                           silently (the ==3 gate), so the line shows exactly once. Gate on
-    ;                           handoff_status, NOT tls_key_schedule_ready: a real idle-close sends a
-    ;                           close_notify that clears key_ready during the failed reuse BEFORE this
-    ;                           runs, so a key_ready gate MISSES the real reconnect (the bug the
-    ;                           authentic idle demo caught); handoff_status stays ready across the chat.
+    ;   retries==3 + mid-chat : a reconnect's FIRST attempt -> draw "> reconnect" ONCE and park the
+    ;                           cursor after it so the answer (or " failed") appends in place. Retries
+    ;                           2/1 re-enter here silently (the ==3 gate), so the line shows once.
     ;   otherwise             : cold connect or a silent retry -> no status; fall through to the body.
+    ; "Mid-chat" is gated on chat_context_used > 0, NOT handoff_status (which is ready BEFORE the cold
+    ; first connect too -- it could never distinguish loading from a live session, so the loading-time
+    ; "> reconnect"/"> recertify" leaked onto the splash). chat_context_used is 0 throughout cold boot:
+    ; agent_api_stream sets it only AFTER the first exchange, which runs AFTER this phase -- so the cold
+    ; connect and its recertify stay silent during loading, and only a post-greet session shows the line.
+    ; (agent_api_stream's session-reuse path still gates on handoff_status==ready, separately.)
     mov al, [reconnect_retries]
     or al, al
     jz .render_reconnect_failed
@@ -31,8 +31,8 @@ agent_endpoint_phase:
     jne .render_recertify
     cmp al, 3
     jne .endpoint_body
-    cmp byte [handoff_addr + handoff_status], handoff_status_ready
-    jne .endpoint_body
+    cmp word [chat_context_used], 0
+    je .endpoint_body
     mov byte [cursor_col], dpi_prompt_col
     mov si, low_scratch_start + (reconnect_msg_text - PHASE_BASE)
     mov cx, reconnect_word_len
@@ -41,12 +41,12 @@ agent_endpoint_phase:
 .render_recertify:
     ; Build 12 auto-recertify: net_phase set recert_flag because a leaf rotation was detected and the
     ; captured leaf chained to the pinned WR1 (off-race). Show "> recertify" ONLY mid-chat -- a live
-    ; session (handoff_status_ready) where the user is watching. During the cold-boot loading sequence
+    ; session (chat_context_used > 0) where the user is watching. During the cold-boot loading sequence
     ; the recertify is silent (no status line), exactly like "> reconnect"; the dots/splash cover it.
     ; "> recertify" is 11 chars (== "> reconnect"), so a mid-chat recert cleanly overwrites the earlier
     ; "> reconnect" on the same row (reads as one line transitioning reconnect -> recertify).
-    cmp byte [handoff_addr + handoff_status], handoff_status_ready
-    jne .endpoint_body
+    cmp word [chat_context_used], 0
+    je .endpoint_body
     mov byte [cursor_col], dpi_prompt_col
     mov si, low_scratch_start + (recertify_msg_text - PHASE_BASE)
     mov cx, recertify_word_len
