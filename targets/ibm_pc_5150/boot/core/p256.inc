@@ -174,10 +174,8 @@ p256_sub_prime_inplace:
 p256_add_mod:
     call p256_add_words
     mov al, 0
-    adc al, 0
-    mov [p256_carry], al
-    cmp byte [p256_carry], 0
-    jne .subtract_prime
+    adc al, 0                         ; al = carry-out; ZF reflects it (no carry -> ZF=1)
+    jnz .subtract_prime
     push si
     push di
     mov si, bx
@@ -197,9 +195,8 @@ p256_add_mod:
 p256_sub_mod:
     call p256_sub_words
     mov al, 0
-    adc al, 0
-    cmp al, 0
-    je .done
+    adc al, 0                         ; al = borrow-out; ZF reflects it (no borrow -> ZF=1)
+    jz .done
     push di
     mov di, bx
     call p256_add_prime_inplace
@@ -984,49 +981,35 @@ p256_compute_server_premaster_secret:
 
 p256_client_private_is_one:
     ; Returns CF=1 for the current insecure Build 6 scalar fast path.
-    push ax
-    push cx
-    push si
-    cmp word [p256_client_private], 1
-    jne .not_one
-    mov si, p256_client_private + 2
-    mov cx, p256_word_count - 1
-.next:
-    lodsw
-    or ax, ax
-    jnz .not_one
-    loop .next
-    pop si
-    pop cx
-    pop ax
-    stc
-    ret
-.not_one:
-    pop si
-    pop cx
-    pop ax
-    clc
-    ret
+    mov ax, 1
+    jmp p256_cp_is_small
 
 p256_client_private_is_two:
+    mov ax, 2
+    jmp p256_cp_is_small
+
+p256_cp_is_small:
+    ; CF=1 iff the client private scalar equals the small value in AX (word 0 == AX
+    ; and words 1..15 == 0). Shared by the is_one / is_two fast-path probes.
+    ; Preserves AX/CX/SI (the callers' contract); returns the verdict in CF.
     push ax
     push cx
     push si
-    cmp word [p256_client_private], 2
-    jne .not_two
+    cmp word [p256_client_private], ax
+    jne .not_small
     mov si, p256_client_private + 2
     mov cx, p256_word_count - 1
 .next:
     lodsw
     or ax, ax
-    jnz .not_two
+    jnz .not_small
     loop .next
     pop si
     pop cx
     pop ax
     stc
     ret
-.not_two:
+.not_small:
     pop si
     pop cx
     pop ax

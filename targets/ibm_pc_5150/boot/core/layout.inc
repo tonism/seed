@@ -35,7 +35,7 @@ nic_vt_slot_count equ 5
 ; working set (Y/R/K/X/T/M = 25 sectors today); hardware_setup tops the 32K arena out at
 ; loop_cache_start, and the ledger advertises that as the ceiling so the agent never $w's the cache.
 ram_tier_32k_min equ 0x6000
-loop_cache_max_sectors equ 28
+loop_cache_max_sectors equ 27
 loop_cache_len equ loop_cache_max_sectors * 512
 loop_cache_end equ runtime_stack_top - runtime_stack_guard_len
 loop_cache_start equ loop_cache_end - loop_cache_len
@@ -58,7 +58,7 @@ p256_module_load equ loop_cache_start
 ; adopt math + WR1 anchor). 26->24: the WR1 anchor now bakes only wr1_n (r2/n0inv derived via
 ; rsa_adopt_derive), freeing ~514 B -- so the captured leaf gets the 24..27 slot above the module
 ; (leaf_capture_buf, mid-chat-safe; see data.inc). Must stay <= the loop cache (asserted; cache = 27).
-p256_module_max_sectors equ 25
+p256_module_max_sectors equ 24
 p256_module_max_len equ p256_module_max_sectors * 512
 p256_module_end equ p256_module_load + p256_module_max_len
 %if p256_module_end > loop_cache_end
