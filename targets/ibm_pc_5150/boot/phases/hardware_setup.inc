@@ -10,6 +10,7 @@
 hardware_setup_phase:
     call hardware_setup_phase_init_handoff
     call hardware_setup_detect_cpu
+    call hardware_setup_detect_writable_media
     call hardware_setup_phase_display
     ; Build 9 (compaction redesign): stage the keep-alive template into the persistent pool once at boot,
     ; so the renderer no longer carries it (frees its last bytes for compaction).
@@ -105,6 +106,46 @@ hardware_setup_detect_cpu:
     cmp ah, 0xf0
     je .done                     ; bits 12-15 stuck high => 8086/8088/V20 (leave 286+ bit clear)
     or word [handoff_addr + handoff_flags], handoff_flag_cpu_286plus
+.done:
+    ret
+
+; Build 12 env save/load: detect whether the boot medium is writable, for the persistence tier.
+; BIOS int 13h has no write-protect query, so probe NON-DESTRUCTIVELY: read the boot sector (LBA 0,
+; always C0/H0/S1 on any floppy geometry) and write the IDENTICAL bytes back. A write fault (CF; the
+; FDC returns AH=03h on a write-protected floppy) leaves handoff_flag_writable_media clear -- the
+; recovery-boundary mode, where persistence silently no-ops. Buffer = high_crypto_scratch_start:
+; free until the TLS key schedule (long after boot), and high enough to dodge the low-scratch region
+; this phase's own image occupies (a 512 B sector read there would clobber running code -- the same
+; ne_prom-overlap hazard that forces stage_ka_template to run first). Called before the network I/O,
+; so even if this code lands in the MAC-PROM-clobbered tail it has already run. Runs once at boot.
+hardware_setup_detect_writable_media:
+    push ds
+    pop es
+    mov bx, high_crypto_scratch_start
+    xor ax, ax                       ; LBA 0 = the boot sector
+    phase_call_res read_abs_sector
+    jc .done                         ; unreadable -> no usable medium, leave the bit clear
+    mov si, 3                        ; the read just warmed the drive; a couple of write retries
+.write_try:
+    push ds
+    pop es
+    mov bx, high_crypto_scratch_start
+    mov ax, 0x0301                   ; AH=03h write, AL=1 sector
+    mov cx, 0x0001                   ; cylinder 0, sector 1
+    xor dh, dh                       ; head 0
+    mov dl, [handoff_addr + handoff_boot_drive]
+    int 0x13
+    jnc .writable
+    cmp ah, 0x03                     ; write protected -> definitive, do not retry
+    je .done
+    xor ax, ax                       ; reset the disk system, then retry the transient fault
+    mov dl, [handoff_addr + handoff_boot_drive]
+    int 0x13
+    dec si
+    jnz .write_try
+    jmp .done
+.writable:
+    or word [handoff_addr + handoff_flags], handoff_flag_writable_media
 .done:
     ret
 

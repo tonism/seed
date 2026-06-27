@@ -58,6 +58,9 @@ RAM tier     derived from RAM top (0x2c): < 32 KiB = 16K tier, >= 32 KiB = 32K t
 NIC family   0x10, used to select the active adapter path.
 CPU class    flags bit handoff_flag_cpu_286plus (0x0010): set when the CPU is a 286 or
              better (hardware_setup's FLAGS bits-12-15 test) — gates the secure tier.
+Writable     flags bit handoff_flag_writable_media (0x0040): set when a non-destructive
+media        boot-sector write-back probe succeeds — gates the persistence tier (env
+             save/load). Clear on write-protected media (the recovery-boundary mode).
 ```
 
 The remaining capability dimensions are **reserved for later feature tiers**:
@@ -87,6 +90,7 @@ re-verify the low scratch fits via `tools/check-layout.py`.
 0x0008  MAC address valid
 0x0010  CPU is 286 or better (handoff_flag_cpu_286plus) — gates the secure tier
 0x0020  FPU present (reserved; held but inert — the FPU does not unlock secure crypto)
+0x0040  writable boot media present (handoff_flag_writable_media) — gates the persistence tier
 ```
 
 ## NIC Families
