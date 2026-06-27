@@ -486,11 +486,7 @@ tool_phase:
 
 ; ---- screen helpers (dim, fast-typed, scroll-aware; modeled on the compaction status) ----
 .scr_set_video:
-    mov ax, color_video_seg
-    test word [handoff_addr + handoff_flags], handoff_flag_mda
-    jz .ssv_set
-    mov ax, 0xb000
-.ssv_set:
+    mov ax, [video_seg]
     mov es, ax
     ret
 .scr_clr_video:

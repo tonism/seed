@@ -286,15 +286,12 @@ agent_response_write_char_direct:
     push di
     push es
     mov ah, 0x07                         ; normal text attribute
-    mov bx, color_video_seg
+    mov bx, [video_seg]
     test word [handoff_addr + handoff_flags], handoff_flag_mda
-    jnz .mda_segment                     ; MDA has no dark-grey cell - render the directive normal
+    jnz .segment_ready                   ; MDA: bx is already 0xb000 via video_seg; keep ah=0x07 (normal)
     cmp byte [compact_next], 0           ; CGA: an open '$' tool line renders dim (dark grey on black)
     je .segment_ready
     mov ah, 0x08
-    jmp short .segment_ready
-.mda_segment:
-    mov bx, 0xb000
 .segment_ready:
     mov es, bx
     mov di, [api_body_len]

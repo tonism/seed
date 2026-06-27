@@ -86,7 +86,8 @@ dns_label_ptr equ dns_answer_remaining + 1
 cursor_row equ dns_label_ptr + 2
 cursor_col equ cursor_row + 1
 screen_cols equ cursor_col + 1
-seed_col equ screen_cols + 1
+video_seg equ screen_cols + 1     ; CGA 0xb800 / MDA 0xb000 (word); set once in hardware_setup, read by the direct-screen-write phases
+seed_col equ video_seg + 2
 seed_attr equ seed_col + 1
 build_attr equ seed_attr + 1
 load_attr equ build_attr + 1

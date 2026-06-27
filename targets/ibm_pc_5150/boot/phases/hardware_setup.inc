@@ -164,6 +164,7 @@ hardware_setup_phase_display:
     mov byte [error_attr], error_attr_cga
     mov byte [menu_selected_attr], menu_selected_attr_cga
     mov byte [menu_idle_attr], menu_idle_attr_cga
+    mov word [video_seg], color_video_seg
     cmp byte [handoff_addr + handoff_video_mode], 0x07
     jne .clear
     or word [handoff_addr + handoff_flags], handoff_flag_mda
@@ -176,6 +177,7 @@ hardware_setup_phase_display:
     mov byte [error_attr], error_attr_mda
     mov byte [menu_selected_attr], menu_selected_attr_mda
     mov byte [menu_idle_attr], menu_idle_attr_mda
+    mov word [video_seg], 0xb000
 .clear:
     mov ax, 0x0600
     mov bh, 0x07

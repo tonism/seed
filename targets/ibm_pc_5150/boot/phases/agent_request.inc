@@ -390,11 +390,7 @@ agent_request_phase:
     jz .restore_done
     xor ah, ah
     mov cx, ax
-    mov ax, color_video_seg
-    test word [handoff_addr + handoff_flags], handoff_flag_mda
-    jz .restore_seg_ready
-    mov ax, 0xb000
-.restore_seg_ready:
+    mov ax, [video_seg]
     mov es, ax
     mov al, [dpi_prompt_marker_row]
     and al, 0x7f

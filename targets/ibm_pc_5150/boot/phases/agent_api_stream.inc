@@ -359,11 +359,7 @@ agent_api_stream_append_prompt_screen_to_buffer:
     push es
     mov al, [api_stream_prompt_len]
     mov [api_http_state], al
-    mov ax, color_video_seg
-    test word [handoff_addr + handoff_flags], handoff_flag_mda
-    jz .segment_ready
-    mov ax, 0xb000
-.segment_ready:
+    mov ax, [video_seg]
     mov es, ax
     mov al, [dpi_prompt_marker_row]
     and al, 0x7f
@@ -444,11 +440,7 @@ agent_api_stream_append_prompt_screen_to_buffer:
     jc .screen_flush_failed
     phase_call_res tls_prepare_3c501_receive
     pop si
-    mov ax, color_video_seg
-    test word [handoff_addr + handoff_flags], handoff_flag_mda
-    jz .screen_flush_seg
-    mov ax, 0xb000
-.screen_flush_seg:
+    mov ax, [video_seg]
     mov es, ax
     mov di, api_request_plain + tls_record_header_len
     jmp .screen_next
@@ -776,11 +768,10 @@ agent_api_stream_show_compacting:
     ; Advance to a fresh line (scrolling the text area up at the bottom, exactly like the renderer)
     ; so the status gets its own line below the prompt; the reply then renders below the status.
     call .compacting_advance
-    mov bx, color_video_seg
+    mov bx, [video_seg]
     mov dl, 0x08
     test word [handoff_addr + handoff_flags], handoff_flag_mda
     jz .compacting_seg
-    mov bx, 0xb000
     mov dl, 0x07
 .compacting_seg:
     mov es, bx
