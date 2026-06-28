@@ -501,16 +501,21 @@ api_ledger_mac_text db ' mac=', 0
 ; with RAM, so a@ = the window base + the live window length. (Deferred in Build 9: advertising
 ; addresses with no write tool made the model hallucinate tool calls; safe + useful now.)
 api_ledger_arena_text db ' a@', 0
+; Build 12 window-cap knob: advertise the ADDRESS of chat_context_len_var (the window/arena split).
+; The agent can $r it to read the current context-window size and $w a new one (then relocate its
+; arena code) -- this is what makes the restore "bigger machine" warning ("set a new context size
+; yourself") actionable: the surplus between a@ and the ram ceiling can be reclaimed for context.
+api_ledger_cap_text db ' cap@', 0
 ; Build 12 env save/load: advertise the persistence capability so the agent knows it can $s save /
 ; $l reload its state. Value rw = the boot drive is writable ($s persists); ro = write-protected
 ; ($s reports a system line, no persist). Safe to advertise now that both verbs exist (advertising a
 ; capability before its tool exists made the model hallucinate calls -- the Build 9/10 lesson).
 api_ledger_save_text db ' save=', 0
-; Upper-bound serialized length (dotted assumed max width). Labels (minus 11 NULs) + ram hex16(4)
+; Upper-bound serialized length (dotted assumed max width). Labels (minus 12 NULs) + ram hex16(4)
 ; + ip/gw/dns/mask dotted(4*15) + fam dec8(3) + nic hex16(4) + irq dec8(3) + mac(12) + arena hex16(4)
-; + save(2 = "rw"/"ro").
-api_ledger_labels_len equ $ - api_ledger_ram_text - 11
-api_ledger_len equ api_ledger_labels_len + (4 + 4 * 15 + 3 + 4 + 3 + 12 + 4 + 2)
+; + cap hex16(4) + save(2 = "rw"/"ro").
+api_ledger_labels_len equ $ - api_ledger_ram_text - 12
+api_ledger_len equ api_ledger_labels_len + (4 + 4 * 15 + 3 + 4 + 3 + 12 + 4 + 4 + 2)
 
 ; Build 10: chunk 2 is sent as two records (instructions; then ledger+directive+input-open),
 ; so enforce that EACH record fits the api_request_plain body. The old single-record build
@@ -594,17 +599,21 @@ agent_api_stream_append_ledger:
     mov ax, chat_context_start
     add ax, [chat_context_len_var]
     call agent_api_stream_ledger_hex16
+    ; Build 12 window-cap knob: " cap@<addr>" -- the address of chat_context_len_var ($r/$w to resize).
+    mov si, PHASE_LOAD_ADDR + (api_ledger_cap_text - PHASE_BASE)
+    call agent_api_stream_append_z_to_buffer
+    mov ax, chat_context_len_var
+    call agent_api_stream_ledger_hex16
     ; Build 12: persistence capability -> " save=rw" (writable) / " save=ro" (write-protected).
     mov si, PHASE_LOAD_ADDR + (api_ledger_save_text - PHASE_BASE)
     call agent_api_stream_append_z_to_buffer
-    mov al, 'r'
-    stosb
-    mov al, 'o'
-    test word [handoff_addr + handoff_flags], handoff_flag_writable_media
+    mov ah, 'o'                          ; build "r"+("w"/"o") as a word, one stosw (1 B less than 2x stosb)
+    test byte [handoff_addr + handoff_flags], handoff_flag_writable_media  ; flag is in the low byte
     jz .save_ro
-    mov al, 'w'
+    mov ah, 'w'
 .save_ro:
-    stosb
+    mov al, 'r'
+    stosw
     ret
 
 agent_api_stream_ledger_hex16:     ; ax -> 4 hex chars at [es:di]
