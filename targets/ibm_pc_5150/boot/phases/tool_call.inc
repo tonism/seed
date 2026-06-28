@@ -160,8 +160,21 @@ tool_phase:
     je .verb_ok
     cmp al, 's'
     je .verb_save
+    cmp al, 'l'
+    je .verb_load
     inc si
     ret
+; Build 12 env save/load: "$l" is a no-arg mid-session load/revert -- discard the current
+; context+arena and restore the saved ENV.DAT. Per design (notes/env-save-load-design.md) it reuses
+; the proven boot restore path verbatim via a soft reboot (int 19h): the boot's auto-load consumes
+; ENV.DAT and lands on the saved screen. Bare-verb gated like "$s" (next char must be <= ' ', so
+; "$list .." prose is left intact). int 19h never returns; if there is no saved state, the reboot's
+; auto-load just falls through to a fresh greeting (revert-to-nothing).
+.verb_load:
+    mov al, [si + 2]
+    cmp al, ' '
+    ja .save_mention                 ; a letter etc. follows -> not a bare "$l", leave intact
+    int 0x19                         ; bootstrap -> full boot -> auto-load restores ENV.DAT
 ; Build 12 env save/load: "$s" is a no-arg save request. It stands alone on its line (the next char
 ; must be a space/newline/end, not a letter -- so "$send..." prose is left intact). Set save_pending
 ; (dpi runs the cold save phase after this tool phase returns -- M can't load it over itself) and
