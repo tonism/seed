@@ -489,9 +489,8 @@ api_json_you_label_text_len equ $ - api_json_you_label_text - 1
 ; Build 9 ledger field labels (terse machine facts serialized from the handoff block)
 api_ledger_ram_text db 'ram=', 0
 api_ledger_ip_text db ' ip=', 0
-api_ledger_gw_text db ' gw=', 0
-api_ledger_dns_text db ' dns=', 0
-api_ledger_mask_text db ' mask=', 0
+; Build 12 memory scaling: gw/dns/mask were dropped from the ledger -- seed does all the routing, the
+; model never acts on the gateway/DNS/netmask, so they were dead weight. The freed bytes fund " far@".
 api_ledger_fam_text db ' fam=', 0
 api_ledger_nic_text db ' nic@', 0
 api_ledger_irq_text db ' irq=', 0
@@ -511,11 +510,15 @@ api_ledger_cap_text db ' cap@', 0
 ; ($s reports a system line, no persist). Safe to advertise now that both verbs exist (advertising a
 ; capability before its tool exists made the model hallucinate calls -- the Build 9/10 lesson).
 api_ledger_save_text db ' save=', 0
-; Upper-bound serialized length (dotted assumed max width). Labels (minus 12 NULs) + ram hex16(4)
-; + ip/gw/dns/mask dotted(4*15) + fam dec8(3) + nic hex16(4) + irq dec8(3) + mac(12) + arena hex16(4)
-; + cap hex16(4) + save(2 = "rw"/"ro").
-api_ledger_labels_len equ $ - api_ledger_ram_text - 12
-api_ledger_len equ api_ledger_labels_len + (4 + 4 * 15 + 3 + 4 + 3 + 12 + 4 + 4 + 2)
+; Build 12 memory scaling (milestone 1): advertise the conventional arena past segment 0 as the flat
+; range " far@<base>-<top>". Base is the fixed first segment above seg 0 (0x10000), baked into the label;
+; only the top is computed at emit time. The agent $w/$x's flat addresses in this range.
+api_ledger_far_text db ' far@00010000-', 0
+; Upper-bound serialized length (dotted assumed max width). Labels (minus 10 NULs) + ram hex16(4)
+; + ip dotted(15) + fam dec8(3) + nic hex16(4) + irq dec8(3) + mac(12) + arena hex16(4) + cap hex16(4)
+; + save(2 = "rw"/"ro") + far top(hex16(4) + "00"(2) = 6; the base is in the label).
+api_ledger_labels_len equ $ - api_ledger_ram_text - 10
+api_ledger_len equ api_ledger_labels_len + (4 + 15 + 3 + 4 + 3 + 12 + 4 + 4 + 2 + 6)
 
 ; Build 10: chunk 2 is sent as two records (instructions; then ledger+directive+input-open),
 ; so enforce that EACH record fits the api_request_plain body. The old single-record build
@@ -559,18 +562,6 @@ agent_api_stream_append_ledger:
     call agent_api_stream_append_z_to_buffer
     mov si, handoff_addr + handoff_ip_addr
     call agent_api_stream_ledger_dotted
-    mov si, PHASE_LOAD_ADDR + (api_ledger_gw_text - PHASE_BASE)
-    call agent_api_stream_append_z_to_buffer
-    mov si, handoff_addr + handoff_router_addr
-    call agent_api_stream_ledger_dotted
-    mov si, PHASE_LOAD_ADDR + (api_ledger_dns_text - PHASE_BASE)
-    call agent_api_stream_append_z_to_buffer
-    mov si, handoff_addr + handoff_dns_addr
-    call agent_api_stream_ledger_dotted
-    mov si, PHASE_LOAD_ADDR + (api_ledger_mask_text - PHASE_BASE)
-    call agent_api_stream_append_z_to_buffer
-    mov si, handoff_addr + handoff_subnet_addr
-    call agent_api_stream_ledger_dotted
     mov si, PHASE_LOAD_ADDR + (api_ledger_fam_text - PHASE_BASE)
     call agent_api_stream_append_z_to_buffer
     mov al, [handoff_addr + handoff_nic_family]
@@ -604,6 +595,22 @@ agent_api_stream_append_ledger:
     call agent_api_stream_append_z_to_buffer
     mov ax, chat_context_len_var
     call agent_api_stream_ledger_hex16
+    ; Build 12 memory scaling (milestone 1): " far@00010000-<top>" -- the conventional arena past seg 0.
+    ; Conv KB is the BDA word at 0x0413 (ds=0 here); the far top is KB<<10. Since <<10 is <<2 then <<8,
+    ; and <<8 appends two hex zeros, hex(KB<<10) == hex16(KB<<2) + "00" -- no 32-bit math needed.
+    ; Skipped at <=64 KB (a seg-0-only machine: the a@ arena already spans all of it).
+    mov ax, [0x0413]
+    cmp ax, 64
+    jbe .ledger_no_far
+    mov si, PHASE_LOAD_ADDR + (api_ledger_far_text - PHASE_BASE)
+    call agent_api_stream_append_z_to_buffer   ; " far@00010000-"
+    mov ax, [0x0413]
+    shl ax, 1
+    shl ax, 1                                  ; ax = KB << 2 (the high hex digits of KB<<10)
+    call agent_api_stream_ledger_hex16
+    mov ax, '00'                               ; the low byte of KB<<10 is zero -> two hex zeros
+    stosw
+.ledger_no_far:
     ; Build 12: persistence capability -> " save=rw" (writable) / " save=ro" (write-protected).
     mov si, PHASE_LOAD_ADDR + (api_ledger_save_text - PHASE_BASE)
     call agent_api_stream_append_z_to_buffer

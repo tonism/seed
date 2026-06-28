@@ -14,6 +14,20 @@
 ; the user does not need to see). fs_sector_buffer is the request-body scratch, dead
 ; while this phase runs between turns (agent_request rebuilds it on the next send).
 tool_sink equ fs_sector_buffer
+; Build 12 memory scaling (milestone 1): $r/$w/$x take a 32-bit flat address and reach it via a far
+; seg:off translation (`seg = A>>4, off = A&0xF`), so the agent can address conventional memory beyond
+; segment 0. These scratch slots ride fs_sector_buffer beside tool_sink (dead during a tool turn):
+;   tool_addr   dword  the parsed 32-bit flat address (target of $r/$w/$x)
+;   tool_seg    word   the segment computed from tool_addr (the far access reloads es from it per byte,
+;                      since the screen-output helpers clobber es)
+;   tool_farptr dword  [off,seg] far pointer for `call far` in $x
+;   tool_readbuf 32 B  $r stages the far bytes here (seg 0) before the hex dump, so the far read (es=seg)
+;                      and the dump (es=video) don't fight over es
+tool_addr    equ fs_sector_buffer + 2
+tool_seg     equ fs_sector_buffer + 6
+tool_farptr  equ fs_sector_buffer + 8
+tool_readlen equ fs_sector_buffer + 12
+tool_readbuf equ fs_sector_buffer + 14
 
 ; ---------------------------------------------------------------------------
 ; Build 10: minimal tool calling - the agent's "keys to the kingdom".
@@ -206,11 +220,12 @@ tool_phase:
     jc .verb_revert                  ; trailing prose -> a mention; leave '$' intact, step past it
     push ax                          ; save verb
     push bx                          ; save '$' position
-    call .parse_hex                  ; ax = addr; advances si; cf if no digits
+    call .parse_hex                  ; dx:ax = 32-bit flat addr; advances si; cf if no digits
+    mov [tool_addr], ax              ; stash the address (before pop dx reclaims dx for the verb)
+    mov [tool_addr + 2], dx
     pop bx                           ; '$' position
     pop dx                           ; dh = verb
     jc .verb_revert                  ; no valid address -> not a tool; leave '$' intact
-    mov bp, ax                       ; bp = target address
     mov byte [bx], ' '               ; neutralize sentinel ONLY on a real call (no prose damage)
     mov byte [agent_loop_pending], 1 ; a tool fired -> candidate for an auto-continue turn
     mov al, dh                       ; verb
@@ -226,28 +241,27 @@ tool_phase:
 
 .do_exec:
     push si                          ; [A] scan ptr (restore before .skip_to_eol)
-    push bp                          ; [B] addr, for the result line
-    mov ax, bp
+    call .addr_to_farptr             ; build [tool_farptr] = off:seg from the 32-bit tool_addr; es back to ds
+    mov ax, .word_ran                ; print "> ran <addr>" BEFORE the call: a $x into bad code never returns,
+    call .res_line                   ; so the action line must land first or the screen looks stuck on the
+    call .res_close                  ; previous directive. es back to 0 for the far call.
     push ds                          ; [C]
     push es                          ; [D]
     cld
-    call ax                          ; near indirect call to seg-0:addr
-    cld                              ; callee may have left DF set
+    call far [tool_farptr]           ; far call to seg:off; agent code returns with retf (uniform far, so the
+    cld                              ; same byte $r/$w reach is executable). callee may have left DF set
     pop es                           ; [D]
     pop ds                           ; [C]
     mov bx, ax                       ; bx = returned AX (survives the out_* helpers)
     pushf
     pop dx                           ; dx = returned flags (CF in bit 0)
-    pop bp                           ; [B] addr restored
     mov al, '0'                      ; resolve CF now: out_* clobber dx via wait_ticks
     test dl, 1
     jz .exec_cf_char
     mov al, '1'
 .exec_cf_char:
     push ax                          ; [E] CF char, emitted last
-    mov ax, .word_ran                ; screen: "jump to <addr>" (action only)
-    call .res_line
-    mov byte [tool_sink], 1          ; the ax/cf result is for the model only (window)
+    mov byte [tool_sink], 1          ; the ax/cf suffix continues the same window line, model-only
     mov si, PHASE_LOAD_ADDR + (.text_ax - PHASE_BASE)
     call .out_str                    ; " ax="
     mov ax, bx                       ; returned AX
@@ -256,14 +270,15 @@ tool_phase:
     call .out_str                    ; " cf="
     pop ax                           ; [E] CF char
     call .out_putc
-    call .res_close
     pop si                           ; [A] scan ptr
     jmp .skip_to_eol
 
+; $r ADDR LEN : read LEN (<=32) bytes from the flat address. The far read (es=segment) and the hex dump
+; (es=video) fight over es, so stage the bytes into tool_readbuf (seg 0) first, then dump that near.
 .do_read:
-    call .parse_hex                  ; ax = len; si now points past the args
-    push si                          ; save scan ptr - .res_line clobbers si (see its comment); .do_exec
-    jc .read_zero                    ; saves it the same way. Without this .skip_to_eol wild-scans low RAM.
+    call .parse_hex                  ; ax = len (16-bit; the high word is ignored)
+    push si                          ; [A] save scan ptr - .res_line clobbers si; w/o this .skip_to_eol wild-scans
+    jc .read_zero
     mov cx, ax
     jmp .read_have_len
 .read_zero:
@@ -273,42 +288,87 @@ tool_phase:
     jbe .read_capped
     mov cx, 32
 .read_capped:
-    push cx                          ; len
-    mov ax, .word_read               ; screen: "read from <addr>" (action only)
-    call .res_line
-    mov byte [tool_sink], 1          ; the bytes are for the model only (window)
+    mov [tool_readlen], cl           ; len (<=32) - reload it for each loop (res_line/addr_to_esbx clobber cx)
+    mov ax, .word_read               ; print "> read from <addr>" BEFORE the far read, so a bad address that
+    call .res_line                   ; hangs the read still shows the action (matches $w/$x ordering)
+    mov byte [tool_sink], 1          ; the ":" + bytes are for the model only (window)
     mov al, ':'
     call .out_putc
-    pop cx                           ; len
+    mov cl, [tool_readlen]
+    xor ch, ch
     jcxz .read_eol
+    call .addr_to_esbx               ; es=segment, bx=offset of tool_addr (clobbers ax,cx,dx)
+    mov cl, [tool_readlen]
+    xor ch, ch
+    mov di, tool_readbuf
+.read_stage:
+    mov al, [es:bx]                  ; far read
+    mov [di], al                     ; -> near staging buffer (ds=0)
+    inc bx
+    inc di
+    loop .read_stage
+    push ds
+    pop es                           ; es back to ds for the screen helpers
+    mov cl, [tool_readlen]
+    xor ch, ch
+    mov si, tool_readbuf             ; dump the staged bytes (si survives the out_* helpers)
 .read_byte:
     mov al, ' '
     call .out_putc
-    mov al, [bp]                     ; SS=0 -> seg-0:addr (read target RAM)
+    mov al, [si]
     call .out_hex8
-    inc bp
+    inc si
     loop .read_byte
 .read_eol:
     call .res_close
-    pop si                           ; restore scan ptr saved above
+    pop si                           ; [A] restore scan ptr
     jmp .skip_to_eol
 
+; $w ADDR B B ... : write the byte stream to the flat address. parse_hex preserves bx and es, so the
+; far es:bx write pointer rides across each byte parse; off<=0xF + a hex-typed stream never crosses 64K.
 .do_write:
-    push bp                          ; [start] save start addr
+    push si                          ; [A] scan ptr - .res_line clobbers si; restore it for the byte parse
+    mov ax, .word_wrote              ; print "> wrote <addr>" BEFORE the write (consistent action-first order;
+    call .res_line                   ; the model already knows the bytes, so no result suffix)
+    call .res_close
+    pop si                           ; [A] back to the byte args
+    call .addr_to_esbx               ; es=segment, bx=offset (the running far write pointer)
 .write_byte:
-    call .parse_hex                  ; ax = next byte (cf when no more hex)
+    call .parse_hex                  ; ax = next byte (cf when no more hex); leaves bx and es intact
     jc .write_eol
-    mov [bp], al                     ; SS=0 -> seg-0:addr (write target RAM)
-    inc bp
+    mov [es:bx], al                  ; far write
+    inc bx
     jmp .write_byte
 .write_eol:
-    pop bp                           ; [start] addr
-    push si                          ; save scan ptr - .res_line clobbers si (see its comment)
-    mov ax, .word_wrote              ; "write to <addr>" - write cannot fail and the
-    call .res_line                   ; model already knows the bytes, so no result suffix
-    call .res_close
-    pop si                           ; restore scan ptr saved above
+    push ds
+    pop es                           ; es back to ds
     jmp .skip_to_eol
+
+; ---- flat 32-bit address -> far access (Build 12 milestone 1) ----
+; tool_addr (dword) holds the parsed flat address. On an 8088/V30 every conventional byte (<=1 MB) is
+; reachable as seg:off with seg = A>>4, off = A&0xF. The screen helpers clobber es, so the segment is
+; also stashed in tool_seg for callers that reload es per byte.
+.addr_to_esbx:                       ; -> es = tool_seg = segment, bx = offset. clobbers ax,cx,dx
+    mov ax, [tool_addr]              ; low word
+    mov bx, ax
+    and bx, 0x000f                   ; off = A & 0xF
+    mov cl, 4
+    shr ax, cl                       ; ax = low >> 4
+    mov dx, [tool_addr + 2]          ; high word (<= 0x0F for an address <= 1 MB)
+    mov cl, 12
+    shl dx, cl                       ; high << 12
+    or ax, dx                        ; seg = (low>>4) | (high<<12)
+    mov [tool_seg], ax
+    mov es, ax
+    ret
+.addr_to_farptr:                     ; build [tool_farptr] = offset (word), segment (word) for `call far`
+    call .addr_to_esbx
+    mov [tool_farptr], bx            ; offset
+    mov ax, [tool_seg]
+    mov [tool_farptr + 2], ax        ; segment
+    push ds
+    pop es                           ; es back to ds (the far call reads [tool_farptr] ds-relative)
+    ret
 
 ; Advance si to the next newline (or window end). Returns to .scan, which then
 ; recomputes the window end and resumes (the newline re-arms the line-start flag).
@@ -365,33 +425,41 @@ tool_phase:
     stc
     ret
 
-; ---- parse one hex token at [si] ----
-; Reads hex digits (upper/lower tolerated) into ax, then skips one trailing space.
-; cf=1 if no digit found. Clobbers ax/cx/dx; advances si; preserves bx/bp.
+; ---- parse one hex token at [si] into a 32-bit value ----
+; Reads hex digits (upper/lower tolerated) into dx:ax (high:low), then skips one trailing space.
+; cf=1 if no digit found. Clobbers ax/cx/dx; advances si; preserves bx/bp. Callers that want a 16-bit
+; value (a $r length, a $w byte) just use ax and ignore dx. (Build 12: widened from 16-bit so $r/$w/$x
+; can take a flat address beyond segment 0.)
 .parse_hex:
     push bx
     xor ax, ax
+    xor dx, dx
     xor bx, bx                       ; digit count
 .ph_next:
-    mov dl, [si]
-    cmp dl, '0'
+    mov cl, [si]
+    cmp cl, '0'
     jb .ph_end
-    cmp dl, '9'
+    cmp cl, '9'
     jbe .ph_digit
-    or dl, 0x20                      ; tolerate 'A'-'F'
-    cmp dl, 'a'
+    or cl, 0x20                      ; tolerate 'A'-'F'
+    cmp cl, 'a'
     jb .ph_end
-    cmp dl, 'f'
+    cmp cl, 'f'
     ja .ph_end
-    sub dl, 'a' - 10
+    sub cl, 'a' - 10
     jmp .ph_accum
 .ph_digit:
-    sub dl, '0'
+    sub cl, '0'
 .ph_accum:
-    mov cl, 4
-    shl ax, cl
-    xor dh, dh
-    add ax, dx
+    shl ax, 1                        ; dx:ax <<= 4 (one nibble; carry walks ax's top bit into dx)
+    rcl dx, 1
+    shl ax, 1
+    rcl dx, 1
+    shl ax, 1
+    rcl dx, 1
+    shl ax, 1
+    rcl dx, 1
+    or al, cl                        ; low nibble is 0 after the shift -> OR in the digit (0..15)
     inc bx
     inc si
     jmp .ph_next
@@ -433,8 +501,7 @@ tool_phase:
     pop si                           ; verb-word ptr -> si
     add si, PHASE_LOAD_ADDR - PHASE_BASE
     call .out_str                    ; "read "/"wrote "/"ran "
-    mov ax, bp
-    call .out_hex16                  ; address
+    call .out_hex32                  ; the 32-bit flat address (tool_addr)
     ret
 .res_close:
     call .scr_clr_video              ; ES back to 0 for the next directive / $x
@@ -475,6 +542,11 @@ tool_phase:
     stosw
     ret
 
+.out_hex32:                          ; tool_addr (dword) -> 8 hex chars (high word then low)
+    mov ax, [tool_addr + 2]
+    call .out_hex16
+    mov ax, [tool_addr]
+    ; fall through to out_hex16 for the low word
 .out_hex16:                          ; ax -> 4 hex chars (window + screen)
     push ax
     mov al, ah
