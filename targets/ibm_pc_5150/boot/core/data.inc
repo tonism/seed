@@ -105,7 +105,28 @@ load_marker_attr equ load_marker_char + 1
 ; greeting). pending=1 + budget left -> dpi auto-submits the continue directive next turn.
 agent_loop_pending equ load_marker_attr + 1
 agent_loop_count equ agent_loop_pending + 1
-low_phase_state_end equ agent_loop_count + 1
+; Build 12 env save/load: a "$s save requested" flag. Lives in low_phase_state (persists across phase
+; loads, NO resident nucleus cost). The tool phase clears it at entry and sets it on a line-start "$s";
+; dpi runs the save phase when set (the tool phase can't load the save over itself). Cleared at the
+; tool phase entry each run, so boot garbage can't trigger a spurious save before dpi reads it.
+save_pending equ agent_loop_count + 1
+low_phase_state_end equ save_pending + 1
+
+; Build 12 env save/load: the save phase's working scratch (9 words). The phase loads at 0x0900,
+; but vars defined INLINE in the phase assemble at their CORE.SYS image address (~0x83xx, above the
+; 32K RAM ceiling) and are accessed absolutely -> writes are lost, reads return 0xFFFF. So the save
+; scratch must live at fixed low addresses, like every other phase's mutable state. The save runs
+; BETWEEN turns, so it overlays the boot-only file-read / config scratch (fs_file_*/fs_*/agents_*),
+; which is dead once the chat loop is running (used only by user_cfg/agents_cfg/restore at boot).
+save_region_len   equ fs_file_cluster
+save_screen_len   equ fs_file_size_low
+save_file_size    equ fs_file_size_high
+save_needed       equ fs_current_cluster
+save_run_start    equ fs_bytes_left
+save_sector_index equ fs_bytes_this
+save_dir_lba      equ agents_cluster
+save_dir_off      equ agents_size_low
+save_old_cluster  equ agents_size_high
 low_runtime_state_start equ handoff_addr + handoff_size_bytes
 sha256_state equ low_runtime_state_start
 sha256_a equ sha256_state + 32

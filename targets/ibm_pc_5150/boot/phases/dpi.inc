@@ -31,6 +31,17 @@ dpi_phase:
     jc .tools_skipped
     mov bx, net_setup_phase_start
     call bx
+    ; Build 12 env save/load: the tool phase set save_pending on a "$s". Run the cold save phase now --
+    ; the tool phase has returned, so its 0x0900 slot is free to load the save over (dpi runs at 0x0700,
+    ; no overlap). The save captures the window + screen and writes ENV.DAT; it draws its own status line.
+    cmp byte [save_pending], 0
+    je .tools_skipped
+    mov ax, (((core_save_env_phase_end - core_save_env_phase_start + 511) / 512) << 8) | ((core_save_env_phase_start - $$) / 512)
+    mov bx, net_setup_phase_start
+    phase_call_res load_core_sectors_at
+    jc .tools_skipped
+    mov bx, net_setup_phase_start        ; re-set (match the M-load above; don't assume bx survives)
+    call bx
 .tools_skipped:
     cmp byte [api_stream_event_ready], 1
     je .request_phase_ready
@@ -134,10 +145,9 @@ dpi_phase:
     cmp byte [dpi_prompt_marker_row], 0
     jne .draw_prompt
     mov byte [cursor_row], dpi_prompt_row - 2
-    mov byte [cursor_col], dpi_prompt_col
+    ; (cursor_col is set by .draw_prompt below)
 .draw_prompt:
     mov al, [cursor_row]
-    mov [cursor_row], al
     mov byte [cursor_col], dpi_prompt_col
     mov [dpi_prompt_marker_row], al
     mov al, '>'
@@ -219,16 +229,12 @@ dpi_phase:
     ret
 
 .show_cursor:
-    mov ah, 0x01
-    mov ch, 0x06
-    mov cl, 0x07
-    int 0x10
-    ret
-
+    mov cx, 0x0607                       ; scan lines 6..7 (visible)
+    jmp .apply_cursor_shape
 .hide_cursor:
+    mov cx, 0x2000                       ; bit 5 set = cursor off
+.apply_cursor_shape:
     mov ah, 0x01
-    mov ch, 0x20
-    mov cl, 0x00
     int 0x10
     ret
 

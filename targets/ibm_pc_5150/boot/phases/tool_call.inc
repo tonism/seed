@@ -62,6 +62,7 @@ tool_phase:
     jmp .loop_stop                       ; clears agent_loop_pending + count, pop bp, ret (no scan, no continue)
 .no_panic:
     mov byte [agent_loop_pending], 0     ; not boot-cleared; clear each run, set on a tool fire
+    mov byte [save_pending], 0           ; Build 12 env save/load: clear each run, set on a "$s"
     cld
     mov si, chat_context_start
     mov bx, si
@@ -157,6 +158,23 @@ tool_phase:
     je .verb_ok
     cmp al, 'x'
     je .verb_ok
+    cmp al, 's'
+    je .verb_save
+    inc si
+    ret
+; Build 12 env save/load: "$s" is a no-arg save request. It stands alone on its line (the next char
+; must be a space/newline/end, not a letter -- so "$send..." prose is left intact). Set save_pending
+; (dpi runs the cold save phase after this tool phase returns -- M can't load it over itself) and
+; neutralize the '$' so it neither re-fires nor shows. No result line here; the save phase draws one.
+.verb_save:
+    mov al, [si + 2]
+    cmp al, ' '
+    ja .save_mention                 ; a letter etc. follows -> not a bare "$s"
+    mov byte [save_pending], 1
+    mov byte [si], ' '
+    inc si
+    ret
+.save_mention:
     inc si
     ret
 .verb_ok:

@@ -347,6 +347,29 @@ core_restore_env_phase_end:
 %error "restore env phase exceeds its 2-sector window"
 %endif
 
+; Phases are addressed by sector offset in the phase table ((label - $$) / 512), so every phase
+; start MUST be sector-aligned -- restore_env is not a 512-multiple, so pad to the next sector
+; before save_env (else dpi's load + call bx lands mid-phase, not at the entry).
+align 512, db 0
+
+; Build 12 env save/load: the $s SAVE phase. Loads at net_setup_phase_start (0x0900) -- the tool
+; phase's slot, free once dpi runs this after the tool phase returns. It USES fs_sector_buffer
+; (0xD0E) for the FAT/data/root sectors, so its loaded extent must END before that buffer (2 sectors
+; -> 0x0900..0x0D00 < 0x0D0E). The net-frame phases (dhcp/tcp) may run to 0x0F00 because they don't
+; touch fs_sector_buffer; this one does, hence the tighter cap.
+core_save_env_phase_start:
+%define PHASE_BASE core_save_env_phase_start
+%define PHASE_LOAD_ADDR net_setup_phase_start
+%include "phases/save_env.inc"
+%undef PHASE_LOAD_ADDR
+%undef PHASE_BASE
+core_save_env_phase_end:
+%if (((core_save_env_phase_end - core_save_env_phase_start + 511) / 512) * 512) > (fs_sector_buffer - net_setup_phase_start)
+%error "save env phase load extent reaches fs_sector_buffer (keep it <= 2 sectors)"
+%endif
+
+align 512, db 0                          ; sector-align the next phase (save_env is not a 512-multiple)
+
 core_save_phase_start:
 %define PHASE_BASE core_save_phase_start
 %include "phases/save_user_cfg.inc"
@@ -458,6 +481,11 @@ core_phase_table:
     dw (core_restore_env_phase_start - $$) / 512
     dw (core_restore_env_phase_end - core_restore_env_phase_start + 511) / 512
     dw low_scratch_start
+    dw 0
+    db 'W', 0
+    dw (core_save_env_phase_start - $$) / 512
+    dw (core_save_env_phase_end - core_save_env_phase_start + 511) / 512
+    dw net_setup_phase_start
     dw 0
 core_phase_table_end:
 
