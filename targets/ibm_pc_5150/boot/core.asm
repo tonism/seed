@@ -352,23 +352,37 @@ core_restore_env_phase_end:
 ; before save_env (else dpi's load + call bx lands mid-phase, not at the entry).
 align 512, db 0
 
-; Build 12 env save/load: the $s SAVE phase. Loads at net_setup_phase_start (0x0900) -- the tool
-; phase's slot, free once dpi runs this after the tool phase returns. It USES fs_sector_buffer
-; (0xD0E) for the FAT/data/root sectors, so its loaded extent must END before that buffer (2 sectors
-; -> 0x0900..0x0D00 < 0x0D0E). The net-frame phases (dhcp/tcp) may run to 0x0F00 because they don't
-; touch fs_sector_buffer; this one does, hence the tighter cap.
-core_save_env_phase_start:
-%define PHASE_BASE core_save_env_phase_start
+; Build 12 env save/load: the $s SAVE is TWO cold phases (the writer is at its 2-sector
+; fs_sector_buffer ceiling, so the trim codec setup lives in a separate phase). dpi loads save_prep,
+; which scans/plans (region+screen trims, header values, checksum) into scratch and chains -- by a JMP
+; into the resident loader -- to save_write, which does the FAT12 write. Both load at
+; net_setup_phase_start (0x0900). save_prep never touches fs_sector_buffer (it only reads RAM/video),
+; so it gets the full net-window budget; save_write uses fs_sector_buffer and stays <= 2 sectors.
+core_save_prep_phase_start:
+%define PHASE_BASE core_save_prep_phase_start
+%define PHASE_LOAD_ADDR net_setup_phase_start
+%include "phases/save_prep.inc"
+%undef PHASE_LOAD_ADDR
+%undef PHASE_BASE
+core_save_prep_phase_end:
+%if (core_save_prep_phase_end - core_save_prep_phase_start) > (low_scratch_end - net_setup_phase_start)
+%error "save prep phase exceeds the net-setup window"
+%endif
+
+align 512, db 0                          ; save_prep computes core_save_write key by sector offset -> align
+
+core_save_write_phase_start:
+%define PHASE_BASE core_save_write_phase_start
 %define PHASE_LOAD_ADDR net_setup_phase_start
 %include "phases/save_env.inc"
 %undef PHASE_LOAD_ADDR
 %undef PHASE_BASE
-core_save_env_phase_end:
-%if (((core_save_env_phase_end - core_save_env_phase_start + 511) / 512) * 512) > (fs_sector_buffer - net_setup_phase_start)
-%error "save env phase load extent reaches fs_sector_buffer (keep it <= 2 sectors)"
+core_save_write_phase_end:
+%if (((core_save_write_phase_end - core_save_write_phase_start + 511) / 512) * 512) > (fs_sector_buffer - net_setup_phase_start)
+%error "save write phase load extent reaches fs_sector_buffer (keep it <= 2 sectors)"
 %endif
 
-align 512, db 0                          ; sector-align the next phase (save_env is not a 512-multiple)
+align 512, db 0                          ; sector-align the next phase
 
 core_save_phase_start:
 %define PHASE_BASE core_save_phase_start
@@ -483,8 +497,8 @@ core_phase_table:
     dw low_scratch_start
     dw 0
     db 'W', 0
-    dw (core_save_env_phase_start - $$) / 512
-    dw (core_save_env_phase_end - core_save_env_phase_start + 511) / 512
+    dw (core_save_prep_phase_start - $$) / 512
+    dw (core_save_prep_phase_end - core_save_prep_phase_start + 511) / 512
     dw net_setup_phase_start
     dw 0
 core_phase_table_end:

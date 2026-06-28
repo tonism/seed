@@ -36,7 +36,7 @@ dpi_phase:
     ; no overlap). The save captures the window + screen and writes ENV.DAT; it draws its own status line.
     cmp byte [save_pending], 0
     je .tools_skipped
-    mov ax, (((core_save_env_phase_end - core_save_env_phase_start + 511) / 512) << 8) | ((core_save_env_phase_start - $$) / 512)
+    mov ax, (((core_save_prep_phase_end - core_save_prep_phase_start + 511) / 512) << 8) | ((core_save_prep_phase_start - $$) / 512)
     mov bx, net_setup_phase_start
     phase_call_res load_core_sectors_at
     jc .tools_skipped

@@ -13,35 +13,43 @@ boot-side RESTORE path can be validated against a known-good file before the on-
 exists. It is the format's reference implementation; layout.inc mirrors these constants in asm and
 the two must agree.
 
-Format (little-endian):
+Format 2 (little-endian) -- the payload is TRIMMED to skip dead space so a save fits a floppy and
+restores fast:
+  - the region drops its TRAILING ZEROS (store region_stored of the full region_len);
+  - the screen is PER-ROW trailing-blank trimmed: [screen_rows row-length bytes][packed used cells],
+    a blank cell being a space (0x20). region_len / screen_cols / screen_rows stay the FULL extents
+    (the restore uses them to clear the window/screen before painting the stored prefix).
 
   off   sz  field
   0x00  4   magic "SEDV"            (distinct from the handoff "SEED")
-  0x04  1   format_version          (compatibility axis; seed gates min<=v<=current)
+  0x04  1   format_version          (compatibility axis; seed gates min<=v<=current; 2 = trimmed)
   0x05  1   flags                   (reserved, 0)
   0x06  2   build_number            (provenance, informational)
   0x08  2   ram_top                 (save-time RAM top; a hint for the restore warning)
   0x0a  2   chat_context_len_var    (the OLD window/arena split boundary)
   0x0c  2   chat_context_used       (valid conversation bytes in the window)
   0x0e  2   note_len                (compacted-memory prefix length within the window)
-  0x10  2   region_len              (window+arena bytes -> chat_context_start)
-  0x12  1   screen_cols             (snapshot width; 0 = no snapshot)
-  0x13  1   screen_rows             (snapshot height)
-  0x14  2   payload_checksum        (16-bit sum of the whole payload)
-  0x16  2   header_checksum         (16-bit sum of header bytes 0x00..0x16)
-  0x18  ..  payload: [region_len window bytes][screen_cols*screen_rows*2 snapshot cells]
+  0x10  2   region_len              (FULL window+arena extent -> chat_context_start)
+  0x12  2   region_stored           (region bytes in the file; trailing zeros trimmed, <= region_len)
+  0x14  1   screen_cols             (FULL snapshot width; 0 = no snapshot)
+  0x15  1   screen_rows             (FULL snapshot height)
+  0x16  2   screen_stored           (encoded screen bytes: screen_rows + 2*sum(row_len))
+  0x18  2   payload_checksum        (16-bit sum of the payload: region_stored + screen_stored bytes)
+  0x1a  2   header_checksum         (16-bit sum of header bytes 0x00..0x1a)
+  0x1c  ..  payload: [region_stored region bytes][screen_stored encoded-screen bytes]
 
-The window section's internal shape (offsets within the region block):
+The region block (full region_len, conceptually):
   [0 .. used)            conversation window     [0..note_len) note, [note_len..used) dialogue
   [used .. len_var)      unused window slack
   [len_var .. region_len) the arena (agent $w-built bytes; 0 if empty)
-The screen section is row-major char+attr cells exactly as in CGA/MDA text memory.
+...but only region_stored bytes (up to the last non-zero) are stored; the rest is restored as zero.
+The screen is row-major char+attr cells; per row, trailing spaces are dropped and the count kept.
 
 Usage:
   env-dat.py create --out FILE --conversation "You: hi\\nAssistant: Hello!" \\
       [--note-len 0] [--window-cap N] [--arena SIZE] [--region-len N] \\
       [--screen "line1\\nline2"] [--screen-cols 80] [--screen-rows 25] \\
-      [--ram-top 0x8000] [--build 12] [--format-version 1]
+      [--ram-top 0x8000] [--build 12] [--format-version 2]
   env-dat.py inspect FILE
 """
 from __future__ import annotations
@@ -52,10 +60,11 @@ import sys
 from pathlib import Path
 
 MAGIC = b"SEDV"
-FORMAT_VERSION = 1          # current; layout.inc env_format_current mirrors this
-HEADER_LEN = 0x18           # bytes before the payload (magic..header_checksum)
-_HEADER_FMT = "<4sBBHHHHHHBBH"  # ...through payload_checksum (0x16 bytes); header_checksum (H) follows
+FORMAT_VERSION = 2          # current; layout.inc env_format_current mirrors this
+HEADER_LEN = 0x1c           # bytes before the payload (magic..header_checksum)
+_HEADER_FMT = "<4sBBHHHHHHHBBHH"  # ...through payload_checksum (0x1a bytes); header_checksum (H) follows
 DEFAULT_ATTR = 0x07         # synthesized-snapshot cell attribute (real saves capture the live attrs)
+BLANK_CHAR = 0x20           # a cell whose char is a space is "blank" (trimmable / fill on restore)
 
 
 def checksum16(data: bytes) -> int:
@@ -64,20 +73,67 @@ def checksum16(data: bytes) -> int:
     return sum(data) & 0xFFFF
 
 
+def trim_region(region: bytes) -> bytes:
+    """Trailing-zero trim: the stored region prefix is everything up to the last non-zero byte."""
+    i = len(region)
+    while i > 0 and region[i - 1] == 0:
+        i -= 1
+    return region[:i]
+
+
+def encode_screen(cells: bytes, cols: int, rows: int) -> bytes:
+    """Per-row trailing-blank trim. cells = rows*cols char+attr pairs (row-major). The encoding is
+    [rows row-length bytes][for each row, row_len char+attr pairs]; row_len is the column after the
+    last non-blank char (0 for a blank row)."""
+    row_lens = []
+    for r in range(rows):
+        rl = 0
+        for c in range(cols):
+            if cells[(r * cols + c) * 2] != BLANK_CHAR:
+                rl = c + 1
+        row_lens.append(rl)
+    enc = bytearray(row_lens)
+    for r in range(rows):
+        for c in range(row_lens[r]):
+            base = (r * cols + c) * 2
+            enc.append(cells[base])
+            enc.append(cells[base + 1])
+    return bytes(enc)
+
+
+def decode_screen(enc: bytes, cols: int, rows: int, clear_attr: int = DEFAULT_ATTR) -> bytes:
+    """Inverse of encode_screen: clear to space+clear_attr, then paint each row's stored cells."""
+    cells = bytearray()
+    for _ in range(rows * cols):
+        cells += bytes((BLANK_CHAR, clear_attr))
+    row_lens = enc[:rows]
+    p = rows
+    for r in range(rows):
+        for c in range(row_lens[r]):
+            base = (r * cols + c) * 2
+            cells[base] = enc[p]
+            cells[base + 1] = enc[p + 1]
+            p += 2
+    return bytes(cells)
+
+
 def build(*, format_version: int, flags: int, build_number: int, ram_top: int,
-          window_cap: int, used: int, note_len: int, region_len: int,
-          screen_cols: int, screen_rows: int, payload: bytes) -> bytes:
-    screen_len = screen_cols * screen_rows * 2
-    if len(payload) != region_len + screen_len:
-        raise ValueError(f"payload is {len(payload)} bytes, expected region_len({region_len}) + "
-                         f"screen({screen_len})")
+          window_cap: int, used: int, note_len: int, region_len: int, region: bytes,
+          screen_cols: int, screen_rows: int, screen_cells: bytes) -> bytes:
+    if len(region) != region_len:
+        raise ValueError(f"region is {len(region)} bytes, expected region_len({region_len})")
+    if len(screen_cells) != screen_cols * screen_rows * 2:
+        raise ValueError(f"screen is {len(screen_cells)} bytes, expected {screen_cols*screen_rows*2}")
     if not (note_len <= used <= window_cap <= region_len):
         raise ValueError(f"field order violated: note_len({note_len}) <= used({used}) <= "
                          f"window_cap({window_cap}) <= region_len({region_len})")
+    region_stored = trim_region(region)
+    screen_enc = encode_screen(screen_cells, screen_cols, screen_rows) if screen_cols else b""
+    payload = region_stored + screen_enc
     head = struct.pack(_HEADER_FMT, MAGIC, format_version, flags, build_number, ram_top,
-                       window_cap, used, note_len, region_len, screen_cols, screen_rows,
-                       checksum16(payload))
-    assert len(head) == 0x16, f"header pre-checksum is {len(head)} bytes, expected 0x16"
+                       window_cap, used, note_len, region_len, len(region_stored),
+                       screen_cols, screen_rows, len(screen_enc), checksum16(payload))
+    assert len(head) == 0x1a, f"header pre-checksum is {len(head)} bytes, expected 0x1a"
     head += struct.pack("<H", checksum16(head))
     return head + payload
 
@@ -86,22 +142,28 @@ def parse(blob: bytes) -> dict:
     if len(blob) < HEADER_LEN:
         raise ValueError(f"file is {len(blob)} bytes, shorter than the {HEADER_LEN}-byte header")
     (magic, ver, flags, build_number, ram_top, window_cap, used, note_len, region_len,
-     screen_cols, screen_rows, payload_ck) = struct.unpack(_HEADER_FMT, blob[:0x16])
-    stored_hck = struct.unpack("<H", blob[0x16:0x18])[0]
-    header_ok = checksum16(blob[:0x16]) == stored_hck
-    screen_len = screen_cols * screen_rows * 2
-    payload = blob[HEADER_LEN:HEADER_LEN + region_len + screen_len]
-    payload_present = len(payload) == region_len + screen_len
+     region_stored, screen_cols, screen_rows, screen_stored, payload_ck) = \
+        struct.unpack(_HEADER_FMT, blob[:0x1a])
+    stored_hck = struct.unpack("<H", blob[0x1a:0x1c])[0]
+    header_ok = checksum16(blob[:0x1a]) == stored_hck
+    payload = blob[HEADER_LEN:HEADER_LEN + region_stored + screen_stored]
+    payload_present = len(payload) == region_stored + screen_stored
     payload_ok = payload_present and checksum16(payload) == payload_ck
+    region = b""
+    screen_cells = b""
+    if payload_present:
+        region = payload[:region_stored] + b"\x00" * (region_len - region_stored)
+        if screen_cols:
+            screen_cells = decode_screen(payload[region_stored:], screen_cols, screen_rows)
     return {
         "magic": magic, "magic_ok": magic == MAGIC,
         "format_version": ver, "flags": flags, "build_number": build_number,
         "ram_top": ram_top, "window_cap": window_cap, "used": used,
-        "note_len": note_len, "region_len": region_len,
-        "screen_cols": screen_cols, "screen_rows": screen_rows, "screen_len": screen_len,
+        "note_len": note_len, "region_len": region_len, "region_stored": region_stored,
+        "screen_cols": screen_cols, "screen_rows": screen_rows, "screen_stored": screen_stored,
         "header_checksum_ok": header_ok,
         "payload_present": payload_present, "payload_checksum_ok": payload_ok,
-        "window": payload[:region_len] if payload_present else b"",
+        "window": region, "screen_cells": screen_cells,
     }
 
 
@@ -132,31 +194,32 @@ def cmd_create(args: argparse.Namespace) -> int:
     window_cap = args.window_cap if args.window_cap is not None else used
     arena = b"\x00" * args.arena
     region_len = args.region_len if args.region_len is not None else window_cap + len(arena)
-    region = bytearray(region_len)
-    region[:used] = window
     if window_cap + len(arena) > region_len:
         print(f"error: arena overflows region_len", file=sys.stderr)
         return 2
+    region = bytearray(region_len)
+    region[:used] = window
     region[window_cap:window_cap + len(arena)] = arena
 
-    screen = b""
+    screen_cells = b""
     screen_cols = screen_rows = 0
     if args.screen is not None:
         screen_cols, screen_rows = args.screen_cols, args.screen_rows
         text = args.screen.replace("\\n", "\n")
-        screen = _synthesize_screen(text, screen_cols, screen_rows, DEFAULT_ATTR)
+        screen_cells = _synthesize_screen(text, screen_cols, screen_rows, DEFAULT_ATTR)
 
     try:
         blob = build(format_version=args.format_version, flags=0, build_number=args.build,
                      ram_top=args.ram_top, window_cap=window_cap, used=used, note_len=args.note_len,
-                     region_len=region_len, screen_cols=screen_cols, screen_rows=screen_rows,
-                     payload=bytes(region) + screen)
+                     region_len=region_len, region=bytes(region),
+                     screen_cols=screen_cols, screen_rows=screen_rows, screen_cells=screen_cells)
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     Path(args.out).write_bytes(blob)
-    print(f"wrote {args.out}: {len(blob)} bytes (header 0x{HEADER_LEN:x} + window {region_len} "
-          f"+ screen {len(screen)})")
+    info = parse(blob)
+    print(f"wrote {args.out}: {len(blob)} bytes (header 0x{HEADER_LEN:x} + region "
+          f"{info['region_stored']}/{region_len} + screen {info['screen_stored']}/{screen_cols*screen_rows*2})")
     print(f"  used={used} note_len={args.note_len} window_cap={window_cap} region_len={region_len} "
           f"screen={screen_cols}x{screen_rows} ram_top=0x{args.ram_top:04x} build={args.build} v{args.format_version}")
     return 0
@@ -178,8 +241,8 @@ def cmd_inspect(args: argparse.Namespace) -> int:
     print(f"  window_cap       {f['window_cap']}   (chat_context_len_var)")
     print(f"  used             {f['used']}   (chat_context_used)")
     print(f"  note_len         {f['note_len']}")
-    print(f"  region_len       {f['region_len']}")
-    print(f"  screen           {f['screen_cols']}x{f['screen_rows']}  ({f['screen_len']} bytes)")
+    print(f"  region           {f['region_stored']}/{f['region_len']} stored (trailing zeros trimmed)")
+    print(f"  screen           {f['screen_cols']}x{f['screen_rows']}  ({f['screen_stored']} bytes encoded)")
     print(f"  header_checksum  [{ok(f['header_checksum_ok'])}]")
     print(f"  payload          {'present' if f['payload_present'] else 'TRUNCATED'}  "
           f"checksum [{ok(f['payload_checksum_ok'])}]")

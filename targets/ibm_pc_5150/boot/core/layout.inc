@@ -526,8 +526,13 @@ fat_max_cluster equ 300
 ; only when env_format_min <= file.format <= env_format_current.
 env_magic_w0 equ 0x4553           ; 'S','E'
 env_magic_w1 equ 0x5644           ; 'D','V'
-env_format_current equ 1
-env_format_min equ 1
+; Format 2 (Build 12): the payload is TRIMMED to skip dead space, so a save fits a floppy and restores
+; fast. The window+arena region drops its trailing zeros (store region_stored of region_len). The
+; screen snapshot is per-row trailing-blank trimmed: stored as [screen_rows row-length bytes][packed
+; used cells]. region_len / screen_cols / screen_rows stay the FULL extents (for the fit check + the
+; clear-before-paint). Format 1 (untrimmed) is dropped -- nothing shipped, so min == current == 2.
+env_format_current equ 2
+env_format_min equ 2
 env_hdr_magic equ 0               ; header field offsets (mirror tools/env-dat.py)
 env_hdr_format equ 4
 env_hdr_flags equ 5
@@ -536,12 +541,14 @@ env_hdr_ram_top equ 8
 env_hdr_window_cap equ 10         ; chat_context_len_var at save time (the split boundary)
 env_hdr_used equ 12               ; chat_context_used (valid conversation bytes)
 env_hdr_note_len equ 14
-env_hdr_region_len equ 16         ; window+arena bytes -> chat_context_start (for the MODEL)
-env_hdr_screen_cols equ 18        ; (byte) screen snapshot width; 0 = no snapshot
-env_hdr_screen_rows equ 19        ; (byte) screen snapshot height
-env_hdr_payload_checksum equ 20   ; (word) 16-bit sum of the whole payload [0 .. region_len+screen_len)
-env_hdr_checksum equ 22           ; (word) 16-bit sum of header bytes [0 .. 22)
-env_hdr_len equ 24                ; payload follows: [region_len window][screen_cols*screen_rows*2 snapshot]
+env_hdr_region_len equ 16         ; FULL window+arena extent -> chat_context_start (fit check + clear)
+env_hdr_region_stored equ 18      ; (word) region bytes actually in the file (trailing zeros trimmed)
+env_hdr_screen_cols equ 20        ; (byte) screen snapshot width; 0 = no snapshot
+env_hdr_screen_rows equ 21        ; (byte) screen snapshot height
+env_hdr_screen_stored equ 22      ; (word) encoded screen bytes in the file (row-lengths + packed cells)
+env_hdr_payload_checksum equ 24   ; (word) 16-bit sum of the payload (region_stored + screen_stored bytes)
+env_hdr_checksum equ 26           ; (word) 16-bit sum of header bytes [0 .. 26)
+env_hdr_len equ 28                ; payload: [region_stored region bytes][screen_stored encoded-screen bytes]
 ; The screen snapshot is the literal video text buffer (char+attr cells) captured at save time and
 ; painted back verbatim at restore, so the user lands on the EXACT screen they left (dim tool lines,
 ; prompts, wrapping -- all of it), not a semantic You:/Assistant reconstruction of the model-facing

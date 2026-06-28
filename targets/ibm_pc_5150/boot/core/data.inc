@@ -112,21 +112,31 @@ agent_loop_count equ agent_loop_pending + 1
 save_pending equ agent_loop_count + 1
 low_phase_state_end equ save_pending + 1
 
-; Build 12 env save/load: the save phase's working scratch (9 words). The phase loads at 0x0900,
-; but vars defined INLINE in the phase assemble at their CORE.SYS image address (~0x83xx, above the
-; 32K RAM ceiling) and are accessed absolutely -> writes are lost, reads return 0xFFFF. So the save
-; scratch must live at fixed low addresses, like every other phase's mutable state. The save runs
-; BETWEEN turns, so it overlays the boot-only file-read / config scratch (fs_file_*/fs_*/agents_*),
-; which is dead once the chat loop is running (used only by user_cfg/agents_cfg/restore at boot).
-save_region_len   equ fs_file_cluster
-save_screen_len   equ fs_file_size_low
-save_file_size    equ fs_file_size_high
-save_needed       equ fs_current_cluster
-save_run_start    equ fs_bytes_left
-save_sector_index equ fs_bytes_this
-save_dir_lba      equ agents_cluster
-save_dir_off      equ agents_size_low
-save_old_cluster  equ agents_size_high
+; Build 12 env save/load: the save phases' shared scratch (save_prep computes the geometry/header/
+; row-length table; save_write consumes them). Phase-INLINE vars assemble at the CORE.SYS image
+; address (~0x83xx, above the 32K RAM ceiling) and are accessed absolutely -> writes lost, reads
+; 0xFFFF. So this lives at fixed low addresses, overlaying the boot-only file/config/network scratch
+; (fs_file_* onward), all dead between turns when $s runs. (The save still uses fs_lba/fs_root_left
+; -- which sit BELOW fs_file_cluster -- for its root-dir scan, and screen_cols, which sits ABOVE this
+; block; neither overlaps.) ~49 bytes; must end before cursor_row.
+save_scratch_base   equ fs_file_cluster
+save_region_stored  equ save_scratch_base        ; region bytes in the file (trailing zeros trimmed)
+save_screen_stored  equ save_scratch_base + 2     ; encoded screen bytes (rows + 2*sum row_len)
+save_region_len     equ save_scratch_base + 4     ; FULL region extent (for the header + restore clear)
+save_file_size      equ save_scratch_base + 6     ; env_hdr_len + region_stored + screen_stored
+save_payload_ck     equ save_scratch_base + 8     ; payload checksum (computed in save_prep)
+save_needed         equ save_scratch_base + 10    ; data sectors = ceil(file_size / 512)
+save_run_start      equ save_scratch_base + 12    ; first cluster of the contiguous run
+save_buf_idx        equ save_scratch_base + 14    ; fill index within fs_sector_buffer (sequential emit)
+save_sector_index   equ save_scratch_base + 16    ; data sectors emitted so far
+save_dir_lba        equ save_scratch_base + 18
+save_dir_off        equ save_scratch_base + 20
+save_old_cluster    equ save_scratch_base + 22
+save_rowlen_table   equ save_scratch_base + 24    ; one byte per screen row (<= 25)
+save_scratch_end    equ save_rowlen_table + 25
+%if save_scratch_end > cursor_row
+%error "save scratch overruns into the live cursor/screen vars"
+%endif
 low_runtime_state_start equ handoff_addr + handoff_size_bytes
 sha256_state equ low_runtime_state_start
 sha256_a equ sha256_state + 32
