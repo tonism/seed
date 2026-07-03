@@ -15,6 +15,10 @@ handoff_addr equ 0x0600
 low_sha256_k equ 0x0500
 runtime_stack_top equ 0x8000
 runtime_stack_guard_len equ 1536
+; Build 12 Stage C: the far context log lives at the base of the far conventional region (flat 0x10000 =
+; segment 0x1000), the same base the ledger advertises as far@00010000. C1a mirrors the seg-0 window
+; here and streams the request from it; later phases make it canonical and split it 50/50 with the arena.
+far_log_seg equ 0x1000
 low_scratch_start equ 0x0700
 low_scratch_end equ 0x1000
 ; Build 12 NIC HAL: the resident active-driver slot — the 4th nucleus sector. The shared resident

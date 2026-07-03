@@ -12,6 +12,54 @@
 %endmacro
 
 agent_request_phase:
+    ; Build 12 Stage C (C1b): mirror the seg-0 window into the far context log just ABOVE the frozen
+    ; history (at flat offset far_flushed_len), so agent_api_stream streams the whole far log -- frozen
+    ; turns ++ the live window -- from far memory. The append point is normalized to a far pointer:
+    ; seg = far_log_seg + (far_flushed_len >> 4), off = far_flushed_len & 0xF (the window is < 64 KB, so
+    ; off + window never crosses a 64 KB boundary -- no mid-copy renorm). On cold boot far_flushed_len
+    ; and used are both 0 (a 0-byte copy to far_log_seg:0). The window is stable across this phase + a
+    ; reconnect re-mirror is idempotent (a flush zeroes used, so the resend copies 0 bytes). ds=0 here.
+    ; Skipped when the far log is inactive (<=64 KB machine): the seg-0 window stays canonical there.
+    cmp word [far_log_seg_var], 0
+    je .far_mirror_done
+    ; Build 12 Stage C (C2/C3): bound the far log at its window cap so it can't grow into the far arena.
+    ; If frozen history + the live window would reach far_window_cap, DROP the old history (reset the log to
+    ; the current window) before mirroring -- a hard reset at the (large: >=tens of KB) cap. Runs before the
+    ; mirror so the reset lands the current window at offset 0. (drop-oldest/summarize is a future refinement.)
+    mov ax, [far_flushed_len]
+    mov dx, [far_flushed_len + 2]
+    add ax, [chat_context_used]
+    adc dx, 0                            ; dx:ax = far_flushed_len + used (the log size after this mirror)
+    cmp dx, [far_window_cap + 2]
+    ja .far_log_full
+    jb .far_cap_ok
+    cmp ax, [far_window_cap]
+    jb .far_cap_ok
+.far_log_full:
+    xor ax, ax
+    mov [far_flushed_len], ax
+    mov [far_flushed_len + 2], ax
+    mov [far_flushed_esc], ax
+    mov [far_flushed_esc + 2], ax
+.far_cap_ok:
+    push es
+    mov ax, [far_flushed_len]
+    mov dx, [far_flushed_len + 2]
+    mov di, ax
+    and di, 0x000f                       ; di = append offset within the paragraph
+    mov cx, 4
+.mirror_norm:
+    shr dx, 1
+    rcr ax, 1
+    loop .mirror_norm                    ; ax = far_flushed_len >> 4 (paragraphs; < 64K on this tier)
+    add ax, far_log_seg
+    mov es, ax                           ; es:di = normalized far-log append point
+    mov si, chat_context_start
+    mov cx, [chat_context_used]
+    cld
+    rep movsb                            ; seg-0 window -> far log at far_flushed_len
+    pop es
+.far_mirror_done:
     cmp byte [handoff_addr + handoff_status], handoff_status_ready
     je .session_ready
     ; A RECONNECT (reconnect_retries<3) reuses the cold connect's cached config: seed_* was read on the
@@ -103,7 +151,8 @@ agent_request_phase:
     mov si, PHASE_LOAD_ADDR + (http_content_length_text - PHASE_BASE)
     call agent_request_phase_append_z_to_buffer
     mov ax, [api_body_len]
-    call .append_u16_decimal
+    xor dx, dx                           ; cold body <= 512 B: high word 0
+    call .append_u32_decimal
     call agent_request_phase_append_crlf_to_buffer
     call agent_request_phase_append_crlf_to_buffer
     mov si, fs_sector_buffer
@@ -141,19 +190,63 @@ agent_request_phase:
     mov ax, [chat_context_used]
     mov [note_len], ax
 .note_len_kept:
-    ; Build 11 #4 real compaction: decide PER PASS whether this request is a compaction summarize
-    ; exchange. When the carried window has reached the 75% trigger (chat_compact_threshold), set
-    ; compacting_msg=1 -> this request streams the FULL window + the summarize directive (in place
-    ; of the user prompt), the reply is captured AS the new window (agent_response/.emit_char, hard-
-    ; capped at 50%), and the resident endpoint loop re-enters for the real turn. Below 75% it is a
-    ; normal turn (compacting_msg=0). The 50% capture cap keeps the post-summary window < 75%, so the
-    ; loop runs at most twice. Replaces the Build-10 sliding-window byte-trim (deleted below).
+    ; Build 12 Stage C (C1b) far-log flush (>64 KB machine): replaces the Build-11 model-summarize
+    ; compaction when the far log is active. When the seg-0 window reaches the 75% trigger
+    ; (chat_compact_threshold), FREEZE it into the far log -- it was just mirrored at far_flushed_len by
+    ; the phase entry, so the flush only advances far_flushed_len past it (+ folds its JSON-escaped length
+    ; into far_flushed_esc for the Content-Length) and resets the seg-0 window to empty. The full
+    ; conversation lives on in far memory and streams in full every turn; nothing is summarized or dropped.
+    ; compacting_msg stays 0 -> the two-pass summarize loop never fires (net_phase) and the dormant
+    ; compaction branches all take the normal path. Reconnect-safe: the flush zeroes used, so a rebuild
+    ; re-mirrors 0 bytes and re-flushes nothing. On a <=64 KB machine the far log is inactive, so this
+    ; falls through to the Build-11 model-summarize compaction (compacting_msg=1) -- exact Build-11 behavior.
     mov byte [compacting_msg], 0
     mov ax, [chat_context_used]
     cmp ax, [chat_compact_threshold]
     jb .not_compaction_pass
+    cmp word [far_log_seg_var], 0
+    je .model_summarize_compaction       ; <=64 KB machine: keep Build-11 model-summarize compaction
+    push ax
+    mov si, chat_context_start
+    mov cx, ax
+    call agent_request_phase_json_bytes_len   ; ax = escaped length of the window being frozen
+    add [far_flushed_esc], ax
+    adc word [far_flushed_esc + 2], 0
+    pop ax
+    add [far_flushed_len], ax
+    adc word [far_flushed_len + 2], 0
+    mov word [chat_context_used], 0
+    jmp .not_compaction_pass
+.model_summarize_compaction:
     mov byte [compacting_msg], 1
 .not_compaction_pass:
+    ; Build 12 Stage C (C1b): precompute the "input" DIALOGUE range here (agent_request knows
+    ; far_flushed_len / note_len / compacting_msg / far_log_seg_var) so the maxed agent_api_stream phase
+    ; just loads + streams it (segment = far_log_seg_var). >64 KB machine: the whole far log, far-log offset
+    ; note_len .. far_log_used (= far_flushed_len + used). <=64 KB machine: the seg-0 window
+    ; [chat_context_start+note_len .. +used); a model-summarize compaction pass: the WHOLE seg-0 window.
+    mov ax, [chat_context_used]
+    add ax, [far_flushed_len]
+    mov dx, [far_flushed_len + 2]
+    adc dx, 0                            ; dx:ax = far_log_used (== used on a seg-0 machine, far_flushed_len 0)
+    mov si, [note_len]                   ; default source offset = note_len (far-log relative)
+    cmp word [far_log_seg_var], 0
+    jne .dlg_off_ready
+    add si, chat_context_start           ; seg-0 fallback: the offset is chat_context_start-relative
+.dlg_off_ready:
+    cmp byte [compacting_msg], 0
+    je .dlg_sub_note
+    mov si, chat_context_start           ; compaction: stream the WHOLE seg-0 window (note ++ dialogue)
+    mov ax, [chat_context_used]
+    xor dx, dx
+    jmp .dlg_store
+.dlg_sub_note:
+    sub ax, [note_len]                   ; dialogue excludes the note (it rides "instructions")
+    sbb dx, 0
+.dlg_store:
+    mov [dialogue_off], si
+    mov [dialogue_cnt], ax
+    mov [dialogue_cnt + 2], dx
     ; Per-request window store cap (read by agent_response/.emit_char): full window normally, halved
     ; on a compaction pass so the captured summary can never exceed 50% -> the post-summary window
     ; stays under the 75% trigger and the endpoint loop runs at most twice.
@@ -196,7 +289,8 @@ agent_request_phase:
     mov si, PHASE_LOAD_ADDR + (http_content_length_text - PHASE_BASE)
     call agent_request_phase_append_z_to_buffer
     mov ax, [api_body_len]
-    call .append_u16_decimal
+    mov dx, [api_body_len_hi]            ; C1b: the far-log dialogue can push the body past 64 KB
+    call .append_u32_decimal
     call agent_request_phase_append_crlf_to_buffer
     call agent_request_phase_append_crlf_to_buffer
     mov si, PHASE_LOAD_ADDR + (api_json_model_text - PHASE_BASE)
@@ -355,14 +449,21 @@ agent_request_phase:
     ; splits into the note (-> "instructions") and the dialogue (-> "input"), but escaping is per-char
     ; so escape(note)+escape(dialogue) == escape(window); counting the whole window here is still exact
     ; for both fields combined. Keep the RAW count for the fill threshold. (WORD throughout.)
+    ; Build 12 Stage C (C1b): the dialogue streamed is the WHOLE far log -- the frozen history plus the
+    ; live seg-0 window -- so its escaped length is far_flushed_esc (the frozen part, a running DWORD)
+    ; plus the escaped current window. That can exceed 64 KB, so carry into the 32-bit body total
+    ; (api_body_len_hi:api_body_len). far_flushed_esc is 0 until the first flush -> identical to C1a.
     mov si, chat_context_start
     mov cx, [chat_context_used]
-    push ax                             ; body-so-far
-    push cx                             ; raw window count
-    call agent_request_phase_json_bytes_len   ; ax = window length JSON-escaped (clc; cx->0; bx kept)
-    pop cx                              ; raw window count (the fill measure)
+    push ax                             ; body-so-far (fixed prefix/identity/ledger, < 64 KB)
+    call agent_request_phase_json_bytes_len   ; ax = current window length JSON-escaped (clc; bx kept)
     pop dx                             ; body-so-far
-    add ax, dx                          ; body + escaped window
+    xor bx, bx                          ; high word of the body total
+    add ax, dx                          ; + escaped window (could just cross 64 KB on a huge window)
+    adc bx, 0
+    add ax, [far_flushed_esc]           ; + the frozen far-log dialogue (escaped, DWORD)
+    adc bx, [far_flushed_esc + 2]
+    mov [api_body_len_hi], bx
     ; Build 10: model-recap compaction REMOVED. On a compaction turn the renderer used to suppress
     ; the reply's first line (an invisible "recap") until the first newline; but a longer open-ended
     ; reply lacks that recap+newline shape, so the WHOLE answer got suppressed -> a real ~1.5 KB
@@ -424,28 +525,37 @@ agent_request_phase:
 ; captures the model's recap directly in the renderer (agent_response.inc .emit_char) and never
 ; draws it, so there is nothing to scan back off the screen.
 
-.append_u16_decimal:
-    ; ax = u16 -> variable-width decimal at [es:di]. Build 11 #4: was a 3-digit-only renderer (div by
-    ; 100 then 10, max 999) - fine while the old window-trim + tiny directive kept every body < 1000,
-    ; but the floppy compaction contract pushes a compaction-pass body past 1000 (prefix + ~509 B
-    ; contract + targets + the carried window), so Content-Length needs the full u16 range. Pushes the
-    ; digits low-to-high, emits them high-to-low. Preserves bx/cx; clobbers ax (the value) + dx.
+.append_u32_decimal:
+    ; dx:ax = u32 -> variable-width decimal at [es:di]. Build 12 Stage C (C1b): Content-Length must span
+    ; the full far-log dialogue, which grows past 64 KB -> a 32-bit value. Divide dx:ax by 10 repeatedly
+    ; (the textbook 32-by-16 long division: high/10, then (high%10):low / 10), pushing each remainder
+    ; digit; a sentinel (10, never a remainder) marks the stack bottom so the emit loop knows when to
+    ; stop without a separate counter. Preserves bx/cx; clobbers ax (the value) + dx.
     push cx
     push bx
-    xor cx, cx                          ; digits pushed
-    mov bx, 10
-.u16_div:
+    mov cx, 10
+    push cx                             ; sentinel (10) under the digits
+.u32_div:
+    mov bx, ax                          ; low word
+    mov ax, dx                          ; high word
     xor dx, dx
-    div bx                              ; dx:ax / 10 -> ax = quotient, dx = next digit
+    div cx                              ; ax = high/10, dx = high%10
+    xchg ax, bx                         ; bx = high quotient, ax = low word, dx = high%10
+    div cx                              ; ax = low quotient, dx = remainder (the next digit)
     push dx
-    inc cx
-    or ax, ax
-    jnz .u16_div
-.u16_emit:
+    mov dx, bx                          ; quotient = dx:ax
+    test ax, ax
+    jnz .u32_div
+    test dx, dx
+    jnz .u32_div
+.u32_emit:
     pop ax
+    cmp ax, 10                          ; hit the sentinel?
+    je .u32_emit_done
     add al, '0'
     stosb
-    loop .u16_emit
+    jmp .u32_emit
+.u32_emit_done:
     pop bx
     pop cx
     ret

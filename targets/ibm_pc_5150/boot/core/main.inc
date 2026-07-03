@@ -51,6 +51,12 @@ hal_start:
     call_core_phase core_hardware_setup_phase_start, core_hardware_setup_phase_end
     jc network_error
 
+    ; Build 12 UI unification: draw the banner FIRST -- right after hardware_setup sets up video + clears
+    ; the screen, before any network/config. The splash phase clears + prints the top banner (newline
+    ; flow) and leaves the cursor below it, so all boot progress + config + chat flow beneath it. (The
+    ; boot load-glyph is retired; the resident bytes it freed pay for this call.)
+    call_core_phase core_splash_phase_start, core_splash_phase_end
+
     call_core_phase core_packet_io_init_phase_start, core_packet_io_init_phase_end
     jc network_setup_error
 
@@ -63,9 +69,6 @@ hal_start:
     ; open; CF here is irrelevant (the next op is a mov), so no result handling is needed.
     run_net_phase core_ntp_setup_phase_start, core_ntp_setup_phase_end
 
-    mov bl, [load_attr]
-    mov al, 'o'
-    call show_load_marker
     call prepare_agent_path
     jc agent_setup_error
     mov byte [handoff_addr + handoff_status], handoff_status_ready

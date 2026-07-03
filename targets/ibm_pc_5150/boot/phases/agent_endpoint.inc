@@ -53,13 +53,17 @@ agent_endpoint_phase:
     call .render_dim_run
     jmp .endpoint_body
 .render_reconnect_failed:
+    ; The " failed" append belongs to the mid-chat "> reconnect" line -- but on a COLD setup that line was
+    ; suppressed (chat_context_used == 0, splash showing), so drawing a bare " failed" here is orphaned
+    ; (and redundant with failure_action's "> agent setup failed"). Draw it only mid-chat; cold stays
+    ; silent. Either way return CF=1 (the exhaustion signal the cold-setup fatal-screen path relies on).
+    cmp word [chat_context_used], 0
+    je .reconnect_failed_done
     mov si, low_scratch_start + (reconnect_failed_text - PHASE_BASE)
     mov cx, reconnect_failed_len
     call .render_dim_run
     call .reconnect_advance_line
-    ; Return CF=1 so this sacrificial "failed" call reports failure: net_phase's exhaustion path
-    ; falls straight into .restore, and prepare_agent_path's cold-setup caller (main.inc) relies on
-    ; CF to show the fatal screen on a cold-boot agent-connect failure (a mid-chat turn ignores CF).
+.reconnect_failed_done:
     stc
     ret
 .endpoint_body:

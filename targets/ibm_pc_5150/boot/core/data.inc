@@ -527,7 +527,41 @@ note_len equ prompt_compact_size + 2
 ; makes it robust across turns -- tracked follow-up.)
 recert_flag equ note_len + 2
 recert_mod_ptr equ recert_flag + 1
-reconnect_state_end equ recert_mod_ptr + 2
+; Build 12 Stage C (C1b) far-log flush model: the far context log (far_log_seg) is the CANONICAL
+; conversation -- it grows past 64 KB and streams in full every turn, while the seg-0 window keeps
+; only the recent tail (renderer/scanner). far_flushed_len = bytes already FROZEN into the far log by
+; prior flushes (DWORD: the log exceeds 64 KB); far_flushed_esc = their JSON-escaped length (DWORD,
+; for the 32-bit Content-Length). The current seg-0 window is mirrored just above the frozen region at
+; offset far_flushed_len (agent_request entry); when it reaches the threshold the flush advances
+; far_flushed_len/esc past it + resets the window. Both ACCUMULATE across turns (like chat_context_used,
+; read-before-write on the first turn -> hardware_setup boot-zeroes them); reconnect-safe so a resend
+; re-streams the same far log. api_body_len_hi = the high word of the ready request's Content-Length
+; (the low word reuses api_body_len); recomputed per request, so it rides here only for a free home.
+far_flushed_len equ recert_mod_ptr + 2
+far_flushed_esc equ far_flushed_len + 4
+api_body_len_hi equ far_flushed_esc + 4
+; Build 12 Stage C (C1b): the far context log needs real RAM at flat 0x10000, which only exists when
+; conventional memory exceeds 64 KB. far_log_seg_var = the log's segment when active (far_log_seg), else
+; 0 -- and 0 doubles as the "inactive" flag. On a <=64 KB machine (the 16 KB matrix / RAM floor) the far
+; paths fall back to the seg-0 window + Build-11 model-summarize compaction (byte-for-byte Build 11);
+; only a >64 KB machine streams the canonical far log. Set once by hardware_setup, read every request.
+far_log_seg_var equ api_body_len_hi + 2
+; Build 12 Stage C (C1b): agent_request precomputes the "input" dialogue range (it knows far_flushed_len /
+; note_len / compacting_msg / far_log_seg_var) and stashes it here for the maxed agent_api_stream phase to
+; stream verbatim -- the segment is far_log_seg_var, the start offset is dialogue_off, the byte count is the
+; 32-bit dialogue_cnt. Written each ready request before the handshake, read after it -> reconnect-safe home.
+dialogue_off equ far_log_seg_var + 2
+dialogue_cnt equ dialogue_off + 2
+; Build 12 Stage C (C2/C3): the far conventional region [0x10000 .. conv_top) is SPLIT into a far-log
+; (context) half + a far-arena (agent workspace) half, so the ledger far@ advert no longer overlaps the
+; log. Boot-computed (hardware_setup): far_window_cap = min(region/2, 1 MB) is the far log's byte ceiling
+; (C2 50/50 + C3 1 MB cap); far_arena_base = 0x10000 + far_window_cap and far_arena_top = conv_top bound the
+; arena the ledger advertises (C3 spill-to-arena is automatic: arena = region - window_cap). All DWORDs
+; (the region exceeds 64 KB). Inactive (<=64 KB): cap 0, base==top==0x10000 (empty far range).
+far_window_cap equ dialogue_cnt + 4
+far_arena_base equ far_window_cap + 4
+far_arena_top equ far_arena_base + 4
+reconnect_state_end equ far_arena_top + 4
 ka_template_persistent equ reconnect_state_end
 ; Build 11 ESC: the int 9 keyboard hook handler is staged to this pool slot at boot (position-independent
 ; code; runs from here so it survives the phase-overlay churn). esc_int9_old saves the BIOS int 9 vector

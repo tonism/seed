@@ -7,58 +7,174 @@
     dw %1 - (low_scratch_start + ($ - PHASE_BASE) + 2)
 %endmacro
 
+; Build 12 UI unification: terminal-style failure handling. On a setup/connect failure the system reports
+; the error as a DIM "> "-prefixed system line (message + net code), then the agent asks "retry or
+; restart?" as a terminal numbered list -- answered exactly like the provider list: type a number OR the
+; full name, Enter; anything else -> dim "> incorrect option", re-prompt. Flows below (no centered menu /
+; absolute positioning). Keeps the two-tone failure beep.
 failure_action_phase:
-    mov bl, [error_attr]
-    mov al, [load_marker_char]
-    phase_call_res show_load_marker
-    mov byte [cursor_row], seed_row
-    mov al, [seed_col]
-    add al, 2                    ; leave a blank column between the load marker (seed_col) and
-    mov [cursor_col], al         ; the message -> ". no network card", aligned with retry/restart
     call failure_action_phase_notify_failure
-    mov bl, [error_attr]
+    ; dim "> "-prefixed system error line (message + net code), drawn once
+    call .newline
+    mov bl, 0x08
+    mov al, '>'
+    phase_call_res print_char
+    mov al, ' '
+    phase_call_res print_char
     call .message_ptr
-    call failure_action_phase_type_z
-    call .type_agent_net_error
-    mov byte [menu_index], 0
-    call .type_failure_options
-    call .flush_keys
-.input:
-    hlt
-    mov ah, 0x01
-    int 0x16
-    jz .input
+    mov bl, 0x08
+    call .print_msg
+    call .type_net_code
+.retry_prompt:
+    call .newline
+    call .newline                              ; blank line below the system message / previous prompt
+    mov si, low_scratch_start + (retry_question_text - PHASE_BASE)
+    mov bl, 0x07
+    call .print_msg
+    mov al, '1'
+    mov si, low_scratch_start + (retry_text - PHASE_BASE)
+    call .option_line
+    mov al, '2'
+    mov si, low_scratch_start + (restart_text - PHASE_BASE)
+    call .option_line
+    call .newline
+    call .newline                              ; blank line before the prompt
+    call .read_line
+    ; validate: a single digit 1 (retry) / 2 (restart)?
+    cmp byte [input_len], 1
+    jne .by_name
+    mov al, [dpi_input_buf]
+    cmp al, '1'
+    je .do_retry
+    cmp al, '2'
+    je .do_restart
+.by_name:
+    mov si, low_scratch_start + (retry_text - PHASE_BASE)
+    mov di, dpi_input_buf
+    call .streq
+    je .do_retry
+    mov si, low_scratch_start + (restart_text - PHASE_BASE)
+    mov di, dpi_input_buf
+    call .streq
+    je .do_restart
+    call .newline
+    mov bl, 0x08
+    mov al, '>'
+    phase_call_res print_char
+    mov al, ' '
+    phase_call_res print_char
+    mov si, low_scratch_start + (fail_incorrect_text - PHASE_BASE)
+    mov bl, 0x08
+    call .print_msg
+    jmp .retry_prompt
+.do_retry:
+    ret
+.do_restart:
+    mov word [0x0472], 0x1234
+    jmp 0xffff:0x0000                           ; warm reboot
+
+.option_line:                                  ; al = digit, si = label -> newline + "N. label" (normal)
+    push ax                                     ; .newline clobbers al -- save the digit
+    call .newline
+    pop ax
+    push si
+    mov bl, 0x07
+    phase_call_res print_char
+    mov al, '.'
+    phase_call_res print_char
+    mov al, ' '
+    phase_call_res print_char
+    pop si
+    mov bl, 0x07
+    call .print_msg
+    ret
+
+.read_line:                                    ; read a line into dpi_input_buf; text echoes white; Enter
+    mov word [input_target], dpi_input_buf     ; finishes and erases the "> " marker (DPI-style)
+    mov byte [input_max], 8
+    mov byte [input_len], 0
+    mov byte [dpi_input_buf], 0
+    mov al, [cursor_row]
+    mov [menu_index], al
+    mov bl, [ready_attr]
+    mov al, '>'
+    phase_call_res print_char
+    mov al, ' '
+    phase_call_res print_char
+.read_key_loop:
     xor ah, ah
     int 0x16
     cmp al, 0x0d
-    je .accept
-    cmp ah, 0x48
-    je .toggle
-    cmp ah, 0x50
-    jne .input
-.toggle:
-    xor byte [menu_index], 1
-    call .draw_failure_options
-    jmp .input
-.accept:
-    cmp byte [menu_index], 0
-    je .retry
-    mov word [0x0472], 0x1234
-    jmp 0xffff:0x0000
-.retry:
+    je .read_line_done
+    cmp al, 0x08
+    je .read_backspace
+    cmp al, 0x20
+    jb .read_key_loop
+    cmp al, 0x7e
+    ja .read_key_loop
+    mov bl, [input_len]
+    xor bh, bh
+    mov dl, [input_max]
+    dec dl
+    cmp bl, dl
+    jae .read_key_loop
+    mov di, [input_target]
+    add di, bx
+    mov [di], al
+    inc byte [input_len]
+    mov byte [di + 1], 0
+    mov bl, 0x0f
+    phase_call_res print_char
+    jmp .read_key_loop
+.read_backspace:
+    cmp byte [input_len], 0
+    je .read_key_loop
+    dec byte [input_len]
+    mov bl, [input_len]
+    xor bh, bh
+    mov di, [input_target]
+    add di, bx
+    mov byte [di], 0
+    dec byte [cursor_col]
+    mov al, ' '
+    mov bl, 0x0f
+    phase_call_res print_char
+    dec byte [cursor_col]
+    jmp .read_key_loop
+.read_line_done:
+    mov al, [cursor_row]
+    mov ah, [cursor_col]
+    push ax
+    mov al, [menu_index]
+    mov [cursor_row], al
+    mov byte [cursor_col], 0
+    mov al, ' '
+    mov bl, 0x07
+    phase_call_res print_char
+    pop ax
+    mov [cursor_row], al
+    mov [cursor_col], ah
+    call .newline
     ret
 
-.flush_keys:
-    mov ah, 0x01
-    int 0x16
-    jz .flush_done
-    xor ah, ah
-    int 0x16
-    jmp .flush_keys
-.flush_done:
+.streq:                                        ; compare [ds:si] vs [ds:di] (NUL-term) -> ZF=1 if equal
+    push si
+    push di
+.streq_loop:
+    mov al, [si]
+    cmp al, [di]
+    jne .streq_done
+    or al, al
+    jz .streq_done
+    inc si
+    inc di
+    jmp .streq_loop
+.streq_done:
+    pop di
+    pop si
     ret
 
-.message_ptr:
+.message_ptr:                                  ; si = the error text for the current handoff_status
     mov si, low_scratch_start + (agent_setup_error_text - PHASE_BASE)
     cmp byte [handoff_addr + handoff_status], handoff_status_agent_failed
     je .message_done
@@ -69,24 +185,26 @@ failure_action_phase:
 .message_done:
     ret
 
-.type_agent_net_error:
+.type_net_code:                                ; " NN/NN" net error code, dim -- only on a network/agent fail
     cmp byte [handoff_addr + handoff_status], handoff_status_agent_failed
-    je .type_net_code
+    je .net_code
     cmp byte [handoff_addr + handoff_status], handoff_status_network_failed
-    jne .net_error_done
-.type_net_code:
+    jne .net_code_done
+.net_code:
     mov al, ' '
-    call failure_action_phase_type_char
+    mov bl, 0x08
+    phase_call_res print_char
     mov al, [handoff_addr + handoff_net_error]
     call .type_hex_byte
     mov al, '/'
-    call failure_action_phase_type_char
+    mov bl, 0x08
+    phase_call_res print_char
     mov al, [handoff_addr + handoff_net_status]
     call .type_hex_byte
-.net_error_done:
+.net_code_done:
     ret
 
-.type_hex_byte:
+.type_hex_byte:                                ; al -> two hex chars, dim
     push ax
     shr al, 1
     shr al, 1
@@ -101,81 +219,39 @@ failure_action_phase:
     jbe .hex_ready
     add al, 7
 .hex_ready:
-    jmp failure_action_phase_type_char
-
-.type_failure_options:
-    mov byte [cursor_row], question_row
-    mov al, [seed_col]
-    add al, 2
-    mov [cursor_col], al
-    mov bl, [menu_selected_attr]
-    mov si, low_scratch_start + (retry_text - PHASE_BASE)
-    call failure_action_phase_type_z
-
-    mov byte [cursor_row], question_row + 1
-    mov al, [seed_col]
-    add al, 2
-    mov [cursor_col], al
-    mov bl, [menu_idle_attr]
-    mov si, low_scratch_start + (restart_text - PHASE_BASE)
-    call failure_action_phase_type_z
+    mov bl, 0x08
+    phase_call_res print_char
     ret
 
-.draw_failure_options:
-    mov byte [cursor_row], question_row
-    mov al, [seed_col]
-    add al, 2
-    mov [cursor_col], al
-    mov bl, [menu_idle_attr]
-    cmp byte [menu_index], 0
-    jne .draw_retry
-    mov bl, [menu_selected_attr]
-.draw_retry:
-    mov si, low_scratch_start + (retry_text - PHASE_BASE)
-    call .print_z
-
-    mov byte [cursor_row], question_row + 1
-    mov al, [seed_col]
-    add al, 2
-    mov [cursor_col], al
-    mov bl, [menu_idle_attr]
-    cmp byte [menu_index], 1
-    jne .draw_restart
-    mov bl, [menu_selected_attr]
-.draw_restart:
-    mov si, low_scratch_start + (restart_text - PHASE_BASE)
-    call .print_z
-    ret
-
-.print_z:
+.print_msg:                                    ; print NUL-terminated [ds:si] in attr bl (caller sets bl)
     lodsb
     or al, al
-    jz .print_done
+    jz .print_msg_done
     phase_call_res print_char
-    jmp .print_z
-.print_done:
+    jmp .print_msg
+.print_msg_done:
     ret
 
-failure_action_phase_type_z:
-    lodsb
-    or al, al
-    jz .type_done
-    call failure_action_phase_type_char
-    jmp failure_action_phase_type_z
-.type_done:
+.newline:
+    mov byte [cursor_col], 0
+    mov al, [cursor_row]
+    cmp al, dpi_prompt_row
+    jb .newline_down
+    mov ax, 0x0601
+    mov cx, 0x0100
+    phase_call_res scroll_text_area
     ret
-
-failure_action_phase_type_char:
-    phase_call_res print_char
-    mov cx, type_ticks
-    phase_call_res wait_ticks
+.newline_down:
+    inc byte [cursor_row]
     ret
 
 network_error_text db 'no network card', 0
 network_setup_error_text db 'network setup failed', 0
 agent_setup_error_text db 'agent setup failed', 0
+retry_question_text db 'retry or restart?', 0
 retry_text db 'retry', 0
 restart_text db 'restart', 0
+fail_incorrect_text db 'incorrect option', 0
 
 failure_action_phase_notify_failure:
     mov ax, 5424

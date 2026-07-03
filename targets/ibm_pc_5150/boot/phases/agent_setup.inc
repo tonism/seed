@@ -7,414 +7,188 @@
     dw %1 - (low_scratch_start + ($ - PHASE_BASE) + 2)
 %endmacro
 
+; Build 12 UI unification: terminal-style config as a chat exchange. The system asks with a normal-color
+; message (like a model turn -- red for an error), a blank line, then a "> " prompt where the user types
+; (bright white, like a chat user message); on Enter the "> " marker is erased (as the DPI does) so the
+; submitted line reads as the user's message, and a blank line separates it from the next turn. The agent
+; field is a numbered list: type a number OR the full name; anything else -> red "incorrect option",
+; re-prompt. Flows below the banner (drawn early); no absolute positioning / menu / slide.
 agent_setup_phase:
-.select:
     call agent_setup_phase_clear_seed_values
     call .ask_agent
-.values:
-    call .ask_agent_values
-    jnc .setup_done
-    call agent_setup_phase_clear_seed_values
-    call .ask_agent_resume
-    jmp .values
-.setup_done:
-    ret
-
-.ask_agent_values:
-    mov byte [menu_value_a], 0
-    mov byte [blink_state], 0
-.render:
-    call .clear_agent_field_area
-    call .render_agent_values_form
-    call .set_active_form_input
-    call .show_cursor
-.input:
-    call .input_wait_key
-    cmp al, 0x0d
-    je .accept
-    cmp al, 0x08
-    je .backspace
-    cmp al, 0x1b
-    je .cancel
-    cmp ah, 0x48
-    je .previous
-    cmp ah, 0x50
-    je .next
-    cmp al, 0x20
-    jb .input
-    cmp al, 0x7e
-    ja .input
-    mov dl, [input_max]
-    dec dl
-    cmp [input_len], dl
-    jae .input
-    call .input_store_char
-    jmp .input
-.backspace:
-    call .input_backspace
-    jmp .input
-.previous:
-.next:
+    or byte [seed_config_flags], seed_flag_agent
     call agent_setup_phase_selected_agent_needs_endpoint
-    jc .input
-    xor byte [menu_value_a], 1
-    call .draw_agent_form_fields
-    call .set_active_form_input
-    call .show_cursor
-    jmp .input
-.accept:
-    call .validate_agent_values
-    jc .render
-    call .hide_cursor
-    call agent_setup_phase_clear_question_area
-    mov bl, [load_marker_attr]
-    mov al, [load_marker_char]
-    phase_call_res show_load_marker
-    clc
-    ret
-.cancel:
-    call .hide_cursor
-    call .slide_selected_agent_right
-    stc
-    ret
-
-.validate_agent_values:
-    call agent_setup_phase_selected_agent_needs_endpoint
-    jc .check_key
-    cmp byte [seed_endpoint], 0
-    jne .check_key
-    mov byte [menu_value_a], 0
-    stc
-    ret
-.check_key:
-    cmp byte [seed_key], 0
-    jne .valid
-    call agent_setup_phase_selected_agent_needs_endpoint
-    jc .key_focus
-    mov byte [menu_value_a], 1
-    jmp .invalid
-.key_focus:
-    mov byte [menu_value_a], 0
-.invalid:
-    stc
-    ret
-.valid:
-    or byte [seed_config_flags], seed_flag_key
-    call agent_setup_phase_selected_agent_needs_endpoint
-    jc .validated
+    jc .ask_key
+    mov si, low_scratch_start + (server_question_text - PHASE_BASE)
+    mov di, seed_endpoint
+    mov byte [input_max], seed_endpoint_len
+    call .ask_free
     or byte [seed_config_flags], seed_flag_endpoint
-.validated:
+.ask_key:
+    mov si, low_scratch_start + (key_question_text - PHASE_BASE)
+    mov di, seed_key
+    mov byte [input_max], seed_key_len
+    call .ask_free
+    or byte [seed_config_flags], seed_flag_key
     mov byte [user_cfg_dirty], 1
     clc
     ret
 
-.set_active_form_input:
-    call agent_setup_phase_selected_agent_needs_endpoint
-    jc .key
-    cmp byte [menu_value_a], 0
-    jne .key
-    mov di, seed_endpoint
-    mov al, seed_endpoint_len
-    mov dl, question_row
-    add dl, [menu_index]
-    jmp .set
-.key:
-    mov di, seed_key
-    mov al, seed_key_len
-    mov dl, question_row
-    add dl, [menu_index]
-    call agent_setup_phase_selected_agent_needs_endpoint
-    jc .set
-    inc dl
-.set:
+; ---- agent: numbered-list selection (a number OR the full name), re-prompt on an invalid answer ----
+.ask_agent:
+    mov word [input_target], seed_agent_id
+    mov byte [input_max], agent_id_len
+.ask_agent_retry:
+    call .newline                              ; blank line separating this turn from the previous
+    mov si, low_scratch_start + (agent_question_text - PHASE_BASE)
+    mov bl, 0x07
+    call .print_msg
+    mov byte [agent_draw_index], 0
+.ask_agent_list:
+    mov al, [agent_draw_index]
+    cmp al, [agent_count]
+    jae .ask_agent_list_done
+    call .newline
+    mov bl, 0x07
+    mov al, [agent_draw_index]
+    add al, '1'
+    phase_call_res print_char
+    mov al, '.'
+    phase_call_res print_char
+    mov al, ' '
+    phase_call_res print_char
+    mov al, [agent_draw_index]
+    call .agent_ptr
+    mov bl, 0x07
+    call .print_msg
+    inc byte [agent_draw_index]
+    jmp .ask_agent_list
+.ask_agent_list_done:
+    call .newline
+    call .newline                              ; blank line between the message and the prompt
+    call .read_line
+    ; validate -- a single digit 1..agent_count?
+    cmp byte [input_len], 1
+    jne .ask_agent_by_name
+    mov al, [seed_agent_id]
+    sub al, '1'
+    jb .ask_agent_by_name
+    cmp al, [agent_count]
+    jae .ask_agent_by_name
+    call .agent_ptr                            ; si = agent_ids[al]
+    mov di, seed_agent_id
+    call .copy_z
+    ret
+.ask_agent_by_name:
+    mov byte [agent_draw_index], 0
+.ask_agent_name_loop:
+    mov al, [agent_draw_index]
+    cmp al, [agent_count]
+    jae .ask_agent_invalid
+    call .agent_ptr
+    mov di, seed_agent_id
+    call .streq
+    je .ask_agent_ok                           ; typed name matches an option -> keep it
+    inc byte [agent_draw_index]
+    jmp .ask_agent_name_loop
+.ask_agent_ok:
+    ret
+.ask_agent_invalid:
+    call .newline
+    mov bl, 0x08                               ; dim system message (dark style), "> "-prefixed like the chat
+    mov al, '>'
+    phase_call_res print_char
+    mov al, ' '
+    phase_call_res print_char
+    mov si, low_scratch_start + (incorrect_text - PHASE_BASE)
+    mov bl, 0x08
+    call .print_msg
+    call .newline                              ; blank line between the system message and the agent's re-ask
+    jmp .ask_agent_retry
+
+; ---- free-text field (key / server): message, blank line, "> " prompt ----
+.ask_free:
     mov [input_target], di
-    mov [input_max], al
-    call .measure_input_len
-    mov [cursor_row], dl
-    mov al, [form_field_col]
-    add al, 8
-    mov [input_start_col], al
-    call .set_input_window
+    call .newline                              ; blank line separating this turn from the previous
+    mov bl, 0x07
+    call .print_msg
+    call .newline
+    call .newline                              ; blank line between the message and the prompt
+    call .read_line
     ret
 
-.input_store_char:
+; ---- read a line into [input_target] (max [input_max]); the user's text echoes bright white; Enter
+; finishes and erases the "> " marker (like the DPI), leaving the submitted line as the user's message ----
+.read_line:
+    mov byte [input_len], 0
+    mov di, [input_target]
+    mov byte [di], 0
+    mov al, [cursor_row]
+    mov [menu_index], al                       ; remember the "> " marker row (to erase it on submit)
+    mov bl, [ready_attr]
+    mov al, '>'
+    phase_call_res print_char
+    mov al, ' '
+    phase_call_res print_char
+.read_key_loop:
+    xor ah, ah
+    int 0x16
+    cmp al, 0x0d
+    je .read_line_done
+    cmp al, 0x08
+    je .read_backspace
+    cmp al, 0x20
+    jb .read_key_loop
+    cmp al, 0x7e
+    ja .read_key_loop
     mov bl, [input_len]
     xor bh, bh
+    mov dl, [input_max]
+    dec dl
+    cmp bl, dl
+    jae .read_key_loop
     mov di, [input_target]
     add di, bx
     mov [di], al
     inc byte [input_len]
-    inc di
-    mov byte [di], 0
-    call .render_text_input
-    ret
-
-.input_backspace:
+    mov byte [di + 1], 0
+    mov bl, 0x0f                               ; the user's typed text is bright white
+    phase_call_res print_char
+    jmp .read_key_loop
+.read_backspace:
     cmp byte [input_len], 0
-    je .backspace_done
+    je .read_key_loop
     dec byte [input_len]
     mov bl, [input_len]
     xor bh, bh
     mov di, [input_target]
     add di, bx
     mov byte [di], 0
-    call .render_text_input
-.backspace_done:
-    ret
-
-.input_wait_key:
-    xor ah, ah
-    int 0x16
-    ret
-
-.ask_agent:
-    mov byte [menu_index], 0
-    mov byte [blink_state], 0
-    call agent_setup_phase_notify_question
-    call .render_agent_question
-.ask_agent_resume:
-.agent_input:
-    call agent_setup_phase_blink_load_marker
-    mov ah, 0x01
-    int 0x16
-    jz .agent_input
-    xor ah, ah
-    int 0x16
-    cmp al, 0x0d
-    je .accept_agent
-    cmp ah, 0x48
-    je .previous_agent
-    cmp ah, 0x50
-    jne .agent_input
-.next_agent:
-    mov al, [menu_index]
-    inc al
-    cmp al, [agent_count]
-    jb .store_agent_index
-    xor al, al
-    jmp .store_agent_index
-.previous_agent:
-    cmp byte [menu_index], 0
-    jne .decrement_agent
-    mov al, [agent_count]
-    dec al
-    jmp .store_agent_index
-.decrement_agent:
-    mov al, [menu_index]
-    dec al
-.store_agent_index:
-    mov [menu_index], al
-    call .draw_agent_options
-    jmp .agent_input
-.accept_agent:
-    call .copy_selected_agent
-    call .slide_selected_agent_left
-    ret
-
-.copy_selected_agent:
-    mov al, [menu_index]
-    call .agent_ptr_from_al
-    mov di, seed_agent_id
-    mov cx, agent_id_len
-.copy:
-    lodsb
-    stosb
-    or al, al
-    jz .copied
-    loop .copy
-    mov byte [di - 1], 0
-.copied:
-    or byte [seed_config_flags], seed_flag_agent
-    mov byte [user_cfg_dirty], 1
-    ret
-
-.slide_selected_agent_left:
-    mov al, [seed_col]
-    add al, 2
-.slide_left_loop:
-    call .draw_selected_agent_slide
-    mov ah, [form_left_col]
-    cmp al, ah
-    jbe .slide_left_done
-    sub al, 4
-    cmp al, ah
-    jae .slide_left_wait
-    mov al, ah
-.slide_left_wait:
-    mov cx, 1
-    phase_call_res wait_ticks
-    jmp .slide_left_loop
-.slide_left_done:
-    ret
-
-.slide_selected_agent_right:
-    mov al, [form_left_col]
-.slide_right_loop:
-    call .draw_selected_agent_slide
-    mov ah, [seed_col]
-    add ah, 2
-    cmp al, ah
-    jae .slide_right_done
-    add al, 4
-    cmp al, ah
-    jbe .slide_right_wait
-    mov al, ah
-.slide_right_wait:
-    mov cx, 1
-    phase_call_res wait_ticks
-    jmp .slide_right_loop
-.slide_right_done:
-    ret
-
-.draw_selected_agent_slide:
-    mov [input_start_col], al
-    call .clear_panel_area
-    mov bl, [load_marker_attr]
-    mov al, [load_marker_char]
-    phase_call_res show_load_marker
-    mov byte [cursor_row], seed_row
-    mov al, [seed_col]
-    add al, 2
-    mov [cursor_col], al
-    mov bl, [question_attr]
-    mov si, low_scratch_start + (agent_prompt_text - PHASE_BASE)
-    call .print_z
-    call .draw_agent_options_at_col
-    mov al, [input_start_col]
-    ret
-
-.render_agent_question:
-    mov byte [cursor_row], seed_row
-    mov al, [seed_col]
-    add al, 2
-    mov [cursor_col], al
-    mov bl, [question_attr]
-    mov si, low_scratch_start + (agent_prompt_text - PHASE_BASE)
-    call agent_setup_phase_type_z
-
-    call .type_agent_options
-    ret
-
-.render_agent_values_form:
-    mov bl, [load_marker_attr]
-    mov al, [load_marker_char]
-    phase_call_res show_load_marker
-
-    mov byte [cursor_row], seed_row
-    mov al, [seed_col]
-    add al, 2
-    mov [cursor_col], al
-    mov bl, [question_attr]
-    mov si, low_scratch_start + (agent_prompt_text - PHASE_BASE)
-    call agent_setup_phase_type_z
-
-    mov al, [form_left_col]
-    mov [input_start_col], al
-    call .draw_agent_options_at_col
-
-.draw_agent_form_fields:
-    call agent_setup_phase_selected_agent_needs_endpoint
-    jc .form_key_only
-    mov al, question_row
-    add al, [menu_index]
-    mov [cursor_row], al
-    mov si, low_scratch_start + (endpoint_prompt_text - PHASE_BASE)
-    mov di, seed_endpoint
-    mov al, 0
-    call .draw_form_field
-    mov al, question_row + 1
-    add al, [menu_index]
-    mov [cursor_row], al
-    mov si, low_scratch_start + (key_prompt_text - PHASE_BASE)
-    mov di, seed_key
-    mov al, 1
-    call .draw_form_field
-    ret
-.form_key_only:
-    mov al, question_row
-    add al, [menu_index]
-    mov [cursor_row], al
-    mov si, low_scratch_start + (key_prompt_text - PHASE_BASE)
-    mov di, seed_key
-    mov al, 0
-    call .draw_form_field
-    ret
-
-.draw_form_field:
+    dec byte [cursor_col]
+    mov al, ' '
+    mov bl, 0x0f
+    phase_call_res print_char
+    dec byte [cursor_col]
+    jmp .read_key_loop
+.read_line_done:
+    ; erase the "> " marker (DPI-style): save the end cursor, go to the marker row col 0, print a space
+    ; over the '>', restore, then break to the next line so the submitted line reads as the user's message.
+    mov al, [cursor_row]
+    mov ah, [cursor_col]
     push ax
-    mov [input_target], di
-    mov al, [form_field_col]
-    mov [cursor_col], al
-    mov bl, [menu_idle_attr]
+    mov al, [menu_index]
+    mov [cursor_row], al
+    mov byte [cursor_col], 0
+    mov al, ' '
+    mov bl, 0x07
+    phase_call_res print_char
     pop ax
-    cmp al, [menu_value_a]
-    jne .field_label_ready
-    mov bl, [question_attr]
-.field_label_ready:
-    call .print_z
-    mov al, [form_field_col]
-    add al, 8
-    mov [input_start_col], al
-    call .measure_input_len
-    call .render_text_input
-    ret
-
-.type_agent_options:
-    mov byte [agent_draw_index], 0
-.type_agent_next:
-    mov al, [agent_draw_index]
-    cmp al, [agent_count]
-    jae .type_agent_done
-    mov al, question_row
-    add al, [agent_draw_index]
     mov [cursor_row], al
-    mov al, [seed_col]
-    add al, 2
-    mov [cursor_col], al
-    mov bl, [menu_idle_attr]
-    mov al, [agent_draw_index]
-    cmp al, [menu_index]
-    jne .type_agent_attr_ready
-    mov bl, [menu_selected_attr]
-.type_agent_attr_ready:
-    mov al, [agent_draw_index]
-    call .agent_ptr_from_al
-    call agent_setup_phase_type_z
-    inc byte [agent_draw_index]
-    jmp .type_agent_next
-.type_agent_done:
+    mov [cursor_col], ah
+    call .newline
     ret
 
-.draw_agent_options:
-    mov al, [seed_col]
-    add al, 2
-    mov [input_start_col], al
-.draw_agent_options_at_col:
-    mov byte [agent_draw_index], 0
-.draw_agent_next:
-    mov al, [agent_draw_index]
-    cmp al, [agent_count]
-    jae .draw_agent_done
-    mov al, question_row
-    add al, [agent_draw_index]
-    mov [cursor_row], al
-    mov al, [input_start_col]
-    mov [cursor_col], al
-    mov bl, [menu_idle_attr]
-    mov al, [agent_draw_index]
-    cmp al, [menu_index]
-    jne .draw_agent_attr_ready
-    mov bl, [menu_selected_attr]
-.draw_agent_attr_ready:
-    mov al, [agent_draw_index]
-    call .agent_ptr_from_al
-    call .print_z
-    inc byte [agent_draw_index]
-    jmp .draw_agent_next
-.draw_agent_done:
-    ret
-
-.agent_ptr_from_al:
+.agent_ptr:                                    ; al = index -> si = agent_ids + index*16
     xor ah, ah
     mov si, ax
     shl si, 1
@@ -424,135 +198,57 @@ agent_setup_phase:
     add si, agent_ids
     ret
 
-.measure_input_len:
-    mov byte [input_len], 0
-    mov di, [input_target]
-.measure_next:
-    cmp byte [di], 0
-    je .measure_done
+.streq:                                        ; compare [ds:si] vs [ds:di] (NUL-term) -> ZF=1 if equal
+    push si
+    push di
+.streq_loop:
+    mov al, [si]
+    cmp al, [di]
+    jne .streq_done
+    or al, al
+    jz .streq_done
+    inc si
     inc di
-    inc byte [input_len]
-    jmp .measure_next
-.measure_done:
+    jmp .streq_loop
+.streq_done:
+    pop di
+    pop si
     ret
 
-.render_text_input:
-    call .clear_input_line
-    call .set_input_window
-    mov bl, [question_attr]
-.render_text_next:
-    jcxz .render_text_done
-    lodsb
-    push cx
-    phase_call_res print_char
-    pop cx
-    loop .render_text_next
-.render_text_done:
-    call .set_bios_cursor
-    ret
-
-.set_input_window:
-    mov al, [input_start_col]
-    mov [cursor_col], al
-    mov dl, [screen_cols]
-    sub dl, al
-    dec dl
-    mov cl, [input_len]
-    xor ch, ch
-    mov si, [input_target]
-    cmp cl, dl
-    jbe .input_window_done
-    mov al, cl
-    sub al, dl
-    xor ah, ah
-    add si, ax
-    mov cl, dl
-.input_window_done:
-    ret
-
-.clear_panel_area:
-    mov ax, 0x0600
-    mov bh, 0x07
-    mov ch, question_row
-    xor cl, cl
-    mov dh, question_row + agent_slot_count
-    mov dl, [screen_cols]
-    dec dl
-    int 0x10
-    ret
-
-.clear_agent_field_area:
-    mov ax, 0x0600
-    mov bh, 0x07
-    mov ch, question_row
-    mov cl, [form_field_col]
-    mov dh, question_row + agent_slot_count
-    mov dl, [screen_cols]
-    dec dl
-    int 0x10
-    ret
-
-.clear_input_line:
-    mov ax, 0x0600
-    mov bh, 0x07
-    mov ch, [cursor_row]
-    mov cl, [input_start_col]
-    mov dh, ch
-    mov dl, [screen_cols]
-    dec dl
-    int 0x10
-    ret
-
-.hide_cursor:
-    mov ah, 0x01
-    mov ch, 0x20
-    mov cl, 0x00
-    int 0x10
-    ret
-
-.show_cursor:
-    call .set_bios_cursor
-    mov ah, 0x01
-    mov ch, 0x06
-    mov cl, 0x07
-    int 0x10
-    ret
-
-.set_bios_cursor:
-    mov ah, 0x02
-    mov bh, 0x00
-    mov dh, [cursor_row]
-    mov dl, [cursor_col]
-    int 0x10
-    ret
-
-.print_z:
+.print_msg:                                    ; print NUL-terminated [ds:si] in attr bl (caller sets bl)
     lodsb
     or al, al
-    jz .print_done
+    jz .print_msg_done
     phase_call_res print_char
-    jmp .print_z
-.print_done:
+    jmp .print_msg
+.print_msg_done:
     ret
 
-agent_setup_phase_type_z:
+.copy_z:                                        ; copy NUL-terminated [ds:si] -> [ds:di]
     lodsb
+    mov [di], al
+    inc di
     or al, al
-    jz .type_done
-    call agent_setup_phase_type_char
-    jmp agent_setup_phase_type_z
-.type_done:
+    jnz .copy_z
     ret
 
-agent_setup_phase_type_char:
-    phase_call_res print_char
-    mov cx, type_ticks
-    phase_call_res wait_ticks
+.newline:
+    mov byte [cursor_col], 0
+    mov al, [cursor_row]
+    cmp al, dpi_prompt_row
+    jb .newline_down
+    mov ax, 0x0601                             ; at the bottom: scroll the terminal up one line
+    mov cx, 0x0100
+    phase_call_res scroll_text_area
+    ret
+.newline_down:
+    inc byte [cursor_row]
     ret
 
-agent_prompt_text db 'agent?', 0
-key_prompt_text db 'key?', 0
-endpoint_prompt_text db 'server?', 0
+agent_question_text db 'which provider?', 0
+key_question_text db 'api key:', 0
+server_question_text db 'server url?', 0
+incorrect_text db 'incorrect option', 0
 
 agent_setup_phase_clear_seed_values:
     push es
@@ -574,58 +270,6 @@ agent_setup_phase_selected_agent_needs_endpoint:
     ret
 .no:
     stc
-    ret
-
-agent_setup_phase_clear_question_area:
-    mov ax, 0x0600
-    mov bh, 0x07
-    mov ch, seed_row
-    xor cl, cl
-    mov dh, question_row + agent_slot_count
-    mov dl, [screen_cols]
-    dec dl
-    int 0x10
-    ret
-
-agent_setup_phase_notify_question:
-    mov ax, 6087
-    call agent_setup_phase_speaker_tone
-    mov cx, 2
-    phase_call_res wait_ticks
-    jmp agent_setup_phase_speaker_off
-
-agent_setup_phase_blink_load_marker:
-    mov byte [cursor_row], seed_row
-    mov dl, [seed_col]
-    mov [cursor_col], dl
-    mov bl, [load_marker_attr]
-    mov al, [load_marker_char]
-    xor byte [blink_state], 1
-    jnz .show
-    mov al, ' '
-.show:
-    phase_call_res print_char
-    mov cx, 2
-    phase_call_res wait_ticks
-    ret
-
-agent_setup_phase_speaker_tone:
-    push ax
-    mov al, 0xb6
-    out 0x43, al
-    pop ax
-    out 0x42, al
-    mov al, ah
-    out 0x42, al
-    in al, 0x61
-    or al, 0x03
-    out 0x61, al
-    ret
-
-agent_setup_phase_speaker_off:
-    in al, 0x61
-    and al, 0xfc
-    out 0x61, al
     ret
 
 %unmacro phase_call_res 1

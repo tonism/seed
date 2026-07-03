@@ -16,12 +16,8 @@ agent_api_stream_phase:
     cld
     cmp byte [handoff_addr + handoff_status], handoff_status_ready
     je .ready_tail
-    mov ax, (((core_splash_phase_end - core_splash_phase_start + 511) / 512) << 8) | ((core_splash_phase_start - $$) / 512)
-    mov bx, low_scratch_start
-    phase_call_res run_core_phase_at
-    jc .failed
-    mov byte [cursor_row], dpi_prompt_row - 2
-    mov byte [cursor_col], dpi_prompt_col
+    ; Cold greeting: the banner is already drawn (early, at hal_start), so nothing to draw here -- the
+    ; greeting just flows from the current cursor (below the banner / config). No absolute positioning.
     jmp .done
 
 .ready_tail:
@@ -75,9 +71,13 @@ agent_api_stream_phase:
     je .chunk2_input_open
     mov si, PHASE_LOAD_ADDR + (api_note_label_text - PHASE_BASE)
     call agent_api_stream_append_z_to_buffer
+    ; The note exists ONLY on a <=64 KB machine (it rode the model-summarize compaction; note_len is 0 on a
+    ; >64 KB machine, so the note_len==0 gate above skips this block there). So the note always reads from
+    ; the seg-0 window -- ds = far_log_seg_var = 0 on that machine. (No far/seg branch needed.)
     mov si, chat_context_start
     mov cx, [note_len]
-    call agent_api_stream_append_context      ; the note [0..note_len), escaped (flushes if large)
+    xor dx, dx                                 ; C1b: 32-bit count high word (the note is small)
+    call agent_api_stream_append_context      ; the note [chat_context_start ..+note_len), escaped
     jc .prefix_failed
 .chunk2_input_open:
     mov si, PHASE_LOAD_ADDR + (api_json_input_open_text - PHASE_BASE)
@@ -92,15 +92,12 @@ agent_api_stream_phase:
     or al, al                                 ; compaction pass the input is the WINDOW ONLY (the
     je .done                                  ; directive rode in instructions above)
     mov di, api_request_plain + tls_record_header_len
-    ; Build 11 #4 note-as-memory: "input" carries the live DIALOGUE (the window AFTER the note) on a
-    ; normal turn; the WHOLE window (note ++ dialogue, to be summarized) on a compaction pass.
-    mov si, chat_context_start
-    mov cx, [chat_context_used]
-    cmp byte [compacting_msg], 0
-    jne .ctx_range_ready                      ; compaction: summarize the whole window
-    sub cx, [note_len]
-    add si, [note_len]                        ; normal: dialogue = [chat_context_start+note_len .. used)
-.ctx_range_ready:
+    ; Build 12 Stage C (C1b): "input" = the dialogue range agent_request precomputed (dialogue_off +
+    ; the 32-bit dialogue_cnt); the source segment is far_log_seg_var (the far log, or seg 0 on a <=64 KB
+    ; machine). append_context renormalizes ds across 64 KB as the far log streams past segment 0x1000.
+    mov si, [dialogue_off]
+    mov cx, [dialogue_cnt]
+    mov dx, [dialogue_cnt + 2]
     call agent_api_stream_append_context
     jc .failed
     cmp byte [compacting_msg], 0
@@ -295,8 +292,8 @@ agent_api_stream_append_compaction_targets:
     jmp agent_api_stream_append_z_to_buffer
 
 agent_api_stream_append_u16_decimal:
-    ; ax = u16 -> variable-width decimal at [es:di]. Mirror of agent_request's .append_u16_decimal
-    ; (must agree with .u16_decimal_len's count). Preserves bx/cx; clobbers ax + dx.
+    ; ax = u16 -> variable-width decimal at [es:di]. Renders the dynamic compaction char targets (N/M)
+    ; (must agree with agent_request's .u16_decimal_len count). Preserves bx/cx; clobbers ax + dx.
     push cx
     push bx
     xor cx, cx
@@ -494,31 +491,18 @@ api_ledger_ip_text db ' ip=', 0
 api_ledger_fam_text db ' fam=', 0
 api_ledger_nic_text db ' nic@', 0
 api_ledger_irq_text db ' irq=', 0
-api_ledger_mac_text db ' mac=', 0
-; Build 10: now that the $w write tool exists, advertise the runtime arena base so the agent can
-; $w a routine there and $x it. The arena spans a@ .. (ram - stack reserve); the window scales
-; with RAM, so a@ = the window base + the live window length. (Deferred in Build 9: advertising
-; addresses with no write tool made the model hallucinate tool calls; safe + useful now.)
 api_ledger_arena_text db ' a@', 0
-; Build 12 window-cap knob: advertise the ADDRESS of chat_context_len_var (the window/arena split).
-; The agent can $r it to read the current context-window size and $w a new one (then relocate its
-; arena code) -- this is what makes the restore "bigger machine" warning ("set a new context size
-; yourself") actionable: the surplus between a@ and the ram ceiling can be reclaimed for context.
 api_ledger_cap_text db ' cap@', 0
-; Build 12 env save/load: advertise the persistence capability so the agent knows it can $s save /
-; $l reload its state. Value rw = the boot drive is writable ($s persists); ro = write-protected
-; ($s reports a system line, no persist). Safe to advertise now that both verbs exist (advertising a
-; capability before its tool exists made the model hallucinate calls -- the Build 9/10 lesson).
 api_ledger_save_text db ' save=', 0
-; Build 12 memory scaling (milestone 1): advertise the conventional arena past segment 0 as the flat
-; range " far@<base>-<top>". Base is the fixed first segment above seg 0 (0x10000), baked into the label;
-; only the top is computed at emit time. The agent $w/$x's flat addresses in this range.
-api_ledger_far_text db ' far@00010000-', 0
-; Upper-bound serialized length (dotted assumed max width). Labels (minus 10 NULs) + ram hex16(4)
-; + ip dotted(15) + fam dec8(3) + nic hex16(4) + irq dec8(3) + mac(12) + arena hex16(4) + cap hex16(4)
-; + save(2 = "rw"/"ro") + far top(hex16(4) + "00"(2) = 6; the base is in the label).
-api_ledger_labels_len equ $ - api_ledger_ram_text - 10
-api_ledger_len equ api_ledger_labels_len + (4 + 15 + 3 + 4 + 3 + 12 + 4 + 4 + 2 + 6)
+; Build 12 memory scaling (C2/C3): the far ARENA (agent workspace) as flat range " far@<base>-<top>".
+; Both bounds are computed at emit time (hex32) -- base = 0x10000 + far_window_cap (above the far log),
+; top = conv_top. Always emitted, fixed-width -> the ledger stays == api_ledger_len (CL counts it exactly).
+api_ledger_far_text db ' far@', 0
+; Serialized length (every field is fixed-width / zero-padded, so this is exact, not just an upper bound).
+; Labels (minus 9 NULs) + ram hex16(4) + ip dotted(15) + fam dec8(3) + nic hex16(4) + irq dec8(3)
+; + arena hex16(4) + cap hex16(4) + save(2) + far [base hex32(8) + '-'(1) + top hex32(8) = 17].
+api_ledger_labels_len equ $ - api_ledger_ram_text - 9
+api_ledger_len equ api_ledger_labels_len + (4 + 15 + 3 + 4 + 3 + 4 + 4 + 2 + 17)
 
 ; Build 10: chunk 2 is sent as two records (instructions; then ledger+directive+input-open),
 ; so enforce that EACH record fits the api_request_plain body. The old single-record build
@@ -542,16 +526,13 @@ api_ledger_len equ api_ledger_labels_len + (4 + 15 + 3 + 4 + 3 + 12 + 4 + 4 + 2 
 %endif
 
 ; ---- Build 9 ledger: terse machine-facts serialization of the handoff block ----
-; Appends "ram=<hex> ip/gw/dns/mask=<dotted> fam=<dec> nic@<hex> irq=<dec> mac=<hex>" to [es:di]
-; from the resident handoff (0x0600). es must equal ds. Clobbers ax/cx/dx/si; advances di.
+; Appends "ram=<hex> ip=<dotted> fam=<dec> nic@<hex> irq=<dec> mac=<hex> a@.. cap@.. far@.. save=.." to
+; [es:di] from the resident handoff. es must equal ds. Clobbers ax/cx/dx/si; advances di.
 agent_api_stream_append_ledger:
     mov si, PHASE_LOAD_ADDR + (api_ledger_ram_text - PHASE_BASE)
     call agent_api_stream_append_z_to_buffer
-    ; Build 12 (32K floppy-free loop): advertise the ARENA CEILING as ram=, not raw ram_top. On a 32K
-    ; direct boot the chat-loop preload cache sits between the arena and the stack, so the free arena
-    ; tops out at loop_cache_start; reporting ram_top (0x8000) would invite the agent to $w into the
-    ; cache and corrupt a preloaded phase. The field already means "arena spans a@ .. ram - reserve",
-    ; so the ceiling is the honest value here. (16K: ram_top is the true ceiling.)
+    ; advertise the ARENA CEILING as ram= (on a 32K direct boot the preload cache sits between the arena
+    ; and the stack, so the free arena tops out at loop_cache_start, not ram_top).
     mov ax, [handoff_addr + handoff_ram_top]
     cmp ax, ram_tier_32k_min
     jb .ledger_ram_ready
@@ -574,55 +555,45 @@ agent_api_stream_append_ledger:
     call agent_api_stream_append_z_to_buffer
     mov al, [handoff_addr + handoff_nic_irq]
     call agent_api_stream_ledger_dec8
-    mov si, PHASE_LOAD_ADDR + (api_ledger_mac_text - PHASE_BASE)
-    call agent_api_stream_append_z_to_buffer
-    mov si, handoff_addr + handoff_mac
-    mov cx, 6
-.ledger_mac_loop:
-    push cx
-    lodsb
-    call agent_api_stream_ledger_hex8
-    pop cx
-    loop .ledger_mac_loop
-    ; Build 10: runtime arena base = window base (constant) + the live window length.
     mov si, PHASE_LOAD_ADDR + (api_ledger_arena_text - PHASE_BASE)
     call agent_api_stream_append_z_to_buffer
     mov ax, chat_context_start
     add ax, [chat_context_len_var]
     call agent_api_stream_ledger_hex16
-    ; Build 12 window-cap knob: " cap@<addr>" -- the address of chat_context_len_var ($r/$w to resize).
     mov si, PHASE_LOAD_ADDR + (api_ledger_cap_text - PHASE_BASE)
     call agent_api_stream_append_z_to_buffer
     mov ax, chat_context_len_var
     call agent_api_stream_ledger_hex16
-    ; Build 12 memory scaling (milestone 1): " far@00010000-<top>" -- the conventional arena past seg 0.
-    ; Conv KB is the BDA word at 0x0413 (ds=0 here); the far top is KB<<10. Since <<10 is <<2 then <<8,
-    ; and <<8 appends two hex zeros, hex(KB<<10) == hex16(KB<<2) + "00" -- no 32-bit math needed.
-    ; Skipped at <=64 KB (a seg-0-only machine: the a@ arena already spans all of it).
-    mov ax, [0x0413]
-    cmp ax, 64
-    jbe .ledger_no_far
+    ; Build 12 Stage C (C2/C3): far@<arena_base>-<arena_top> -- the far ARENA (agent $w/$x workspace), which
+    ; now sits ABOVE the far context log (base = 0x10000 + far_window_cap), not overlapping it. Both bounds
+    ; are boot-computed DWORDs, emitted fixed-width (hex32) so the ledger stays == api_ledger_len. On a
+    ; <=64 KB machine base == top == 0x10000 (empty far range).
     mov si, PHASE_LOAD_ADDR + (api_ledger_far_text - PHASE_BASE)
-    call agent_api_stream_append_z_to_buffer   ; " far@00010000-"
-    mov ax, [0x0413]
-    shl ax, 1
-    shl ax, 1                                  ; ax = KB << 2 (the high hex digits of KB<<10)
-    call agent_api_stream_ledger_hex16
-    mov ax, '00'                               ; the low byte of KB<<10 is zero -> two hex zeros
-    stosw
-.ledger_no_far:
-    ; Build 12: persistence capability -> " save=rw" (writable) / " save=ro" (write-protected).
+    call agent_api_stream_append_z_to_buffer
+    mov ax, [far_arena_base]
+    mov dx, [far_arena_base + 2]
+    call agent_api_stream_ledger_hex32
+    mov al, '-'
+    stosb
+    mov ax, [far_arena_top]
+    mov dx, [far_arena_top + 2]
+    call agent_api_stream_ledger_hex32
     mov si, PHASE_LOAD_ADDR + (api_ledger_save_text - PHASE_BASE)
     call agent_api_stream_append_z_to_buffer
-    mov ah, 'o'                          ; build "r"+("w"/"o") as a word, one stosw (1 B less than 2x stosb)
-    test byte [handoff_addr + handoff_flags], handoff_flag_writable_media  ; flag is in the low byte
+    mov ah, 'o'
+    test byte [handoff_addr + handoff_flags], handoff_flag_writable_media
     jz .save_ro
     mov ah, 'w'
 .save_ro:
     mov al, 'r'
     stosw
     ret
-
+agent_api_stream_ledger_hex32:     ; dx:ax -> 8 hex chars at [es:di] (high word first)
+    push ax
+    mov ax, dx
+    call agent_api_stream_ledger_hex16
+    pop ax
+    ; fall through to hex16 for the low word
 agent_api_stream_ledger_hex16:     ; ax -> 4 hex chars at [es:di]
     push ax
     mov al, ah
@@ -687,12 +658,29 @@ agent_api_stream_ledger_dec8:      ; al (0-255) -> exactly 3 decimal digits at [
 ; range [chat_context_start .. +note_len) (into "instructions") and the DIALOGUE range
 ; [chat_context_start+note_len .. +used) (into "input") separately; the compaction pass passes the whole
 ; window. es=ds; tls_send leaves es=ds. A big range flushes across TLS records as the buffer fills.
-agent_api_stream_append_context:        ; si = source start, cx = byte count
-    jcxz .ctx_ok
+; Build 12 Stage C: ds:si is the source -- on a >64 KB machine ds=far_log_seg_var (0x1000) and si is a
+; FAR-LOG OFFSET; on a <=64 KB machine ds=0 (far_log_seg_var) and si is a seg-0 pointer (chat_context_start
+; based). The count is now 32-bit in dx:cx (C1b: the canonical far log grows past 64 KB). ds is loaded from
+; far_log_seg_var and RENORMALIZED +0x1000 whenever si wraps a 64 KB boundary (only the far log ever wraps;
+; a seg-0 window never reaches 0xFFFF), so the read walks the whole flat log; ds is restored to 0 for the
+; flush (tls_app_len + the resident phase calls are ds=0-relative) and on every exit. es stays = the record
+; body segment (0). The start offset si is always < 64 KB, so only the in-loop renorm is needed.
+agent_api_stream_append_context:        ; si = source offset/ptr, dx:cx = byte count
+    push ds
+    mov ds, [far_log_seg_var]            ; ds = far context log (0x1000) or seg 0 (<=64 KB fallback)
 .ctx_next:
+    mov ax, cx
+    or ax, dx
+    jz .ctx_done                         ; 32-bit count exhausted (also the zero-length entry case)
     cmp di, api_request_plain + tls_record_header_len + api_request_plain_len - 2
     jae .ctx_flush                       ; leave room for one escaped pair before the payload cap
-    lodsb
+    lodsb                                ; al = [far_log:si]; si++
+    test si, si
+    jnz .ctx_no_renorm
+    mov bx, ds
+    add bx, 0x1000                       ; si wrapped 64 KB -> advance to the next paragraph window
+    mov ds, bx
+.ctx_no_renorm:
     cmp al, '"'
     je .ctx_escape
     cmp al, '\'
@@ -700,41 +688,48 @@ agent_api_stream_append_context:        ; si = source start, cx = byte count
     cmp al, 32
     jb .ctx_space
     stosb
-    loop .ctx_next
-    jmp .ctx_ok
+    jmp .ctx_dec
 .ctx_escape:
     mov ah, al
     mov al, '\'
     stosb
     mov al, ah
     stosb
-    loop .ctx_next
-    jmp .ctx_ok
+    jmp .ctx_dec
 .ctx_space:
     mov al, ' '
     stosb
-    loop .ctx_next
+.ctx_dec:
+    sub cx, 1
+    sbb dx, 0                            ; 32-bit decrement of the remaining count
+    jmp .ctx_next
+.ctx_done:
+    pop ds                               ; restore ds = 0
 .ctx_ok:
     clc
     ret
 .ctx_flush:                              ; buffer full mid-window: send it as a record, reset di, resume
     push cx
+    push dx
     push si
+    push ds
+    xor ax, ax
+    mov ds, ax                           ; flush is ds=0-relative (tls_app_len + the phase calls)
     mov ax, di
     sub ax, api_request_plain + tls_record_header_len
-    mov [tls_app_len], ax
-    mov word [tls_app_plain_ptr], api_request_plain + tls_record_header_len
-    phase_call_res tls_prepare_3c501_receive
-    phase_call_res tls_send_application_data_current_seq
+    call agent_api_stream_phase.send_app_record   ; sets tls_app_len/plain_ptr, prepares + sends; CF=fail
     jc .ctx_flush_failed
     phase_call_res tls_prepare_3c501_receive
+    pop ds                               ; back to the far log segment for the resumed read
     pop si
+    pop dx
     pop cx
     mov di, api_request_plain + tls_record_header_len
     jmp .ctx_next
 .ctx_flush_failed:
-    pop si
-    pop cx
+    add sp, 8                            ; discard the 4 flush-pushed words (far ds, si, dx, cx)
+    pop ds                               ; restore the ENTRY-pushed ds (=0) -- balances the stack + the
+                                         ; ds=0-on-exit contract (an unbalanced ret here jumped to 0x0000)
     stc
     ret
 agent_api_stream_append_prompt_to_context:   ; accumulate the just-sent prompt (RAW) for later turns

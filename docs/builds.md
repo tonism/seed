@@ -203,6 +203,10 @@ situational awareness + identity prompt - strengthen the situational map (curb t
 Bigger bets and research:
 
 ```text
+environment save/load - persist the runtime environment (conversation + the arena the agent builds
+  in) to writable media + restore it at boot, so the agent accumulates across restarts. A writable-
+  media capability tier, orthogonal to the RAM/CPU tiers; the self-contained, high-value centerpiece.
+  CHARTER: notes/env-save-load-brief.md (design-intent, not started).
 true security on larger / faster machines (separate exploration, CPU-gated) - MEASURED to be CPU-gated,
   not RAM-gated (spike: tools/crypto-bench/, results/FINDINGS.md + entropy_certauth_scoping.md). The
   4.77 MHz / 16 KiB target makes deliberate, documented sacrifices; each was measured:

@@ -105,11 +105,11 @@ core_failure_phase_start:
 %undef PHASE_BASE
 core_failure_phase_end:
 
-%if (core_failure_phase_end - core_failure_phase_start) > 512
-%error "failure action phase exceeds one sector"
+%if (core_failure_phase_end - core_failure_phase_start) > 1024
+%error "failure action phase exceeds two sectors"
 %endif
 
-times 512 - (core_failure_phase_end - core_failure_phase_start) db 0
+times 1024 - (core_failure_phase_end - core_failure_phase_start) db 0
 
 core_hardware_setup_phase_start:
 %define PHASE_BASE core_hardware_setup_phase_start
@@ -343,8 +343,8 @@ core_restore_env_phase_start:
 %include "phases/restore_env.inc"
 %undef PHASE_BASE
 core_restore_env_phase_end:
-%if (core_restore_env_phase_end - core_restore_env_phase_start) > 1024
-%error "restore env phase exceeds its 2-sector window"
+%if (core_restore_env_phase_end - core_restore_env_phase_start) > 1536
+%error "restore env phase exceeds its 3-sector window"
 %endif
 
 ; Phases are addressed by sector offset in the phase table ((label - $$) / 512), so every phase

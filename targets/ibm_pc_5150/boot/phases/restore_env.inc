@@ -193,91 +193,193 @@ restore_env_phase:
     clc
     ret
 
-; Build 12 step 3c (error): the saved region needs more pool than this machine has. Per the design
-; this is the one INTERACTIVE case -- a dim boot menu (start new / restart), mirroring the failure
-; screen. "start new" -> CF=1 (the caller falls through to the normal greeting); "restart" warm-
-; reboots (a chance to swap to the machine the save fits, or different media). No silent data loss.
-; ax = pool, dx = region_len here (from the fit cmp); stash the SHORTFALL (how much MORE RAM is
-; needed) for the menu message, reusing fs_current_cluster (free in this path).
+; Build 12 step 3c (error): the saved region needs more pool than this machine has. Per the UI
+; unification this is the one INTERACTIVE restore case, rendered in the single terminal style
+; (mirrors failure_action): a dim "> environment needs <N> more RAM" system line, then the agent
+; asks "start new or restart?" as a numbered list answered like the provider list -- type a number
+; OR the full name, Enter; anything else -> dim "> incorrect option" + re-prompt. "start new" ->
+; CF=1 (caller falls through to the normal greeting); "restart" warm-reboots (a chance to swap to a
+; machine the save fits, or different media). No silent data loss. No centered menu / arrow toggle.
+; ax = pool, dx = region_len here (from the fit cmp); stash the SHORTFALL (extra RAM needed) in
+; fs_current_cluster (free in this path) for the message.
 .too_big:
-    sub dx, ax                       ; dx = region_len - pool = extra RAM needed
+    sub dx, ax                       ; dx = region_len - pool = extra RAM the save needs
     mov [fs_current_cluster], dx
-    mov byte [menu_index], 0
-    call .draw_menu
-    call .flush_keys
-.tb_input:
-    hlt
-    mov ah, 0x01
-    int 0x16
-    jz .tb_input
-    xor ah, ah
-    int 0x16
-    cmp al, 0x0d
-    je .tb_accept
-    cmp ah, 0x48                     ; up arrow
-    je .tb_toggle
-    cmp ah, 0x50                     ; down arrow
-    jne .tb_input
-.tb_toggle:
-    xor byte [menu_index], 1
-    call .draw_menu
-    jmp .tb_input
-.tb_accept:
-    cmp byte [menu_index], 0
-    je .fail                         ; start fresh -> normal greeting (no restore)
-    mov word [0x0472], 0x1234        ; restart -> warm-boot flag + reset vector (mirrors failure screen)
+    call .tb_newline
+    mov bl, 0x08
+    mov al, '>'
+    phase_call_res print_char
+    mov al, ' '
+    phase_call_res print_char
+    mov si, low_scratch_start + (restore_toobig_text - PHASE_BASE)
+    mov bl, 0x08
+    call .print_z                    ; "environment needs "
+    mov ax, [fs_current_cluster]     ; the shortfall (extra RAM needed vs this machine)
+    mov bl, 0x08
+    call .print_size                 ; "<n> <unit>"
+    mov si, low_scratch_start + (restore_more_text - PHASE_BASE)
+    mov bl, 0x08
+    call .print_z                    ; " more RAM"
+.tb_prompt:
+    call .tb_newline
+    call .tb_newline                 ; blank line before the agent question
+    mov si, low_scratch_start + (restore_toobig_q_text - PHASE_BASE)
+    mov bl, 0x07
+    call .print_z                    ; "start new or restart?"
+    mov al, '1'
+    mov si, low_scratch_start + (restore_fresh_text - PHASE_BASE)
+    call .tb_option                  ; "1. start new"
+    mov al, '2'
+    mov si, low_scratch_start + (restore_restart_text - PHASE_BASE)
+    call .tb_option                  ; "2. restart"
+    call .tb_newline
+    call .tb_newline                 ; blank line before the prompt
+    call .tb_read_line
+    cmp byte [input_len], 1          ; a single digit 1 (start new) / 2 (restart)?
+    jne .tb_by_name
+    mov al, [dpi_input_buf]
+    cmp al, '1'
+    je .fail
+    cmp al, '2'
+    je .tb_restart
+.tb_by_name:
+    mov si, low_scratch_start + (restore_fresh_text - PHASE_BASE)
+    mov di, dpi_input_buf
+    call .tb_streq
+    je .fail
+    mov si, low_scratch_start + (restore_restart_text - PHASE_BASE)
+    mov di, dpi_input_buf
+    call .tb_streq
+    je .tb_restart
+    call .tb_newline
+    mov bl, 0x08
+    mov al, '>'
+    phase_call_res print_char
+    mov al, ' '
+    phase_call_res print_char
+    mov si, low_scratch_start + (restore_incorrect_text - PHASE_BASE)
+    mov bl, 0x08
+    call .print_z                    ; "incorrect option"
+    jmp .tb_prompt
+.tb_restart:
+    mov word [0x0472], 0x1234        ; restart -> warm-boot flag + reset vector
     jmp 0xffff:0x0000
 .fail:
     stc
     ret
 
-.flush_keys:
-    mov ah, 0x01
-    int 0x16
-    jz .fk_done
-    xor ah, ah
-    int 0x16
-    jmp .flush_keys
-.fk_done:
+.tb_option:                          ; al = digit, si = label -> newline + "N. label" (normal 0x07)
+    push ax                           ; .tb_newline clobbers al -- save the digit
+    call .tb_newline
+    pop ax
+    push si
+    mov bl, 0x07
+    phase_call_res print_char
+    mov al, '.'
+    phase_call_res print_char
+    mov al, ' '
+    phase_call_res print_char
+    pop si
+    mov bl, 0x07
+    call .print_z
     ret
 
-; draw the too-big message + the two options, laid out like the failure screen (message on the
-; seed row, options at question_row/+1, aligned at seed_col+2). The message names how much RAM the
-; save needs (region_len, collapsed to B/KB/MB/GB). The option == menu_index is highlighted.
-.draw_menu:
-    mov byte [cursor_row], seed_row
-    mov al, [seed_col]
-    add al, 2
-    mov [cursor_col], al
-    mov bl, [error_attr]
-    mov si, low_scratch_start + (restore_toobig_text - PHASE_BASE)
-    call .print_z                    ; "save needs "
-    mov ax, [fs_current_cluster]     ; the shortfall (extra RAM needed vs this machine)
-    call .print_size                 ; "<n> <unit>"
-    mov si, low_scratch_start + (restore_more_text - PHASE_BASE)
-    call .print_z                    ; " more"
-    mov byte [cursor_row], question_row
-    mov al, [seed_col]
-    add al, 2
-    mov [cursor_col], al
-    mov bl, [menu_idle_attr]
-    cmp byte [menu_index], 0
-    jne .dm_fresh
-    mov bl, [menu_selected_attr]
-.dm_fresh:
-    mov si, low_scratch_start + (restore_fresh_text - PHASE_BASE)
-    call .print_z
-    mov byte [cursor_row], question_row + 1
-    mov al, [seed_col]
-    add al, 2
-    mov [cursor_col], al
-    mov bl, [menu_idle_attr]
-    cmp byte [menu_index], 1
-    jne .dm_restart
-    mov bl, [menu_selected_attr]
-.dm_restart:
-    mov si, low_scratch_start + (restore_restart_text - PHASE_BASE)
-    call .print_z
+.tb_read_line:                       ; read a line into dpi_input_buf; text echoes white; Enter
+    mov word [input_target], dpi_input_buf ; finishes and erases the "> " marker (DPI-style)
+    mov byte [input_max], 12
+    mov byte [input_len], 0
+    mov byte [dpi_input_buf], 0
+    mov al, [cursor_row]
+    mov [menu_index], al
+    mov bl, [ready_attr]
+    mov al, '>'
+    phase_call_res print_char
+    mov al, ' '
+    phase_call_res print_char
+.tb_rl_loop:
+    xor ah, ah
+    int 0x16
+    cmp al, 0x0d
+    je .tb_rl_done
+    cmp al, 0x08
+    je .tb_rl_bs
+    cmp al, 0x20
+    jb .tb_rl_loop
+    cmp al, 0x7e
+    ja .tb_rl_loop
+    mov bl, [input_len]
+    xor bh, bh
+    mov dl, [input_max]
+    dec dl
+    cmp bl, dl
+    jae .tb_rl_loop
+    mov di, [input_target]
+    add di, bx
+    mov [di], al
+    inc byte [input_len]
+    mov byte [di + 1], 0
+    mov bl, 0x0f
+    phase_call_res print_char
+    jmp .tb_rl_loop
+.tb_rl_bs:
+    cmp byte [input_len], 0
+    je .tb_rl_loop
+    dec byte [input_len]
+    mov bl, [input_len]
+    xor bh, bh
+    mov di, [input_target]
+    add di, bx
+    mov byte [di], 0
+    dec byte [cursor_col]
+    mov al, ' '
+    mov bl, 0x0f
+    phase_call_res print_char
+    dec byte [cursor_col]
+    jmp .tb_rl_loop
+.tb_rl_done:
+    mov al, [cursor_row]
+    mov ah, [cursor_col]
+    push ax
+    mov al, [menu_index]
+    mov [cursor_row], al
+    mov byte [cursor_col], 0
+    mov al, ' '
+    mov bl, 0x07
+    phase_call_res print_char
+    pop ax
+    mov [cursor_row], al
+    mov [cursor_col], ah
+    call .tb_newline
+    ret
+
+.tb_streq:                           ; compare [ds:si] vs [ds:di] (NUL-term) -> ZF=1 if equal
+    push si
+    push di
+.tb_streq_loop:
+    mov al, [si]
+    cmp al, [di]
+    jne .tb_streq_done
+    or al, al
+    jz .tb_streq_done
+    inc si
+    inc di
+    jmp .tb_streq_loop
+.tb_streq_done:
+    pop di
+    pop si
+    ret
+
+.tb_newline:
+    mov byte [cursor_col], 0
+    mov al, [cursor_row]
+    cmp al, dpi_prompt_row
+    jb .tb_nl_down
+    mov ax, 0x0601
+    mov cx, 0x0100
+    phase_call_res scroll_text_area
+    ret
+.tb_nl_down:
+    inc byte [cursor_row]
     ret
 
 ; print ax (a byte count) as "<decimal> <unit>" at the cursor (attr bl), via print_char. Collapses
@@ -367,6 +469,8 @@ restore_env_warn_line:
 restore_warn_text    db '> restored. extra RAM is arena', 0
 restore_toobig_text  db 'environment needs ', 0   ; "environment needs <shortfall> more RAM"
 restore_more_text    db ' more RAM', 0
+restore_toobig_q_text db 'start new or restart?', 0
+restore_incorrect_text db 'incorrect option', 0
 restore_fresh_text   db 'start new', 0
 restore_restart_text db 'restart', 0
 restore_units        db 'B', 0, 'KB', 0, 'MB', 0, 'GB', 0   ; collapse table (16-bit reaches B/KB today)

@@ -216,9 +216,8 @@ agent_response_phase:
     pop ax
     jmp .seen_ready
 .position_cold_greeting:
-    mov byte [cursor_row], dpi_prompt_row - 2
-    mov byte [cursor_col], dpi_prompt_col
-    ; falls through to .stream_seen_ready (the prior jmp here had a zero displacement)
+    ; UI unification: no absolute positioning -- the greeting flows from where the banner left the cursor
+    ; (just below the banner, col 0), so it lands right under it instead of pinned near the screen bottom.
 .seen_ready:
 .stream_seen_ready:
     mov byte [api_stream_text_seen], 1

@@ -24,9 +24,6 @@ hardware_setup_phase:
     ; chat_effective_cap write (6 B) shifted the tail into range. Staging FIRST runs the routine + reads
     ; ka_template_source while both are intact; the later MAC read can clobber that dead region harmlessly.
     call hardware_setup_stage_ka_template
-    mov bl, [load_attr]
-    mov al, '.'
-    phase_call_res show_load_marker
     call probe_network_card
     jc .failed
     call resolve_network_config
@@ -178,9 +175,61 @@ hardware_setup_phase_display:
                                     ; both at the greeting, before agent_request resets esc_stop
     mov byte [dpi_reached], 0       ; Build 11 ESC gate: hook stays inert until dpi_phase sets this post-boot
     mov word [chat_context_used], 0
+    ; Build 12 Stage C (C1b): the far context log starts empty -- no frozen history, zero escaped length.
+    ; Read-before-write on the first turn (the mirror dest offset + the ready CL), so boot-zero here.
+    mov word [far_flushed_len], 0
+    mov word [far_flushed_len + 2], 0
+    mov word [far_flushed_esc], 0
+    mov word [far_flushed_esc + 2], 0
+    ; Activate the far log only when conventional RAM (BDA word at 0x0413, KB) exceeds 64 KB -- otherwise
+    ; flat 0x10000 is unbacked and the seg-0 window stays canonical (Build-11 fallback). far_log_seg_var
+    ; holds the active segment (far_log_seg) or 0 = inactive. ds=0 here, so 0x0413 reads the BDA directly.
+    ; Inactive default: zero cap, empty far arena range (base == top == 0x10000).
+    mov word [far_log_seg_var], 0
+    xor ax, ax
+    mov [far_window_cap], ax
+    mov [far_window_cap + 2], ax
+    mov word [far_arena_base], 0x0000
+    mov word [far_arena_base + 2], 0x0001        ; 0x00010000
+    mov word [far_arena_top], 0x0000
+    mov word [far_arena_top + 2], 0x0001         ; base == top == 0x10000 -> empty far range
+    mov ax, [0x0413]
+    cmp ax, 64
+    jbe .far_log_inactive
+    mov word [far_log_seg_var], far_log_seg
+    ; Build 12 Stage C (C2/C3): size the far region split. conv_top = conv_KB << 10 (dx:ax); far region =
+    ; conv_top - 0x10000; window cap = min(region/2, 1 MB); arena = [0x10000+cap .. conv_top).
+    mov bx, 1024
+    mul bx                                        ; dx:ax = conv_KB * 1024 = conv_top (bytes)
+    mov [far_arena_top], ax
+    mov [far_arena_top + 2], dx
+    sub ax, 0
+    sbb dx, 1                                     ; dx:ax = conv_top - 0x10000 = far region
+    shr dx, 1
+    rcr ax, 1                                     ; dx:ax = region / 2 (the 50/50 window half)
+    cmp dx, 0x0010                                ; 1 MB = 0x00100000 (high word 0x0010)
+    jb .cap_ready
+    ja .cap_1mb
+    or ax, ax
+    jz .cap_ready                                 ; exactly 1 MB
+.cap_1mb:
+    xor ax, ax
+    mov dx, 0x0010                                ; clamp the window to 1 MB
+.cap_ready:
+    mov [far_window_cap], ax
+    mov [far_window_cap + 2], dx
+    add ax, 0
+    adc dx, 1                                     ; + 0x00010000 -> far arena base = 0x10000 + window cap
+    mov [far_arena_base], ax
+    mov [far_arena_base + 2], dx
+.far_log_inactive:
     mov word [note_len], 0          ; #4 note-as-memory: no compacted note until the first compaction
     mov byte [recert_flag], 0       ; Build 12 auto-recertify: net_phase reads it pre-handshake before
                                     ; any recertify writes it; boot-zero here (a phase, not the nucleus)
+    ; Splash centering: reload the column count from [screen_cols] rather than trusting ah to survive --
+    ; the far-log detection/sizing above clobbers ax/ah (xor, [0x0413], mul), which would otherwise shift
+    ; seed_col (and every glyph/form column derived from it). (Build 12 Stage C regression fix.)
+    mov ah, [screen_cols]
     sub ah, seed_len
     shr ah, 1
     mov [seed_col], ah
@@ -189,12 +238,15 @@ hardware_setup_phase_display:
     mov byte [form_field_col], 20
     cmp byte [screen_cols], 80
     jb .display_kind
+    ; Provider menu (miller-column drill): when a level drills in, the parent panel (agent? + option)
+    ; slides LEFT only a short way to form_left_col and the inner panel (key/server form) fills the freed
+    ; space to its right at form_field_col -- a compact, roughly-centered pair, not stretched edge-to-edge.
     mov al, [seed_col]
-    sub al, 14
-    mov [form_left_col], al
+    sub al, 6
+    mov [form_left_col], al        ; parent-panel column when drilled (short left of the centered menu)
     mov al, [seed_col]
-    add al, 10
-    mov [form_field_col], al
+    add al, 4
+    mov [form_field_col], al        ; inner-panel (key/server) column, just right of the parent panel
 .display_kind:
     mov byte [seed_attr], seed_attr_cga
     mov byte [build_attr], build_attr_cga
@@ -272,17 +324,19 @@ resolve_network_config:
     mov al, family_3c503
     call store_auto_network_config
     ret
+    ; Build 12 UI unification: the manual adapter-select menu is removed. Autodetect resolves every
+    ; supported family (ne1000/ne2000 by PROM signature, wd8003/3c501 by MAC probe, 3c503 by base); the
+    ; 7-NIC matrix passes with no keypresses, proving the menu never fired for a supported card. If
+    ; autodetect fails the card isn't one seed can drive, and picking a family by hand can't rescue the
+    ; failing probe -- so just return with no family set; packet_io_init then reports a network error and
+    ; the terminal failure screen offers retry/restart.
 .detect_io_280:
     call autodetect_io_280
     jnc store_auto_network_config
-    mov byte [menu_value_a], adapter_select_io_280
-    call adapter_select_phase
     ret
 .detect_ne:
     call autodetect_ne
     jnc store_auto_network_config
-    mov byte [menu_value_a], adapter_select_ne
-    call adapter_select_phase
     ret
 
 store_auto_network_config:
@@ -655,206 +709,13 @@ validate_handoff_mac:
     stc
     ret
 
-adapter_select_phase:
-    mov byte [menu_index], 0
-    mov byte [blink_state], 0
-    call hardware_setup_phase_notify_question
-    call .render_adapter_question
-.input:
-    call hardware_setup_phase_blink_load_marker
-    mov ah, 0x01
-    int 0x16
-    jz .input
-    xor ah, ah
-    int 0x16
-    cmp al, 0x0d
-    je .accept
-    cmp ah, 0x48
-    je .toggle
-    cmp ah, 0x50
-    jne .input
-.toggle:
-    xor byte [menu_index], 1
-    call .draw_adapter_options
-    jmp .input
-.accept:
-    cmp byte [menu_value_a], adapter_select_ne
-    je .accept_ne
-    mov al, family_3c501
-    cmp byte [menu_index], 0
-    je .store
-    mov al, family_wd8003
-    jmp .store
-.accept_ne:
-    mov al, family_ne2000
-    cmp byte [menu_index], 0
-    je .store
-    mov al, family_ne1000
-.store:
-    mov [handoff_addr + handoff_nic_family], al
-    mov byte [handoff_addr + handoff_config_source], config_user
-    mov byte [handoff_addr + handoff_nic_irq], profile_irq
-    or word [handoff_addr + handoff_flags], handoff_flag_config_resolved
-    call hardware_setup_phase_clear_question_area
-    mov bl, [load_marker_attr]
-    mov al, [load_marker_char]
-    phase_call_res show_load_marker
-    ret
 
-.render_adapter_question:
-    mov byte [cursor_row], seed_row
-    mov al, [seed_col]
-    add al, 2
-    mov [cursor_col], al
-    mov bl, [question_attr]
-    mov si, low_scratch_start + (adapter_prompt_text - PHASE_BASE)
-    call hardware_setup_phase_type_z
-    call .type_adapter_options
-    ret
-
-.type_adapter_options:
-    mov byte [cursor_row], question_row
-    mov al, [seed_col]
-    add al, 2
-    mov [cursor_col], al
-    mov bl, [menu_selected_attr]
-    call .option_a_ptr
-    call hardware_setup_phase_type_z
-
-    mov byte [cursor_row], question_row + 1
-    mov al, [seed_col]
-    add al, 2
-    mov [cursor_col], al
-    mov bl, [menu_idle_attr]
-    call .option_b_ptr
-    call hardware_setup_phase_type_z
-    ret
-
-.draw_adapter_options:
-    mov byte [cursor_row], question_row
-    mov al, [seed_col]
-    add al, 2
-    mov [cursor_col], al
-    mov bl, [menu_idle_attr]
-    cmp byte [menu_index], 0
-    jne .draw_first
-    mov bl, [menu_selected_attr]
-.draw_first:
-    call .option_a_ptr
-    call .print_z
-
-    mov byte [cursor_row], question_row + 1
-    mov al, [seed_col]
-    add al, 2
-    mov [cursor_col], al
-    mov bl, [menu_idle_attr]
-    cmp byte [menu_index], 1
-    jne .draw_second
-    mov bl, [menu_selected_attr]
-.draw_second:
-    call .option_b_ptr
-    call .print_z
-    ret
-
-.option_a_ptr:
-    mov si, low_scratch_start + (adapter_3c501_text - PHASE_BASE)
-    cmp byte [menu_value_a], adapter_select_ne
-    jne .option_done
-    mov si, low_scratch_start + (adapter_ne2000_text - PHASE_BASE)
-    ret
-.option_b_ptr:
-    mov si, low_scratch_start + (adapter_wd8003_text - PHASE_BASE)
-    cmp byte [menu_value_a], adapter_select_ne
-    jne .option_done
-    mov si, low_scratch_start + (adapter_ne1000_text - PHASE_BASE)
-.option_done:
-    ret
-
-.print_z:
-    lodsb
-    or al, al
-    jz .print_done
-    phase_call_res print_char
-    jmp .print_z
-.print_done:
-    ret
-
-hardware_setup_phase_type_z:
-    lodsb
-    or al, al
-    jz .type_done
-    call hardware_setup_phase_type_char
-    jmp hardware_setup_phase_type_z
-.type_done:
-    ret
-
-hardware_setup_phase_type_char:
-    phase_call_res print_char
-    mov cx, type_ticks
-    phase_call_res wait_ticks
-    ret
-
+; NIC I/O-port probe table: the bases probe_network_card scans for the first responding card. 0x250 ->
+; 3c503; 0x280 -> wd8003/3c501 (autodetected); 0x300+ -> ne2000/ne1000 (autodetected). 0-terminated.
 hardware_nic_ports dw 0x250, 0x280, 0x2a0, 0x2c0, 0x2e0
                    dw 0x300, 0x310, 0x320, 0x330, 0x340
                    dw 0x350, 0x360, 0x380, 0x3a0
                    dw 0
-adapter_prompt_text db 'adapter?', 0
-adapter_ne2000_text db 'ne2000', 0
-adapter_ne1000_text db 'ne1000', 0
-adapter_3c501_text db '3c501', 0
-adapter_wd8003_text db 'wd8003', 0
-
-hardware_setup_phase_notify_question:
-    mov ax, 6087
-    call hardware_setup_phase_speaker_tone
-    mov cx, 2
-    phase_call_res wait_ticks
-    jmp hardware_setup_phase_speaker_off
-
-hardware_setup_phase_clear_question_area:
-    mov ax, 0x0600
-    mov bh, 0x07
-    mov ch, seed_row
-    xor cl, cl
-    mov dh, question_row + agent_slot_count
-    mov dl, [screen_cols]
-    dec dl
-    int 0x10
-    ret
-
-hardware_setup_phase_blink_load_marker:
-    mov byte [cursor_row], seed_row
-    mov dl, [seed_col]
-    mov [cursor_col], dl
-    mov bl, [load_marker_attr]
-    mov al, [load_marker_char]
-    xor byte [blink_state], 1
-    jnz .show
-    mov al, ' '
-.show:
-    phase_call_res print_char
-    mov cx, 2
-    phase_call_res wait_ticks
-    ret
-
-hardware_setup_phase_speaker_tone:
-    push ax
-    mov al, 0xb6
-    out 0x43, al
-    pop ax
-    out 0x42, al
-    mov al, ah
-    out 0x42, al
-    in al, 0x61
-    or al, 0x03
-    out 0x61, al
-    ret
-
-hardware_setup_phase_speaker_off:
-    in al, 0x61
-    and al, 0xfc
-    out 0x61, al
-    ret
 
 ; Build 9 (compaction redesign): copy the keep-alive GET template into its persistent pool slot
 ; (ka_template_persistent) once at boot. agent_api_keepalive sends it from there during long

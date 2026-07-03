@@ -122,6 +122,58 @@ implementer's discretion). Matrix-green per milestone.
 **Build 13: 64-bit long mode** → TB. One CORE.SYS, early-CPUID pivot, but a native-driver runtime
 (long mode loses BIOS) — its own build. Designed-for here; built separately.
 
+## Milestone 1 status + the window-streaming design (Stage C)
+
+Milestone 1 splits into the **arena** half (DONE, committed 7195fb2) and the **window** half (Stage C, in
+progress).
+
+- **Stage A — far addressing (DONE):** `$r/$w/$x` take a 32-bit flat address → far `seg:off`; `$x` = far
+  call + `retf`; action line prints before the op. Validated on ibmpc82 @256 KB.
+- **Stage B — far-arena advert (DONE):** ledger field `far@00010000-<top>` (top = BDA conv-KB << 10);
+  funded by dropping `gw/dns/mask`. Agent quoted `far@00010000-040000`.
+- **Stage C — window (context) streaming (IN PROGRESS):** the window is a fixed ~14 KB seg-0 buffer read
+  by ~95 sites (renderer, scanner, request builder, trim). A pure far window = a whole-loop rewrite, so use
+  a **two-tier** design:
+  - **Far context log** — the canonical conversation, appended sequentially in far memory (base = far arena
+    base 0x10000), grows to the 50/50 cap (≤1 MB). This is what STREAMS to the model.
+  - **Seg-0 active window** — the recent tail (the existing `chat_context` buffer), kept as-is for the
+    **renderer + scanner** (they only need recent content). The ~95 seg-0 sites are UNCHANGED.
+  - Far changes confined to: the **append** (also writes the far log), the **request builder** (streams the
+    far log, not the seg-0 buffer; the chunked TLS send is already there — feed it from far), and
+    **compaction/sizing** (triggers on the far-log length, not the seg-0 length).
+  - The display shows the recent tail; the model gets the full far context (correct — the screen is 25 rows
+    regardless). State lives in the `reconnect_state_*` block beside `chat_context_used` (survives phases +
+    reconnect): add `far_log_used` (DWORD) + `far_log_cap`.
+  - **Phasing:** C1a stream the request from far (copy seg-0 window → far log → TLS; identical content, no
+    scaling, low-risk); C1b far log canonical (append direct, grow past 64 KB, seg-0 = synced mirror); C2
+    50/50 far-log/arena sizing + compaction on the far threshold; C3 the 1 MB cap + spill-to-arena. Each is
+    a `build12:` commit; the nucleus is full so each needs space reclaimed (like Stage B dropped gw/dns/mask).
+  - **C1a + C1b DONE (implemented + validated 2026-06-29, not yet committed).** C1b = the far-log FLUSH
+    model: at the compaction threshold the seg-0 window is FROZEN into the far log (far_flushed_len/esc
+    advance, window resets) instead of being model-summarized; the whole far log (frozen turns ++ live
+    window) streams every turn via a precomputed dialogue range; append_context renorms ds across 64K; the
+    Content-Length is 32-bit. **Gated on conv RAM > 64 KB** (far_log_seg_var) — a <=64 KB machine is
+    byte-for-byte Build 11 (seg-0 window + model-summarize), because flat 0x10000 is unbacked there. This
+    gate is the one thing the original C1b plan missed; without it every 16K machine got garbage context.
+    Validated: a needle ("ZEPHYR") planted in turn 1 survived 5 overflow turns (multiple flushes) on a
+    256K machine; the 32K seg-0 fallback recalls correctly.
+  - **C2 + C3 DONE (implemented + validated 2026-07-03, not yet committed).** The far region
+    [0x10000 .. conv_top) is now SPLIT: far_window_cap = min(region/2, 1 MB) [C2 50/50 + C3 1 MB cap] is
+    the far log's ceiling; the far ARENA the ledger advertises is far@<0x10000+cap>-<conv_top>, ABOVE the
+    log — the overlap is gone (C3 spill-to-arena is automatic: arena = region - window_cap). The far log is
+    bounded at the cap (a hard drop-oldest reset at the cap — drop-oldest/summarize is a future refinement;
+    can't trigger on realistic tiers where the seg-0 window << cap). Boot-computed in hardware_setup;
+    advertised via a new hex32 ledger emitter; api_ledger_len updated (fixed-width, exact for the CL).
+    Validated on 256K: the model reported far@00028000-00040000 (region 0x30000, cap 0x18000, arena base
+    0x28000) — the split is live. The 1 MB cap itself is MATH-verified only (offline sim: 4 MB -> 1 MB
+    window + ~3 MB arena) — it is unreachable on milestone 1 (conventional <=640 KB never hits it, and
+    real-mode far seg:off tops out ~1 MB), so its HW gate is milestone 3 (286 extended memory + windowed
+    addressing). See stage-c-handoff.md. NB a splash/loading-glyph mis-centering regression (the far detection
+    clobbered `ah` = screen cols before seed_col was computed) was found + fixed (reload cols from
+    [screen_cols]); user-confirmed centered. **Milestone 1 (8088 far) is now functionally complete;**
+    next is milestone 2 (8088+EMS) — plus the deferred list: provider-menu fix, proper testing incl the
+    16K matrix, and the slower-machine retry investigation.
+
 ## Open risks / things to watch
 
 - **`$x` execute-and-return across a far/windowed boundary** is the delicate contract; get the far-call
