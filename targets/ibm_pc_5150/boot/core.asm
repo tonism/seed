@@ -317,10 +317,11 @@ core_tool_phase_start:
 %undef PHASE_BASE
 core_tool_phase_end:
 
-; Loaded at net_setup_phase_start (0x0900) by dpi and run between turns. Keep it
-; clear of low_phase_state (cursor/colour bytes dpi reads after) - those sit near
-; the top of low scratch, so cap well under the full 0x0900..low_scratch_end span.
-%if (core_tool_phase_end - core_tool_phase_start) > 1024
+; Loaded at net_setup_phase_start (0x0900) by dpi and run between turns. Keep it clear of low_phase_state
+; (cursor/colour + loop-state bytes dpi reads after) -- those sit at ~0x0F50 (near the top of low
+; scratch), so 3 sectors (0x0900..0x0F00) still leaves an ~80 B margin below them. The EMS $r/$w path
+; (milestone 2) grew this to 3 sectors.
+%if (core_tool_phase_end - core_tool_phase_start) > 1536
 %error "tool phase exceeds its between-turns budget"
 %endif
 

@@ -43,6 +43,10 @@ agent_request_phase:
     mov [far_flushed_esc + 2], ax
 .far_cap_ok:
     push es
+    ; Build 12 M2b/M2e: on an EMS machine the context lives in EMS (far_ctx_base >= 0x100000, high word
+    ; >= 0x0010) -- mirror via the page frame; else the M1 conventional far-log write (byte-for-byte).
+    cmp word [far_ctx_base + 2], 0x0010
+    jae .far_mirror_ems
     mov ax, [far_flushed_len]
     mov dx, [far_flushed_len + 2]
     mov di, ax
@@ -58,6 +62,49 @@ agent_request_phase:
     mov cx, [chat_context_used]
     cld
     rep movsb                            ; seg-0 window -> far log at far_flushed_len
+    pop es
+    jmp .far_mirror_done
+.far_mirror_ems:
+    ; EMS windowed write: seg-0 window [chat_context_start, +used) -> flat (far_ctx_base + far_flushed_len).
+    ; rel = flat - 0x100000; map page rel>>14 into frame slot 0, walk di in [0..0x4000), remap on wrap.
+    ; ds=0 (source window), es=frame seg. Registers ax/bx/cx/dx/si/di are rebuilt after .far_mirror_done.
+    mov ax, [far_ctx_base]
+    mov dx, [far_ctx_base + 2]
+    add ax, [far_flushed_len]
+    adc dx, [far_flushed_len + 2]
+    sub ax, 0
+    sbb dx, 0x0010                       ; dx:ax = rel = flat - 0x100000
+    mov di, ax
+    and di, 0x3fff                       ; di = offset within the 16 KB frame page
+    mov cl, 14
+.ems_wr_pshift:
+    shr dx, 1
+    rcr ax, 1
+    dec cl
+    jnz .ems_wr_pshift                   ; ax = page number = rel >> 14 (page < 256, dx now 0)
+    mov bx, ax                           ; bx = current EMS page
+    mov dx, ems_base_port
+    mov al, bl
+    out dx, al                           ; map page into slot 0
+    mov ax, ems_frame_seg
+    mov es, ax
+    mov si, chat_context_start
+    mov cx, [chat_context_used]
+    cld
+    jcxz .ems_wr_done
+.ems_wr_loop:
+    lodsb                                ; al = [ds:si] (seg-0 window); si++
+    stosb                                ; [es:di] = al (frame); di++
+    cmp di, 0x4000
+    jb .ems_wr_cont
+    xor di, di                           ; page boundary: reset frame offset, map next page
+    inc bx
+    mov dx, ems_base_port
+    mov al, bl
+    out dx, al
+.ems_wr_cont:
+    loop .ems_wr_loop
+.ems_wr_done:
     pop es
 .far_mirror_done:
     cmp byte [handoff_addr + handoff_status], handoff_status_ready

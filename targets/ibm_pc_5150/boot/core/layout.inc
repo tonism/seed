@@ -19,6 +19,16 @@ runtime_stack_guard_len equ 1536
 ; segment 0x1000), the same base the ledger advertises as far@00010000. C1a mirrors the seg-0 window
 ; here and streams the request from it; later phases make it canonical and split it 50/50 with the arena.
 far_log_seg equ 0x1000
+; Build 12 milestone 2 (EMS): the windowed backend targets the Lo-tech EMS board (86Box isamem
+; `lotechems`) — bare-metal, so seed drives the board's mapping registers directly (no int 67h/EMM).
+; Four frame slots at BASE+0..+3, each a plain byte = the 16 KB logical page it shows; slot S is visible
+; at segment EMS_FRAME_SEG + 0x400*S. EMS gets a synthetic flat range above the 1 MB real-mode ceiling:
+; [EMS_FLAT_BASE .. EMS_FLAT_BASE + ems_page_count*EMS_PAGE_SIZE), tagged windowed in the ledger.
+ems_base_port equ 0x0260        ; slot-0 page-map register (slots at ems_base_port + slot)
+ems_frame_seg equ 0xD000        ; 64 KB page frame; slot S window seg = ems_frame_seg + 0x400*slot
+ems_page_size equ 0x4000        ; 16 KB logical page
+ems_max_pages equ 256           ; probe ceiling: 256 * 16 KB = 4 MB (the board's max)
+ems_flat_base_hi equ 0x0010     ; EMS flat base 0x00100000 (high word; low word 0)
 low_scratch_start equ 0x0700
 low_scratch_end equ 0x1000
 ; Build 12 NIC HAL: the resident active-driver slot — the 4th nucleus sector. The shared resident
@@ -36,10 +46,11 @@ nic_vt_slot_count equ 5
 ; ABOVE the conversation window/arena and BELOW the runtime stack guard, and exists ONLY on 32K (on
 ; 16K ram_top=0x4000 is below loop_cache_start, so the region is absent and the preload is skipped).
 ; ram_tier_32k_min gates it (ram_top >= this => 32K direct boot). loop_cache_max_sectors caps the
-; working set (Y/R/K/X/T/M = 25 sectors today); hardware_setup tops the 32K arena out at
-; loop_cache_start, and the ledger advertises that as the ceiling so the agent never $w's the cache.
+; working set (Y/R/K/X/T/M = 26 sectors today, T=tool grew to 3 for the EMS $r/$w path); hardware_setup
+; tops the 32K arena out at loop_cache_start, and the ledger advertises that ceiling so the agent never
+; $w's the cache. 28 keeps loop_cache_start (0x4200) above the 16K ceiling (0x4000); 29 would collide.
 ram_tier_32k_min equ 0x6000
-loop_cache_max_sectors equ 27
+loop_cache_max_sectors equ 28
 loop_cache_len equ loop_cache_max_sectors * 512
 loop_cache_end equ runtime_stack_top - runtime_stack_guard_len
 loop_cache_start equ loop_cache_end - loop_cache_len

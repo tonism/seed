@@ -173,35 +173,9 @@ agent_api_stream_phase:
 api_stream_json_close_text db '","stream":true}', 0
 api_stream_json_close_text_len equ $ - api_stream_json_close_text - 1
 
-; Build 11 #4: stream the floppy-resident IDENTITY into the open record IN PLACE (one record). ax =
-; first cluster, cx = byte size (cached at boot). di = the body write pointer (past the prefix). The
-; identity is ONE sector and the whole record (prefix + identity) is <= api_request_plain_len - so the
-; TX frame fits the 512 B pre-phase scratch (an oversized frame would overwrite this phase's own code;
-; the Makefile guards the identity size). The caller sends the record. Control bytes flatten to space
-; (1:1, JSON-safe; the build guard bans " and \), so the streamed length == the cached size, which is
-; exactly what compute_ready_body_lengths counts. CF=1 on a sector-read failure. Returns di past the
-; identity, cx=0.
-agent_api_stream_append_floppy_prompt:
-    jcxz .fp_done                        ; size 0 (file absent) -> emit nothing
-    push cx                              ; size = bytes to flatten in place
-    add ax, fat_data_start_lba - fat_first_data_cluster   ; cluster -> absolute LBA
-    mov bx, di                           ; read the sector IN PLACE at the record write pointer
-    phase_call_res read_abs_sector       ; es:bx <- sector; clobbers dx + flags, preserves bx/cx
-    pop cx
-    jc .fp_done_err
-.fp_flatten:
-    cmp byte [di], 32
-    jae .fp_keep
-    mov byte [di], ' '                   ; control byte (newline etc.) -> JSON-safe space, 1:1
-.fp_keep:
-    inc di
-    loop .fp_flatten
-.fp_done:
-    clc
-    ret
-.fp_done_err:
-    stc
-    ret
+; (Removed in M2e: agent_api_stream_append_floppy_prompt -- the in-place one-record floppy streamer was
+; superseded by agent_api_stream_stream_contract, which streams the identity AND the contract as <=440 B
+; records. Reclaimed for the EMS context-read path.)
 
 ; Build 11 #4: stream the compaction CONTRACT (larger than one record) as <=440 B records, so no TX
 ; frame ever exceeds the 512 B scratch below the phase. di = the body write pointer (past the prefix).
@@ -253,10 +227,7 @@ agent_api_stream_stream_contract:
     push cx
     mov ax, di
     sub ax, api_request_plain + tls_record_header_len
-    mov [tls_app_len], ax
-    mov word [tls_app_plain_ptr], api_request_plain + tls_record_header_len
-    phase_call_res tls_prepare_3c501_receive
-    phase_call_res tls_send_application_data_current_seq
+    call agent_api_stream_phase.send_app_record   ; set len/ptr, prep, send (shared with the tail send)
     jc .sc_flush_fail
     phase_call_res tls_prepare_3c501_receive
     pop cx
@@ -430,10 +401,7 @@ agent_api_stream_append_prompt_screen_to_buffer:
     push si
     mov ax, di
     sub ax, api_request_plain + tls_record_header_len
-    mov [tls_app_len], ax
-    mov word [tls_app_plain_ptr], api_request_plain + tls_record_header_len
-    phase_call_res tls_prepare_3c501_receive
-    phase_call_res tls_send_application_data_current_seq
+    call agent_api_stream_phase.send_app_record   ; set len/ptr, prep, send (shared with the tail send)
     jc .screen_flush_failed
     phase_call_res tls_prepare_3c501_receive
     pop si
@@ -498,11 +466,14 @@ api_ledger_save_text db ' save=', 0
 ; Both bounds are computed at emit time (hex32) -- base = 0x10000 + far_window_cap (above the far log),
 ; top = conv_top. Always emitted, fixed-width -> the ledger stays == api_ledger_len (CL counts it exactly).
 api_ledger_far_text db ' far@', 0
+; Build 12 milestone 2: the EMS windowed arena as flat range " ems@<base>-<top>" (base 0x00100000,
+; top = base + ems_page_count*16 KB). Always emitted fixed-width (empty base==top when no board), like far@.
+api_ledger_ems_text db ' ems@', 0
 ; Serialized length (every field is fixed-width / zero-padded, so this is exact, not just an upper bound).
-; Labels (minus 9 NULs) + ram hex16(4) + ip dotted(15) + fam dec8(3) + nic hex16(4) + irq dec8(3)
-; + arena hex16(4) + cap hex16(4) + save(2) + far [base hex32(8) + '-'(1) + top hex32(8) = 17].
-api_ledger_labels_len equ $ - api_ledger_ram_text - 9
-api_ledger_len equ api_ledger_labels_len + (4 + 15 + 3 + 4 + 3 + 4 + 4 + 2 + 17)
+; Labels (minus 10 NULs) + ram hex16(4) + ip dotted(15) + fam dec8(3) + nic hex16(4) + irq dec8(3)
+; + arena hex16(4) + cap hex16(4) + save(2) + far [base(8)+'-'+top(8)=17] + ems [base(8)+'-'+top(8)=17].
+api_ledger_labels_len equ $ - api_ledger_ram_text - 10
+api_ledger_len equ api_ledger_labels_len + (4 + 15 + 3 + 4 + 3 + 4 + 4 + 2 + 17 + 17)
 
 ; Build 10: chunk 2 is sent as two records (instructions; then ledger+directive+input-open),
 ; so enforce that EACH record fits the api_request_plain body. The old single-record build
@@ -577,6 +548,27 @@ agent_api_stream_append_ledger:
     stosb
     mov ax, [far_arena_top]
     mov dx, [far_arena_top + 2]
+    call agent_api_stream_ledger_hex32
+    ; Build 12 milestone 2: ems@<base>-<top> -- the EMS windowed arena, flat range above the 1 MB ceiling.
+    ; base = 0x00100000 (constant); top = base + ems_page_count*16 KB (== base when no board -> empty range,
+    ; the EMS-inactive form). Always emitted fixed-width so the ledger stays == api_ledger_len.
+    mov si, PHASE_LOAD_ADDR + (api_ledger_ems_text - PHASE_BASE)
+    call agent_api_stream_append_z_to_buffer
+    xor ax, ax
+    mov dx, ems_flat_base_hi                      ; base = 0x00100000
+    call agent_api_stream_ledger_hex32
+    mov al, '-'
+    stosb
+    ; M2b: the EMS arena ends where the context begins -- top = far_ctx_base on an EMS machine (the context
+    ; occupies the top min(pool/2,1MB) of EMS); with no board far_ctx_base is 0x10000, so fall back to the
+    ; base (0x100000) for the empty EMS range.
+    mov ax, [far_ctx_base]
+    mov dx, [far_ctx_base + 2]
+    cmp dx, ems_flat_base_hi
+    jae .ems_top_ready
+    xor ax, ax
+    mov dx, ems_flat_base_hi                      ; no EMS: top = base = 0x00100000 (empty range)
+.ems_top_ready:
     call agent_api_stream_ledger_hex32
     mov si, PHASE_LOAD_ADDR + (api_ledger_save_text - PHASE_BASE)
     call agent_api_stream_append_z_to_buffer
@@ -667,19 +659,49 @@ agent_api_stream_ledger_dec8:      ; al (0-255) -> exactly 3 decimal digits at [
 ; body segment (0). The start offset si is always < 64 KB, so only the in-loop renorm is needed.
 agent_api_stream_append_context:        ; si = source offset/ptr, dx:cx = byte count
     push ds
+    mov bp, dx                           ; M2e: keep the byte-count HIGH word in bp -- the EMS entry/renorm
+                                         ; reuse dx as the page-map port, which would otherwise clobber it.
+    ; Build 12 M2b/M2e: when the context lives in EMS (far_ctx_base >= 0x100000) the source is the page
+    ; frame, not a conventional segment. Convert the far-log offset si -> (page, frame offset), map the
+    ; first page into slot 0, keep the page in bl and read via ds=frame_seg with a 16 KB renorm. Only the
+    ; dialogue read reaches here on an EMS (>64 KB) machine; the note read is <=64 KB-only. ds=0 at entry.
+    cmp byte [far_ctx_base + 2], 0x10
+    jb .ctx_conv_entry
+    mov al, [ems_ctx_page]               ; boot-precomputed page + frame offset of far_ctx_base; the read
+    mov bl, al                           ; starts there (dialogue_off is 0 on a >64 KB machine). bl = page
+    mov si, [ems_ctx_off]
+    mov dx, ems_base_port
+    out dx, al                           ; map the first page into slot 0 (al = page); dx is free (count in bp)
+    mov ax, ems_frame_seg
+    mov ds, ax                           ; ds = frame segment (the EMS source); bl = live page
+    jmp .ctx_next
+.ctx_conv_entry:
     mov ds, [far_log_seg_var]            ; ds = far context log (0x1000) or seg 0 (<=64 KB fallback)
 .ctx_next:
     mov ax, cx
-    or ax, dx
-    jz .ctx_done                         ; 32-bit count exhausted (also the zero-length entry case)
+    or ax, bp
+    jz .ctx_done                         ; 32-bit count (bp:cx) exhausted (also the zero-length entry case)
     cmp di, api_request_plain + tls_record_header_len + api_request_plain_len - 2
     jae .ctx_flush                       ; leave room for one escaped pair before the payload cap
-    lodsb                                ; al = [far_log:si]; si++
+    lodsb                                ; al = [ds:si] (far log or frame); si++
+    cmp byte [es:far_ctx_base + 2], 0x10  ; es=0 here -> reads the seg-0 var regardless of ds
+    jae .ctx_ems_renorm
     test si, si
     jnz .ctx_no_renorm
     mov bx, ds
     add bx, 0x1000                       ; si wrapped 64 KB -> advance to the next paragraph window
     mov ds, bx
+    jmp .ctx_no_renorm
+.ctx_ems_renorm:
+    cmp si, 0x4000                       ; frame offset wrapped the 16 KB page -> map the next page
+    jb .ctx_no_renorm
+    xor si, si
+    inc bl                               ; next EMS page (kept in bl; preserved across the flush)
+    push ax                              ; preserve the just-read byte across the port write (count is in bp)
+    mov dx, ems_base_port
+    mov al, bl
+    out dx, al
+    pop ax
 .ctx_no_renorm:
     cmp al, '"'
     je .ctx_escape
@@ -701,7 +723,7 @@ agent_api_stream_append_context:        ; si = source offset/ptr, dx:cx = byte c
     stosb
 .ctx_dec:
     sub cx, 1
-    sbb dx, 0                            ; 32-bit decrement of the remaining count
+    sbb bp, 0                            ; 32-bit decrement of the remaining count (bp:cx)
     jmp .ctx_next
 .ctx_done:
     pop ds                               ; restore ds = 0
@@ -710,9 +732,10 @@ agent_api_stream_append_context:        ; si = source offset/ptr, dx:cx = byte c
     ret
 .ctx_flush:                              ; buffer full mid-window: send it as a record, reset di, resume
     push cx
-    push dx
+    push bp                              ; count HIGH word (dx is scratch now); reloaded port on resume
     push si
     push ds
+    push bx                              ; M2e: preserve the current EMS frame page across the send
     xor ax, ax
     mov ds, ax                           ; flush is ds=0-relative (tls_app_len + the phase calls)
     mov ax, di
@@ -720,14 +743,15 @@ agent_api_stream_append_context:        ; si = source offset/ptr, dx:cx = byte c
     call agent_api_stream_phase.send_app_record   ; sets tls_app_len/plain_ptr, prepares + sends; CF=fail
     jc .ctx_flush_failed
     phase_call_res tls_prepare_3c501_receive
+    pop bx                               ; restore the EMS page (harmless scratch on the conventional path)
     pop ds                               ; back to the far log segment for the resumed read
     pop si
-    pop dx
+    pop bp
     pop cx
     mov di, api_request_plain + tls_record_header_len
     jmp .ctx_next
 .ctx_flush_failed:
-    add sp, 8                            ; discard the 4 flush-pushed words (far ds, si, dx, cx)
+    add sp, 10                           ; discard the 5 flush-pushed words (bx, far ds, si, bp, cx)
     pop ds                               ; restore the ENTRY-pushed ds (=0) -- balances the stack + the
                                          ; ds=0-on-exit contract (an unbalanced ret here jumped to 0x0000)
     stc

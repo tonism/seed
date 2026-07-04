@@ -28,6 +28,9 @@ tool_seg     equ fs_sector_buffer + 6
 tool_farptr  equ fs_sector_buffer + 8
 tool_readlen equ fs_sector_buffer + 12
 tool_readbuf equ fs_sector_buffer + 14
+; Build 12: 0 until the first tool-result line of this turn is drawn, so .res_line emits ONE blank line
+; before the tool block (separating it from the model's response, matching the system/agent spacing).
+tool_result_started equ fs_sector_buffer + 46
 
 ; ---------------------------------------------------------------------------
 ; Build 10: minimal tool calling - the agent's "keys to the kingdom".
@@ -77,6 +80,7 @@ tool_phase:
 .no_panic:
     mov byte [agent_loop_pending], 0     ; not boot-cleared; clear each run, set on a tool fire
     mov byte [save_pending], 0           ; Build 12 env save/load: clear each run, set on a "$s"
+    mov byte [tool_result_started], 0    ; per-turn: .res_line adds a blank line before the first result
     cld
     mov si, chat_context_start
     mov bx, si
@@ -349,15 +353,37 @@ tool_phase:
 ; reachable as seg:off with seg = A>>4, off = A&0xF. The screen helpers clobber es, so the segment is
 ; also stashed in tool_seg for callers that reload es per byte.
 .addr_to_esbx:                       ; -> es = tool_seg = segment, bx = offset. clobbers ax,cx,dx
+    mov dx, [tool_addr + 2]          ; high word of the flat address
+    cmp dx, ems_flat_base_hi         ; >= 0x0010 (>= 1 MB) -> the EMS windowed region
+    jae .addr_to_ems
+    ; --- direct conventional far (milestone 1): seg = (low>>4)|(high<<12), off = low&0xF ---
     mov ax, [tool_addr]              ; low word
     mov bx, ax
     and bx, 0x000f                   ; off = A & 0xF
     mov cl, 4
     shr ax, cl                       ; ax = low >> 4
-    mov dx, [tool_addr + 2]          ; high word (<= 0x0F for an address <= 1 MB)
     mov cl, 12
     shl dx, cl                       ; high << 12
     or ax, dx                        ; seg = (low>>4) | (high<<12)
+    mov [tool_seg], ax
+    mov es, ax
+    ret
+; --- EMS windowed (milestone 2): rel = addr - 0x100000; page = rel>>14; off = rel & 0x3FFF. Map the page
+; into frame slot 0 and return es=ems_frame_seg, bx=off. A single $r/$w must stay within one 16 KB EMS
+; page (off+len <= 0x4000); a mid-op page remap on boundary crossings is a later refinement. ---
+.addr_to_ems:
+    mov ax, [tool_addr]              ; low word
+    sub dx, ems_flat_base_hi         ; dx:ax = flat addr - 0x100000 = rel into EMS
+    mov bx, ax
+    and bx, 0x3fff                   ; bx = page offset within the 16 KB slot
+    mov cl, 14
+    shr ax, cl                       ; ax = rel's bits 14-15 (low 2 bits of the page number)
+    mov cl, 2
+    shl dx, cl                       ; dx = rel's bits 16+ shifted up 2
+    or ax, dx                        ; ax = logical page number (rel >> 14)
+    mov dx, ems_base_port
+    out dx, al                       ; frame slot 0 <- logical page (al = page, <= 255 for <= 4 MB)
+    mov ax, ems_frame_seg
     mov [tool_seg], ax
     mov es, ax
     ret
@@ -490,6 +516,15 @@ tool_phase:
     ; auto-continue turn's reply renders cleanly under it) instead of orphaning the cursor.
     mov byte [api_stream_seen], 1
     mov byte [tool_sink], 0          ; the action prefix shows on screen + window
+    ; Build 12: one blank line before the FIRST tool result of the turn, so the tool block is separated
+    ; from the model's response (mirrors the blank line between system/agent messages).
+    cmp byte [tool_result_started], 0
+    jne .res_line_nl
+    mov byte [tool_result_started], 1
+    mov al, 10
+    call .win_putc
+    call .scr_newline
+.res_line_nl:
     mov al, 10
     call .win_putc                   ; window newline
     call .scr_newline                ; screen fresh line (scroll-aware; may touch es)

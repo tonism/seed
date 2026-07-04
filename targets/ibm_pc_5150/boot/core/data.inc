@@ -561,7 +561,23 @@ dialogue_cnt equ dialogue_off + 2
 far_window_cap equ dialogue_cnt + 4
 far_arena_base equ far_window_cap + 4
 far_arena_top equ far_arena_base + 4
-reconnect_state_end equ far_arena_top + 4
+; Build 12 milestone 2 (EMS): ems_page_count = number of 16 KB EMS logical pages the board backend
+; probed at boot (0 = no board -> EMS inactive; the gate, so a no-EMS machine is byte-for-byte
+; milestone 1). The frame segment + I/O base + flat base are compile-time constants (layout.inc); the
+; flat EMS range is [ems_flat_base_hi:0000 .. + ems_page_count*ems_page_size). Boot-set, read-only after.
+ems_page_count equ far_arena_top + 4
+; Build 12 milestone 2 (M2b/M2e): the FLAT base of the context (far) log. M1 kept it at 0x10000
+; (conventional); with the arena-first inversion the arena takes all conventional and the context moves
+; to the top of EMS on an EMS machine -- so the base is now a 32-bit flat address (dword), reached via the
+; same per-address dispatch as $r/$w (< 0x100000 direct seg:off; >= 0x100000 EMS-windowed). On a no-EMS
+; machine it stays 0x00010000 (byte-for-byte the M1 conventional path). far_flushed_len is its offset.
+far_ctx_base equ ems_page_count + 2
+; Build 12 M2e: boot-precomputed decomposition of far_ctx_base into an EMS page number + frame offset, so
+; the maxed agent_api_stream phase doesn't do the >>14 address math per request (it is tight on sectors).
+; Only meaningful on an EMS machine; the context read starts at far_ctx_base (dialogue_off is 0 on >64 KB).
+ems_ctx_page equ far_ctx_base + 4
+ems_ctx_off equ ems_ctx_page + 2
+reconnect_state_end equ ems_ctx_off + 2
 ka_template_persistent equ reconnect_state_end
 ; Build 11 ESC: the int 9 keyboard hook handler is staged to this pool slot at boot (position-independent
 ; code; runs from here so it survives the phase-overlay churn). esc_int9_old saves the BIOS int 9 vector

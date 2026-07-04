@@ -27,8 +27,14 @@ hardware_setup_phase:
     call probe_network_card
     jc .failed
     call resolve_network_config
-    call read_network_address
+    ; Build 12 M2b: populate the NIC vtable (driver load) BEFORE read_network_address. read_network_address
+    ; writes the MAC PROM into ne_prom, which physically overlaps this phase's own image; anything that runs
+    ; AFTER that write and happens to land at the ne_prom offset gets clobbered -> cold-boot freeze (the same
+    ; size-fragile hazard stage_ka_template is ordered around). populate only needs the NIC family (already
+    ; resolved), not the MAC, so running it first leaves read_network_address as the LAST step -- only its
+    ; own high-offset helpers execute after the clobber, and they sit past the ne_prom window.
     call populate_nic_vtable
+    call read_network_address
     clc
     ret
 .failed:
@@ -175,6 +181,56 @@ hardware_setup_phase_display:
                                     ; both at the greeting, before agent_request resets esc_stop
     mov byte [dpi_reached], 0       ; Build 11 ESC gate: hook stays inert until dpi_phase sets this post-boot
     mov word [chat_context_used], 0
+    ; Build 12 milestone 2 (EMS): detect + size the Lo-tech EMS board bare-metal (board registers, no
+    ; int 67h/EMM). ems_page_count = 0 means no board -> EMS inactive (byte-for-byte milestone 1). Probe
+    ; via slot 0 (port ems_base_port, window seg ems_frame_seg): map logical page 0, write a signature to
+    ; the frame; if it doesn't hold, there's no writable banked RAM there -> no board. Then find the page
+    ; count by a banking test: for P = 1.., map page P and write its own index; page P is real+distinct
+    ; only if (a) that write holds AND (b) page 0's signature survived (P didn't alias/wrap to page 0).
+    ; The banking test rejects plain static RAM at the frame. Runs BEFORE the far-log sizing below (which
+    ; reads ems_page_count to pick M1-vs-EMS-invert). ds=0 here. Save/restore every GP register it touches.
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    mov word [ems_page_count], 0
+    xor al, al
+    mov dx, ems_base_port
+    out dx, al                      ; frame slot 0 <- logical page 0
+    mov ax, ems_frame_seg
+    mov es, ax
+    xor di, di
+    mov word [es:di], 0x5eed
+    cmp word [es:di], 0x5eed
+    jne .ems_done
+    mov bx, 1
+.ems_probe:
+    mov al, bl
+    mov dx, ems_base_port
+    out dx, al
+    mov [es:di], bx
+    cmp [es:di], bx
+    jne .ems_sized
+    xor al, al
+    out dx, al
+    cmp word [es:di], 0x5eed
+    jne .ems_sized
+    inc bx
+    cmp bx, ems_max_pages
+    jb .ems_probe
+.ems_sized:
+    mov [ems_page_count], bx
+.ems_done:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
     ; Build 12 Stage C (C1b): the far context log starts empty -- no frozen history, zero escaped length.
     ; Read-before-write on the first turn (the mirror dest offset + the ready CL), so boot-zero here.
     mov word [far_flushed_len], 0
@@ -193,16 +249,20 @@ hardware_setup_phase_display:
     mov word [far_arena_base + 2], 0x0001        ; 0x00010000
     mov word [far_arena_top], 0x0000
     mov word [far_arena_top + 2], 0x0001         ; base == top == 0x10000 -> empty far range
+    mov word [far_ctx_base], 0x0000
+    mov word [far_ctx_base + 2], 0x0001          ; context base = 0x00010000 (M1 default / inactive)
     mov ax, [0x0413]
     cmp ax, 64
     jbe .far_log_inactive
     mov word [far_log_seg_var], far_log_seg
-    ; Build 12 Stage C (C2/C3): size the far region split. conv_top = conv_KB << 10 (dx:ax); far region =
-    ; conv_top - 0x10000; window cap = min(region/2, 1 MB); arena = [0x10000+cap .. conv_top).
     mov bx, 1024
     mul bx                                        ; dx:ax = conv_KB * 1024 = conv_top (bytes)
     mov [far_arena_top], ax
     mov [far_arena_top + 2], dx
+    cmp word [ems_page_count], 0
+    jne .far_ems_invert
+    ; --- M1 layout (no EMS): context @ 0x10000, arena above [0x10000+cap .. conv_top]. cap =
+    ; min((conv_top-0x10000)/2, 1 MB). far_ctx_base stays 0x10000. Byte-for-byte the milestone-1 path. ---
     sub ax, 0
     sbb dx, 1                                     ; dx:ax = conv_top - 0x10000 = far region
     shr dx, 1
@@ -222,10 +282,18 @@ hardware_setup_phase_display:
     adc dx, 1                                     ; + 0x00010000 -> far arena base = 0x10000 + window cap
     mov [far_arena_base], ax
     mov [far_arena_base + 2], dx
+    jmp .far_log_inactive
+.far_ems_invert:
+    ; M2b: the EMS-invert layout math lives in hardware_setup_ems_layout at the phase TAIL (past the
+    ; ne_prom MAC-PROM overlap at runtime 0x0CEE), so this ~90 B does NOT shift the network routines into
+    ; that clobber window (the size-fragile cold-boot-freeze hazard). Only a 3 B call sits here.
+    call hardware_setup_ems_layout
 .far_log_inactive:
     mov word [note_len], 0          ; #4 note-as-memory: no compacted note until the first compaction
     mov byte [recert_flag], 0       ; Build 12 auto-recertify: net_phase reads it pre-handshake before
                                     ; any recertify writes it; boot-zero here (a phase, not the nucleus)
+    ; (The EMS board probe now runs ABOVE the far-log sizing -- it must set ems_page_count before the
+    ; far-sizing reads it to choose the M1-vs-EMS-invert layout.)
     ; Splash centering: reload the column count from [screen_cols] rather than trusting ah to survive --
     ; the far-log detection/sizing above clobbers ax/ah (xor, [0x0413], mul), which would otherwise shift
     ; seed_col (and every glyph/form column derived from it). (Build 12 Stage C regression fix.)
@@ -810,5 +878,62 @@ esc_int9_handler_source_end:
 %if (esc_int9_handler_source_end - esc_int9_handler_source) != esc_int9_handler_len
 %error "esc_int9_handler_len (layout.inc) != the staged int 9 handler length"
 %endif
+
+; Build 12 M2b/M2e: EMS-invert context layout. Defined at the phase TAIL (highest offsets, past the
+; ne_prom MAC-PROM clobber window) so its ~90 B never shifts the network routines into that window --
+; the size-fragile cold-boot-freeze hazard. Called from the far-sizing (.far_ems_invert) with far_arena_top
+; already = conv_top and far_ctx_base still = 0x10000. Sets far_window_cap + far_ctx_base + ems_ctx_page/off.
+; ARENA takes ALL conventional [0x10000..conv_top]; CONTEXT = top min(pool/2,1MB) of EMS, pool = conv
+; region + ems_size (ems_page_count << 14). ds=0. Clobbers ax/bx/cx/dx.
+hardware_setup_ems_layout:
+    mov ax, [ems_page_count]
+    mov dx, ax
+    xor ax, ax                                    ; dx:ax = pages << 16
+    shr dx, 1
+    rcr ax, 1
+    shr dx, 1
+    rcr ax, 1                                     ; dx:ax = pages << 14 = ems_size (bytes)
+    mov [far_ctx_base], ax                        ; stash ems_size
+    mov [far_ctx_base + 2], dx
+    mov ax, [far_arena_top]
+    mov dx, [far_arena_top + 2]
+    sub ax, 0
+    sbb dx, 1                                     ; dx:ax = conv_top - 0x10000 (conv region)
+    add ax, [far_ctx_base]
+    adc dx, [far_ctx_base + 2]                    ; dx:ax = pool = conv region + ems_size
+    shr dx, 1
+    rcr ax, 1                                     ; dx:ax = pool / 2
+    cmp dx, 0x0010                                ; clamp to 1 MB
+    jb .ems_cap_ready
+    ja .ems_cap_1mb
+    or ax, ax
+    jz .ems_cap_ready
+.ems_cap_1mb:
+    xor ax, ax
+    mov dx, 0x0010                                ; cap = 1 MB
+.ems_cap_ready:
+    mov [far_window_cap], ax
+    mov [far_window_cap + 2], dx
+    mov ax, [far_ctx_base]
+    mov dx, [far_ctx_base + 2]
+    add ax, 0
+    adc dx, 0x0010                                ; ems_size + 0x00100000 -> ems_flat_top
+    sub ax, [far_window_cap]
+    sbb dx, [far_window_cap + 2]                  ; - cap -> context flat base (top cap bytes of EMS)
+    mov [far_ctx_base], ax
+    mov [far_ctx_base + 2], dx
+    ; precompute far_ctx_base's EMS page + frame offset (dx:ax = far_ctx_base) for agent_api_stream.
+    sub dx, 0x0010                                ; dx:ax = rel = far_ctx_base - 0x100000
+    mov bx, ax
+    and bx, 0x3fff
+    mov [ems_ctx_off], bx
+    mov cl, 14
+.ems_ctxshift:
+    shr dx, 1
+    rcr ax, 1
+    dec cl
+    jnz .ems_ctxshift
+    mov [ems_ctx_page], ax                        ; page number (< 256)
+    ret
 
 %unmacro phase_call_res 1
