@@ -169,6 +169,40 @@ handshake window (moved before the connect; the @6 client Finished had landed ~1
 Working records in `notes/build12-layout-redesign-attempts.md` and `notes/auto-recertify-attempts.md`; the
 secure-tier crypto budget + the tier split is in `docs/architecture.md` (CPU And Crypto Budget).
 
+## Build 12 — remaining work (in progress / queued)
+
+Build 12 is the current untagged "scaling + capability" build on `work/scaling` (memory-layout
+redesign, 286 secure tier, memory scaling M1/M2, env save/load — all already in it). These are the
+pieces still open before it tags. Sequenced so the tool loop and UI land first, then memory reach.
+
+```text
+native tool calling (IN PROGRESS) - replace the inline "$r/$w/$x" text grammar with the model's
+  structured function_call protocol (OpenAI Responses API). T2 (advertise a tools schema to gpt-5) is
+  SHIPPED on work/scaling; T3-T6 (parse function_call from the SSE stream, execute from structured
+  args, feed function_call_output back stateless, render + delete the $-scan) are handed off to Codex.
+  DESIGN + full budget map + the agent_response 512-B "make room first" enabler: notes/native-tool-
+  calling-design.md. NOTE: with a tools schema advertised, gpt-5 emits function_calls, not "$" text,
+  so the whole "$"-scan machinery is now REDUNDANT and gets deleted in T6 (do NOT keep both paths).
+UI polish - smart linebreaking (one blank between render groups, none within), the apostrophe /
+  non-ASCII->ASCII glyph map, and the situational-awareness + identity-prompt review. Most of these are
+  BLOCKED on "render-phase room" (below) - the same 512-B receive/render squeeze that native tools hit,
+  so the "make room" enabler serves both. The unified type-change spacing groundwork shipped (Build 12
+  task-19: one render_last_type tracker across all message types).
+memory scaling continuation (286/386 native extended memory + HMA) - M1/M2 (8088 far + LIM EMS) SHIPPED
+  (see below). The next reach is the 286/386's native extended memory (>1 MB flat via unreal/protected
+  mode or the HMA), so context + arena scale past the EMS page-frame window without bank-switching.
+  ROADMAP + the M2 EMS story it builds on: notes/memory-scaling-design.md.
+```
+
+## Build 13 — future
+
+```text
+64-bit host memory - long mode (one CORE.SYS, early-CPUID pivot) reaching terabytes; a native-driver
+  runtime (loses BIOS). The far end of the memory-scaling tier ladder. See notes/memory-scaling-design.md.
+TLS 1.3 - a cleaner handshake (not a memory play; record-size caps are ignored on 1.2/1.3). Pairs with
+  the 286+ secure tier. Research-stage.
+```
+
 ## Forward-looking ideas
 
 Not yet built — the backlog beyond what ships today. The render-room and handshake-speed items
@@ -203,10 +237,10 @@ situational awareness + identity prompt - strengthen the situational map (curb t
 Bigger bets and research:
 
 ```text
-environment save/load - persist the runtime environment (conversation + the arena the agent builds
-  in) to writable media + restore it at boot, so the agent accumulates across restarts. A writable-
-  media capability tier, orthogonal to the RAM/CPU tiers; the self-contained, high-value centerpiece.
-  CHARTER: notes/env-save-load-brief.md (design-intent, not started).
+environment save/load - SHIPPED (Build 12): "$s" writes ENV.DAT (conversation window + arena + screen)
+  to the boot floppy when writable; "$l" reboots into the saved state; boot auto-loads ENV.DAT if
+  present. A writable-media capability tier, orthogonal to the RAM/CPU tiers. (Design history moved to
+  notes/old/env-save-load-design.md; becomes native save_env/load_env tools under Build-13 native tools.)
 true security on larger / faster machines (separate exploration, CPU-gated) - MEASURED to be CPU-gated,
   not RAM-gated (spike: tools/crypto-bench/, results/FINDINGS.md + entropy_certauth_scoping.md). The
   4.77 MHz / 16 KiB target makes deliberate, documented sacrifices; each was measured:
@@ -230,8 +264,13 @@ true security on larger / faster machines (separate exploration, CPU-gated) - ME
   The stock-8088 product stays honestly
   "encrypted but not secure" (per-record app-data IS MAC-verified after the FIFO collapse - record
   integrity, not a secure channel); real entropy + a pinned key is the honest middle ground there.
-reach / perf - beyond segment 0 (>64 KiB); render-rate optimization for very long replies; drop the
-  floppy reads in the 32K+ chat loop; TLS 1.3 (not a memory play - record-size caps are ignored on 1.2/1.3).
+reach / perf - beyond segment 0 (>64 KiB): SHIPPED (Build 12, memory scaling milestones 1+2) - $r/$w/$x
+  reach conventional memory via far seg:off translation, and on a 256K+ machine with LIM EMS the
+  arena takes all conventional memory (executable) while the conversation context relocates to the top
+  of EMS, streamed through the 64K page frame with 16K bank-switching (arena-first inversion). The 32K+
+  floppy-free chat loop also SHIPPED (Build 12). REMAINING: 286/386 native extended memory + HMA (see
+  "Build 12 — remaining work" above, notes/memory-scaling-design.md); render-rate optimization for very long replies;
+  TLS 1.3 (moved up to the Build-13 list).
 full TCP retransmit (survive a genuinely bad link) - an unacked-byte buffer + RTO timers + ACK tracking +
   receive reordering, so a dropped packet is a fast resend instead of a ~15 s re-handshake. The client
   handshake-send slices (SYN, ClientHello, CKE+CCS+Finished flight) already retransmit; loss testing

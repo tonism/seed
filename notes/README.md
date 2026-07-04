@@ -2,16 +2,23 @@
 
 This directory is working memory for active branch design and experiments.
 
-Active per-build implementation log: `build11-hardening-attempts.md` (Build 11, release
-hardening; branch `work/draining-fifo`). Builds 8, 9, and 10 have shipped — their attempt logs and
-design notes are archived in `old/`. Per-build release summaries live in `docs/builds.md`. Each new
-build opens a fresh top-level log and archives the prior one to `old/`.
-
-Completed or superseded branch logs and designs live in:
+Active docs (Build 12, branch `work/scaling`):
 
 ```text
-old/
+native-tool-calling-design.md  MID-FLIGHT + Codex handover. Replace the "$" tool grammar with the
+                               model's structured function_call protocol. T2 shipped; T3-T6 handed to
+                               Codex. Read the "HANDOVER — Codex, start here" header first.
+memory-scaling-design.md       ROADMAP. 8088 + EMS scaling (M1/M2) SHIPPED in Build 12; the 286/386
+                               native extended memory + HMA continuation lives here (post-Codex work).
+ui-unification-design.md       ROADMAP. UI polish (smart linebreaking etc.); most items blocked on the
+                               same "render-phase room" enabler native tools needs.
 ```
+
+Completed/shipped design + attempt logs (Build 8-12: memory-layout redesign, 286 secure tier,
+auto-recertify, ECDSA scoping, M2 EMS, env save/load, all prior builds) are archived in `old/`. Their
+reader-facing summaries live in `docs/` (`architecture.md`, `memory.md`, `security.md`,
+`crypto-feasibility.md`, `builds.md`). Per-build release summaries + the Build-13 roadmap are in
+`docs/builds.md`. Each new build opens a fresh top-level log and archives the prior one to `old/`.
 
 Use `docs/` for stable project documentation that should guide users and future
 contributors. Use `notes/` for branch-local reasoning, measured attempts,

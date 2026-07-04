@@ -1,5 +1,12 @@
 # Memory Scaling — Beyond Segment 0 (design / charter)
 
+> STATUS (2026-07-05): **Milestones 1 + 2 SHIPPED in Build 12** — far seg:off `$r/$w/$x` to conventional
+> memory (M1), and the 256K+ LIM-EMS arena-first inversion (arena takes all conventional; context relocates
+> to the top of EMS, streamed via the 64K page frame with 16K bank-switching) + the 32K+ floppy-free chat
+> loop (M2). Reader-facing summary is in `docs/builds.md`. **The CONTINUATION (post-Codex Build 12 work)
+> is the 286/386 native extended memory + HMA** so context/arena scale past the EMS page-frame window — see
+> the tier sections below. This doc is the build-against reference for that remaining work.
+
 The settled design for letting seed's agent address far more than the 64 KiB of segment 0 — the
 goal being "address absolutely any size": ~640 KB on an XT, megabytes on an EMS box, 16 MB on a 286,
 4 GB on a 386+, and (Build 13) terabytes on a 64-bit host. This is the build-against reference;
