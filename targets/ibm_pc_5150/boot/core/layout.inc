@@ -60,6 +60,16 @@ loop_cache_start equ loop_cache_end - loop_cache_len
 ; (si = slot) instead of reading the floppy on 32K, making the chat loop FULLY floppy-free.
 prompt_id_cache equ loop_cache_end - 2 * 512
 prompt_compact_cache equ loop_cache_end - 512
+; Build 12 native tool calling: the resident tools-schema buffer on the loop-cache tiers (32K/256K).
+; The loop cache itself is FULL (28 sectors; can't grow without dropping below the 16K ceiling), so
+; tools_cache is carved from the TOP of the arena/context pool, just BELOW loop_cache_start (and below
+; the 286 p256 overlay, which aliases loop_cache_start upward -- no overlap). hardware_setup caps the
+; 32K conventional pool at tools_cache instead of loop_cache_start, so the window/arena top out 2
+; sectors lower and never overwrite it; the ledger advertises that ceiling. 16K has NO resident buffer
+; (tools_cache is referenced only on 32K+); it floppy-streams the schema per turn.
+tools_cache_sectors equ 2
+tools_cache_len equ tools_cache_sectors * 512
+tools_cache equ loop_cache_start - tools_cache_len
 ; Build 12 286 secure tier: the handshake-only P-256 ECDHE module (core/p256_module.asm, incbin'd into
 ; CORE.SYS). Loaded ONLY on the 286 secure path (handoff_flag_cpu_286plus) into a high overlay band
 ; that ALIASES the 32K loop cache — lifetime-disjoint: the module runs during the boot handshake; the

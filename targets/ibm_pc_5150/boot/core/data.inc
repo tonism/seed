@@ -511,13 +511,19 @@ prompt_id_cluster equ chat_effective_cap + 2
 prompt_id_size equ prompt_id_cluster + 2
 prompt_compact_cluster equ prompt_id_size + 2
 prompt_compact_size equ prompt_compact_cluster + 2
+; Build 12 native tool calling: the tools JSON schema asset (prompts/tools.json, <=2 sectors), same
+; boot-cached cluster+size scheme as identity/compact. Streamed RAW as the "tools" array value into
+; ready requests. On 32K+ it is ALSO preloaded into the resident tools_cache (floppy-free loop); on
+; 16K it streams from the floppy per turn (2 sectors, read sector-by-sector -- see agent_resolve...).
+prompt_tools_cluster equ prompt_compact_size + 2
+prompt_tools_size equ prompt_tools_cluster + 2
 ; Build 11 #4 note-as-memory: the conversation window (chat_context) is split into a NOTE prefix
 ; [0..note_len) and the live DIALOGUE [note_len..chat_context_used). The note is the compacted memory
 ; and rides in the request "instructions" (system) slot; the dialogue + the user prompt ride in
 ; "input". Set right after a compaction pass (agent_request) to the captured summary's length; 0 until
 ; the first compaction. This is what makes the post-compaction turn ANSWER the user's question instead
 ; of continuing the note (the note reads as system memory, not the latest conversation turn).
-note_len equ prompt_compact_size + 2
+note_len equ prompt_tools_size + 2
 ; Build 12 auto-recertify: re-adopt a chain-verified leaf across the module reload. The reload (each
 ; connect) reverts the module's pin to the baked one, so net_phase re-installs the verified leaf
 ; before tls_probe. recert_flag=1 = the off-race chain-verify accepted the captured leaf this
@@ -577,7 +583,16 @@ far_ctx_base equ ems_page_count + 2
 ; Only meaningful on an EMS machine; the context read starts at far_ctx_base (dialogue_off is 0 on >64 KB).
 ems_ctx_page equ far_ctx_base + 4
 ems_ctx_off equ ems_ctx_page + 2
-reconnect_state_end equ ems_ctx_off + 2
+; Build 12 renderer type-change spacing: the message TYPE of the last thing drawn. Each renderer emits ONE
+; blank line only when the type changes (user <-> agent <-> system), none within a run of one type. Homed in
+; the reconnect-safe block so it SURVIVES the mid-turn reconnect handshake (a "> reconnect" sets it =system
+; before the ~14.5s crypto, and the reply reads it =system after -> the system->agent blank is automatic).
+; Not boot-cleared: a wrong blank on the very first render is cosmetic and self-heals after turn 1.
+render_last_type equ ems_ctx_off + 2
+render_type_user equ 1                     ; user prompt echo (dpi)
+render_type_agent equ 2                    ; model reply (agent_response)
+render_type_system equ 3                   ; tool results + status lines (tool_call / agent_endpoint / api_stream)
+reconnect_state_end equ render_last_type + 1
 ka_template_persistent equ reconnect_state_end
 ; Build 11 ESC: the int 9 keyboard hook handler is staged to this pool slot at boot (position-independent
 ; code; runs from here so it survives the phase-overlay churn). esc_int9_old saves the BIOS int 9 vector

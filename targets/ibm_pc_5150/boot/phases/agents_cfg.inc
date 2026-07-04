@@ -204,13 +204,42 @@ agents_cfg_phase_find_prompts:
     mov [prompt_compact_cluster], ax
     mov ax, [fs_file_size_low]
     mov [prompt_compact_size], ax
-    ret
+    jmp .find_tools
 .no_compact:
     mov word [prompt_compact_size], 0
+.find_tools:
+    ; Build 12 native tool calling: cache the tools schema (cluster, size), same scheme as id/compact.
+    mov di, low_scratch_start + (agents_cfg_phase_tools_name - PHASE_BASE)
+    call agents_cfg_phase_find_root_file
+    jc .no_tools
+    mov ax, [fs_file_cluster]
+    mov [prompt_tools_cluster], ax
+    mov ax, [fs_file_size_low]
+    mov [prompt_tools_size], ax
+    ; On a loop-cache tier (32K+) preload the schema into the resident tools_cache now, so the chat loop
+    ; streams it from RAM (floppy-free). Homed here (not the resident nucleus, which is full) -- ram_top
+    ; is already set, loop_cache_count is still 0 so load_core_sectors_at floppy-fills, and tools_cache is
+    ; a fixed address. It may span 2 sectors (contiguous clusters). 16K skips (T7 floppy-streams tools).
+    cmp word [handoff_addr + handoff_ram_top], ram_tier_32k_min
+    jb .tools_done
+    mov ax, [prompt_tools_cluster]
+    sub ax, fat_first_data_cluster       ; al = data-area sector offset
+    mov ah, 1                            ; <=512 B -> one sector
+    cmp word [prompt_tools_size], 512
+    jbe .tools_load
+    mov ah, 2                            ; >512 B -> two contiguous sectors
+.tools_load:
+    mov bx, tools_cache
+    phase_call_res load_core_sectors_at
+.tools_done:
+    ret
+.no_tools:
+    mov word [prompt_tools_size], 0
     ret
 
 agents_cfg_phase_identity_name db 'IDENTITY   '
 agents_cfg_phase_compact_name db 'COMPACT    '
+agents_cfg_phase_tools_name db 'TOOLS      '
 agents_cfg_phase_name db 'AGENTS  CFG'
 ; Build 12: OpenAI-only. The other providers (litellm/openrouter/anthropic/google) were never wired
 ; end-to-end (agent_request builds only the openai-responses path) so they are removed until tested.

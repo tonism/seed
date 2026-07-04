@@ -57,6 +57,11 @@ INCLUDE_USER_CFG ?= 1
 # size==sent-bytes invariant Content-Length relies on); the guard below enforces it at build time.
 IDENTITY_PROMPT := prompts/identity.txt
 COMPACT_PROMPT := prompts/compact.txt
+# Native tool-calling (Build 12): the tools JSON schema, streamed RAW as the "tools" array value into
+# ready requests. Preloaded once at boot into a resident pool-carved buffer (floppy-free every turn,
+# all tiers). Up to 2 sectors (1024 B) -- unlike identity/compact it is literal JSON, so its quotes
+# are structural (NOT run through the "no quotes" guard) and it may span two sectors.
+TOOLS_SCHEMA := prompts/tools.json
 NASM_FLAGS := -DLOADER_SECTORS=$(LOADER_SECTORS) -Itargets/$(TARGET)/boot/ -I$(BUILD_DIR)/
 # 360 KiB double-sided geometry (the 286 tier — the IBM AT's drive rejects the
 # single-sided 160K image). Same CORE.SYS + same FAT12 internal layout (data at
@@ -75,7 +80,7 @@ FAT_FILES += --file $(USER_CFG):USER.CFG
 endif
 endif
 
-FAT_FILES += --file $(IDENTITY_PROMPT):IDENTITY --file $(COMPACT_PROMPT):COMPACT
+FAT_FILES += --file $(IDENTITY_PROMPT):IDENTITY --file $(COMPACT_PROMPT):COMPACT --file $(TOOLS_SCHEMA):TOOLS
 
 .PHONY: all clean inspect basic-bootstrap memory-map test
 
@@ -137,7 +142,7 @@ $(BASIC_BOOT_B_BAS): $(BASIC_BOOT_B_BIN) $(BASIC_BOOT_BUILDER) | $(BUILD_DIR)
 		--clear-top $(BASIC_BOOTSTRAP_CLEAR_TOP) \
 		--max-addr $(BASIC_BOOTSTRAP_MAX_ADDR)
 
-$(FLOPPY_IMG): $(BOOT_BIN) $(LOADER_BIN) $(CORE_SYS) $(AGENT_CFG) $(USER_CFG) $(IDENTITY_PROMPT) $(COMPACT_PROMPT) $(IMAGE_BUILDER) | $(BUILD_DIR)
+$(FLOPPY_IMG): $(BOOT_BIN) $(LOADER_BIN) $(CORE_SYS) $(AGENT_CFG) $(USER_CFG) $(IDENTITY_PROMPT) $(COMPACT_PROMPT) $(TOOLS_SCHEMA) $(IMAGE_BUILDER) | $(BUILD_DIR)
 	@LC_ALL=C grep -l '["\\]' $(IDENTITY_PROMPT) $(COMPACT_PROMPT) >/dev/null 2>&1 \
 		&& { echo "error: a streamed prompt contains a \" or \\ (breaks JSON / Content-Length)"; exit 1; } || true
 	@# A streamed TLS record must stay <= the ~440 B api_request_plain body so its TX frame fits the
@@ -148,6 +153,8 @@ $(FLOPPY_IMG): $(BOOT_BIN) $(LOADER_BIN) $(CORE_SYS) $(AGENT_CFG) $(USER_CFG) $(
 		|| { echo "error: $(IDENTITY_PROMPT) > 512 B (must fit one sector, streamed as <=440 B records)"; exit 1; }
 	@test $$(wc -c < $(COMPACT_PROMPT)) -le 512 \
 		|| { echo "error: $(COMPACT_PROMPT) > 512 B (contract staging reads one sector into tls_rx_copy)"; exit 1; }
+	@test $$(wc -c < $(TOOLS_SCHEMA)) -le 1024 \
+		|| { echo "error: $(TOOLS_SCHEMA) > 1024 B (resident tools buffer is 2 sectors)"; exit 1; }
 	python3 $(IMAGE_BUILDER) build \
 		--boot $(BOOT_BIN) \
 		--loader $(LOADER_BIN) \
@@ -161,13 +168,15 @@ $(BOOT_360K_BIN): $(BOOT_SRC) | $(BUILD_DIR)
 $(LOADER_360K_BIN): $(LOADER_SRC) | $(BUILD_DIR)
 	nasm $(NASM_FLAGS_360K) -f bin -o $@ $<
 
-$(FLOPPY_IMG_360K): $(BOOT_360K_BIN) $(LOADER_360K_BIN) $(CORE_SYS) $(AGENT_CFG) $(USER_CFG) $(IDENTITY_PROMPT) $(COMPACT_PROMPT) $(IMAGE_BUILDER) | $(BUILD_DIR)
+$(FLOPPY_IMG_360K): $(BOOT_360K_BIN) $(LOADER_360K_BIN) $(CORE_SYS) $(AGENT_CFG) $(USER_CFG) $(IDENTITY_PROMPT) $(COMPACT_PROMPT) $(TOOLS_SCHEMA) $(IMAGE_BUILDER) | $(BUILD_DIR)
 	@LC_ALL=C grep -l '["\\]' $(IDENTITY_PROMPT) $(COMPACT_PROMPT) >/dev/null 2>&1 \
 		&& { echo "error: a streamed prompt contains a \" or \\ (breaks JSON / Content-Length)"; exit 1; } || true
 	@test $$(wc -c < $(IDENTITY_PROMPT)) -le 512 \
 		|| { echo "error: $(IDENTITY_PROMPT) > 512 B (must fit one sector, streamed as <=440 B records)"; exit 1; }
 	@test $$(wc -c < $(COMPACT_PROMPT)) -le 512 \
 		|| { echo "error: $(COMPACT_PROMPT) > 512 B (contract staging reads one sector into tls_rx_copy)"; exit 1; }
+	@test $$(wc -c < $(TOOLS_SCHEMA)) -le 1024 \
+		|| { echo "error: $(TOOLS_SCHEMA) > 1024 B (resident tools buffer is 2 sectors)"; exit 1; }
 	python3 $(IMAGE_BUILDER) build \
 		--boot $(BOOT_360K_BIN) \
 		--loader $(LOADER_360K_BIN) \

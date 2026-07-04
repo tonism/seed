@@ -212,6 +212,13 @@ agent_response_phase:
     jz .position_cold_greeting
 .position_live_response:
     push ax
+    ; Build 12 type-change spacing: when the reply follows a SYSTEM line (a tool block or "> reconnect"),
+    ; add one blank line before it. A reply after the USER prompt already gets its blank from the ENTER's
+    ; empty line, so only the system->agent case needs an extra advance here.
+    cmp byte [render_last_type], render_type_system
+    jne .plr_reply_line
+    call .advance_response_line
+.plr_reply_line:
     call .advance_response_line
     pop ax
     jmp .seen_ready
@@ -220,6 +227,7 @@ agent_response_phase:
     ; (just below the banner, col 0), so it lands right under it instead of pinned near the screen bottom.
 .seen_ready:
 .stream_seen_ready:
+    mov byte [render_last_type], render_type_agent
     mov byte [api_stream_text_seen], 1
     mov byte [api_stream_seen], 1
     call .sync_response_video_offset

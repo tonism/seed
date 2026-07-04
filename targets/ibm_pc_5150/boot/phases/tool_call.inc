@@ -28,9 +28,6 @@ tool_seg     equ fs_sector_buffer + 6
 tool_farptr  equ fs_sector_buffer + 8
 tool_readlen equ fs_sector_buffer + 12
 tool_readbuf equ fs_sector_buffer + 14
-; Build 12: 0 until the first tool-result line of this turn is drawn, so .res_line emits ONE blank line
-; before the tool block (separating it from the model's response, matching the system/agent spacing).
-tool_result_started equ fs_sector_buffer + 46
 
 ; ---------------------------------------------------------------------------
 ; Build 10: minimal tool calling - the agent's "keys to the kingdom".
@@ -80,7 +77,6 @@ tool_phase:
 .no_panic:
     mov byte [agent_loop_pending], 0     ; not boot-cleared; clear each run, set on a tool fire
     mov byte [save_pending], 0           ; Build 12 env save/load: clear each run, set on a "$s"
-    mov byte [tool_result_started], 0    ; per-turn: .res_line adds a blank line before the first result
     cld
     mov si, chat_context_start
     mov bx, si
@@ -148,6 +144,11 @@ tool_phase:
 .draw_stopped:
     mov si, PHASE_LOAD_ADDR + (.stopped_text - PHASE_BASE)
 .draw_status:                            ; si -> relocated z-string; draw it as a dim screen-only system line
+    cmp byte [render_last_type], render_type_system
+    je .ds_gap_done
+    mov byte [render_last_type], render_type_system
+    call .scr_newline                    ; type-change spacing: blank line before this system status line
+.ds_gap_done:
     mov byte [api_stream_seen], 1
     call .scr_newline
     call .scr_set_video
@@ -516,11 +517,12 @@ tool_phase:
     ; auto-continue turn's reply renders cleanly under it) instead of orphaning the cursor.
     mov byte [api_stream_seen], 1
     mov byte [tool_sink], 0          ; the action prefix shows on screen + window
-    ; Build 12: one blank line before the FIRST tool result of the turn, so the tool block is separated
-    ; from the model's response (mirrors the blank line between system/agent messages).
-    cmp byte [tool_result_started], 0
-    jne .res_line_nl
-    mov byte [tool_result_started], 1
+    ; Build 12 type-change spacing: ONE blank line when this SYSTEM block follows a different message type
+    ; (the model reply / a user prompt), NONE between successive results within the block. render_last_type
+    ; is the shared tracker (reconnect-safe block); every renderer routes its transition through it.
+    cmp byte [render_last_type], render_type_system
+    je .res_line_nl
+    mov byte [render_last_type], render_type_system
     mov al, 10
     call .win_putc
     call .scr_newline

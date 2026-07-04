@@ -457,6 +457,19 @@ agent_request_phase:
     add ax, bx
     add ax, api_json_model_text_len + api_ready_stream_close_text_len
     add ax, api_json_reasoning_prefix_len + api_json_input_open_text_len
+    ; Build 12 native tool calling: on a normal (non-compaction) ready turn on a loop-cache tier,
+    ; agent_api_stream splices '","tools":' + the streamed schema bytes after the model, and shortens the
+    ; reasoning prefix by 1 (skips its leading model-close quote). Mirror that EXACTLY into Content-Length,
+    ; or the body byte count is wrong and the request breaks. (api_json_tools_open_text_len - 1 folds the
+    ; +tools_open and the -1 reasoning offset; then + the schema size.) The gate MUST match the splice:
+    ; compacting==0 && loop_cache_count>0 (no size check -- the asset is Makefile-guaranteed on 32K+).
+    cmp byte [compacting_msg], 0
+    jne .no_tools_len
+    cmp word [loop_cache_count], 0
+    je .no_tools_len
+    add ax, api_json_tools_open_text_len - 1
+    add ax, [prompt_tools_size]
+.no_tools_len:
     ; instructions value = the compaction contract (compaction) OR identity + ledger (normal turn).
     ; Build 11 #4: the contract/identity are streamed off the floppy, so their length is the cached
     ; file size (prompt_compact_size / prompt_id_size), not a compile-time string length. The bytes
@@ -640,7 +653,10 @@ api_json_boot_prompt_text db 'Greet.', 0
 api_json_boot_stream_close_text db '","stream":true}', 0
 api_json_stream_close_text db '","stream":true}', 0
 api_json_stream_close_text_len equ $ - api_json_stream_close_text - 1
-api_ready_stream_close_text_len equ api_json_stream_close_text_len
+; Build 12 native tool calling: the STREAMED ready close is agent_api_stream's api_stream_json_close_text,
+; which grew to the array-envelope close ('"}],"store":false,"stream":true}'). compute_ready_body_lengths
+; sizes the streamed ready request, so track THAT length here (not the boot path's string-input close).
+api_ready_stream_close_text_len equ api_stream_json_close_text_len
 
 agent_request_phase_strlen_z_bounded:
     xor dx, dx

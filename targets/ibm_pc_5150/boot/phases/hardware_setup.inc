@@ -74,7 +74,9 @@ hardware_setup_phase_init_handoff:
     ; chatting would overwrite the cached phases. (16K keeps ram_top - stack reserve.)
     cmp word [handoff_addr + handoff_ram_top], ram_tier_32k_min
     jb .pool_ceiling_ready
-    mov ax, loop_cache_start
+    ; Build 12 native tool calling: reserve the resident tools-schema buffer just below loop_cache_start,
+    ; so the 32K conventional window/arena top out at tools_cache (2 sectors lower) and never clobber it.
+    mov ax, tools_cache
 .pool_ceiling_ready:
     sub ax, chat_context_start
     shr ax, 1

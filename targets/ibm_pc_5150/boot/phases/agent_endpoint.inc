@@ -33,6 +33,11 @@ agent_endpoint_phase:
     jne .endpoint_body
     cmp word [chat_context_used], 0
     je .endpoint_body
+    cmp byte [render_last_type], render_type_system
+    je .rc_drawn
+    mov byte [render_last_type], render_type_system
+    call .reconnect_advance_line     ; type-change spacing: one blank line before this system status line
+.rc_drawn:
     mov byte [cursor_col], dpi_prompt_col
     mov si, low_scratch_start + (reconnect_msg_text - PHASE_BASE)
     mov cx, reconnect_word_len
@@ -47,6 +52,11 @@ agent_endpoint_phase:
     ; "> reconnect" on the same row (reads as one line transitioning reconnect -> recertify).
     cmp word [chat_context_used], 0
     je .endpoint_body
+    cmp byte [render_last_type], render_type_system
+    je .rec_drawn                    ; already system (e.g. overwriting "> reconnect" in place) -> no blank
+    mov byte [render_last_type], render_type_system
+    call .reconnect_advance_line     ; type-change spacing: one blank line before this system status line
+.rec_drawn:
     mov byte [cursor_col], dpi_prompt_col
     mov si, low_scratch_start + (recertify_msg_text - PHASE_BASE)
     mov cx, recertify_word_len

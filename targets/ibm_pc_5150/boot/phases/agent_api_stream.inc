@@ -35,7 +35,25 @@ agent_api_stream_phase:
     ; (~586 B) overflowed it into TLS/config scratch and hung the send (16K freeze). Splitting
     ; keeps each record well under the cap; the body now spans 4 TLS records.
     mov di, api_request_plain + tls_record_header_len
+    ; Build 12 native tool calling: on a NORMAL (non-compaction) ready turn on a loop-cache tier (32K+),
+    ; splice the tools array right after the model, streaming the resident tools_cache. 16K
+    ; (loop_cache_count==0) sends NO tools yet -- a valid tool-less request; its multi-sector floppy
+    ; stream is T7. api_json_tools_open_text ('","tools":') closes the model string, so the reasoning
+    ; prefix that follows skips its own leading model-close quote (si+1); the no-tools path uses the
+    ; prefix verbatim (its '","' closes the string). si holds the reasoning source across the splice.
     mov si, PHASE_LOAD_ADDR + (api_json_reasoning_prefix - PHASE_BASE)
+    cmp byte [compacting_msg], 0
+    jne .chunk2_do_reasoning
+    cmp word [loop_cache_count], 0
+    je .chunk2_do_reasoning
+    mov si, PHASE_LOAD_ADDR + (api_json_tools_open_text - PHASE_BASE)
+    call agent_api_stream_append_z_to_buffer
+    mov si, tools_cache
+    mov cx, [prompt_tools_size]
+    call agent_api_stream_stream_contract.sc_copy   ; stream schema as <=440 B records; di=body on return
+    jc .prefix_failed
+    mov si, PHASE_LOAD_ADDR + (api_json_reasoning_prefix - PHASE_BASE) + 1
+.chunk2_do_reasoning:
     call agent_api_stream_append_z_to_buffer
     ; Build 11 #4: chunk 2 instructions value. CRITICAL: every TLS record's TX frame (record + ~75 B
     ; TLS/TCP/IP/Eth overhead) must fit the 512 B scratch (ne_tx_frame at low_scratch_start .. the phase
@@ -170,6 +188,9 @@ agent_api_stream_phase:
     phase_call_res tls_send_application_data_current_seq
     ret
 
+; Build 12 native tool calling: input stays a STRING for T2 (offering tools + the model CALLING them
+; needs no array). The array envelope (input:[{role:user,content:...}] + function_call_output items +
+; store:false) lands in T5 when tool RESULTS are sent back -- deferred to keep this maxed phase in budget.
 api_stream_json_close_text db '","stream":true}', 0
 api_stream_json_close_text_len equ $ - api_stream_json_close_text - 1
 
@@ -285,9 +306,11 @@ agent_api_stream_append_u16_decimal:
     pop cx
     ret
 
-api_targets_pre_text db ' Target about ', 0
+; Build 12: shortened (was ' Target about '/' characters, at most ') to reclaim phase bytes for the
+; tools splice. Same meaning to the model; Content-Length auto-tracks the derived _len constants.
+api_targets_pre_text db ' ~', 0
 api_targets_pre_len equ $ - api_targets_pre_text - 1
-api_targets_mid_text db ' characters, at most ', 0
+api_targets_mid_text db ' chars max ', 0
 api_targets_mid_len equ $ - api_targets_mid_text - 1
 api_targets_post_text db '.', 0
 api_targets_post_len equ $ - api_targets_post_text - 1
@@ -297,7 +320,9 @@ api_compaction_targets_fixed_len equ api_targets_pre_len + api_targets_mid_len +
 ; slot). Frames the note as background memory and explicitly tells the model not to restate it, so the
 ; post-compaction turn answers the user's new prompt (in "input") instead of continuing the note. Plain
 ; ASCII (no " or \), so its length is fixed; compute_ready_body_lengths adds api_note_label_text_len.
-api_note_label_text db ' Conversation so far (context, do not restate): ', 0
+; Build 12: shortened (was ' Conversation so far (context, do not restate): ') to reclaim phase bytes
+; for the tools splice; keeps the load-bearing 'do not restate'. Content-Length auto-tracks the _len.
+api_note_label_text db ' Context (do not restate): ', 0
 api_note_label_text_len equ $ - api_note_label_text - 1
 
 agent_api_stream_append_z_to_buffer:
@@ -433,6 +458,11 @@ api_json_reasoning_prefix_len equ $ - api_json_reasoning_prefix - 1
 ; from the phase image; the floppy content follows it.
 api_json_input_open_text db '","input":"', 0
 api_json_input_open_text_len equ $ - api_json_input_open_text - 1
+; Build 12: spliced right after the model on a NORMAL ready turn on a loop-cache tier -- closes the
+; model string and opens the tools array key. The schema bytes (resident tools_cache) stream next, then
+; reasoning_prefix+1 (its leading model-close quote skipped, since this already closed the string).
+api_json_tools_open_text db '","tools":', 0
+api_json_tools_open_text_len equ $ - api_json_tools_open_text - 1
 ; Build 11 recall fix: vendor-agnostic role labels for the carried conversation window (the
 ; compactable layer; identity+ledger stay in "instructions"). Plain JSON-safe text - no escaping,
 ; no newlines (append_context flattens controls to spaces anyway) - so they pass through unchanged
@@ -817,8 +847,9 @@ agent_api_stream_append_prompt_to_context:   ; accumulate the just-sent prompt (
 ; turn to the user. Dark-gray on CGA (0x08); MDA falls back to normal (0x08 can be invisible there).
 agent_api_stream_show_compacting:
     push es
-    ; Advance to a fresh line (scrolling the text area up at the bottom, exactly like the renderer)
-    ; so the status gets its own line below the prompt; the reply then renders below the status.
+    ; Type-change spacing: a blank line before the "> compacting" system line (it follows the reply), then
+    ; advance again so the status gets its own line; the trailing advance keeps a blank before the reply.
+    call .compacting_advance
     call .compacting_advance
     mov bx, [video_seg]
     mov dl, 0x08
@@ -857,14 +888,9 @@ agent_api_stream_show_compacting:
 .compacting_advance:
     cmp byte [cursor_row], dpi_prompt_row
     jb .compacting_adv_inc
-    mov ah, 0x06
-    mov al, 1
-    mov bh, 0x07
-    mov cx, 0x0100
-    mov dh, dpi_prompt_row
-    mov dl, [screen_cols]
-    dec dl
-    int 0x10
+    mov ax, 0x0601                        ; scroll up 1 line via the resident helper (same region as the
+    mov cx, 0x0100                        ; old inline int 10h; scroll_br = dpi_prompt_row/cols-1) -- smaller
+    phase_call_res scroll_text_area
     ; Build 11 #4 RECAP FIX (2026-06-10, wire-proven): this scroll moves the captured user prompt up one
     ; row. pass-2 (the post-compaction real turn) rebuilds its prompt by reading the screen at
     ; dpi_prompt_marker_row (restore_prompt_from_screen + append_prompt_screen_to_buffer). If the marker is

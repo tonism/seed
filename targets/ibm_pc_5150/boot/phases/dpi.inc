@@ -29,8 +29,7 @@ dpi_phase:
     mov bx, net_setup_phase_start
     phase_call_res load_core_sectors_at
     jc .tools_skipped
-    mov bx, net_setup_phase_start
-    call bx
+    call bx                          ; load_core_sectors_at preserves bx (still = net_setup_phase_start)
     ; Build 12 env save/load: the tool phase set save_pending on a "$s". Run the cold save phase now --
     ; the tool phase has returned, so its 0x0900 slot is free to load the save over (dpi runs at 0x0700,
     ; no overlap). The save captures the window + screen and writes ENV.DAT; it draws its own status line.
@@ -40,8 +39,7 @@ dpi_phase:
     mov bx, net_setup_phase_start
     phase_call_res load_core_sectors_at
     jc .tools_skipped
-    mov bx, net_setup_phase_start        ; re-set (match the M-load above; don't assume bx survives)
-    call bx
+    call bx                          ; load_core_sectors_at preserves bx (still = net_setup_phase_start)
 .tools_skipped:
     cmp byte [api_stream_event_ready], 1
     je .request_phase_ready
@@ -53,16 +51,23 @@ dpi_phase:
 .request_phase_ready:
     call .show_cursor
     call .drain_kbd
-    call .render_prompt
-
-    ; Build 10 (agentic loop): the tool phase set agent_loop_pending and staged the continue
-    ; directive in dpi_input_buf when a tool fired (and the budget was not spent). Submit it
-    ; immediately instead of waiting for the user; the model acts on the tool results and
-    ; either calls more tools (loop continues) or answers (no tool -> pending clears).
+    ; Build 10 (agentic loop): the tool phase set agent_loop_pending and staged the continue directive
+    ; in dpi_input_buf when a tool fired (and the budget was not spent). An auto-continue is NOT a user
+    ; turn: there is no input to read and NO prompt to draw. Drawing one here made render_prompt paint a
+    ; "> " that .submit_line then erased -- leaving stray blank rows and resetting render_last_type to
+    ; USER, which broke the system->agent spacing (the uneven gaps after "> write to .."). So on a pending
+    ; continue, skip all prompt UI: stage the directive length and return CF=0 to send. The continue's
+    ; reply still positions itself (one blank, system->agent, via agent_response) because agent_request's
+    ; .build_openai_request clears api_stream_seen on every send, so the reply's first char runs the
+    ; positioning branch. render_last_type stays SYSTEM (no draw_prompt), so the reply gets exactly one
+    ; blank. On a real user turn (not pending) fall through to draw the prompt and read keys.
     cmp byte [agent_loop_pending], 0
-    je .read_key
+    je .draw_prompt_and_read
     mov byte [dpi_input_len_byte], agent_continue_len
-    jmp .enter
+    clc
+    ret
+.draw_prompt_and_read:
+    call .render_prompt
 
 .read_key:
     call .sync_cursor
@@ -147,6 +152,9 @@ dpi_phase:
     mov byte [cursor_row], dpi_prompt_row - 2
     ; (cursor_col is set by .draw_prompt below)
 .draw_prompt:
+    mov byte [render_last_type], render_type_user   ; type-change spacing: a new user turn resets the tracker
+                                                    ; so the reply's blank comes from the ENTER, not a stale
+                                                    ; SYSTEM left by a turn that ended on a tool/status line
     mov al, [cursor_row]
     mov byte [cursor_col], dpi_prompt_col
     mov [dpi_prompt_marker_row], al

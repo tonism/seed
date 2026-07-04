@@ -240,6 +240,9 @@ preload_loop_cache:
     mov cx, [prompt_compact_size]
     mov bx, prompt_compact_cache
     call .preload_one_prompt
+    ; Build 12 native tool calling: the tools schema is preloaded into tools_cache by the agents_cfg
+    ; PHASE (not here) -- the resident nucleus is full, and agents_cfg already finds the cluster and runs
+    ; after ram_top is set, so it does the 2-sector load into tools_cache on the loop-cache tiers.
     pop ax
     mov [loop_cache_count], ax  ; phase cache live; the prompt cache is gated on loop_cache_count > 0 too
     pop es
