@@ -183,11 +183,10 @@ native tool calling T3-T6 (SHIPPED on the 32 KiB loop-cache tier) - the inline "
   items with store:false, and deletes the old "$"-scan / synthetic Continue path. Validated 5 July 2026
   on original-speed 32 KiB vm-net-ne2k8 direct boot: plain chat returned "ok"; read_mem(0x00000400,8)
   returned "f8 03 f8 02 00 00 00 00". 16 KiB tools schema streaming remains deferred to T7.
-UI polish - smart linebreaking (one blank between render groups, none within), the apostrophe /
-  non-ASCII->ASCII glyph map, and the situational-awareness + identity-prompt review. Most of these are
-  BLOCKED on "render-phase room" (below) - the same 512-B receive/render squeeze that native tools hit,
-  so the "make room" enabler serves both. The unified type-change spacing groundwork shipped (Build 12
-  task-19: one render_last_type tracker across all message types).
+UI polish - SHIPPED: the shared render_last_type tracker gives one blank between user/agent/system
+  render groups and none within a run; model responses wrap on spaces in the last eight columns so the
+  next word starts on the next line instead of splitting at the hard edge; and the identity prompt
+  carries the situational-awareness + ASCII/non-ASCII guardrails.
 memory scaling continuation (286/386 native extended memory + HMA) - M1/M2 (8088 far + LIM EMS) SHIPPED
   (see below). The next reach is the 286/386's native extended memory (>1 MB flat via unreal/protected
   mode or the HMA), so context + arena scale past the EMS page-frame window without bank-switching.
@@ -216,22 +215,15 @@ cost the maxed render-phase budget and has no clean MDA treatment — no dim att
 Polish:
 
 ```text
-smart linebreaking - collapse the loop-hop blank lines + cursor-aware wrapping. Four render groups
-  (dpi prompt, model response, tool calling, system messages like "> reconnect"): no blank line within
-  a group, exactly one between different groups. Today the "$r .." + "> read from .." block abuts the
-  prose with no blank line before and too many after. BLOCKED on render-phase room (below).
-render-phase room (enabler) - the render phase is one full sector and cannot grow in place: a 2-sector
+render-phase room (future enabler) - the render phase is one full sector and cannot grow in place: a 2-sector
   phase below the nucleus lands inside the NIC packet buffer at 0x0700 (read up to ~1.5 KB during a
   receive). Shrink the RX read window to one MSS-frame - the receive already caps payload at 592, so it
-  is consistent - to free a safe 2-sector slot. Unblocks smart linebreaking + future renderer work.
-  Touches the transport/handshake receive path, so it needs handshake + multi-NIC re-validation.
+  is consistent - to free a safe 2-sector slot. Build 12 smart linebreaking fit in the hot sector; this
+  still unblocks render-level glyph mapping + future renderer work. Touches the transport/handshake
+  receive path, so it needs handshake + multi-NIC re-validation.
 apostrophe glyph - the model's occasional curly apostrophe (UTF-8) renders as CP437 garbage.
   Mitigated: the identity prompt now gives a concrete example (map non-ASCII to ', not curly). A
   guaranteed fix is a render-level non-ASCII->ASCII map, which needs the render-phase room above.
-situational awareness + identity prompt - strengthen the situational map (curb the 0ADD doodle) and
-  review/expand the identity prompt so the agent better understands where it lives, its opportunities,
-  and its risks. (The ledger arena/context sizes are auto-computed - a@ = chat_context_start + the live
-  window length - so the 592-byte RX shrink needed no manual recalc; a@ has been advertised since Build 10.)
 ```
 
 Bigger bets and research:

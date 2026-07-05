@@ -10,24 +10,32 @@
     dw %1 - (PHASE_LOAD_ADDR + ($ - PHASE_BASE) + 2)
 %endmacro
 
+; Tool scratch lives just above this 3-sector phase image (0x0900..0x0f00), below the cursor/phase-state
+; bytes around 0x0f55. Do not use fs_sector_buffer here: this phase overlaps it once the tool code grew to
+; 3 sectors, and native result writes would corrupt the late screen helpers/string table.
+tool_scratch_base equ net_setup_phase_start + 3 * 512
 ; One byte of scratch: 0 = emit to screen + result buffer, 1 = result-buffer only (model-facing data
-; the user does not need to see). fs_sector_buffer is the request-body scratch, dead
-; while this phase runs between turns (agent_request rebuilds it on the next send).
-tool_sink equ fs_sector_buffer
+; the user does not need to see).
+tool_sink equ tool_scratch_base
 ; Build 12 memory scaling (milestone 1): read_mem/write_mem/exec take a 32-bit flat address and reach it via a far
 ; seg:off translation (`seg = A>>4, off = A&0xF`), so the agent can address conventional memory beyond
-; segment 0. These scratch slots ride fs_sector_buffer beside tool_sink (dead during a tool turn):
+; segment 0. These scratch slots ride the same post-phase scratch as tool_sink:
 ;   tool_addr   dword  the parsed 32-bit flat address
 ;   tool_seg    word   the segment computed from tool_addr (the far access reloads es from it per byte,
 ;                      since the screen-output helpers clobber es)
 ;   tool_farptr dword  [off,seg] far pointer for `call far` in $x
 ;   tool_readbuf 32 B  read_mem stages the far bytes here (seg 0) before the hex dump, so the far read (es=seg)
 ;                      and the dump (es=video) don't fight over es
-tool_addr    equ fs_sector_buffer + 2
-tool_seg     equ fs_sector_buffer + 6
-tool_farptr  equ fs_sector_buffer + 8
-tool_readlen equ fs_sector_buffer + 12
-tool_readbuf equ fs_sector_buffer + 14
+tool_addr    equ tool_scratch_base + 2
+tool_seg     equ tool_scratch_base + 6
+tool_farptr  equ tool_scratch_base + 8
+tool_readlen equ tool_scratch_base + 12
+tool_readbuf equ tool_scratch_base + 14
+tool_scratch_end equ tool_readbuf + 32
+
+%if tool_scratch_end > cursor_row
+%error "tool scratch overlaps low phase state"
+%endif
 
 ; ---------------------------------------------------------------------------
 ; Build 12: native Responses function calling - the agent's "keys to the kingdom".
@@ -82,8 +90,9 @@ tool_phase:
     je .native_call
     cmp byte [tool_fc_state], 2
     jne .maybe_captured_call
-    mov byte [tool_fc_state], 0          ; prior tool result was already sent and answered
-    mov word [fc_capture_len], 0
+    xor ax, ax
+    mov [tool_fc_state], al              ; prior tool result was already sent and answered
+    mov [fc_capture_len], ax
     jmp .scan_done
 .maybe_captured_call:
     cmp word [fc_capture_len], 0         ; if the explicit state byte was lost, the capture length is
@@ -99,6 +108,8 @@ tool_phase:
     call .compute_fc_suffix_len
     jmp .scan_done
 .native_clear:
+    mov si, PHASE_LOAD_ADDR + (.response_failed_text - PHASE_BASE)
+    call .draw_status
     mov word [fc_capture_len], 0
     mov byte [tool_fc_state], 0
 .scan_done:
@@ -155,6 +166,7 @@ tool_phase:
 .stopped_text db '> stopped', 0
 .panic_text db '> panic stopped', 0
 .saved_text db '> saved', 0
+.response_failed_text db '> failed', 0
 
 ; Build 12 native function calling. agent_response captured raw SSE bytes after the
 ; function_call marker; parse the last seen call_id/name/arguments fields into compact
@@ -165,14 +177,6 @@ tool_phase:
     mov word [fc_args_len], 0
     mov byte [fc_call_id], 0
     mov byte [fc_name], 0
-    mov si, fc_capture_buf
-    mov cx, [fc_capture_len]
-    mov di, fc_args_buf
-    mov bp, fc_args_max - 1
-    call .copy_json_string
-    or ax, ax
-    jz .fc_parse_fail
-    mov [fc_args_len], ax
     mov bx, PHASE_LOAD_ADDR + (.key_call_id - PHASE_BASE)
     mov di, fc_call_id
     mov bp, 47
@@ -185,6 +189,20 @@ tool_phase:
     call .copy_last_field
     jc .fc_parse_fail
     mov [fc_name_len], al
+    mov bx, PHASE_LOAD_ADDR + (.key_args - PHASE_BASE)
+    mov di, fc_args_buf
+    mov bp, fc_args_max - 1
+    call .copy_last_field
+    jnc .args_ready
+    mov si, fc_capture_buf
+    mov cx, [fc_capture_len]
+    mov di, fc_args_buf
+    mov bp, fc_args_max - 1
+    call .copy_json_string
+    or ax, ax
+    jz .fc_parse_fail
+.args_ready:
+    mov [fc_args_len], ax
     clc
     ret
 .fc_parse_fail:
@@ -227,9 +245,6 @@ tool_phase:
     jc .dispatch_fail
     mov cx, ax
     call .arm_fc_result
-    mov si, chat_context_start
-    add si, [chat_context_used]
-    push si
     jmp .read_have_len
 .native_write:
     call .parse_addr_arg
@@ -257,7 +272,7 @@ tool_phase:
     mov byte [fc_output_buf], 0
     ret
 .compute_fc_suffix_len:
-    mov ax, api_fc_call_open_text_len + api_fc_name_mid_text_len + api_fc_args_mid_text_len
+    mov ax, api_fc_call_open_text_len - 3 + api_fc_name_mid_text_len + api_fc_args_mid_text_len
     add ax, api_fc_output_open_text_len + api_fc_output_mid_text_len + api_stream_json_close_text_len
     xor bh, bh
     mov bl, [fc_call_id_len]
@@ -426,7 +441,6 @@ tool_phase:
     ret
 
 .do_exec:
-    push si                          ; [A] scan ptr (restore before .skip_to_eol)
     call .addr_to_farptr             ; build [tool_farptr] = off:seg from the 32-bit tool_addr; es back to ds
     mov ax, .word_ran                ; print "> ran <addr>" BEFORE the call: a $x into bad code never returns,
     call .res_line                   ; so the action line must land first or the screen looks stuck on the
@@ -456,19 +470,10 @@ tool_phase:
     call .out_str                    ; " cf="
     pop ax                           ; [E] CF char
     call .out_putc
-    pop si                           ; [A] scan ptr
-    jmp .skip_to_eol
+    ret
 
 ; $r ADDR LEN : read LEN (<=32) bytes from the flat address. The far read (es=segment) and the hex dump
 ; (es=video) fight over es, so stage the bytes into tool_readbuf (seg 0) first, then dump that near.
-.do_read:
-    call .parse_hex                  ; ax = len (16-bit; the high word is ignored)
-    push si                          ; [A] save scan ptr - .res_line clobbers si; w/o this .skip_to_eol wild-scans
-    jc .read_zero
-    mov cx, ax
-    jmp .read_have_len
-.read_zero:
-    xor cx, cx
 .read_have_len:
     cmp cx, 32                       ; cap so the result line stays bounded
     jbe .read_capped
@@ -507,8 +512,7 @@ tool_phase:
     loop .read_byte
 .read_eol:
     call .res_close
-    pop si                           ; [A] restore scan ptr
-    jmp .skip_to_eol
+    ret
 
 ; $w ADDR B B ... : write the byte stream to the flat address. parse_hex preserves bx and es, so the
 ; far es:bx write pointer rides across each byte parse; off<=0xF + a hex-typed stream never crosses 64K.
@@ -528,7 +532,7 @@ tool_phase:
 .write_eol:
     push ds
     pop es                           ; es back to ds
-    jmp .skip_to_eol
+    ret
 
 ; ---- flat 32-bit address -> far access (Build 12 milestone 1) ----
 ; tool_addr (dword) holds the parsed flat address. On an 8088/V30 every conventional byte (<=1 MB) is
@@ -576,21 +580,6 @@ tool_phase:
     mov [tool_farptr + 2], ax        ; segment
     push ds
     pop es                           ; es back to ds (the far call reads [tool_farptr] ds-relative)
-    ret
-
-; Advance si to the next newline (or window end). Returns to .scan, which then
-; recomputes the window end and resumes (the newline re-arms the line-start flag).
-.skip_to_eol:
-    mov bx, chat_context_start
-    add bx, [chat_context_used]
-.eol_next:
-    cmp si, bx
-    jae .eol_done
-    cmp byte [si], 10
-    je .eol_done
-    inc si
-    jmp .eol_next
-.eol_done:
     ret
 
 ; ---- parse one hex token at [si] into a 32-bit value ----
@@ -672,8 +661,11 @@ tool_phase:
     ; is the shared tracker (reconnect-safe block); every renderer routes its transition through it.
     cmp byte [render_last_type], render_type_system
     je .res_line_nl
-    mov byte [render_last_type], render_type_system
+    cmp byte [render_last_type], render_type_user
+    je .res_line_set_type
     call .scr_newline
+.res_line_set_type:
+    mov byte [render_last_type], render_type_system
 .res_line_nl:
     call .scr_newline                ; screen fresh line (scroll-aware; may touch es)
     call .scr_set_video              ; then point es at video
@@ -725,16 +717,23 @@ tool_phase:
 .fop_done:
     pop bx
     ret
-; .scr_putc : al -> [es:di] with the dim attribute, di+=2. No per-char pacing: an agent
-; writing a large program emits many tool lines, and a typewriter pause per char would
-; drag badly on faster/bigger machines. Dim, but instant.
+; .scr_putc : al -> screen at the tracked cursor with the dim attribute, advancing cursor_col.
+; No per-char pacing: an agent writing a large program emits many tool lines, and a typewriter
+; pause per char would drag badly on faster/bigger machines. Dim, but instant.
 .scr_putc:
-    mov ah, 0x08
+    push bx
+    mov bl, 0x08
     test word [handoff_addr + handoff_flags], handoff_flag_mda
     jz .sp_store
-    mov ah, 0x07
+    mov bl, 0x07
 .sp_store:
-    stosw
+    phase_call_res print_char
+    pop bx
+    mov al, [cursor_col]
+    cmp al, [screen_cols]
+    jb .sp_done
+    call .scr_newline
+.sp_done:
     ret
 
 .out_hex32:                          ; tool_addr (dword) -> 8 hex chars (high word then low)
@@ -811,6 +810,7 @@ tool_phase:
 .text_cf    db ' cf=', 0
 .key_call_id db '"call_id":"', 0
 .key_name db '"name":"', 0
+.key_args db '"arguments":"', 0
 .arg_addr db '\', '"', 'addr', '\', '"', ':', '\', '"', 0
 .arg_addr_num db '\', '"', 'addr', '\', '"', ':', 0
 .arg_len db '\', '"', 'len', '\', '"', ':', 0

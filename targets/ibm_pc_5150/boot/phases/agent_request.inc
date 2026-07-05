@@ -160,6 +160,7 @@ agent_request_phase:
     mov byte [api_http_header_match], 0
     cmp byte [handoff_addr + handoff_status], handoff_status_ready
     je .build_ready_openai_request
+    mov byte [prev_response_id], 0
     mov byte [dpi_input_len_byte], 0
     mov byte [dpi_prompt_marker_row], 0
     mov byte [api_stream_event_ready], 0
@@ -237,6 +238,12 @@ agent_request_phase:
     mov ax, [chat_context_used]
     mov [note_len], ax
 .note_len_kept:
+    xor ax, ax
+    mov [chat_context_used], ax
+    mov [far_flushed_len], ax
+    mov [far_flushed_len + 2], ax
+    mov [far_flushed_esc], ax
+    mov [far_flushed_esc + 2], ax
     ; Build 12 Stage C (C1b) far-log flush (>64 KB machine): replaces the Build-11 model-summarize
     ; compaction when the far log is active. When the seg-0 window reaches the 75% trigger
     ; (chat_compact_threshold), FREEZE it into the far log -- it was just mirrored at far_flushed_len by
@@ -354,31 +361,6 @@ agent_request_phase:
     mov word [tls_app_plain_ptr], api_request_plain + tls_record_header_len
     cmp ax, api_request_plain_len
     ja .request_too_large
-    ; Accumulate the user's prompt for the NEXT turn after Content-Length/dialogue_cnt are fixed, but
-    ; before a reconnect handshake can clobber dpi_input_buf (tls_rx_copy). Compaction still clears the
-    ; old window in the stream phase just before receiving the summary.
-    xor ch, ch
-    cmp [compacting_msg], ch
-    jne .prompt_store_done
-    mov cl, [chat_prompt_len_cache]
-    jcxz .prompt_store_done
-    mov bx, cx
-    add bx, api_json_user_label_text_len + api_json_you_label_text_len
-    mov di, [chat_context_used]
-    add bx, di
-    cmp bx, [chat_context_len_var]
-    ja .prompt_store_done
-    add di, chat_context_start
-    mov ax, 'U:'
-    stosw
-    mov si, dpi_input_buf
-    rep movsb
-    mov ax, 'A:'
-    stosw
-    mov al, 10
-    stosb
-    mov [chat_context_used], bx
-.prompt_store_done:
     clc
     ret
 .request_key_failed:
@@ -459,11 +441,12 @@ agent_request_phase:
     xor ch, ch
     call agent_request_phase_json_bytes_len
 .prompt_len_ready:
-    add ax, api_ready_stream_close_text_len
     cmp byte [tool_fc_state], 2
-    jne .tail_len_ready
-    add ax, [fc_suffix_len]
-    sub ax, api_ready_stream_close_text_len
+    jne .tail_user_len
+    mov ax, [fc_suffix_len]
+    jmp .tail_len_ready
+.tail_user_len:
+    add ax, api_json_user_item_open_text_len + api_ready_stream_close_text_len
 .tail_len_ready:
     mov [api_response_pending_len], ax
     add ax, bx
@@ -482,6 +465,17 @@ agent_request_phase:
     add ax, api_json_tools_open_text_len - 1
     add ax, [prompt_tools_size]
 .no_tools_len:
+    cmp byte [prev_response_id], 0
+    je .no_prev_id_len
+    add ax, api_json_prev_response_id_text_len
+    push ax
+    mov si, prev_response_id
+    mov cx, prev_response_id_max
+    call agent_request_phase_strlen_z_bounded
+    pop dx
+    jc .body_failed
+    add ax, dx
+.no_prev_id_len:
     ; instructions value = the compaction contract (compaction) OR identity + ledger (normal turn).
     ; Build 11 #4: the contract/identity are streamed off the floppy, so their length is the cached
     ; file size (prompt_compact_size / prompt_id_size), not a compile-time string length. The bytes
@@ -536,9 +530,7 @@ agent_request_phase:
     ; answer arrived on the wire yet the screen stayed blank -> silent return to DPI (reproduced
     ; 2026-06-06 on "tell me more about that" turns). The directive also provoked history-repeating.
     ; Now the window simply grows to its cap and resets on overflow (agent_api_stream_append_prompt_
-    ; to_context); the reply always renders. compact_next stays 0 here; only a tool '$' line raises
-    ; it (agent_response.inc), never compaction. cx (raw window count) is now unused here.
-    mov byte [compact_next], 0
+    ; to_context); the reply always renders. cx (raw window count) is now unused here.
     mov [api_body_len], ax
     clc
     ret

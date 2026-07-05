@@ -183,6 +183,7 @@ hardware_setup_phase_display:
                                     ; both at the greeting, before agent_request resets esc_stop
     mov byte [dpi_reached], 0       ; Build 11 ESC gate: hook stays inert until dpi_phase sets this post-boot
     mov word [chat_context_used], 0
+    mov byte [prev_response_id], 0
     ; Build 12 milestone 2 (EMS): detect + size the Lo-tech EMS board bare-metal (board registers, no
     ; int 67h/EMM). ems_page_count = 0 means no board -> EMS inactive (byte-for-byte milestone 1). Probe
     ; via slot 0 (port ems_base_port, window seg ems_frame_seg): map logical page 0, write a signature to

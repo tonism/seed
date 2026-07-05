@@ -43,16 +43,41 @@ agent_api_stream_phase:
     ; prefix verbatim (its '","' closes the string). si holds the reasoning source across the splice.
     mov si, PHASE_LOAD_ADDR + (api_json_reasoning_prefix - PHASE_BASE)
     cmp byte [compacting_msg], 0
-    jne .chunk2_do_reasoning
+    jne .chunk2_prev_model_open
     cmp word [loop_cache_count], 0
-    je .chunk2_do_reasoning
+    je .chunk2_prev_model_open
     mov si, PHASE_LOAD_ADDR + (api_json_tools_open_text - PHASE_BASE)
     call agent_api_stream_append_z_to_buffer
     mov si, tools_cache
     mov cx, [prompt_tools_size]
     call agent_api_stream_stream_contract.sc_copy   ; stream schema as <=440 B records; di=body on return
     jc .prefix_failed
+    jmp .chunk2_prev_model_closed
+.chunk2_prev_model_open:
+    cmp byte [prev_response_id], 0
+    je .chunk2_reasoning_open
+    mov si, PHASE_LOAD_ADDR + (api_json_prev_response_id_text - PHASE_BASE)
+    call agent_api_stream_append_z_to_buffer
+    mov si, prev_response_id
+    call agent_api_stream_append_z_to_buffer
+    mov al, '"'
+    stosb
+.chunk2_reasoning_closed:
     mov si, PHASE_LOAD_ADDR + (api_json_reasoning_prefix - PHASE_BASE) + 1
+    jmp .chunk2_do_reasoning
+.chunk2_reasoning_open:
+    mov si, PHASE_LOAD_ADDR + (api_json_reasoning_prefix - PHASE_BASE)
+    jmp .chunk2_do_reasoning
+.chunk2_prev_model_closed:
+    cmp byte [prev_response_id], 0
+    je .chunk2_reasoning_closed
+    mov si, PHASE_LOAD_ADDR + (api_json_prev_response_id_text - PHASE_BASE) + 1
+    call agent_api_stream_append_z_to_buffer
+    mov si, prev_response_id
+    call agent_api_stream_append_z_to_buffer
+    mov al, '"'
+    stosb
+    jmp .chunk2_reasoning_closed
 .chunk2_do_reasoning:
     call agent_api_stream_append_z_to_buffer
     ; Build 11 #4: chunk 2 instructions value. CRITICAL: every TLS record's TX frame (record + ~75 B
@@ -107,30 +132,18 @@ agent_api_stream_phase:
     je .done
 .tail_build:
     mov di, api_request_plain + tls_record_header_len
-    ; Build 12 Stage C (C1b): "input" = the dialogue range agent_request precomputed (dialogue_off +
-    ; the 32-bit dialogue_cnt); the source segment is far_log_seg_var (the far log, or seg 0 on a <=64 KB
-    ; machine). append_context renormalizes ds across 64 KB as the far log streams past segment 0x1000.
-    mov si, [dialogue_off]
-    mov cx, [dialogue_cnt]
-    mov dx, [dialogue_cnt + 2]
-    call agent_api_stream_append_context
-    jc .failed
+    cmp byte [tool_fc_state], 2
+    je .tail_fc_output
+    mov si, PHASE_LOAD_ADDR + (api_json_user_item_open_text - PHASE_BASE)
+    call agent_api_stream_append_z_to_buffer
     cmp byte [compacting_msg], 0
     jne .tail_close                           ; compaction: input = the window alone, no user prompt
     call agent_api_stream_append_prompt_screen_to_buffer
     jc .failed
 .tail_close:
-    cmp byte [tool_fc_state], 2
-    jne .tail_close_json
-    mov ax, di
-    sub ax, api_request_plain + tls_record_header_len
-    jz .tail_fc_empty
-    call .send_app_record
-    jc .failed
-    phase_call_res tls_prepare_3c501_receive
-    mov di, api_request_plain + tls_record_header_len
-.tail_fc_empty:
-    call agent_api_stream_append_fc_items
+    jmp .tail_close_json
+.tail_fc_output:
+    call agent_api_stream_append_fc_output_item
 .tail_close_json:
     mov si, PHASE_LOAD_ADDR + (api_stream_json_close_text - PHASE_BASE)
     call agent_api_stream_append_z_to_buffer
@@ -170,7 +183,7 @@ agent_api_stream_phase:
     mov word [api_stream_state], ax
     mov word [api_stream_seen], ax
     mov word [api_http_state], ax
-    mov [api_stream_text_seen], al
+    mov word [api_stream_text_seen], ax
     mov word [fc_match_state], ax
     ; Seed the pre-position cursor column; .emit_to_screen sets the real cursor on first output.
     mov [cursor_col], al
@@ -192,8 +205,12 @@ agent_api_stream_phase:
 
 ; Build 12 native tool calling: ready turns use the Responses input array so a native tool result can be
 ; represented as function_call + function_call_output items. The cold boot greeting remains string-input.
-api_stream_json_close_text db '"}],"store":false,"stream":true}', 0
+api_stream_json_close_text db '"}],"stream":true}', 0
 api_stream_json_close_text_len equ $ - api_stream_json_close_text - 1
+api_json_user_item_open_text db '{"role":"user","content":"', 0
+api_json_user_item_open_text_len equ $ - api_json_user_item_open_text - 1
+api_json_prev_response_id_text db '","previous_response_id":"resp_', 0
+api_json_prev_response_id_text_len equ $ - api_json_prev_response_id_text - 1
 api_fc_call_open_text db '"},{"type":"function_call","call_id":"', 0
 api_fc_call_open_text_len equ $ - api_fc_call_open_text - 1
 api_fc_name_mid_text db '","name":"', 0
@@ -336,8 +353,8 @@ agent_api_stream_append_z_to_buffer:
 .append_done:
     ret
 
-agent_api_stream_append_fc_items:
-    mov si, PHASE_LOAD_ADDR + (api_fc_call_open_text - PHASE_BASE)
+agent_api_stream_append_fc_output_item:
+    mov si, PHASE_LOAD_ADDR + (api_fc_call_open_text - PHASE_BASE) + 3
     call agent_api_stream_append_z_to_buffer
     mov si, fc_call_id
     mov cl, [fc_call_id_len]
@@ -475,7 +492,7 @@ api_json_reasoning_prefix_len equ $ - api_json_reasoning_prefix - 1
 ; (agent_api_stream_append_floppy_prompt). This frees the phase bytes they used and lifts the
 ; in-phase prompt-length cap (the contract can now be detailed). The prefix above still rides record A
 ; from the phase image; the floppy content follows it.
-api_json_input_open_text db '","input":[{"role":"user","content":"', 0
+api_json_input_open_text db '","input":[', 0
 api_json_input_open_text_len equ $ - api_json_input_open_text - 1
 ; Build 12: spliced right after the model on a NORMAL ready turn on a loop-cache tier -- closes the
 ; model string and opens the tools array key. The schema bytes (resident tools_cache) stream next, then

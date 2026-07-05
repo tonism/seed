@@ -37,7 +37,23 @@ agent_response_phase:
     ret
 
 .accept_raw_byte:
-    cmp byte [tool_fc_state], 1
+    cmp byte [api_http_state], 0
+    je .resp_id_capture_done
+    cmp al, '"'
+    je .resp_id_capture_end
+    xor bx, bx
+    mov bl, [api_http_header_match]
+    cmp bl, prev_response_id_max - 1
+    jae .parser_ret
+    mov [prev_response_id + bx], al
+    inc byte [api_http_header_match]
+    mov byte [prev_response_id + bx + 1], 0
+    ret
+.resp_id_capture_end:
+    mov word [api_http_state], 0
+    ret
+.resp_id_capture_done:
+    cmp byte [tool_fc_state], 3
     jne .fc_capture_done
     mov bx, [fc_capture_len]
     cmp bx, fc_capture_max - 1
@@ -45,26 +61,17 @@ agent_response_phase:
     mov [fc_capture_buf + bx], al
     inc word [fc_capture_len]
 .fc_capture_done:
-    mov si, PHASE_LOAD_ADDR + (done_pattern - PHASE_BASE)
-    cmp byte [tls_key_schedule_ready], 0
-    je .done_pattern_ready
     mov si, PHASE_LOAD_ADDR + (completed_pattern - PHASE_BASE)
-.done_pattern_ready:
-    cmp byte [api_stream_done_match], 0
-    jne .match_done
-    cmp al, [si]
-    jne .scan_delta
-.match_done:
     mov di, api_stream_done_match
     call .match_char
     jc .scan_delta
 .done_ready:
 .completion_ready:
-    mov byte [tls_key_schedule_ready], 0
     mov al, 3
-    ; Treat SSE completion as terminal and force the next turn to reconnect. This avoids carrying an
-    ; unread chunk trailer into a native function_call_output follow-up.
+    ; Treat SSE completion as terminal for this streamed response. HTTP/SSE reuse is still not reliable
+    ; on this path, so the next turn opens a fresh TLS session quietly instead of drawing reconnect.
     mov [api_stream_completed], al
+    mov byte [tls_key_schedule_ready], tls_key_schedule_quiet_reconnect
     ret
 
 .scan_delta:
@@ -80,25 +87,36 @@ agent_response_phase:
     ret
 
 .scan_idle:
+    mov si, PHASE_LOAD_ADDR + (response_id_pattern - PHASE_BASE)
+    mov di, api_http_header_match
+    call .match_char
+    jc .fc_args_probe
+    mov word [api_http_state], 1
+    ret
+.fc_args_probe:
     mov si, PHASE_LOAD_ADDR + (arguments_pattern - PHASE_BASE)
     mov di, fc_match_state
+    call .match_char
+    jc .fc_start_probe
+    mov al, 3
+    mov [tool_fc_state], al
+    mov word [fc_capture_len], 0
+    mov byte [api_stream_text_seen], 1
+    ret
+.fc_start_probe:
+    mov si, PHASE_LOAD_ADDR + (fc_start_pattern - PHASE_BASE)
+    mov di, api_stream_prompt_len
     call .match_char
     jc .fc_no_match
     mov al, 1
     mov [tool_fc_state], al
-    mov word [fc_capture_len], 0
     mov [api_stream_text_seen], al
-    mov byte [tls_key_schedule_ready], 0
     ret
 .fc_no_match:
     cmp byte [tool_fc_state], 1
     je .parser_ret
-.delta_probe:
-    cmp byte [api_stream_delta_match], 0
-    jne .delta_match
-    cmp al, 'c'
-    jne .parser_ret
-.delta_match:
+    cmp byte [tool_fc_state], 3
+    je .parser_ret
     mov si, PHASE_LOAD_ADDR + (delta_key_pattern - PHASE_BASE)
     mov di, api_stream_delta_match
     call .match_char
@@ -152,30 +170,6 @@ agent_response_phase:
     ret
 
 .emit_char:
-    ; Build 11 #4 real compaction: store the rendered char into the window up to chat_effective_cap -
-    ; the FULL window on a normal turn, HALVED on a compaction pass (set once per request in
-    ; agent_request). The halving caps the summary at 50%, keeping the post-summary window below the
-    ; 75% trigger so the endpoint loop cannot re-fire. On a compaction pass the char is captured but
-    ; never drawn (.compaction_suppress): the summary is internal carried state, not an answer, so it
-    ; must not render - yet it must still mark text_seen so the socket is not read as empty/dead (->
-    ; spurious reconnect). Safe: a DEDICATED exchange with no user answer to eat, unlike the Build-10
-    ; recap that swallowed real replies. bx = pre-store used count.
-    mov bx, [chat_context_used]
-    cmp bx, [chat_effective_cap]
-    jae .emit_char_stored               ; window/summary cap reached: stop accumulating
-    mov [chat_context_start + bx], al
-    inc word [chat_context_used]
-.emit_char_stored:
-    cmp word [compacting_msg], 0
-    je .emit_to_screen
-.compaction_suppress:
-    ; A compaction summary (or an ESC graceful-stop) is captured into the window above but never
-    ; drawn; mark text_seen so the transport-completion scan still runs (it gates on text_seen) and a
-    ; reply that draws nothing is not misread as an empty/dead socket -> spurious reconnect. compact_next
-    ; is NOT touched: agent_request resets it every request and compaction never reads it.
-    mov byte [api_stream_text_seen], 1
-    ret
-.emit_to_screen:
     cmp byte [api_stream_seen], 0
     jne .live_ready
     cmp byte [handoff_addr + handoff_status], handoff_status_ready
@@ -184,6 +178,10 @@ agent_response_phase:
     jz .position_cold_greeting
 .position_live_response:
     push ax
+    cmp byte [render_last_type], render_type_system
+    jne .position_one_line
+    call .advance_response_line
+.position_one_line:
     call .advance_response_line
     pop ax
 .position_cold_greeting:
@@ -194,12 +192,20 @@ agent_response_phase:
     mov byte [render_last_type], render_type_agent
     mov byte [api_stream_text_seen], 1
     mov byte [api_stream_seen], 1
-    call .sync_response_video_offset
 .live_ready:
     cmp al, 10
     je .emit_newline
-    call agent_response_write_char_direct
-    inc byte [cursor_col]
+    cmp al, ' '
+    jne .emit_glyph
+    mov ah, [screen_cols]
+    sub ah, 8
+    cmp [cursor_col], ah
+    jae .emit_newline
+.emit_glyph:
+    push cx
+    mov bl, 0x07
+    phase_call_res print_char
+    pop cx
     mov al, [cursor_col]
     cmp al, [screen_cols]
     jb .emit_done
@@ -220,43 +226,19 @@ agent_response_phase:
 .move_down:
     inc byte [cursor_row]
     mov byte [cursor_col], dpi_prompt_col
-    call .sync_response_video_offset
-    ret
-
-.sync_response_video_offset:
-    push ax
-    xor ax, ax
-    mov al, [cursor_row]
-    mov bl, [screen_cols]
-    mul bl
-    xor bh, bh
-    mov bl, [cursor_col]
-    add ax, bx
-    shl ax, 1
-    mov [api_body_len], ax
-    pop ax
     ret
 
 completed_pattern db 'response.completed', 0
 done_pattern equ completed_pattern
-arguments_pattern db 'arguments":"', 0
-delta_key_pattern db 'content_index":0,"delta":"', 0
+arguments_pattern db 'arguments":"{', 0
+fc_start_pattern db 'function_call', 0
+response_id_pattern db '"resp_', 0
+delta_key_pattern db 'delta":"', 0
 
 ; Keep-alive GET template relocated to the persistent pool (ka_template_persistent), staged once
 ; at boot by hardware_setup. It must sit at a fixed address that survives the whole receive loop;
 ; it previously lived here (the only persistent loaded phase), but this one-sector phase is now
 ; full, so the pool hosts it instead. agent_api_keepalive sends it from there during long renders.
-
-agent_response_write_char_direct:
-    push es
-    mov ah, 0x07                         ; normal text attribute
-    mov bx, [video_seg]
-    mov es, bx
-    mov di, [api_body_len]
-    stosw
-    mov [api_body_len], di
-    pop es
-    ret
 
 %unmacro phase_call_res 1
 

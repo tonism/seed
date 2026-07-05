@@ -190,6 +190,7 @@ tls_server_next_handshake_len_high equ tls_server_next_handshake_type + 1
 tls_server_certificate_len_high equ tls_server_next_handshake_len_high + 1
 tls_server_certificate_list_len_high equ tls_server_certificate_len_high + 1
 tls_key_schedule_ready equ tls_server_certificate_list_len_high + 1
+tls_key_schedule_quiet_reconnect equ 2
 sha256_block_len equ tls_key_schedule_ready + 1
 sha256_saved_block_len equ sha256_block_len + 1
 sha256_schedule_count equ sha256_saved_block_len + 1
@@ -471,7 +472,7 @@ chat_cache_end equ chat_key_cache + seed_key_len
 reconnect_state_start equ chat_cache_end
 chat_resend_prompt_len equ reconnect_state_start
 reconnect_retries equ chat_resend_prompt_len + 1
-compact_next equ reconnect_retries + 1
+compact_next equ reconnect_retries + 1    ; legacy name; old '$' text compaction trigger is gone
 compacting_msg equ compact_next + 1
 ; Build 11 ESC-to-interrupt. esc_stop: the int 9 hook sets it on a plain ESC during a render (graceful
 ; stop) -- homed right after compacting_msg so emit_char suppresses on BOTH via one word cmp (0 extra
@@ -619,6 +620,8 @@ ka_template_persistent equ reconnect_state_end
 esc_int9_handler equ ka_template_persistent + ka_request_len
 esc_int9_old equ esc_int9_handler + esc_int9_handler_len
 chat_context_start equ esc_int9_old + 4
+prev_response_id equ chat_context_start
+prev_response_id_max equ 64
 chat_context_len equ 128
 chat_context_end equ chat_context_start + chat_context_len
 chat_arena_start equ chat_context_end

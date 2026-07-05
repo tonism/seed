@@ -49,7 +49,6 @@ dpi_phase:
     jc .agent_failed
     mov byte [api_stream_event_ready], 1
 .request_phase_ready:
-    call .show_cursor
     call .drain_kbd
     ; Native tool loop: the tool phase set agent_loop_pending after executing a structured function_call.
     ; An auto-continue is NOT a user
@@ -67,6 +66,7 @@ dpi_phase:
     clc
     ret
 .draw_prompt_and_read:
+    call .show_cursor
     call .render_prompt
 
 .read_key:
@@ -116,16 +116,6 @@ dpi_phase:
 .submit_line:
     call .hide_cursor
     mov dl, [cursor_row]
-    mov al, [dpi_prompt_marker_row]
-    and al, 0x7f
-    mov [cursor_row], al
-    mov byte [cursor_col], dpi_prompt_col
-    mov al, ' '
-    mov bl, [ready_attr]
-    push dx
-    phase_call_res print_char
-    pop dx
-    mov [cursor_row], dl
     cmp dl, dpi_prompt_row
     jne .submit_no_scroll
     dec byte [dpi_prompt_marker_row]
@@ -147,10 +137,9 @@ dpi_phase:
     call .advance_line
     jmp .draw_prompt
 .no_response_seen:
-    cmp byte [dpi_prompt_marker_row], 0
-    jne .draw_prompt
-    mov byte [cursor_row], dpi_prompt_row - 2
-    ; (cursor_col is set by .draw_prompt below)
+    cmp byte [cursor_col], 0
+    je .draw_prompt
+    call .advance_line
 .draw_prompt:
     mov byte [render_last_type], render_type_user   ; type-change spacing: a new user turn resets the tracker
                                                     ; so the reply's blank comes from the ENTER, not a stale

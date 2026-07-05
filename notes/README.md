@@ -5,13 +5,12 @@ This directory is working memory for active branch design and experiments.
 Active docs (Build 12, branch `work/scaling`):
 
 ```text
-native-tool-calling-design.md  MID-FLIGHT + Codex handover. Replace the "$" tool grammar with the
-                               model's structured function_call protocol. T2 shipped; T3-T6 handed to
-                               Codex. Read the "HANDOVER — Codex, start here" header first.
+native-tool-calling-design.md  HISTORY/HANDOVER. Build 12 native function_call support shipped on the
+                               32 KiB loop-cache tier; 16 KiB tools schema streaming remains deferred.
 memory-scaling-design.md       ROADMAP. 8088 + EMS scaling (M1/M2) SHIPPED in Build 12; the 286/386
                                native extended memory + HMA continuation lives here (post-Codex work).
-ui-unification-design.md       ROADMAP. UI polish (smart linebreaking etc.); most items blocked on the
-                               same "render-phase room" enabler native tools needs.
+ui-unification-design.md       ROADMAP/HISTORY. Build 12 UI polish shipped except the larger
+                               render-room-dependent renderer work, such as a guaranteed glyph map.
 ```
 
 Completed/shipped design + attempt logs (Build 8-12: memory-layout redesign, 286 secure tier,

@@ -224,8 +224,9 @@ checkpoint — keep iterating or stash, but do not commit it.
   "fix the previous commit" commits — fold them into the one meaningful unit.
 - Revert diagnostic scaffolding first (debug markers, short-circuit patches, a deliberately
   wrong test pin): commit the fix, not the investigation.
-- Do not push. The maintainer does the single push (and the Release ceremony below); local
-  commits accumulate on the work branch until then.
+- Do not push unless the maintainer explicitly asks for a push. Local commits
+  accumulate on the work branch until then; when asked, push only the requested
+  branch or ref.
 
 ## Release
 
