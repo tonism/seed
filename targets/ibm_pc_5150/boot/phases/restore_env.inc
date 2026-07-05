@@ -178,7 +178,6 @@ restore_env_phase:
     mov [chat_context_used], ax
     mov ax, [env_restore_stage + env_hdr_note_len]
     mov [note_len], ax
-    call restore_env_neutralize
     call restore_env_paint_screen    ; repaint the saved screen (for the user)
     cmp byte [fs_current_cluster], 0 ; bigger-machine warning?
     je .restored
@@ -488,33 +487,6 @@ restore_env_sum:
     dec cx
     jmp .sum_next
 .sum_done:
-    ret
-
-; Neutralize any line-start '$' in the restored window so last session's tool directives do NOT
-; re-fire on the first turn. in: chat_context_used. clobbers ax, bx, cx, si.
-restore_env_neutralize:
-    mov si, chat_context_start
-    mov cx, [chat_context_used]
-    jcxz .neu_done
-    mov bl, 1                        ; bl=1 => si is at a line start
-.neu_next:
-    mov al, [si]
-    cmp bl, 1
-    jne .neu_after_dollar
-    cmp al, '$'
-    jne .neu_after_dollar
-    mov byte [si], ' '
-.neu_after_dollar:
-    cmp al, 10
-    jne .neu_not_nl
-    mov bl, 1
-    jmp .neu_adv
-.neu_not_nl:
-    xor bl, bl
-.neu_adv:
-    inc si
-    loop .neu_next
-.neu_done:
     ret
 
 ; Build 12 step 3b (format 2): paint the per-row-trimmed screen snapshot so the user lands on the

@@ -102,11 +102,11 @@ load_marker_attr equ load_marker_char + 1
 ; Build 10 (agentic loop): live in low_phase_state (persists across phase loads, no resident
 ; nucleus cost). Not boot-cleared, so the tool phase clears agent_loop_pending at its entry
 ; each run and agent_loop_count self-heals (reset to 0 on the first no-tool turn, e.g. the
-; greeting). pending=1 + budget left -> dpi auto-submits the continue directive next turn.
+; greeting). pending=1 + budget left -> dpi auto-submits the structured tool-output turn.
 agent_loop_pending equ load_marker_attr + 1
 agent_loop_count equ agent_loop_pending + 1
-; Build 12 env save/load: a "$s save requested" flag. Lives in low_phase_state (persists across phase
-; loads, NO resident nucleus cost). The tool phase clears it at entry and sets it on a line-start "$s";
+; Build 12 env save/load: native save_env requested. Lives in low_phase_state (persists across phase
+; loads, NO resident nucleus cost). The tool phase clears it at entry and sets it on save_env;
 ; dpi runs the save phase when set (the tool phase can't load the save over itself). Cleared at the
 ; tool phase entry each run, so boot garbage can't trigger a spurious save before dpi reads it.
 save_pending equ agent_loop_count + 1
@@ -511,10 +511,10 @@ prompt_id_cluster equ chat_effective_cap + 2
 prompt_id_size equ prompt_id_cluster + 2
 prompt_compact_cluster equ prompt_id_size + 2
 prompt_compact_size equ prompt_compact_cluster + 2
-; Build 12 native tool calling: the tools JSON schema asset (prompts/tools.json, <=2 sectors), same
+; Build 12 native tool calling: the tools JSON schema asset (prompts/tools.json, <=1 sector), same
 ; boot-cached cluster+size scheme as identity/compact. Streamed RAW as the "tools" array value into
 ; ready requests. On 32K+ it is ALSO preloaded into the resident tools_cache (floppy-free loop); on
-; 16K it streams from the floppy per turn (2 sectors, read sector-by-sector -- see agent_resolve...).
+; 16K it streams from the floppy per turn in T7.
 prompt_tools_cluster equ prompt_compact_size + 2
 prompt_tools_size equ prompt_tools_cluster + 2
 ; Build 11 #4 note-as-memory: the conversation window (chat_context) is split into a NOTE prefix
@@ -592,7 +592,26 @@ render_last_type equ ems_ctx_off + 2
 render_type_user equ 1                     ; user prompt echo (dpi)
 render_type_agent equ 2                    ; model reply (agent_response)
 render_type_system equ 3                   ; tool results + status lines (tool_call / agent_endpoint / api_stream)
-reconnect_state_end equ render_last_type + 1
+; Build 12 native tool calling: transient captured function_call state. State 1 means the SSE scanner
+; saw a function_call and copied raw bytes to fc_capture_buf; state 2 means tool_call executed it and
+; the next request must echo function_call + function_call_output. The string buffers are JSON-ready:
+; call_id/name are raw identifiers, arguments is still the escaped Responses API argument string, and
+; output contains only Seed-generated JSON-safe ASCII.
+tool_fc_state equ render_last_type + 1
+fc_match_state equ tool_fc_state + 1
+fc_capture_len equ fc_match_state + 1
+fc_call_id_len equ fc_capture_len + 2
+fc_name_len equ fc_call_id_len + 1
+fc_args_len equ fc_name_len + 1
+fc_output_len equ fc_args_len + 2
+fc_suffix_len equ fc_output_len + 1           ; word: function_call + output suffix byte count
+fc_call_id equ fc_suffix_len + 2              ; <=47 chars + NUL
+fc_name equ fc_call_id + 48                   ; <=15 chars + NUL
+fc_args_buf equ fc_capture_buf                ; raw escaped "arguments" string, parsed from capture
+fc_args_max equ 384
+fc_output_buf equ fc_args_buf + fc_args_max
+fc_output_max equ fc_capture_max - fc_args_max
+reconnect_state_end equ fc_name + 16
 ka_template_persistent equ reconnect_state_end
 ; Build 11 ESC: the int 9 keyboard hook handler is staged to this pool slot at boot (position-independent
 ; code; runs from here so it survives the phase-overlay churn). esc_int9_old saves the BIOS int 9 vector

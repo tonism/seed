@@ -1,5 +1,15 @@
 # Native tool calling (function calling) — design + Codex handover
 
+## COMPLETION UPDATE — 2026-07-05
+
+T3-T6 are implemented on `work/scaling` for the 32 KiB loop-cache tier: the receive phase captures
+native `function_call` SSE bytes, `tool_call` parses/executes structured args, the request stream sends
+stateless `function_call` + `function_call_output` input-array items with `store:false`, the redundant
+line-start `$` scanner / synthetic Continue path is deleted, and `save_env` / `load_env` are native
+tools. Validation: `make`, `make inspect`, `git diff --check`, original-speed 32 KiB `vm-net-ne2k8`
+direct boot plain chat (`ok`), and `read_mem(0x00000400,8)` returning
+`f8 03 f8 02 00 00 00 00`. T7 (16 KiB tools-schema streaming) remains deferred.
+
 ## HANDOVER — Codex, start here (2026-07-05)
 
 **Goal:** finish native function-calling. **Baseline** is `work/scaling` at the M2 commit + task-19
@@ -42,8 +52,8 @@ The full design, budget map, and the sequence of walls follow.
 
 ---
 
-Status: DESIGN / not started. Chosen 2026-07-04 over "observation framing" and "render-only" —
-user picked the full-fidelity option. Target model is **gpt-5** on the OpenAI Responses API
+Status: IMPLEMENTED for T3-T6 on 2026-07-05; the historical design follows. Chosen 2026-07-04 over
+"observation framing" and "render-only" — user picked the full-fidelity option. Target model is **gpt-5** on the OpenAI Responses API
 (`/v1/responses`), so function-calling reliability is not a concern (the earlier small-model worry
 is moot). This is milestone-scale and touches seed's tightest, most fragile code: the request
 builder (`agent_request.inc`) and the SSE stream parser (`agent_response.inc` / `agent_api_stream.inc`),

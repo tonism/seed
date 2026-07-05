@@ -176,13 +176,13 @@ redesign, 286 secure tier, memory scaling M1/M2, env save/load — all already i
 pieces still open before it tags. Sequenced so the tool loop and UI land first, then memory reach.
 
 ```text
-native tool calling (IN PROGRESS) - replace the inline "$r/$w/$x" text grammar with the model's
-  structured function_call protocol (OpenAI Responses API). T2 (advertise a tools schema to gpt-5) is
-  SHIPPED on work/scaling; T3-T6 (parse function_call from the SSE stream, execute from structured
-  args, feed function_call_output back stateless, render + delete the $-scan) are handed off to Codex.
-  DESIGN + full budget map + the agent_response 512-B "make room first" enabler: notes/native-tool-
-  calling-design.md. NOTE: with a tools schema advertised, gpt-5 emits function_calls, not "$" text,
-  so the whole "$"-scan machinery is now REDUNDANT and gets deleted in T6 (do NOT keep both paths).
+native tool calling T3-T6 (SHIPPED on the 32 KiB loop-cache tier) - the inline "$r/$w/$x" text
+  grammar is replaced by the OpenAI Responses API's structured function_call protocol. Seed captures
+  function_call SSE bytes in the 512-B receive scanner, parses and executes read_mem/write_mem/exec/
+  save_env/load_env between turns, sends stateless function_call + function_call_output input-array
+  items with store:false, and deletes the old "$"-scan / synthetic Continue path. Validated 5 July 2026
+  on original-speed 32 KiB vm-net-ne2k8 direct boot: plain chat returned "ok"; read_mem(0x00000400,8)
+  returned "f8 03 f8 02 00 00 00 00". 16 KiB tools schema streaming remains deferred to T7.
 UI polish - smart linebreaking (one blank between render groups, none within), the apostrophe /
   non-ASCII->ASCII glyph map, and the situational-awareness + identity-prompt review. Most of these are
   BLOCKED on "render-phase room" (below) - the same 512-B receive/render squeeze that native tools hit,

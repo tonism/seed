@@ -1,7 +1,1 @@
-[
-{"type":"function","name":"read_mem","description":"Read len bytes from a flat address. addr is hex (e.g. 3fb5); len<=32. Returns hex.","parameters":{"type":"object","properties":{"addr":{"type":"string"},"len":{"type":"integer"}},"required":["addr","len"]}},
-{"type":"function","name":"write_mem","description":"Write bytes to a flat address. addr is hex; bytes is space-separated hex (7a 65 70).","parameters":{"type":"object","properties":{"addr":{"type":"string"},"bytes":{"type":"string"}},"required":["addr","bytes"]}},
-{"type":"function","name":"exec","description":"Near-call a routine at a flat hex address; reports AX and CF.","parameters":{"type":"object","properties":{"addr":{"type":"string"}},"required":["addr"]}},
-{"type":"function","name":"save_env","description":"Save conversation and arena to disk.","parameters":{"type":"object","properties":{}}},
-{"type":"function","name":"load_env","description":"Restore saved conversation and arena; reboots.","parameters":{"type":"object","properties":{}}}
-]
+[{"type":"function","name":"read_mem","parameters":{"type":"object","properties":{"addr":{},"len":{}},"required":["addr","len"]}},{"type":"function","name":"write_mem","parameters":{"type":"object","properties":{"addr":{},"bytes":{}},"required":["addr","bytes"]}},{"type":"function","name":"exec","parameters":{"type":"object","properties":{"addr":{}},"required":["addr"]}},{"type":"function","name":"save_env","parameters":{}},{"type":"function","name":"load_env","parameters":{}}]

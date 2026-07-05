@@ -557,7 +557,8 @@ align 512, db 0
 ; Build 12 (32K floppy-free loop): the preloaded chat-loop working set (loop_preload_list — dpi/Y +
 ; agent_request/R + agent_api_stream/X + agent_response/T + tool/M + the K crypto window) is written
 ; sequentially from loop_cache_start and must not collide with the two prompt slots pinned at the top
-; of the cache (prompt_id_cache / prompt_compact_cache, 2 sectors). Placed here (not with the other
+; of the cache (prompt_id_cache / prompt_compact_cache, 2 sectors). The native function-call capture
+; buffer sits in the 32K stack guard, outside the loop cache. Placed here (not with the other
 ; layout guards near the top) because %if cannot forward-reference the phase labels. Keep the sum in
 ; sync with loop_preload_list (main.inc).
 %if (((core_dpi_phase_end - core_dpi_phase_start + 511) / 512) + \

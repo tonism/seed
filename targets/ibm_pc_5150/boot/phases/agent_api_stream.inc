@@ -82,13 +82,10 @@ agent_api_stream_phase:
     mov di, api_request_plain + tls_record_header_len
     call agent_api_stream_append_ledger
     ; Build 11 #4 note-as-memory: a normal turn carries the running note (the compacted memory) in
-    ; "instructions" behind a label, JSON-escaped (the model summary may contain " or \). This is what
-    ; makes the post-compaction turn ANSWER the user's prompt: the note reads as system memory, not as
-    ; the latest conversation turn. Skipped until the first compaction (note_len 0).
+    ; "instructions", JSON-escaped (the model summary may contain " or \). Skipped until the first
+    ; compaction (note_len 0).
     cmp word [note_len], 0
     je .chunk2_input_open
-    mov si, PHASE_LOAD_ADDR + (api_note_label_text - PHASE_BASE)
-    call agent_api_stream_append_z_to_buffer
     ; The note exists ONLY on a <=64 KB machine (it rode the model-summarize compaction; note_len is 0 on a
     ; >64 KB machine, so the note_len==0 gate above skips this block there). So the note always reads from
     ; the seg-0 window -- ds = far_log_seg_var = 0 on that machine. (No far/seg branch needed.)
@@ -106,9 +103,9 @@ agent_api_stream_phase:
     jc .prefix_failed
 .tail_pending:
     pop ax
-    mov [api_stream_prompt_len], al           ; gate length stays the user prompt's (non-zero); on a
-    or al, al                                 ; compaction pass the input is the WINDOW ONLY (the
-    je .done                                  ; directive rode in instructions above)
+    or al, [tool_fc_state]                    ; build when a prompt or native tool output is pending
+    je .done
+.tail_build:
     mov di, api_request_plain + tls_record_header_len
     ; Build 12 Stage C (C1b): "input" = the dialogue range agent_request precomputed (dialogue_off +
     ; the 32-bit dialogue_cnt); the source segment is far_log_seg_var (the far log, or seg 0 on a <=64 KB
@@ -123,6 +120,18 @@ agent_api_stream_phase:
     call agent_api_stream_append_prompt_screen_to_buffer
     jc .failed
 .tail_close:
+    cmp byte [tool_fc_state], 2
+    jne .tail_close_json
+    mov ax, di
+    sub ax, api_request_plain + tls_record_header_len
+    jz .tail_fc_empty
+    call .send_app_record
+    jc .failed
+    phase_call_res tls_prepare_3c501_receive
+    mov di, api_request_plain + tls_record_header_len
+.tail_fc_empty:
+    call agent_api_stream_append_fc_items
+.tail_close_json:
     mov si, PHASE_LOAD_ADDR + (api_stream_json_close_text - PHASE_BASE)
     call agent_api_stream_append_z_to_buffer
     mov ax, di
@@ -136,14 +145,10 @@ agent_api_stream_phase:
     call .send_app_record
     jc .failed
     phase_call_res tls_prepare_3c501_receive
-    ; Build 11 cleanup: the compaction-turn window-clear was dead (compact_next is always 0 here);
-    ; always accumulate the just-sent prompt into the window for the next turn.
-    call agent_api_stream_append_prompt_to_context
+    cmp byte [compacting_msg], 0
+    je .done
+    mov word [chat_context_used], 0
 .done:
-    cmp byte [compacting_msg], 0          ; Build 10: the sliding-window trim shows the status line
-    je .done_load_response
-    call agent_api_stream_show_compacting
-.done_load_response:
     mov ax, (((core_agent_response_phase_end - core_agent_response_phase_start + 511) / 512) << 8) | ((core_agent_response_phase_start - $$) / 512)
     mov bx, agent_response_phase_load_addr
     phase_call_res load_core_sectors_at
@@ -152,13 +157,13 @@ agent_api_stream_phase:
     ; (Cloudflare's ~400s timeout) restarts here, with no pings outstanding for this exchange.
     mov ax, [0x046c]
     mov [ka_last_tick], ax
-    mov byte [ka_sent_count], 0
     ; Per-turn state reset, golfed to one zero source + word writes (saves ~24 B so the loop
     ; additions keep this phase inside its 3-sector load window). The pairs are adjacent in
     ; low_phase_state/low_runtime_state, so each word write clears two bytes at once:
     ;   api_stream_state+api_stream_delta_match / api_stream_seen+api_stream_completed /
     ;   api_http_state+api_http_header_match. Functionally identical to the byte-wise resets.
     xor ax, ax
+    mov [ka_sent_count], al
     mov word [api_response_pending_len], ax
     mov word [api_body_len], ax
     mov [chat_prompt_len_cache], al
@@ -166,11 +171,9 @@ agent_api_stream_phase:
     mov word [api_stream_seen], ax
     mov word [api_http_state], ax
     mov [api_stream_text_seen], al
-    ; Build 11 colour-matches-execution: start the response at column 0 so the renderer's line-start
-    ; dim test (agent_response .emit_char) sees a reply-leading '$' as a real call. .emit_to_screen
-    ; sets the real cursor when it positions the first char; this only seeds the pre-position read.
+    mov word [fc_match_state], ax
+    ; Seed the pre-position cursor column; .emit_to_screen sets the real cursor on first output.
     mov [cursor_col], al
-    clc
     ret
 
 .prefix_failed:
@@ -183,16 +186,24 @@ agent_api_stream_phase:
 ; plaintext pointer (always the request buffer), prepare the 3c501 receive, send. CF = send failure.
 .send_app_record:
     mov [tls_app_len], ax
-    mov word [tls_app_plain_ptr], api_request_plain + tls_record_header_len
     phase_call_res tls_prepare_3c501_receive
     phase_call_res tls_send_application_data_current_seq
     ret
 
-; Build 12 native tool calling: input stays a STRING for T2 (offering tools + the model CALLING them
-; needs no array). The array envelope (input:[{role:user,content:...}] + function_call_output items +
-; store:false) lands in T5 when tool RESULTS are sent back -- deferred to keep this maxed phase in budget.
-api_stream_json_close_text db '","stream":true}', 0
+; Build 12 native tool calling: ready turns use the Responses input array so a native tool result can be
+; represented as function_call + function_call_output items. The cold boot greeting remains string-input.
+api_stream_json_close_text db '"}],"store":false,"stream":true}', 0
 api_stream_json_close_text_len equ $ - api_stream_json_close_text - 1
+api_fc_call_open_text db '"},{"type":"function_call","call_id":"', 0
+api_fc_call_open_text_len equ $ - api_fc_call_open_text - 1
+api_fc_name_mid_text db '","name":"', 0
+api_fc_name_mid_text_len equ $ - api_fc_name_mid_text - 1
+api_fc_args_mid_text db '","arguments":"', 0
+api_fc_args_mid_text_len equ $ - api_fc_args_mid_text - 1
+api_fc_output_open_text db '"},{"type":"function_call_output","call_id":"', 0
+api_fc_output_open_text_len equ $ - api_fc_output_open_text - 1
+api_fc_output_mid_text db '","output":"', 0
+api_fc_output_mid_text_len equ $ - api_fc_output_mid_text - 1
 
 ; (Removed in M2e: agent_api_stream_append_floppy_prompt -- the in-place one-record floppy streamer was
 ; superseded by agent_api_stream_stream_contract, which streams the identity AND the contract as <=440 B
@@ -310,20 +321,11 @@ agent_api_stream_append_u16_decimal:
 ; tools splice. Same meaning to the model; Content-Length auto-tracks the derived _len constants.
 api_targets_pre_text db ' ~', 0
 api_targets_pre_len equ $ - api_targets_pre_text - 1
-api_targets_mid_text db ' chars max ', 0
+api_targets_mid_text db ' max ', 0
 api_targets_mid_len equ $ - api_targets_mid_text - 1
 api_targets_post_text db '.', 0
 api_targets_post_len equ $ - api_targets_post_text - 1
 api_compaction_targets_fixed_len equ api_targets_pre_len + api_targets_mid_len + api_targets_post_len
-
-; Build 11 #4 note-as-memory: the label that prefixes the running note in "instructions" (the system
-; slot). Frames the note as background memory and explicitly tells the model not to restate it, so the
-; post-compaction turn answers the user's new prompt (in "input") instead of continuing the note. Plain
-; ASCII (no " or \), so its length is fixed; compute_ready_body_lengths adds api_note_label_text_len.
-; Build 12: shortened (was ' Conversation so far (context, do not restate): ') to reclaim phase bytes
-; for the tools splice; keeps the load-bearing 'do not restate'. Content-Length auto-tracks the _len.
-api_note_label_text db ' Context (do not restate): ', 0
-api_note_label_text_len equ $ - api_note_label_text - 1
 
 agent_api_stream_append_z_to_buffer:
     lodsb
@@ -334,21 +336,42 @@ agent_api_stream_append_z_to_buffer:
 .append_done:
     ret
 
+agent_api_stream_append_fc_items:
+    mov si, PHASE_LOAD_ADDR + (api_fc_call_open_text - PHASE_BASE)
+    call agent_api_stream_append_z_to_buffer
+    mov si, fc_call_id
+    mov cl, [fc_call_id_len]
+    xor ch, ch
+    rep movsb
+    mov si, PHASE_LOAD_ADDR + (api_fc_name_mid_text - PHASE_BASE)
+    call agent_api_stream_append_z_to_buffer
+    mov si, fc_name
+    mov cl, [fc_name_len]
+    xor ch, ch
+    rep movsb
+    mov si, PHASE_LOAD_ADDR + (api_fc_args_mid_text - PHASE_BASE)
+    call agent_api_stream_append_z_to_buffer
+    mov si, fc_args_buf
+    mov cx, [fc_args_len]
+    rep movsb
+    mov si, PHASE_LOAD_ADDR + (api_fc_output_open_text - PHASE_BASE)
+    call agent_api_stream_append_z_to_buffer
+    mov si, fc_call_id
+    mov cl, [fc_call_id_len]
+    xor ch, ch
+    rep movsb
+    mov si, PHASE_LOAD_ADDR + (api_fc_output_mid_text - PHASE_BASE)
+    call agent_api_stream_append_z_to_buffer
+    mov si, fc_output_buf
+    mov cl, [fc_output_len]
+    xor ch, ch
+    rep movsb
+    ret
+
 ; The window's JSON-escaping copy is folded into the flush-aware agent_api_stream_append_context
 ; below (its only caller): a big-RAM window can exceed one TLS record, so it must flush as it goes.
 
 agent_api_stream_append_prompt_screen_to_buffer:
-    cmp byte [agent_loop_pending], 0
-    je .from_screen
-    ; Build 10 (agentic loop): auto-continue turn - append the fixed continue directive (clean
-    ; ASCII, no escaping needed) straight from dpi_input_buf instead of the blank screen prompt.
-    ; The directive is always exactly agent_continue_len bytes (dpi set dpi_input_len_byte to it).
-    mov si, dpi_input_buf
-    mov cx, agent_continue_len
-    rep movsb
-    clc
-    ret
-.from_screen:
     push es
     mov al, [api_stream_prompt_len]
     mov [api_http_state], al
@@ -411,11 +434,7 @@ agent_api_stream_append_prompt_screen_to_buffer:
     dec byte [api_http_state]
     jmp .screen_next
 .screen_done:
-    mov byte [api_http_state], 0
-    mov byte [api_http_header_match], 0
-    mov byte [api_stream_delta_match], 0
     pop es
-    clc
     ret
 .screen_flush:
     ; Record buffer full mid-prompt: send what's built (context + prompt-so-far on the first flush,
@@ -449,14 +468,14 @@ agent_api_stream_append_prompt_screen_to_buffer:
 ; Build 11 #4: split into the JSON prefix (always sent) + the identity body (NORMAL turns only). A
 ; compaction pass sends prefix + the summarize directive instead - so the model NEVER sees the tool
 ; grammar/identity that made it "summarize" its RAM tools instead of the chat.
-api_json_reasoning_prefix db '","reasoning":{"effort":"high"},"instructions":"', 0
+api_json_reasoning_prefix db '","instructions":"', 0
 api_json_reasoning_prefix_len equ $ - api_json_reasoning_prefix - 1
 ; Build 11 #4 real compaction: the identity body (normal turns) and the compaction contract
 ; (compaction passes) are no longer inline strings - they are STREAMED off the floppy
 ; (agent_api_stream_append_floppy_prompt). This frees the phase bytes they used and lifts the
 ; in-phase prompt-length cap (the contract can now be detailed). The prefix above still rides record A
 ; from the phase image; the floppy content follows it.
-api_json_input_open_text db '","input":"', 0
+api_json_input_open_text db '","input":[{"role":"user","content":"', 0
 api_json_input_open_text_len equ $ - api_json_input_open_text - 1
 ; Build 12: spliced right after the model on a NORMAL ready turn on a loop-cache tier -- closes the
 ; model string and opens the tools array key. The schema bytes (resident tools_cache) stream next, then
@@ -469,36 +488,34 @@ api_json_tools_open_text_len equ $ - api_json_tools_open_text - 1
 ; and work across providers. Each stored turn becomes " User: <prompt> You: <response>". "You:" is
 ; deliberately identity-neutral (not "Assistant") - the agent's role/identity lives in the identity
 ; layer, chosen by identity/the user, not dictated by the transcript format.
-api_json_user_label_text db ' User: ', 0
+api_json_user_label_text db 'U:', 0
 api_json_user_label_text_len equ $ - api_json_user_label_text - 1
-; Build 11 whole-line tool gate: this label ends with a real newline (not a trailing space) so the
-; model's reply begins on its own line in the raw window - tool_call can then treat a reply-leading
-; directive as a true line start. It flattens back to a space when the window is re-sent (append_context
-; turns control bytes into spaces), so the model still sees " You: <reply>". Same length as before.
-api_json_you_label_text db ' You:', 10, 0
+; End the assistant label with a real newline in the raw window. append_context flattens it back to a
+; space when the window is re-sent, so the model sees a compact transcript.
+api_json_you_label_text db 'A:', 10, 0
 api_json_you_label_text_len equ $ - api_json_you_label_text - 1
 ; Build 11 cleanup: the Build 9 invisible-compaction recap directive was removed along with the
 ; dead compact_next request-build branches (recap compaction is gone since Build 10; the sliding
 ; window in agent_request replaced it).
 
 ; Build 9 ledger field labels (terse machine facts serialized from the handoff block)
-api_ledger_ram_text db 'ram=', 0
-api_ledger_ip_text db ' ip=', 0
+api_ledger_ram_text db 'r=', 0
+api_ledger_ip_text db ' i=', 0
 ; Build 12 memory scaling: gw/dns/mask were dropped from the ledger -- seed does all the routing, the
 ; model never acts on the gateway/DNS/netmask, so they were dead weight. The freed bytes fund " far@".
-api_ledger_fam_text db ' fam=', 0
-api_ledger_nic_text db ' nic@', 0
-api_ledger_irq_text db ' irq=', 0
+api_ledger_fam_text db ' f=', 0
+api_ledger_nic_text db ' n@', 0
+api_ledger_irq_text db ' q=', 0
 api_ledger_arena_text db ' a@', 0
-api_ledger_cap_text db ' cap@', 0
-api_ledger_save_text db ' save=', 0
+api_ledger_cap_text db ' c@', 0
+api_ledger_save_text db ' s=', 0
 ; Build 12 memory scaling (C2/C3): the far ARENA (agent workspace) as flat range " far@<base>-<top>".
 ; Both bounds are computed at emit time (hex32) -- base = 0x10000 + far_window_cap (above the far log),
 ; top = conv_top. Always emitted, fixed-width -> the ledger stays == api_ledger_len (CL counts it exactly).
-api_ledger_far_text db ' far@', 0
+api_ledger_far_text db ' F@', 0
 ; Build 12 milestone 2: the EMS windowed arena as flat range " ems@<base>-<top>" (base 0x00100000,
 ; top = base + ems_page_count*16 KB). Always emitted fixed-width (empty base==top when no board), like far@.
-api_ledger_ems_text db ' ems@', 0
+api_ledger_ems_text db ' e@', 0
 ; Serialized length (every field is fixed-width / zero-padded, so this is exact, not just an upper bound).
 ; Labels (minus 10 NULs) + ram hex16(4) + ip dotted(15) + fam dec8(3) + nic hex16(4) + irq dec8(3)
 ; + arena hex16(4) + cap hex16(4) + save(2) + far [base(8)+'-'+top(8)=17] + ems [base(8)+'-'+top(8)=17].
@@ -786,126 +803,6 @@ agent_api_stream_append_context:        ; si = source offset/ptr, dx:cx = byte c
                                          ; ds=0-on-exit contract (an unbalanced ret here jumped to 0x0000)
     stc
     ret
-agent_api_stream_append_prompt_to_context:   ; accumulate the just-sent prompt (RAW) for later turns
-    cmp byte [compacting_msg], 0
-    je .ctx_not_compaction
-    ; Build 11 #4 note-as-memory: the FULL window was just sent (as "input") to be summarized; reset it
-    ; so the streamed summary reply (agent_response/.emit_char) becomes the new window from offset 0.
-    ; The next (real) pass records note_len = chat_context_used (agent_request) and sends this note in
-    ; the "instructions"/memory slot, NOT as a conversation turn - so the model answers the user's
-    ; prompt instead of continuing the note.
-    mov word [chat_context_used], 0
-    ret
-.ctx_not_compaction:
-    cmp byte [agent_loop_pending], 0
-    jne .ctx_store_done                       ; auto-continue: don't bloat the window with "continue"
-    mov al, [api_stream_prompt_len]
-    or al, al
-    je .ctx_store_done
-    ; Build 11 recall fix: store the turn as " User: <prompt> You: " so the carried window is
-    ; role-labeled (the response is captured right after the " You: " cue by the renderer).
-    ; Vendor-agnostic, JSON-safe; stored RAW (escaped only at send). The separator is now the two
-    ; labels instead of one space, so account for both lengths in the fit check.
-    xor ah, ah
-    mov bx, ax
-    add bx, api_json_user_label_text_len + api_json_you_label_text_len
-    mov ax, [chat_context_used]
-    add bx, ax
-    cmp bx, [chat_context_len_var]
-    jbe .ctx_fits
-    ; Window full: drop the history and start over with this labeled turn (overflow fallback;
-    ; model-compaction fires earlier at the threshold). Build 11 #4 note-as-memory: also clear note_len
-    ; - dropping the window discards the note too, so note_len must not stay > the (reset) used, or the
-    ; dialogue range used-note_len would underflow.
-    mov word [chat_context_used], 0
-    mov word [note_len], 0
-    mov al, [api_stream_prompt_len]
-    xor ah, ah
-    mov bx, ax
-    add bx, api_json_user_label_text_len + api_json_you_label_text_len
-    cmp bx, [chat_context_len_var]
-    ja .ctx_store_done                  ; single labeled turn too big for the window -> skip
-.ctx_fits:
-    mov di, chat_context_start
-    mov ax, [chat_context_used]
-    add di, ax                          ; append at the used offset (accumulate, don't replace)
-    mov si, PHASE_LOAD_ADDR + (api_json_user_label_text - PHASE_BASE)
-    call agent_api_stream_append_z_to_buffer
-    mov si, dpi_input_buf               ; raw prompt (intact: accumulation runs before the receive)
-    mov cl, [api_stream_prompt_len]
-    xor ch, ch
-    rep movsb
-    mov si, PHASE_LOAD_ADDR + (api_json_you_label_text - PHASE_BASE)
-    call agent_api_stream_append_z_to_buffer
-    mov ax, di
-    sub ax, chat_context_start
-    mov [chat_context_used], ax
-.ctx_store_done:
-    ret
-
 ; Build 9 (Phase 3b): dim status shown while a compaction reply is in flight - explains the slow
 ; turn to the user. Dark-gray on CGA (0x08); MDA falls back to normal (0x08 can be invisible there).
-agent_api_stream_show_compacting:
-    push es
-    ; Type-change spacing: a blank line before the "> compacting" system line (it follows the reply), then
-    ; advance again so the status gets its own line; the trailing advance keeps a blank before the reply.
-    call .compacting_advance
-    call .compacting_advance
-    mov bx, [video_seg]
-    mov dl, 0x08
-    test word [handoff_addr + handoff_flags], handoff_flag_mda
-    jz .compacting_seg
-    mov dl, 0x07
-.compacting_seg:
-    mov es, bx
-    mov al, [screen_cols]
-    mul byte [cursor_row]
-    shl ax, 1
-    mov di, ax
-    mov ah, dl
-    mov si, PHASE_LOAD_ADDR + (api_compacting_text - PHASE_BASE)
-.compacting_next:
-    lodsb
-    or al, al
-    jz .compacting_done
-    stosw
-    ; Fast-type the status like the splash: wait_ticks is the same resident primitive the splash
-    ; typewriter uses, so this adds no new code besides the per-char pause. Runs after the send
-    ; while the model generates, so the ~1s overlaps response latency. wait_ticks clobbers ax/cx/dx
-    ; - only ah (the attribute) needs saving; si/di are untouched and cx is re-set each char.
-    push ax
-    mov cx, type_ticks
-    phase_call_res wait_ticks
-    pop ax
-    jmp .compacting_next
-.compacting_done:
-    ; Trailing blank line that SURVIVES the renderer's scroll-at-bottom: advance the same
-    ; scroll-aware way the renderer does (a plain inc is eaten when the reply's first line
-    ; scrolls in), so a blank row stays between the status and the reply.
-    call .compacting_advance
-    pop es
-    ret
-.compacting_advance:
-    cmp byte [cursor_row], dpi_prompt_row
-    jb .compacting_adv_inc
-    mov ax, 0x0601                        ; scroll up 1 line via the resident helper (same region as the
-    mov cx, 0x0100                        ; old inline int 10h; scroll_br = dpi_prompt_row/cols-1) -- smaller
-    phase_call_res scroll_text_area
-    ; Build 11 #4 RECAP FIX (2026-06-10, wire-proven): this scroll moves the captured user prompt up one
-    ; row. pass-2 (the post-compaction real turn) rebuilds its prompt by reading the screen at
-    ; dpi_prompt_marker_row (restore_prompt_from_screen + append_prompt_screen_to_buffer). If the marker is
-    ; NOT moved with the scroll it points at the "> compacting context" line drawn just below, so pass-2
-    ; sent "compacting context" as the user input and the model restated the note instead of ANSWERING the
-    ; question. Track the prompt: decrement the marker per scroll (the 0x80 "set" flag survives - row < 128
-    ; so dec never borrows into bit 7). Guarded so an unset (0) marker can never underflow.
-    cmp byte [dpi_prompt_marker_row], 0
-    je .compacting_adv_set_row
-    dec byte [dpi_prompt_marker_row]
-.compacting_adv_set_row:
-    mov byte [cursor_row], dpi_prompt_row - 1
-.compacting_adv_inc:
-    inc byte [cursor_row]
-    ret
-api_compacting_text db '> compacting context', 0
-
 %unmacro phase_call_res 1

@@ -6,10 +6,6 @@ build_number equ 12
 ; Build 10 (agentic loop): max consecutive auto-continue turns before handing back to the
 ; user, so a model that keeps emitting tool calls cannot loop forever.
 agent_loop_max equ 8
-; Length of the fixed auto-continue directive the tool phase writes into dpi_input_buf. A bare
-; "continue" made the model keep calling tools or fall silent; this directive tells it to act on
-; the tool output and answer. tool_call.inc asserts its .continue_text is exactly this many bytes.
-agent_continue_len equ 45
 core_load_addr equ 0x1000
 handoff_addr equ 0x0600
 low_sha256_k equ 0x0500
@@ -60,14 +56,16 @@ loop_cache_start equ loop_cache_end - loop_cache_len
 ; (si = slot) instead of reading the floppy on 32K, making the chat loop FULLY floppy-free.
 prompt_id_cache equ loop_cache_end - 2 * 512
 prompt_compact_cache equ loop_cache_end - 512
+; Build 12 native tool calling: raw SSE function_call capture. The receive scanner is 512 B
+; hard-capped, so it only captures here; tool_call parses it between turns. This is the bottom sector
+; of the 32K stack guard (tools are advertised only on loop-cache tiers), leaving 1 KiB of guard above.
+fc_capture_max equ 512
+fc_capture_buf equ loop_cache_end
 ; Build 12 native tool calling: the resident tools-schema buffer on the loop-cache tiers (32K/256K).
-; The loop cache itself is FULL (28 sectors; can't grow without dropping below the 16K ceiling), so
-; tools_cache is carved from the TOP of the arena/context pool, just BELOW loop_cache_start (and below
-; the 286 p256 overlay, which aliases loop_cache_start upward -- no overlap). hardware_setup caps the
-; 32K conventional pool at tools_cache instead of loop_cache_start, so the window/arena top out 2
-; sectors lower and never overwrite it; the ledger advertises that ceiling. 16K has NO resident buffer
-; (tools_cache is referenced only on 32K+); it floppy-streams the schema per turn.
-tools_cache_sectors equ 2
+; The schema is kept <=1 sector so the cache only steals 512 B from the context/arena pool; a 2-sector
+; cache leaves the 32K window too small for ordinary turns after the parser state grew this block.
+; 16K has NO resident buffer (tools_cache is referenced only on 32K+); it floppy-streams the schema in T7.
+tools_cache_sectors equ 1
 tools_cache_len equ tools_cache_sectors * 512
 tools_cache equ loop_cache_start - tools_cache_len
 ; Build 12 286 secure tier: the handshake-only P-256 ECDHE module (core/p256_module.asm, incbin'd into

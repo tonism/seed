@@ -37,21 +37,14 @@ agent_response_phase:
     ret
 
 .accept_raw_byte:
-    cmp byte [api_stream_text_seen], 0
-    je .scan_done
-    cmp byte [api_http_header_match], 0
-    jne .zero_match
-    cmp al, '0'
-    jne .scan_done
-.zero_match:
-    mov si, PHASE_LOAD_ADDR + (zero_chunk_pattern - PHASE_BASE)
-    mov di, api_http_header_match
-    call .match_char
-    jc .scan_done
-    mov byte [api_stream_completed], 3
-    ret
-
-.scan_done:
+    cmp byte [tool_fc_state], 1
+    jne .fc_capture_done
+    mov bx, [fc_capture_len]
+    cmp bx, fc_capture_max - 1
+    jae .fc_capture_done
+    mov [fc_capture_buf + bx], al
+    inc word [fc_capture_len]
+.fc_capture_done:
     mov si, PHASE_LOAD_ADDR + (done_pattern - PHASE_BASE)
     cmp byte [tls_key_schedule_ready], 0
     je .done_pattern_ready
@@ -67,18 +60,16 @@ agent_response_phase:
     jc .scan_delta
 .done_ready:
 .completion_ready:
-    ; Build 11 #4: golfed from a 2-way branch to arithmetic (tls_key_schedule_ready is strictly 0/1)
-    ; to reclaim the bytes the compaction capture branch in .emit_char needs. completed = 3 when cold
-    ; (transport-final, no keep-alive drain) or 2 when a live session still awaits the transport
-    ; drain, i.e. 3 - the flag. al is dead here (the matched done-pattern char is already consumed).
+    mov byte [tls_key_schedule_ready], 0
     mov al, 3
-    sub al, [tls_key_schedule_ready]
+    ; Treat SSE completion as terminal and force the next turn to reconnect. This avoids carrying an
+    ; unread chunk trailer into a native function_call_output follow-up.
     mov [api_stream_completed], al
     ret
 
 .scan_delta:
     ; load the 0/1/2 state once and walk it down (ah is dead here; write_char_direct resets it),
-    ; cheaper than three cmp-immediates - reclaims bytes for the line-start dim check below.
+    ; cheaper than three cmp-immediates - keeps room for native function-call capture.
     mov ah, [api_stream_state]
     or ah, ah
     je .scan_idle
@@ -89,9 +80,23 @@ agent_response_phase:
     ret
 
 .scan_idle:
+    mov si, PHASE_LOAD_ADDR + (arguments_pattern - PHASE_BASE)
+    mov di, fc_match_state
+    call .match_char
+    jc .fc_no_match
+    mov al, 1
+    mov [tool_fc_state], al
+    mov word [fc_capture_len], 0
+    mov [api_stream_text_seen], al
+    mov byte [tls_key_schedule_ready], 0
+    ret
+.fc_no_match:
+    cmp byte [tool_fc_state], 1
+    je .parser_ret
+.delta_probe:
     cmp byte [api_stream_delta_match], 0
     jne .delta_match
-    cmp al, '"'
+    cmp al, 'c'
     jne .parser_ret
 .delta_match:
     mov si, PHASE_LOAD_ADDR + (delta_key_pattern - PHASE_BASE)
@@ -162,29 +167,7 @@ agent_response_phase:
     inc word [chat_context_used]
 .emit_char_stored:
     cmp word [compacting_msg], 0
-    jne .compaction_suppress             ; compacting_msg OR the adjacent esc_stop (Build 11 ESC graceful
-                                         ; -stop): capture into the window, never draw, drain the loop
-    cmp byte [compact_next], 0
-    jne .dim_line                        ; a '$' tool line is open - render it dim to its newline
-    ; Build 11 renderer polish: a '$' opens a tool directive. Build 10 HARD-CUT the whole '$'..newline
-    ; off the screen, which mangled an inline mention - "verify at 0x7dfe (use $r 7dfe 2)" rendered as
-    ; a dangling "(use ". Now render the directive DIMMED (dark grey) instead: the sentence stays
-    ; intact and the user SEES the model reach for a tool (tool_call.inc then replays it as its own
-    ; dim "> read from .." line). The char is already captured in the window above, so the tool phase
-    ; still parses the '$' line verbatim.
-    cmp al, '$'
-    jne .emit_to_screen                  ; normal char: render at the normal attribute
-    ; Build 11 colour-matches-execution: dim a '$' ONLY when it STARTS a line (cursor at column 0),
-    ; the same line-start test tool_call's gate uses to decide a real call. A mid-sentence '$' is a
-    ; mention - render it as normal prose, not dim. (cursor_col is zeroed before each receive in the
-    ; agent_api_stream per-request reset, so a reply that OPENS with a directive also reads as column 0
-    ; here, before .emit_to_screen positions it.) The clean-trailing half can't be checked while
-    ; streaming (no lookahead), so a
-    ; line-start directive followed by same-line prose still dims to its newline - a rare divergence.
-    cmp byte [cursor_col], dpi_prompt_col
-    jne .emit_to_screen
-    mov byte [compact_next], 1           ; open the dim tool line (.emit_to_screen marks text_seen)
-    jmp .emit_to_screen                  ; draw the '$' dim - write_char_direct reads compact_next
+    je .emit_to_screen
 .compaction_suppress:
     ; A compaction summary (or an ESC graceful-stop) is captured into the window above but never
     ; drawn; mark text_seen so the transport-completion scan still runs (it gates on text_seen) and a
@@ -192,17 +175,6 @@ agent_response_phase:
     ; is NOT touched: agent_request resets it every request and compaction never reads it.
     mov byte [api_stream_text_seen], 1
     ret
-.dim_line:
-    ; Inside an open '$' tool line: render each char dim (compact_next gates the attribute in
-    ; write_char_direct) until the newline - or the window cap - closes the line, then fall through to
-    ; draw this char/newline at the normal attribute. compact_next is reset every request, so a tool
-    ; line with no trailing newline cannot leak dim into the next turn.
-    cmp al, 10
-    je .dim_line_end
-    cmp bx, [chat_context_len_var]
-    jb .emit_to_screen
-.dim_line_end:
-    mov byte [compact_next], 0
 .emit_to_screen:
     cmp byte [api_stream_seen], 0
     jne .live_ready
@@ -212,16 +184,8 @@ agent_response_phase:
     jz .position_cold_greeting
 .position_live_response:
     push ax
-    ; Build 12 type-change spacing: when the reply follows a SYSTEM line (a tool block or "> reconnect"),
-    ; add one blank line before it. A reply after the USER prompt already gets its blank from the ENTER's
-    ; empty line, so only the system->agent case needs an extra advance here.
-    cmp byte [render_last_type], render_type_system
-    jne .plr_reply_line
-    call .advance_response_line
-.plr_reply_line:
     call .advance_response_line
     pop ax
-    jmp .seen_ready
 .position_cold_greeting:
     ; UI unification: no absolute positioning -- the greeting flows from where the banner left the cursor
     ; (just below the banner, col 0), so it lands right under it instead of pinned near the screen bottom.
@@ -261,7 +225,6 @@ agent_response_phase:
 
 .sync_response_video_offset:
     push ax
-    push bx
     xor ax, ax
     mov al, [cursor_row]
     mov bl, [screen_cols]
@@ -271,17 +234,13 @@ agent_response_phase:
     add ax, bx
     shl ax, 1
     mov [api_body_len], ax
-    pop bx
     pop ax
     ret
 
-completed_pattern db '_text.done', 0
-; '.done' is the trailing 5 chars of '_text.done', so alias it into the longer literal rather than
-; carry a second copy. Both are SSE completion markers the scanner walks to the NUL; tls_key_schedule
-; _ready selects which (done = transport-final cold path, completed = live-session reuse).
-done_pattern equ completed_pattern + 5
-delta_key_pattern db '"delta":"', 0
-zero_chunk_pattern db '0', 13, 10, 13, 10, 0
+completed_pattern db 'response.completed', 0
+done_pattern equ completed_pattern
+arguments_pattern db 'arguments":"', 0
+delta_key_pattern db 'content_index":0,"delta":"', 0
 
 ; Keep-alive GET template relocated to the persistent pool (ka_template_persistent), staged once
 ; at boot by hardware_setup. It must sit at a fixed address that survives the whole receive loop;
@@ -289,24 +248,14 @@ zero_chunk_pattern db '0', 13, 10, 13, 10, 0
 ; full, so the pool hosts it instead. agent_api_keepalive sends it from there during long renders.
 
 agent_response_write_char_direct:
-    push bx
-    push di
     push es
     mov ah, 0x07                         ; normal text attribute
     mov bx, [video_seg]
-    test word [handoff_addr + handoff_flags], handoff_flag_mda
-    jnz .segment_ready                   ; MDA: bx is already 0xb000 via video_seg; keep ah=0x07 (normal)
-    cmp byte [compact_next], 0           ; CGA: an open '$' tool line renders dim (dark grey on black)
-    je .segment_ready
-    mov ah, 0x08
-.segment_ready:
     mov es, bx
     mov di, [api_body_len]
     stosw
     mov [api_body_len], di
     pop es
-    pop di
-    pop bx
     ret
 
 %unmacro phase_call_res 1

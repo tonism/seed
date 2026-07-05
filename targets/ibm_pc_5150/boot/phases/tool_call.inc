@@ -10,18 +10,18 @@
     dw %1 - (PHASE_LOAD_ADDR + ($ - PHASE_BASE) + 2)
 %endmacro
 
-; One byte of scratch: 0 = emit to screen + window, 1 = window-only (model-facing data
+; One byte of scratch: 0 = emit to screen + result buffer, 1 = result-buffer only (model-facing data
 ; the user does not need to see). fs_sector_buffer is the request-body scratch, dead
 ; while this phase runs between turns (agent_request rebuilds it on the next send).
 tool_sink equ fs_sector_buffer
-; Build 12 memory scaling (milestone 1): $r/$w/$x take a 32-bit flat address and reach it via a far
+; Build 12 memory scaling (milestone 1): read_mem/write_mem/exec take a 32-bit flat address and reach it via a far
 ; seg:off translation (`seg = A>>4, off = A&0xF`), so the agent can address conventional memory beyond
 ; segment 0. These scratch slots ride fs_sector_buffer beside tool_sink (dead during a tool turn):
-;   tool_addr   dword  the parsed 32-bit flat address (target of $r/$w/$x)
+;   tool_addr   dword  the parsed 32-bit flat address
 ;   tool_seg    word   the segment computed from tool_addr (the far access reloads es from it per byte,
 ;                      since the screen-output helpers clobber es)
 ;   tool_farptr dword  [off,seg] far pointer for `call far` in $x
-;   tool_readbuf 32 B  $r stages the far bytes here (seg 0) before the hex dump, so the far read (es=seg)
+;   tool_readbuf 32 B  read_mem stages the far bytes here (seg 0) before the hex dump, so the far read (es=seg)
 ;                      and the dump (es=video) don't fight over es
 tool_addr    equ fs_sector_buffer + 2
 tool_seg     equ fs_sector_buffer + 6
@@ -30,44 +30,44 @@ tool_readlen equ fs_sector_buffer + 12
 tool_readbuf equ fs_sector_buffer + 14
 
 ; ---------------------------------------------------------------------------
-; Build 10: minimal tool calling - the agent's "keys to the kingdom".
+; Build 12: native Responses function calling - the agent's "keys to the kingdom".
 ;
 ; This cold phase runs once per turn (loaded by dpi_phase, before the prompt is
-; drawn). It scans the model-compacted conversation window for tool directives
-; the model emitted on their own line, executes them, and appends a single
-; human-readable result line per call back INTO the window - so the result rides
-; the Build 9 context path into the next request AND shows on screen as a dim,
-; "> "-prefixed sub-result (the dark look of "> compacting context"). The raw "$..."
-; command itself is NOT echoed here; the renderer
-; suppresses it from the model's streamed text, so it appears exactly once, as
-; this readable line.
+; drawn). agent_response captures a streamed function_call into compact state;
+; this phase parses call_id/name/arguments, executes the native tool, renders a
+; dim human-readable result line, and stores JSON-safe output for the next
+; request's function_call_output item. The result is not appended to the text
+; conversation window; the structured tool output is the model-facing result.
 ;
-; Grammar (ASCII, JSON-safe, one call per line, hex args, segment-0 offsets):
-;   $r <addr> <len>          read <len> bytes from <addr>
-;   $w <addr> <b0> <b1> ...  write the bytes to <addr>
-;   $x <addr>                call <addr> (near, seg 0); report returned AX + CF
-; Result lines (window + dim screen), readable and re-scan-safe (no leading '$'):
+; Native tools:
+;   read_mem(addr,len)       read up to 32 bytes from addr
+;   write_mem(addr,bytes)    write hex bytes to addr
+;   exec(addr)               far-call addr; report returned AX + CF
+;   save_env()               persist ENV.DAT via the save phase
+;   load_env()               reboot through int 19h so boot restore can load ENV.DAT
+; Result lines (screen; output buffer for the model):
 ;   read <addr>: <bb> <bb> ...
 ;   wrote <addr>: <bb> <bb> ...
 ;   ran <addr>: ax=<aaaa> cf=<0|1>
 ;
 ; Write + execute is full control: the agent writes a routine into the arena and
-; $x jumps to it; that routine can load any segment / hit any port / call BIOS,
-; so three primitives escape the 64K segment-0 limit and own the machine. $x to
+; exec jumps to it; that routine can load any segment / hit any port / call BIOS,
+; so three primitives escape the 64K segment-0 limit and own the machine. exec to
 ; code that never returns hangs the machine - reboot recovery, per the authority
 ; model ("the tool owns the crash"). Tool calls run BETWEEN turns with the TLS
 ; session idle-but-alive, a safe point.
 ;
 ; Conventions: DS=SS=0 throughout. ES is 0 except inside the screen helpers
 ; (set to the video segment, restored to 0 before returning to scan/execute, so
-; an $x callee always sees ES=0). All window addresses are fixed equ constants.
+; an exec callee always sees ES=0). All window addresses are fixed equ constants.
 ; ---------------------------------------------------------------------------
 
 tool_phase:
     push bp
     ; Build 11 #5 stage 2: a Ctrl+ESC hard escape longjmp'd here (the hook set esc_panic + jmp chat_loop,
-    ; abandoning the hung $x). Draw "> panic stopped" and return WITHOUT scanning -- a scan would re-run the
-    ; $x that hung. Clear esc_stop + the adjacent esc_panic together (one word) so "> stopped" never also shows.
+    ; abandoning a hung exec). Draw "> panic stopped" and return WITHOUT dispatching -- a dispatch would
+    ; re-run the exec that hung. Clear esc_stop + the adjacent esc_panic together (one word) so "> stopped"
+    ; never also shows.
     cmp byte [esc_panic], 0
     je .no_panic
     mov si, PHASE_LOAD_ADDR + (.panic_text - PHASE_BASE)
@@ -76,37 +76,35 @@ tool_phase:
     jmp .loop_stop                       ; clears agent_loop_pending + count, pop bp, ret (no scan, no continue)
 .no_panic:
     mov byte [agent_loop_pending], 0     ; not boot-cleared; clear each run, set on a tool fire
-    mov byte [save_pending], 0           ; Build 12 env save/load: clear each run, set on a "$s"
+    mov byte [save_pending], 0           ; clear each run; native save_env sets it below
     cld
-    mov si, chat_context_start
-    mov bx, si
-    add bx, [chat_context_used]      ; bx = window end (exclusive)
-.scan:
-    cmp si, bx
-    jae .scan_done
-    cmp byte [si], '$'
-    jne .scan_adv
-    ; Build 11 whole-line gate (1 of 2): a directive must START its line - be the window's first byte,
-    ; or sit right after a newline. The reply is now stored after " You:\n" (a real newline), so a
-    ; reply-leading "$r .." is a true line start while an in-sentence "$x .." is not. (.exec_directive's
-    ; .line_is_call is half 2: only hex+spaces may follow the args.) This is the focused retry of the
-    ; earlier line-start gate, which failed only because the reply abutted " You: " with no newline.
-    cmp si, chat_context_start
-    je .exec_here
-    cmp byte [si - 1], 10
-    jne .scan_adv                    ; '$' mid-line -> a mention; leave it intact, scan on
-.exec_here:
-    call .exec_directive
-    mov bx, chat_context_start
-    add bx, [chat_context_used]      ; window may have grown (result appended)
-    jmp .scan
-.scan_adv:
-    inc si
-    jmp .scan
+    cmp byte [tool_fc_state], 1
+    je .native_call
+    cmp byte [tool_fc_state], 2
+    jne .maybe_captured_call
+    mov byte [tool_fc_state], 0          ; prior tool result was already sent and answered
+    mov word [fc_capture_len], 0
+    jmp .scan_done
+.maybe_captured_call:
+    cmp word [fc_capture_len], 0         ; if the explicit state byte was lost, the capture length is
+    jne .native_call                     ; still a durable per-turn handoff from the response scanner
+    jmp .scan_done
+.native_call:
+    call .parse_fc_capture
+    jc .native_clear
+    call .dispatch_fc
+    jc .scan_done
+    cmp byte [tool_fc_state], 2
+    jne .scan_done
+    call .compute_fc_suffix_len
+    jmp .scan_done
+.native_clear:
+    mov word [fc_capture_len], 0
+    mov byte [tool_fc_state], 0
 .scan_done:
     ; Agentic-loop decision: a tool fired this turn -> if the budget is not spent, keep
-    ; pending=1 (dpi auto-continues next) and stage the fixed continue directive into
-    ; dpi_input_buf; else stop and reset the count. count self-heals from boot garbage here
+    ; pending=1 (dpi auto-continues next) so the request path sends function_call_output;
+    ; else stop and reset the count. count self-heals from boot garbage here
     ; (no tool fired on the greeting -> .loop_reset).
     ; Build 11 ESC: a graceful stop this turn -> show "> stopped" and break the agentic loop. Any tool that
     ; fired above already ran (the user's "let the tool finish"); we just don't auto-continue / send the
@@ -121,10 +119,6 @@ tool_phase:
     cmp byte [agent_loop_count], agent_loop_max
     jae .loop_stop
     inc byte [agent_loop_count]
-    mov si, PHASE_LOAD_ADDR + (.continue_text - PHASE_BASE)
-    mov di, dpi_input_buf
-    mov cx, agent_continue_len
-    rep movsb
     pop bp
     ret
 .loop_stop:
@@ -133,10 +127,6 @@ tool_phase:
     mov byte [agent_loop_count], 0
     pop bp
     ret
-.continue_text db 'Continue; answer using the tool output above.'   ; clean ASCII (no escaping)
-%if ($ - .continue_text) != agent_continue_len
-%error "tool_call .continue_text length must equal agent_continue_len (layout.inc)"
-%endif
 
 ; Build 11 ESC: draw the dim "> stopped" system line (screen-only, NOT in the model window). Mirrors the
 ; "> read from .." dim prefix in .res_open. Sets api_stream_seen so render_prompt leaves a gap and draws
@@ -164,84 +154,275 @@ tool_phase:
     ret
 .stopped_text db '> stopped', 0
 .panic_text db '> panic stopped', 0
+.saved_text db '> saved', 0
 
-; si -> '$'. Validate "$<verb> " with verb in r/w/x. If invalid, step past the
-; '$' and return (left intact, never executes). If valid: neutralize the '$',
-; parse the address, and dispatch. Each executor builds its result and tail-jumps
-; .skip_to_eol, which returns to .scan.
-.exec_directive:
-    mov al, [si + 1]
+; Build 12 native function calling. agent_response captured raw SSE bytes after the
+; function_call marker; parse the last seen call_id/name/arguments fields into compact
+; buffers, then dispatch by the structured tool name. The old '$' text grammar is gone.
+.parse_fc_capture:
+    mov byte [fc_call_id_len], 0
+    mov byte [fc_name_len], 0
+    mov word [fc_args_len], 0
+    mov byte [fc_call_id], 0
+    mov byte [fc_name], 0
+    mov si, fc_capture_buf
+    mov cx, [fc_capture_len]
+    mov di, fc_args_buf
+    mov bp, fc_args_max - 1
+    call .copy_json_string
+    or ax, ax
+    jz .fc_parse_fail
+    mov [fc_args_len], ax
+    mov bx, PHASE_LOAD_ADDR + (.key_call_id - PHASE_BASE)
+    mov di, fc_call_id
+    mov bp, 47
+    call .copy_last_field
+    jc .fc_parse_fail
+    mov [fc_call_id_len], al
+    mov bx, PHASE_LOAD_ADDR + (.key_name - PHASE_BASE)
+    mov di, fc_name
+    mov bp, 15
+    call .copy_last_field
+    jc .fc_parse_fail
+    mov [fc_name_len], al
+    clc
+    ret
+.fc_parse_fail:
+    stc
+    ret
+
+.dispatch_fc:
+    mov al, [fc_name]
     cmp al, 'r'
-    je .verb_ok
+    je .native_read
     cmp al, 'w'
-    je .verb_ok
-    cmp al, 'x'
-    je .verb_ok
+    je .native_write
+    cmp al, 'e'
+    je .native_exec
     cmp al, 's'
-    je .verb_save
+    je .native_save
     cmp al, 'l'
-    je .verb_load
-    inc si
+    je .native_load
+    stc
     ret
-; Build 12 env save/load: "$l" is a no-arg mid-session load/revert -- discard the current
-; context+arena and restore the saved ENV.DAT. Per design (notes/env-save-load-design.md) it reuses
-; the proven boot restore path verbatim via a soft reboot (int 19h): the boot's auto-load consumes
-; ENV.DAT and lands on the saved screen. Bare-verb gated like "$s" (next char must be <= ' ', so
-; "$list .." prose is left intact). int 19h never returns; if there is no saved state, the reboot's
-; auto-load just falls through to a fresh greeting (revert-to-nothing).
-.verb_load:
-    mov al, [si + 2]
-    cmp al, ' '
-    ja .save_mention                 ; a letter etc. follows -> not a bare "$l", leave intact
-    int 0x19                         ; bootstrap -> full boot -> auto-load restores ENV.DAT
-; Build 12 env save/load: "$s" is a no-arg save request. It stands alone on its line (the next char
-; must be a space/newline/end, not a letter -- so "$send..." prose is left intact). Set save_pending
-; (dpi runs the cold save phase after this tool phase returns -- M can't load it over itself) and
-; neutralize the '$' so it neither re-fires nor shows. No result line here; the save phase draws one.
-.verb_save:
-    mov al, [si + 2]
-    cmp al, ' '
-    ja .save_mention                 ; a letter etc. follows -> not a bare "$s"
+.native_load:
+    int 0x19
+.native_save:
+    call .arm_fc_result
     mov byte [save_pending], 1
-    mov byte [si], ' '
-    inc si
+    mov byte [fc_output_len], 5
+    mov word [fc_output_buf], 'sa'
+    mov word [fc_output_buf + 2], 've'
+    mov byte [fc_output_buf + 4], 'd'
+    mov byte [fc_output_buf + 5], 0
+    mov si, PHASE_LOAD_ADDR + (.saved_text - PHASE_BASE)
+    call .draw_status
     ret
-.save_mention:
-    inc si
-    ret
-.verb_ok:
-    cmp byte [si + 2], ' '
-    je .verb_armed
-    inc si
-    ret
-.verb_armed:
-    mov ah, al                       ; ah = verb ([si+1])
-    mov bx, si                       ; bx = '$' position (for neutralize / revert)
-    add si, 3                        ; -> first arg
-    ; Build 11 whole-line gate (2 of 2): .scan already required a line START; here require the line to
-    ; END right after the args - only hex + spaces may follow. Together the line is exactly
-    ; "$<verb> <hexargs>"; a trailing-prose mention ("$r 7c00 8, then check") is rejected before it runs.
-    call .line_is_call
-    jc .verb_revert                  ; trailing prose -> a mention; leave '$' intact, step past it
-    push ax                          ; save verb
-    push bx                          ; save '$' position
-    call .parse_hex                  ; dx:ax = 32-bit flat addr; advances si; cf if no digits
-    mov [tool_addr], ax              ; stash the address (before pop dx reclaims dx for the verb)
-    mov [tool_addr + 2], dx
-    pop bx                           ; '$' position
-    pop dx                           ; dh = verb
-    jc .verb_revert                  ; no valid address -> not a tool; leave '$' intact
-    mov byte [bx], ' '               ; neutralize sentinel ONLY on a real call (no prose damage)
-    mov byte [agent_loop_pending], 1 ; a tool fired -> candidate for an auto-continue turn
-    mov al, dh                       ; verb
-    cmp al, 'r'
-    je .do_read
-    cmp al, 'w'
-    je .do_write
+.native_read:
+    call .parse_addr_arg
+    jc .dispatch_fail
+    call .find_len_arg
+    jc .dispatch_fail
+    call .parse_dec
+    jc .dispatch_fail
+    mov cx, ax
+    call .arm_fc_result
+    mov si, chat_context_start
+    add si, [chat_context_used]
+    push si
+    jmp .read_have_len
+.native_write:
+    call .parse_addr_arg
+    jc .dispatch_fail
+    call .find_bytes_arg
+    jc .dispatch_fail
+    call .arm_fc_result
+    jmp .do_write
+.native_exec:
+    call .parse_addr_arg
+    jc .dispatch_fail
+    call .arm_fc_result
+    mov si, chat_context_start
+    add si, [chat_context_used]
     jmp .do_exec
-.verb_revert:
-    mov si, bx                       ; back to the '$' (left intact), step past it
+.dispatch_fail:
+    mov word [fc_capture_len], 0
+    mov byte [tool_fc_state], 0
+    stc
+    ret
+.arm_fc_result:
+    mov byte [tool_fc_state], 2
+    mov byte [agent_loop_pending], 1
+    mov byte [fc_output_len], 0
+    mov byte [fc_output_buf], 0
+    ret
+.compute_fc_suffix_len:
+    mov ax, api_fc_call_open_text_len + api_fc_name_mid_text_len + api_fc_args_mid_text_len
+    add ax, api_fc_output_open_text_len + api_fc_output_mid_text_len + api_stream_json_close_text_len
+    xor bh, bh
+    mov bl, [fc_call_id_len]
+    add ax, bx
+    add ax, bx
+    mov bl, [fc_name_len]
+    add ax, bx
+    add ax, [fc_args_len]
+    mov bl, [fc_output_len]
+    add ax, bx
+    mov [fc_suffix_len], ax
+    ret
+
+.parse_addr_arg:
+    mov bx, PHASE_LOAD_ADDR + (.arg_addr - PHASE_BASE)
+    call .find_arg_key
+    jnc .pa_hex
+    mov bx, PHASE_LOAD_ADDR + (.arg_addr_num - PHASE_BASE)
+    call .find_arg_key
+    jc .pa_fail
+    call .parse_dec
+    jc .pa_fail
+    xor dx, dx
+    jmp .pa_store
+.pa_hex:
+    call .parse_hex
+    jc .pa_fail
+.pa_store:
+    mov [tool_addr], ax
+    mov [tool_addr + 2], dx
+    clc
+    ret
+.pa_fail:
+    stc
+    ret
+.find_len_arg:
+    mov bx, PHASE_LOAD_ADDR + (.arg_len - PHASE_BASE)
+    jmp .find_arg_key
+.find_bytes_arg:
+    mov bx, PHASE_LOAD_ADDR + (.arg_bytes - PHASE_BASE)
+    jmp .find_arg_key
+.find_arg_key:
+    mov si, fc_args_buf
+    mov cx, [fc_args_len]
+    jmp .find_key
+
+.copy_last_field:
+    mov [tool_farptr], di
+    mov [tool_farptr + 2], bp
+    mov word [tool_readlen], 0
+    mov byte [tool_sink], 0              ; found flag, scratch until result emit starts
+    mov si, fc_capture_buf
+    mov cx, [fc_capture_len]
+.clf_next:
+    call .find_key
+    jc .clf_done
+    push bx
+    mov di, [tool_farptr]
+    mov bp, [tool_farptr + 2]
+    call .copy_json_string
+    pop bx
+    mov [tool_readlen], ax
+    mov byte [tool_sink], 1
+    jmp .clf_next
+.clf_done:
+    cmp byte [tool_sink], 0
+    jz .clf_fail
+    mov ax, [tool_readlen]
+    clc
+    ret
+.clf_fail:
+    stc
+    ret
+
+.find_key:                               ; bx=key, si/cx=range -> si/cx after key
+    xor di, di
+.fk_next:
+    jcxz .fk_fail
+    lodsb
+    dec cx
+    cmp al, [bx + di]
+    je .fk_adv
+    cmp al, [bx]
+    jne .fk_reset
+    mov di, 1
+    jmp .fk_next
+.fk_reset:
+    xor di, di
+    jmp .fk_next
+.fk_adv:
+    inc di
+    cmp byte [bx + di], 0
+    jne .fk_next
+    clc
+    ret
+.fk_fail:
+    stc
+    ret
+
+.copy_json_string:                       ; si/cx after key, di=dest, bp=max chars -> ax=len
+    xor dx, dx
+.cjs_next:
+    jcxz .cjs_done
+    lodsb
+    dec cx
+    cmp al, '\'
+    je .cjs_escape
+    cmp al, '"'
+    je .cjs_done
+.cjs_store:
+    cmp dx, bp
+    jae .cjs_next
+    stosb
+    inc dx
+    jmp .cjs_next
+.cjs_escape:
+    cmp dx, bp
+    jae .cjs_skip_escaped
+    stosb
+    inc dx
+.cjs_skip_escaped:
+    jcxz .cjs_done
+    lodsb
+    dec cx
+    jmp .cjs_store
+.cjs_done:
+    mov byte [di], 0
+    mov ax, dx
+    ret
+
+.parse_dec:
+    push bx
+    xor ax, ax
+    xor bx, bx
+    cmp word [si], 0x225c
+    jne .pd_next
     inc si
+    inc si
+.pd_next:
+    mov cl, [si]
+    cmp cl, '0'
+    jb .pd_done
+    cmp cl, '9'
+    ja .pd_done
+    sub cl, '0'
+    mov dx, ax
+    shl ax, 1
+    shl dx, 1
+    shl dx, 1
+    shl dx, 1
+    add ax, dx
+    xor ch, ch
+    add ax, cx
+    inc bx
+    inc si
+    jmp .pd_next
+.pd_done:
+    or bx, bx
+    jz .pd_fail
+    pop bx
+    clc
+    ret
+.pd_fail:
+    pop bx
+    stc
     ret
 
 .do_exec:
@@ -412,46 +593,6 @@ tool_phase:
 .eol_done:
     ret
 
-; Build 11 standalone-call gate: si -> a directive's first arg. CF=0 if the rest of the line (to the
-; next newline or the window end) is ONLY hex digits and spaces - a real call whose args stand alone;
-; CF=1 if any other char appears first - an in-sentence mention, which must NOT execute. Preserves si
-; and ax (the scanner's live state); scans a private copy in si. di = window end.
-.line_is_call:
-    push si
-    push ax
-    mov di, chat_context_start
-    add di, [chat_context_used]
-.lic_next:
-    cmp si, di
-    jae .lic_call                    ; window end reached with only hex/space -> a call
-    mov al, [si]
-    cmp al, 10
-    je .lic_call                     ; newline closes a clean directive line -> a call
-    cmp al, ' '
-    je .lic_adv
-    cmp al, '0'
-    jb .lic_mention
-    cmp al, '9'
-    jbe .lic_adv
-    or al, 0x20                      ; tolerate 'A'-'F'
-    cmp al, 'a'
-    jb .lic_mention
-    cmp al, 'f'
-    ja .lic_mention
-.lic_adv:
-    inc si
-    jmp .lic_next
-.lic_call:
-    pop ax
-    pop si
-    clc
-    ret
-.lic_mention:
-    pop ax
-    pop si
-    stc
-    ret
-
 ; ---- parse one hex token at [si] into a 32-bit value ----
 ; Reads hex digits (upper/lower tolerated) into dx:ax (high:low), then skips one trailing space.
 ; cf=1 if no digit found. Clobbers ax/cx/dx; advances si; preserves bx/bp. Callers that want a 16-bit
@@ -462,6 +603,13 @@ tool_phase:
     xor ax, ax
     xor dx, dx
     xor bx, bx                       ; digit count
+    cmp byte [si], '0'
+    jne .ph_next
+    mov cl, [si + 1]
+    or cl, 0x20
+    cmp cl, 'x'
+    jne .ph_next
+    add si, 2
 .ph_next:
     mov cl, [si]
     cmp cl, '0'
@@ -517,18 +665,16 @@ tool_phase:
     ; auto-continue turn's reply renders cleanly under it) instead of orphaning the cursor.
     mov byte [api_stream_seen], 1
     mov byte [tool_sink], 0          ; the action prefix shows on screen + window
+    mov byte [fc_output_len], 0
+    mov byte [fc_output_buf], 0
     ; Build 12 type-change spacing: ONE blank line when this SYSTEM block follows a different message type
     ; (the model reply / a user prompt), NONE between successive results within the block. render_last_type
     ; is the shared tracker (reconnect-safe block); every renderer routes its transition through it.
     cmp byte [render_last_type], render_type_system
     je .res_line_nl
     mov byte [render_last_type], render_type_system
-    mov al, 10
-    call .win_putc
     call .scr_newline
 .res_line_nl:
-    mov al, 10
-    call .win_putc                   ; window newline
     call .scr_newline                ; screen fresh line (scroll-aware; may touch es)
     call .scr_set_video              ; then point es at video
     mov al, '>'
@@ -558,14 +704,26 @@ tool_phase:
     pop ax
     ret
 
-; .out_putc : al -> window (cap-respected), and screen too UNLESS tool_sink is set
-;             (window-only mode, for the model-facing data suffix). ES=video on screen.
+; .out_putc : al -> function_call_output buffer, and screen too UNLESS tool_sink is set
+;             (model-only mode for the result suffix). ES=video on screen.
 .out_putc:
-    call .win_putc
+    call .fc_out_putc
     cmp byte [tool_sink], 0
     jne .out_putc_done               ; window-only: data the user does not need to see
     call .scr_putc
 .out_putc_done:
+    ret
+.fc_out_putc:
+    push bx
+    xor bh, bh
+    mov bl, [fc_output_len]
+    cmp bx, fc_output_max - 1
+    jae .fop_done
+    mov [fc_output_buf + bx], al
+    inc byte [fc_output_len]
+    mov byte [fc_output_buf + bx + 1], 0
+.fop_done:
+    pop bx
     ret
 ; .scr_putc : al -> [es:di] with the dim attribute, di+=2. No per-char pacing: an agent
 ; writing a large program emits many tool lines, and a typewriter pause per char would
@@ -608,22 +766,8 @@ tool_phase:
 .out_nib_emit:
     jmp .out_putc
 
-; .win_putc : append al to the conversation window if it fits (else drop; compaction
-;             fires next request). Clobbers nothing but flags (saves bx/di).
-.win_putc:
-    push di
-    push bx
-    mov di, [chat_context_used]
-    cmp di, [chat_context_len_var]
-    jae .wp_full
-    mov bx, di
-    mov [chat_context_start + bx], al
-    inc word [chat_context_used]
-.wp_full:
-    pop bx
-    pop di
-    ret
-
+; .win_putc : legacy text-tool window append. Native tool results skip it because
+;             function_call_output is the model-facing result. Clobbers flags only.
 ; ---- screen helpers (dim, fast-typed, scroll-aware; modeled on the compaction status) ----
 .scr_set_video:
     mov ax, [video_seg]
@@ -665,5 +809,11 @@ tool_phase:
 .word_ran   db 'jump to ', 0
 .text_ax    db ' ax=', 0
 .text_cf    db ' cf=', 0
+.key_call_id db '"call_id":"', 0
+.key_name db '"name":"', 0
+.arg_addr db '\', '"', 'addr', '\', '"', ':', '\', '"', 0
+.arg_addr_num db '\', '"', 'addr', '\', '"', ':', 0
+.arg_len db '\', '"', 'len', '\', '"', ':', 0
+.arg_bytes db '\', '"', 'bytes', '\', '"', ':', '\', '"', 0
 
 %unmacro phase_call_res 1

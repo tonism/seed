@@ -303,10 +303,7 @@ agent_request_phase:
     shr ax, 1
 .cap_full:
     mov [chat_effective_cap], ax
-    cmp byte [agent_loop_pending], 0
-    jne .skip_prompt_restore             ; agentic auto-continue: dpi_input_buf holds the directive
     call .restore_prompt_from_screen
-.skip_prompt_restore:
     call .compute_ready_body_lengths
     jc .request_failed
     mov al, [dpi_input_len_byte]
@@ -357,7 +354,31 @@ agent_request_phase:
     mov word [tls_app_plain_ptr], api_request_plain + tls_record_header_len
     cmp ax, api_request_plain_len
     ja .request_too_large
-    mov word [handoff_addr + handoff_net_status], 0xb0fe
+    ; Accumulate the user's prompt for the NEXT turn after Content-Length/dialogue_cnt are fixed, but
+    ; before a reconnect handshake can clobber dpi_input_buf (tls_rx_copy). Compaction still clears the
+    ; old window in the stream phase just before receiving the summary.
+    xor ch, ch
+    cmp [compacting_msg], ch
+    jne .prompt_store_done
+    mov cl, [chat_prompt_len_cache]
+    jcxz .prompt_store_done
+    mov bx, cx
+    add bx, api_json_user_label_text_len + api_json_you_label_text_len
+    mov di, [chat_context_used]
+    add bx, di
+    cmp bx, [chat_context_len_var]
+    ja .prompt_store_done
+    add di, chat_context_start
+    mov ax, 'U:'
+    stosw
+    mov si, dpi_input_buf
+    rep movsb
+    mov ax, 'A:'
+    stosw
+    mov al, 10
+    stosb
+    mov [chat_context_used], bx
+.prompt_store_done:
     clc
     ret
 .request_key_failed:
@@ -396,21 +417,9 @@ agent_request_phase:
     mov ax, di
     sub ax, fs_sector_buffer
     mov [api_response_pending_len], ax
-    cmp byte [handoff_addr + handoff_status], handoff_status_ready
-    jne .initial_prompt
-    mov si, dpi_input_buf
-    mov cl, [dpi_input_len_byte]
-    xor ch, ch
-    call agent_request_phase_append_json_bytes_to_buffer
-    jmp .body_close
-.initial_prompt:
     mov si, PHASE_LOAD_ADDR + (api_json_boot_prompt_text - PHASE_BASE)
     call agent_request_phase_append_z_to_buffer
     mov si, PHASE_LOAD_ADDR + (api_json_boot_stream_close_text - PHASE_BASE)
-    jmp .append_body_close
-.body_close:
-    mov si, PHASE_LOAD_ADDR + (api_json_stream_close_text - PHASE_BASE)
-.append_body_close:
     call agent_request_phase_append_z_to_buffer
     mov ax, di
     sub ax, fs_sector_buffer
@@ -450,12 +459,15 @@ agent_request_phase:
     xor ch, ch
     call agent_request_phase_json_bytes_len
 .prompt_len_ready:
-    mov dx, ax
     add ax, api_ready_stream_close_text_len
+    cmp byte [tool_fc_state], 2
+    jne .tail_len_ready
+    add ax, [fc_suffix_len]
+    sub ax, api_ready_stream_close_text_len
+.tail_len_ready:
     mov [api_response_pending_len], ax
-    mov ax, dx
     add ax, bx
-    add ax, api_json_model_text_len + api_ready_stream_close_text_len
+    add ax, api_json_model_text_len
     add ax, api_json_reasoning_prefix_len + api_json_input_open_text_len
     ; Build 12 native tool calling: on a normal (non-compaction) ready turn on a loop-cache tier,
     ; agent_api_stream splices '","tools":' + the streamed schema bytes after the model, and shortens the
@@ -497,12 +509,6 @@ agent_request_phase:
 .instr_normal:
     add ax, [prompt_id_size]
     add ax, api_ledger_len
-    ; Build 11 #4 note-as-memory: a normal turn also carries the running note in "instructions" behind
-    ; a fixed label (when a note exists). The note's bytes are part of the window-escaped count below
-    ; (the window = note ++ dialogue), so only the LABEL is extra here.
-    cmp word [note_len], 0
-    je .instr_done
-    add ax, api_note_label_text_len
 .instr_done:
     ; Build 9: the window rides JSON-ESCAPED, so Content-Length must count it ESCAPED (else a quote/
     ; backslash-bearing window under-counts and truncates the sent body). Build 11 #4: the window now
@@ -646,13 +652,10 @@ agent_request_host_openai_text db 'api.openai.com', 0
 api_json_model_text db '{"model":"', 0
 api_json_model_text_len equ $ - api_json_model_text - 1
 api_json_input_text db '","input":"', 0
-api_json_input_text_len equ $ - api_json_input_text - 1
 ; Build 9: the tiered ready input-prefix templates were removed; identity+ledger + the
 ; instructions/input-open templates now live in agent_api_stream.inc (built/sent as chunk 2).
 api_json_boot_prompt_text db 'Greet.', 0
 api_json_boot_stream_close_text db '","stream":true}', 0
-api_json_stream_close_text db '","stream":true}', 0
-api_json_stream_close_text_len equ $ - api_json_stream_close_text - 1
 ; Build 12 native tool calling: the STREAMED ready close is agent_api_stream's api_stream_json_close_text,
 ; which grew to the array-envelope close ('"}],"store":false,"stream":true}'). compute_ready_body_lengths
 ; sizes the streamed ready request, so track THAT length here (not the boot path's string-input close).
