@@ -515,7 +515,7 @@ prompt_compact_size equ prompt_compact_cluster + 2
 ; Build 12 native tool calling: the tools JSON schema asset (prompts/tools.json, <=1 sector), same
 ; boot-cached cluster+size scheme as identity/compact. Streamed RAW as the "tools" array value into
 ; ready requests. On 32K+ it is ALSO preloaded into the resident tools_cache (floppy-free loop); on
-; 16K it streams from the floppy per turn in T7.
+; 16K it streams from the floppy per ready turn.
 prompt_tools_cluster equ prompt_compact_size + 2
 prompt_tools_size equ prompt_tools_cluster + 2
 ; Build 11 #4 note-as-memory: the conversation window (chat_context) is split into a NOTE prefix
@@ -595,9 +595,11 @@ render_type_agent equ 2                    ; model reply (agent_response)
 render_type_system equ 3                   ; tool results + status lines (tool_call / agent_endpoint / api_stream)
 ; Build 12 native tool calling: transient captured function_call state. State 1 means the SSE scanner
 ; saw a function_call and copied raw bytes to fc_capture_buf; state 2 means tool_call executed it and
-; the next request must echo function_call + function_call_output. The string buffers are JSON-ready:
+; the next request sends function_call_output against previous_response_id. The string buffers are JSON-ready:
 ; call_id/name are raw identifiers, arguments is still the escaped Responses API argument string, and
-; output contains only Seed-generated JSON-safe ASCII.
+; output contains only Seed-generated JSON-safe ASCII. Args live in the 0x0d00 capture handoff and are
+; dead after tool_call parses them; output must live in reconnect-safe RAM because the 0x0900 request/
+; stream phases would otherwise overwrite it before function_call_output is serialized.
 tool_fc_state equ render_last_type + 1
 fc_match_state equ tool_fc_state + 1
 fc_capture_len equ fc_match_state + 1
@@ -610,19 +612,19 @@ fc_call_id equ fc_suffix_len + 2              ; <=47 chars + NUL
 fc_name equ fc_call_id + 48                   ; <=15 chars + NUL
 fc_args_buf equ fc_capture_buf                ; raw escaped "arguments" string, parsed from capture
 fc_args_max equ 384
-fc_output_buf equ fc_args_buf + fc_args_max
-fc_output_max equ fc_capture_max - fc_args_max
-reconnect_state_end equ fc_name + 16
+fc_output_buf equ fc_name + 16
+fc_output_max equ 128
+reconnect_state_end equ fc_output_buf + fc_output_max
 ka_template_persistent equ reconnect_state_end
 ; Build 11 ESC: the int 9 keyboard hook handler is staged to this pool slot at boot (position-independent
 ; code; runs from here so it survives the phase-overlay churn). esc_int9_old saves the BIOS int 9 vector
 ; the handler chains every key to. Both sit between the keep-alive template and the conversation window.
 esc_int9_handler equ ka_template_persistent + ka_request_len
 esc_int9_old equ esc_int9_handler + esc_int9_handler_len
-chat_context_start equ esc_int9_old + 4
-prev_response_id equ chat_context_start
-prev_response_id_max equ 64
-chat_context_len equ 128
+prev_response_id equ esc_int9_old + 4
+prev_response_id_max equ 56
+chat_context_start equ prev_response_id + prev_response_id_max
+chat_context_len equ 72
 chat_context_end equ chat_context_start + chat_context_len
 chat_arena_start equ chat_context_end
 ; Build 12 auto-recertify: the captured rotated leaf (286 secure path only) lands in the handshake-

@@ -43,7 +43,7 @@ agent_endpoint_phase:
     ; Build 12 auto-recertify: net_phase set recert_flag because a leaf rotation was detected and the
     ; captured leaf chained to the pinned WR1 (off-race). Show "> recertify" ONLY mid-chat -- a live
     ; session (handoff status ready) where the user is watching. During the cold-boot loading sequence
-    ; the recertify is silent (no status line), exactly like "> response"; the dots/splash cover it.
+    ; the recertify is silent (no status line), exactly like "> reconnect"; the dots/splash cover it.
     ; "> recertify" is 11 chars (== "> reconnect"), so a mid-chat recert cleanly overwrites the earlier
     ; "> reconnect" on the same row (reads as one line transitioning reconnect -> recertify).
     cmp byte [handoff_addr + handoff_status], handoff_status_ready
@@ -53,7 +53,7 @@ agent_endpoint_phase:
     call .draw_dim_status_line
     jmp .endpoint_body
 .render_reconnect_failed:
-    ; The " failed" append belongs to the mid-chat "> response" line -- but on a COLD setup that line was
+    ; The " failed" append belongs to the mid-chat "> reconnect" line -- but on a COLD setup that line was
     ; suppressed (handoff status not ready, splash showing), so drawing a bare " failed" here is orphaned
     ; (and redundant with failure_action's "> agent setup failed"). Draw it only mid-chat; cold stays
     ; silent. Either way return CF=1 (the exhaustion signal the cold-setup fatal-screen path relies on).
@@ -180,15 +180,14 @@ agent_endpoint_phase:
     mov [dns_tx_len], ax
     ret
 
-; Draw a complete dim status line at the terminal cursor. Different message types get one blank
-; separator; successive status lines just advance one row.
+; Draw a complete dim status line at the terminal cursor. DPI already advanced after the submitted
+; prompt, so one status-line advance gives the intended single blank separator.
 .draw_dim_status_line:
     mov byte [api_stream_seen], 1
     cmp byte [render_last_type], render_type_system
-    je .dsl_same_type
+    je .dsl_line
     mov byte [render_last_type], render_type_system
-    call .reconnect_advance_line
-.dsl_same_type:
+.dsl_line:
     call .reconnect_advance_line
     jmp .render_dim_run
 
@@ -225,10 +224,10 @@ agent_endpoint_phase:
     mov byte [cursor_col], dpi_prompt_col
     ret
 
-; Shared dim status text. The first retry draws "> response"; total failure draws the full line.
-reconnect_msg_text db '> response failed'
-reconnect_word_len equ 10
-reconnect_failed_len equ 17
+; Shared dim status text. The first retry draws "> reconnect"; total failure draws the full line.
+reconnect_msg_text db '> reconnect failed'
+reconnect_word_len equ 11
+reconnect_failed_len equ 18
 ; Build 12 auto-recertify status. 11 chars (== "> reconnect") so it overwrites it in place on a
 ; mid-chat recert; the shared " failed" tail above appends to whichever line the cursor is parked on.
 recertify_msg_text db '> recertify'

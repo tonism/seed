@@ -2,7 +2,7 @@
 %error "PHASE_BASE must name the containing phase start label"
 %endif
 %ifndef PHASE_LOAD_ADDR
-%error "PHASE_LOAD_ADDR must name the runtime load address (net_setup_phase_start)"
+%error "PHASE_LOAD_ADDR must name the runtime load address"
 %endif
 
 %macro phase_call_res 1
@@ -10,9 +10,9 @@
     dw %1 - (PHASE_LOAD_ADDR + ($ - PHASE_BASE) + 2)
 %endmacro
 
-; Tool scratch lives just above this 3-sector phase image (0x0900..0x0f00), below the cursor/phase-state
-; bytes around 0x0f55. Do not use fs_sector_buffer here: this phase overlaps it once the tool code grew to
-; 3 sectors, and native result writes would corrupt the late screen helpers/string table.
+; Tool scratch lives above the 0x0d00..0x0f00 function-call capture handoff sector, below the cursor/
+; phase-state bytes around 0x0f55. Do not use fs_sector_buffer/capture space here: native result writes
+; must not corrupt the raw call bytes before parsing or the late screen helpers/string table.
 tool_scratch_base equ net_setup_phase_start + 3 * 512
 ; One byte of scratch: 0 = emit to screen + result buffer, 1 = result-buffer only (model-facing data
 ; the user does not need to see).
@@ -272,15 +272,10 @@ tool_phase:
     mov byte [fc_output_buf], 0
     ret
 .compute_fc_suffix_len:
-    mov ax, api_fc_call_open_text_len - 3 + api_fc_name_mid_text_len + api_fc_args_mid_text_len
-    add ax, api_fc_output_open_text_len + api_fc_output_mid_text_len + api_stream_json_close_text_len
+    mov ax, api_fc_output_open_text_len - 3 + api_fc_output_mid_text_len + api_stream_json_close_text_len
     xor bh, bh
     mov bl, [fc_call_id_len]
     add ax, bx
-    add ax, bx
-    mov bl, [fc_name_len]
-    add ax, bx
-    add ax, [fc_args_len]
     mov bl, [fc_output_len]
     add ax, bx
     mov [fc_suffix_len], ax

@@ -80,6 +80,9 @@ hal_start:
     call preload_loop_cache
 
 chat_loop:
+    ; Native tools run before DPI from resident code. tool_call loads at 0x0700 so it must not be
+    ; loaded by DPI itself (also 0x0700); doing that overwrote DPI and could skip the prompt.
+    call_core_phase core_tool_phase_start, core_tool_phase_end
     call_core_phase core_dpi_phase_start, core_dpi_phase_end
     call prepare_agent_endpoint_path
     ; Build 10 soft-fail: a chat turn ALWAYS returns to DPI. prepare_agent_endpoint_path tries reuse
@@ -242,7 +245,7 @@ preload_loop_cache:
     call .preload_one_prompt
     ; Build 12 native tool calling: the tools schema is preloaded into tools_cache by the agents_cfg
     ; PHASE (not here) -- the resident nucleus is full, and agents_cfg already finds the cluster and runs
-    ; after ram_top is set, so it does the 2-sector load into tools_cache on the loop-cache tiers.
+    ; after ram_top is set, so it does the one-sector load into tools_cache on the loop-cache tiers.
     pop ax
     mov [loop_cache_count], ax  ; phase cache live; the prompt cache is gated on loop_cache_count > 0 too
     pop es

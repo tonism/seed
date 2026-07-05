@@ -21,26 +21,16 @@ dpi_phase:
     ; (the entire boot network bring-up), the hook ignores ESC so it can't longjmp into a half-built chat
     ; loop. Idempotent -- set every loop; only the first transition matters.
     mov byte [dpi_reached], 1
-    ; Build 12 native tools: execute any captured function_call before drawing this prompt.
-    ; Best-effort: a load failure
-    ; just skips tools (never breaks the chat loop). Loaded at net_setup_phase_start
-    ; (0x0900), above dpi's own 0x0700 sector; returns here when done.
-    mov ax, (((core_tool_phase_end - core_tool_phase_start + 511) / 512) << 8) | ((core_tool_phase_start - $$) / 512)
-    mov bx, net_setup_phase_start
-    phase_call_res load_core_sectors_at
-    jc .tools_skipped
-    call bx                          ; load_core_sectors_at preserves bx (still = net_setup_phase_start)
-    ; Build 12 env save/load: the tool phase set save_pending on save_env. Run the cold save phase now --
-    ; the tool phase has returned, so its 0x0900 slot is free to load the save over (dpi runs at 0x0700,
-    ; no overlap). The save captures the window + screen and writes ENV.DAT; it draws its own status line.
+    ; Build 12 env save/load: resident chat_loop already ran tool_call. If that armed save_env, run the
+    ; save prep at 0x0900 before loading the request helper there.
     cmp byte [save_pending], 0
-    je .tools_skipped
+    je .save_skipped
     mov ax, (((core_save_prep_phase_end - core_save_prep_phase_start + 511) / 512) << 8) | ((core_save_prep_phase_start - $$) / 512)
     mov bx, net_setup_phase_start
     phase_call_res load_core_sectors_at
-    jc .tools_skipped
+    jc .save_skipped
     call bx                          ; load_core_sectors_at preserves bx (still = net_setup_phase_start)
-.tools_skipped:
+.save_skipped:
     cmp byte [api_stream_event_ready], 1
     je .request_phase_ready
     mov ax, (((core_agent_request_phase_end - core_agent_request_phase_start + 511) / 512) << 8) | ((core_agent_request_phase_start - $$) / 512)
@@ -96,8 +86,18 @@ dpi_phase:
     jmp .read_key
 
 .enter:
-    cmp byte [dpi_input_len_byte], 0
-    je .read_key
+    mov cl, [dpi_input_len_byte]
+    xor ch, ch
+    jcxz .read_key
+    mov si, dpi_input_buf
+.enter_nonblank_scan:
+    lodsb
+    cmp al, ' '
+    jne .enter_submit
+    loop .enter_nonblank_scan
+    call .clear_input_line
+    jmp .read_key
+.enter_submit:
     call .submit_line
     clc
     ret
@@ -115,6 +115,17 @@ dpi_phase:
 
 .submit_line:
     call .hide_cursor
+    ; Submitted user text should no longer carry the prompt marker. Write directly through BIOS so the
+    ; logical cursor still points at the end of the typed line for the line-advance logic below.
+    mov ah, 0x02
+    xor bh, bh
+    mov dh, [dpi_prompt_marker_row]
+    mov dl, dpi_prompt_col
+    int 0x10
+    mov ax, 0x0920
+    mov bx, 0x0007
+    mov cx, 0x0001
+    int 0x10
     mov dl, [cursor_row]
     cmp dl, dpi_prompt_row
     jne .submit_no_scroll

@@ -176,13 +176,14 @@ redesign, 286 secure tier, memory scaling M1/M2, env save/load — all already i
 pieces still open before it tags. Sequenced so the tool loop and UI land first, then memory reach.
 
 ```text
-native tool calling T3-T6 (SHIPPED on the 32 KiB loop-cache tier) - the inline "$r/$w/$x" text
+native tool calling T3-T7 (SHIPPED) - the inline "$r/$w/$x" text
   grammar is replaced by the OpenAI Responses API's structured function_call protocol. Seed captures
   function_call SSE bytes in the 512-B receive scanner, parses and executes read_mem/write_mem/exec/
-  save_env/load_env between turns, sends stateless function_call + function_call_output input-array
-  items with store:false, and deletes the old "$"-scan / synthetic Continue path. Validated 5 July 2026
+  save_env/load_env between turns, continues with `previous_response_id` + structured tool-output
+  input items, and deletes the old "$"-scan / synthetic Continue path. Validated 5 July 2026
   on original-speed 32 KiB vm-net-ne2k8 direct boot: plain chat returned "ok"; read_mem(0x00000400,8)
-  returned "f8 03 f8 02 00 00 00 00". 16 KiB tools schema streaming remains deferred to T7.
+  returned "f8 03 f8 02 00 00 00 00". The 16 KiB BASIC-sidecar tier streams the one-sector TOOLS schema
+  from floppy and uses a low 0x0d00 capture handoff, so native tools no longer depend on the 32K loop cache.
 UI polish - SHIPPED: the shared render_last_type tracker gives one blank between user/agent/system
   render groups and none within a run; model responses wrap on spaces in the last eight columns so the
   next word starts on the next line instead of splitting at the hard edge; and the identity prompt

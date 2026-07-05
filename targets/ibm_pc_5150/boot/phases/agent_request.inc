@@ -452,16 +452,12 @@ agent_request_phase:
     add ax, bx
     add ax, api_json_model_text_len
     add ax, api_json_reasoning_prefix_len + api_json_input_open_text_len
-    ; Build 12 native tool calling: on a normal (non-compaction) ready turn on a loop-cache tier,
-    ; agent_api_stream splices '","tools":' + the streamed schema bytes after the model, and shortens the
-    ; reasoning prefix by 1 (skips its leading model-close quote). Mirror that EXACTLY into Content-Length,
-    ; or the body byte count is wrong and the request breaks. (api_json_tools_open_text_len - 1 folds the
-    ; +tools_open and the -1 reasoning offset; then + the schema size.) The gate MUST match the splice:
-    ; compacting==0 && loop_cache_count>0 (no size check -- the asset is Makefile-guaranteed on 32K+).
+    ; Build 12 native tool calling: on a normal (non-compaction) ready turn, agent_api_stream splices
+    ; '","tools":' + the schema bytes after the model, and shortens the reasoning prefix by 1 (skips
+    ; its leading model-close quote). Mirror that EXACTLY into Content-Length, whether the schema streams
+    ; from 32K tools_cache or the 16K floppy fallback.
     cmp byte [compacting_msg], 0
     jne .no_tools_len
-    cmp word [loop_cache_count], 0
-    je .no_tools_len
     add ax, api_json_tools_open_text_len - 1
     add ax, [prompt_tools_size]
 .no_tools_len:

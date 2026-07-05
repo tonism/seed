@@ -28,7 +28,6 @@ core_header_end:
 %include "core/net_tx.inc"
 %include "core/transport.inc"
 %include "core/net_rx.inc"
-%include "core/ui.inc"
 %include "core/data.inc"
 
 ; Build 12 NIC HAL: pad the shared resident code up to the active-driver slot, then reserve the slot.
@@ -287,12 +286,12 @@ core_agent_response_phase_end:
 %error "agent response phase load address exceeds low scratch"
 %endif
 
-%if (core_agent_response_phase_end - core_agent_response_phase_start) > (low_scratch_end - agent_response_phase_load_addr)
-%error "agent response phase exceeds cold response window"
+%if (core_agent_response_phase_end - core_agent_response_phase_start) > (fc_capture_buf - agent_response_phase_load_addr)
+%error "agent response phase overlaps native function-call capture buffer"
 %endif
 
-%if (core_agent_response_phase_end - core_agent_response_phase_start) > 512
-%error "agent response phase exceeds hot one-sector window"
+%if (fc_capture_buf + fc_capture_max) > low_scratch_end
+%error "native function-call capture buffer exceeds low scratch"
 %endif
 
 align 512, db 0
@@ -311,16 +310,15 @@ times 512 - (core_splash_phase_end - core_splash_phase_start) db 0
 
 core_tool_phase_start:
 %define PHASE_BASE core_tool_phase_start
-%define PHASE_LOAD_ADDR net_setup_phase_start
+%define PHASE_LOAD_ADDR low_scratch_start
 %include "phases/tool_call.inc"
 %undef PHASE_LOAD_ADDR
 %undef PHASE_BASE
 core_tool_phase_end:
 
-; Loaded at net_setup_phase_start (0x0900) by dpi and run between turns. Keep it clear of low_phase_state
-; (cursor/colour + loop-state bytes dpi reads after) -- those sit at ~0x0F50 (near the top of low
-; scratch), so 3 sectors (0x0900..0x0F00) still leaves an ~80 B margin below them. The EMS $r/$w path
-; (milestone 2) grew this to 3 sectors.
+; Loaded at low_scratch_start (0x0700) by resident chat_loop and run between turns. Keep it below
+; fc_capture_buf so the raw function_call bytes captured by agent_response survive into this parser.
+; Scratch remains at 0x0f00, below the low_phase_state bytes dpi reads after return.
 %if (core_tool_phase_end - core_tool_phase_start) > 1536
 %error "tool phase exceeds its between-turns budget"
 %endif
@@ -485,7 +483,7 @@ core_phase_table:
     db 'M', 0
     dw (core_tool_phase_start - $$) / 512
     dw (core_tool_phase_end - core_tool_phase_start + 511) / 512
-    dw net_setup_phase_start
+    dw low_scratch_start
     dw 0
     db 'S', 0
     dw (core_save_phase_start - $$) / 512

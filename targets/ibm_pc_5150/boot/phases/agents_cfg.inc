@@ -219,7 +219,7 @@ agents_cfg_phase_find_prompts:
     ; On a loop-cache tier (32K+) preload the schema into the resident tools_cache now, so the chat loop
     ; streams it from RAM (floppy-free). Homed here (not the resident nucleus, which is full) -- ram_top
     ; is already set, loop_cache_count is still 0 so load_core_sectors_at floppy-fills, and tools_cache is
-    ; a fixed one-sector address. 16K skips (T7 floppy-streams tools).
+    ; a fixed one-sector address. 16K skips the resident preload and streams TOOLS from floppy per turn.
     cmp word [handoff_addr + handoff_ram_top], ram_tier_32k_min
     jb .tools_done
     mov ax, [prompt_tools_cluster]

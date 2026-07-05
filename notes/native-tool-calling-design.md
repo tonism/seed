@@ -2,13 +2,14 @@
 
 ## COMPLETION UPDATE — 2026-07-05
 
-T3-T6 are implemented on `work/scaling` for the 32 KiB loop-cache tier: the receive phase captures
-native `function_call` SSE bytes, `tool_call` parses/executes structured args, the request stream sends
-stateless `function_call` + `function_call_output` input-array items with `store:false`, the redundant
-line-start `$` scanner / synthetic Continue path is deleted, and `save_env` / `load_env` are native
-tools. Validation: `make`, `make inspect`, `git diff --check`, original-speed 32 KiB `vm-net-ne2k8`
-direct boot plain chat (`ok`), and `read_mem(0x00000400,8)` returning
-`f8 03 f8 02 00 00 00 00`. T7 (16 KiB tools-schema streaming) remains deferred.
+T3-T7 are implemented on `work/scaling`: the receive phase captures native `function_call` SSE bytes,
+`tool_call` parses/executes structured args, the request stream continues with `previous_response_id`
+and structured tool-output input items, the redundant line-start `$` scanner / synthetic Continue path
+is deleted, and `save_env` / `load_env` are native tools. The 32 KiB+ tier streams the schema from
+resident `tools_cache`; the 16 KiB tier streams the one-sector TOOLS asset from floppy and uses a low
+0x0d00 capture handoff so native tools no longer depend on the loop-cache band. Validation: `make`,
+`make inspect`, `git diff --check`, original-speed 32 KiB `vm-net-ne2k8` direct boot plain chat (`ok`),
+and `read_mem(0x00000400,8)` returning `f8 03 f8 02 00 00 00 00`.
 
 ## HANDOVER — Codex, start here (2026-07-05)
 
@@ -34,12 +35,11 @@ weight and its deletion is exactly what frees the budget your parser + dispatch 
 bodies (`.do_read`/`.do_write`/`.do_exec` + `.addr_to_esbx`/`.parse_hex` + the `.res_*` result emitters)
 — T4 dispatches to them with structured args.
 
-**Decisions already locked (do not re-litigate):** transport = **stateless full input-array** (echo
-`function_call` + `function_call_output` items every turn, `store:false`; NOT `previous_response_id`) —
-the architecture rationale is in the doc. Tool set = 5 distinct tools (`read_mem`/`write_mem`/`exec`/
-`save_env`/`load_env`), per-field structured args; schema is `prompts/tools.json`, shipped resident in
-`tools_cache` on 32K+. Wire-format was NOT probed live — parse defensively (match distinctive
-substrings, order-tolerant). 16K tools are deferred (T7).
+**Current decisions:** transport follows the standard Responses continuation shape:
+`previous_response_id` plus structured tool-output input items. Tool set = 5 distinct tools
+(`read_mem`/`write_mem`/`exec`/`save_env`/`load_env`), per-field structured args; schema is
+`prompts/tools.json`, shipped resident in `tools_cache` on 32K+ and streamed from floppy on 16K.
+Wire-format was NOT probed live — parse defensively (match distinctive substrings, order-tolerant).
 
 **Gotchas that cost real time:** every touched phase is at/near its sector cap — expect a byte-fight;
 measure phase sizes with a temp-copy listing (do NOT edit `core.asm` in place to measure — it bit me).
@@ -121,7 +121,7 @@ The `tools` blob is STATIC — it can live as a fixed byte template appended to 
 Five distinct tools WITH descriptions (~700 B, up to 2 sectors) exceed the one-sector floppy asset
 path, and the 32K tier must stay floppy-free. Resolution (user's call, refined 2026-07-04): a **tier-split**, mirroring the existing loop-cache /
 prompt-cache regime (those exist only on 32K+; 16K floppy-streams them):
-- **32K / 256K (loop-cache tiers)**: a **resident 2-sector tools buffer** carved from the TOP of the
+- **32K / 256K (loop-cache tiers)**: a **resident 1-sector tools buffer** carved from the TOP of the
   arena/context pool, capping window/arena ~1 KB lower, **preloaded ONCE at boot**, streamed from RAM
   every ready turn. Conversation loop stays floppy-free (the whole point of the 32K tier).
 - **16K**: NO resident buffer (do not touch 16K's scarce pool). Stream `tools.json` from the FLOPPY
@@ -143,10 +143,9 @@ adds the tools `size`.
   the whole schema is resident in `tools_cache`, so the splice streams it DIRECTLY from `tools_cache`
   via `agent_api_stream_stream_contract.sc_copy` (the record-flushing copy loop, entered with si/cx/di
   preset — no resolver call). All new code stays in the cold `agent_api_stream` phase.
-- **16K tools deferred to T7**: the splice is gated on `loop_cache_count > 0` (a loop-cache tier). On
-  16K (no resident buffer) NO tools are spliced yet — a valid, tool-less request — until T7 adds the
-  multi-sector floppy stream (read cluster LBA then LBA+1 into tls_rx_copy, stream each). This keeps
-  every tier's request valid at each build stage.
+- **16K tools (T7)**: with no resident buffer, 16K reads the one-sector TOOLS asset into `tls_rx_copy`
+  and streams it through the same record-flushing path. The function-call capture handoff moved into
+  low scratch (`0x0d00`) so parsed tool calls no longer depend on the 32K loop-cache band.
 - **JSON splice shape**: chunk 1 ends `{"model":"<model>` (open string). Normal 32K+ turn:
   `api_json_tools_open_text` = `","tools":` (closes the model string + key), then stream tools bytes
   `[...]`, then `reasoning_prefix + 1` (skip its leading `"` since the model string is already closed)

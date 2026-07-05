@@ -160,7 +160,7 @@ prepare_agent_endpoint_path:
 .stream_and_exchange:
     run_net_phase core_agent_api_stream_phase_start, core_agent_api_stream_phase_end
     jc .se_done
-    call agent_api_exchange
+    jmp agent_api_exchange
 .se_done:
     ret
 

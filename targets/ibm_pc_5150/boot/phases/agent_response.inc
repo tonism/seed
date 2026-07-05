@@ -94,6 +94,8 @@ agent_response_phase:
     mov word [api_http_state], 1
     ret
 .fc_args_probe:
+    cmp byte [handoff_addr + handoff_status], handoff_status_ready
+    jne .fc_no_match
     mov si, PHASE_LOAD_ADDR + (arguments_pattern - PHASE_BASE)
     mov di, fc_match_state
     call .match_char
@@ -232,7 +234,7 @@ completed_pattern db 'response.completed', 0
 done_pattern equ completed_pattern
 arguments_pattern db 'arguments":"{', 0
 fc_start_pattern db 'function_call', 0
-response_id_pattern db '"resp_', 0
+response_id_pattern db '"id":"resp_', 0
 delta_key_pattern db 'delta":"', 0
 
 ; Keep-alive GET template relocated to the persistent pool (ka_template_persistent), staged once

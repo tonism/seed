@@ -16,10 +16,10 @@
 ; screen row-length table + screen_stored, the file size, and the payload checksum -- all into fixed
 ; scratch (data.inc save_*). This phase never touches fs_sector_buffer, so it has the full net-window
 ; budget. It then chains to save_write by JMPing into the resident phase loader (not a call), so when
-; save_write returns it lands back in dpi, not in this phase's overwritten code. The save runs between
+; save_write returns it lands back in the resident chat loop, not in this phase's overwritten code. The save runs between
 ; turns, so it reads only RAM/video here -- the actual disk I/O is all in save_write.
 save_prep_phase:
-    mov byte [save_pending], 0       ; consume the request (dpi loads us as the save entry point)
+    mov byte [save_pending], 0       ; consume the request (chat_loop loads us as the save entry point)
     ; --- region_len = full window+arena extent (ceiling - chat_context_start), mirrors restore ---
     mov ax, [handoff_addr + handoff_ram_top]
     sub ax, 0x100

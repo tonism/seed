@@ -35,22 +35,25 @@ agent_api_stream_phase:
     ; (~586 B) overflowed it into TLS/config scratch and hung the send (16K freeze). Splitting
     ; keeps each record well under the cap; the body now spans 4 TLS records.
     mov di, api_request_plain + tls_record_header_len
-    ; Build 12 native tool calling: on a NORMAL (non-compaction) ready turn on a loop-cache tier (32K+),
-    ; splice the tools array right after the model, streaming the resident tools_cache. 16K
-    ; (loop_cache_count==0) sends NO tools yet -- a valid tool-less request; its multi-sector floppy
-    ; stream is T7. api_json_tools_open_text ('","tools":') closes the model string, so the reasoning
-    ; prefix that follows skips its own leading model-close quote (si+1); the no-tools path uses the
-    ; prefix verbatim (its '","' closes the string). si holds the reasoning source across the splice.
+    ; Build 12 native tool calling: on a NORMAL (non-compaction) ready turn, splice the tools array
+    ; right after the model. 32K+ streams the resident tools_cache; 16K reads the one-sector TOOLS
+    ; asset into tls_rx_copy and streams it through the same record-flushing copy path. The tools-open
+    ; text closes the model string, so the reasoning prefix that follows skips its own leading quote.
     mov si, PHASE_LOAD_ADDR + (api_json_reasoning_prefix - PHASE_BASE)
     cmp byte [compacting_msg], 0
     jne .chunk2_prev_model_open
-    cmp word [loop_cache_count], 0
-    je .chunk2_prev_model_open
     mov si, PHASE_LOAD_ADDR + (api_json_tools_open_text - PHASE_BASE)
     call agent_api_stream_append_z_to_buffer
-    mov si, tools_cache
     mov cx, [prompt_tools_size]
+    cmp word [loop_cache_count], 0
+    je .chunk2_tools_floppy
+    mov si, tools_cache
     call agent_api_stream_stream_contract.sc_copy   ; stream schema as <=440 B records; di=body on return
+    jc .prefix_failed
+    jmp .chunk2_prev_model_closed
+.chunk2_tools_floppy:
+    mov ax, [prompt_tools_cluster]
+    call agent_api_stream_stream_contract
     jc .prefix_failed
     jmp .chunk2_prev_model_closed
 .chunk2_prev_model_open:
@@ -162,10 +165,6 @@ agent_api_stream_phase:
     je .done
     mov word [chat_context_used], 0
 .done:
-    mov ax, (((core_agent_response_phase_end - core_agent_response_phase_start + 511) / 512) << 8) | ((core_agent_response_phase_start - $$) / 512)
-    mov bx, agent_response_phase_load_addr
-    phase_call_res load_core_sectors_at
-    jc .failed
     ; Reset keep-alive timing: this request is the last client activity, so the idle clock
     ; (Cloudflare's ~400s timeout) restarts here, with no pings outstanding for this exchange.
     mov ax, [0x046c]
@@ -187,6 +186,8 @@ agent_api_stream_phase:
     mov word [fc_match_state], ax
     ; Seed the pre-position cursor column; .emit_to_screen sets the real cursor on first output.
     mov [cursor_col], al
+    mov ax, (((core_agent_response_phase_end - core_agent_response_phase_start + 511) / 512) << 8) | ((core_agent_response_phase_start - $$) / 512)
+    mov bx, agent_response_phase_load_addr
     ret
 
 .prefix_failed:
@@ -203,24 +204,20 @@ agent_api_stream_phase:
     phase_call_res tls_send_application_data_current_seq
     ret
 
-; Build 12 native tool calling: ready turns use the Responses input array so a native tool result can be
-; represented as function_call + function_call_output items. The cold boot greeting remains string-input.
+; Build 12 native tool calling: ready turns use the Responses input array. With previous_response_id
+; continuity, tool continuation sends only function_call_output; the function_call item already lives
+; in the referenced response. The cold boot greeting remains string-input.
 api_stream_json_close_text db '"}],"stream":true}', 0
 api_stream_json_close_text_len equ $ - api_stream_json_close_text - 1
 api_json_user_item_open_text db '{"role":"user","content":"', 0
 api_json_user_item_open_text_len equ $ - api_json_user_item_open_text - 1
 api_json_prev_response_id_text db '","previous_response_id":"resp_', 0
 api_json_prev_response_id_text_len equ $ - api_json_prev_response_id_text - 1
-api_fc_call_open_text db '"},{"type":"function_call","call_id":"', 0
-api_fc_call_open_text_len equ $ - api_fc_call_open_text - 1
-api_fc_name_mid_text db '","name":"', 0
-api_fc_name_mid_text_len equ $ - api_fc_name_mid_text - 1
-api_fc_args_mid_text db '","arguments":"', 0
-api_fc_args_mid_text_len equ $ - api_fc_args_mid_text - 1
 api_fc_output_open_text db '"},{"type":"function_call_output","call_id":"', 0
 api_fc_output_open_text_len equ $ - api_fc_output_open_text - 1
 api_fc_output_mid_text db '","output":"', 0
 api_fc_output_mid_text_len equ $ - api_fc_output_mid_text - 1
+api_fc_saved_output_text db 'saved', 0
 
 ; (Removed in M2e: agent_api_stream_append_floppy_prompt -- the in-place one-record floppy streamer was
 ; superseded by agent_api_stream_stream_contract, which streams the identity AND the contract as <=440 B
@@ -354,24 +351,7 @@ agent_api_stream_append_z_to_buffer:
     ret
 
 agent_api_stream_append_fc_output_item:
-    mov si, PHASE_LOAD_ADDR + (api_fc_call_open_text - PHASE_BASE) + 3
-    call agent_api_stream_append_z_to_buffer
-    mov si, fc_call_id
-    mov cl, [fc_call_id_len]
-    xor ch, ch
-    rep movsb
-    mov si, PHASE_LOAD_ADDR + (api_fc_name_mid_text - PHASE_BASE)
-    call agent_api_stream_append_z_to_buffer
-    mov si, fc_name
-    mov cl, [fc_name_len]
-    xor ch, ch
-    rep movsb
-    mov si, PHASE_LOAD_ADDR + (api_fc_args_mid_text - PHASE_BASE)
-    call agent_api_stream_append_z_to_buffer
-    mov si, fc_args_buf
-    mov cx, [fc_args_len]
-    rep movsb
-    mov si, PHASE_LOAD_ADDR + (api_fc_output_open_text - PHASE_BASE)
+    mov si, PHASE_LOAD_ADDR + (api_fc_output_open_text - PHASE_BASE) + 3
     call agent_api_stream_append_z_to_buffer
     mov si, fc_call_id
     mov cl, [fc_call_id_len]
@@ -379,6 +359,13 @@ agent_api_stream_append_fc_output_item:
     rep movsb
     mov si, PHASE_LOAD_ADDR + (api_fc_output_mid_text - PHASE_BASE)
     call agent_api_stream_append_z_to_buffer
+    cmp byte [fc_name], 's'
+    jne .fc_output_copy
+    cmp byte [fc_output_len], 5
+    jne .fc_output_copy
+    mov si, PHASE_LOAD_ADDR + (api_fc_saved_output_text - PHASE_BASE)
+    jmp agent_api_stream_append_z_to_buffer
+.fc_output_copy:
     mov si, fc_output_buf
     mov cl, [fc_output_len]
     xor ch, ch
@@ -494,8 +481,8 @@ api_json_reasoning_prefix_len equ $ - api_json_reasoning_prefix - 1
 ; from the phase image; the floppy content follows it.
 api_json_input_open_text db '","input":[', 0
 api_json_input_open_text_len equ $ - api_json_input_open_text - 1
-; Build 12: spliced right after the model on a NORMAL ready turn on a loop-cache tier -- closes the
-; model string and opens the tools array key. The schema bytes (resident tools_cache) stream next, then
+; Build 12: spliced right after the model on a NORMAL ready turn -- closes the model string and opens
+; the tools array key. The schema bytes stream next (resident tools_cache on 32K+, floppy on 16K), then
 ; reasoning_prefix+1 (its leading model-close quote skipped, since this already closed the string).
 api_json_tools_open_text db '","tools":', 0
 api_json_tools_open_text_len equ $ - api_json_tools_open_text - 1

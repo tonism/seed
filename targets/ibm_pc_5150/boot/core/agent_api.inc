@@ -1,4 +1,6 @@
 agent_api_exchange:
+    call load_core_sectors_at
+    jc .failed
 .receive:
     call tls_receive_application_data
     jc .failed

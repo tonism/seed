@@ -6,7 +6,7 @@ Active docs (Build 12, branch `work/scaling`):
 
 ```text
 native-tool-calling-design.md  HISTORY/HANDOVER. Build 12 native function_call support shipped on the
-                               32 KiB loop-cache tier; 16 KiB tools schema streaming remains deferred.
+                               32 KiB loop-cache tier and the 16 KiB floppy-streamed tools path.
 memory-scaling-design.md       ROADMAP. 8088 + EMS scaling (M1/M2) SHIPPED in Build 12; the 286/386
                                native extended memory + HMA continuation lives here (post-Codex work).
 ui-unification-design.md       ROADMAP/HISTORY. Build 12 UI polish shipped except the larger

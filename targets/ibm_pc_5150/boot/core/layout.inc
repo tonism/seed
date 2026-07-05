@@ -56,15 +56,16 @@ loop_cache_start equ loop_cache_end - loop_cache_len
 ; (si = slot) instead of reading the floppy on 32K, making the chat loop FULLY floppy-free.
 prompt_id_cache equ loop_cache_end - 2 * 512
 prompt_compact_cache equ loop_cache_end - 512
-; Build 12 native tool calling: raw SSE function_call capture. The receive scanner is 512 B
-; hard-capped, so it only captures here; tool_call parses it between turns. This is the bottom sector
-; of the 32K stack guard (tools are advertised only on loop-cache tiers), leaving 1 KiB of guard above.
+; Build 12 native tool calling: raw SSE function_call capture. The response phase loads at 0x0900
+; during receive, so this sector at 0x0d00 is a low-memory handoff buffer that survives the later
+; tool phase (loaded at 0x0700..0x0d00). This keeps native tools available on the 16K floor without
+; using the 32K-only loop-cache/stack-guard band.
 fc_capture_max equ 512
-fc_capture_buf equ loop_cache_end
+fc_capture_buf equ low_scratch_start + 0x0600
 ; Build 12 native tool calling: the resident tools-schema buffer on the loop-cache tiers (32K/256K).
 ; The schema is kept <=1 sector so the cache only steals 512 B from the context/arena pool; a 2-sector
 ; cache leaves the 32K window too small for ordinary turns after the parser state grew this block.
-; 16K has NO resident buffer (tools_cache is referenced only on 32K+); it floppy-streams the schema in T7.
+; 16K has NO resident buffer (tools_cache is referenced only on 32K+); it streams TOOLS from floppy.
 tools_cache_sectors equ 1
 tools_cache_len equ tools_cache_sectors * 512
 tools_cache equ loop_cache_start - tools_cache_len
@@ -132,7 +133,7 @@ rtc_day equ rtc_hour + 1
 rtc_month equ rtc_day + 1
 rtc_year equ rtc_month + 1
 rtc_century equ rtc_year + 1
-agent_response_phase_load_addr equ low_scratch_start + 0x0600
+agent_response_phase_load_addr equ net_setup_phase_start
 basic_sidecar_stack_top_16k equ 0x4000
 basic_sidecar_stack_guard_len_16k equ 0x0100   ; Build 9: 0x200->0x100; ~196 B static worst-case stack (Phase 4 tripwire confirms); frees 256 B -> context pool
 basic_sidecar_stack_top_24k equ 0x6000
