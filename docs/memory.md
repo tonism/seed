@@ -133,7 +133,7 @@ LINK window is still on the floppy — its 7.5 KiB slot at
   │ 0x0000 │██████████cchw,,,,,,,,,,,,,,,,cc│
   │ 0x1000 │▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒│
   │ 0x2000 │▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒│
-  │ 0x3000 │▒▒▒▒▒▒▒▒▒▒▒▒ttrrrrttttttaam+++||│
+  │ 0x3000 │▒▒▒▒▒▒▒▒▒▒▒▒ttrrrrttttttaaaam+||│
   └────────┴────────────────────────────────┘
 
 Densest moment. K LINK window loaded; persistent TLS state
@@ -153,7 +153,7 @@ is already reserved. Nothing is free here - 16 KiB at full pack.
   │ 0x0000 │██████████cchw,,,,,,,,,,,,,,,,cc│
   │ 0x1000 │▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒│
   │ 0x2000 │▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒│
-  │ 0x3000 │▒▒▒▒▒▒▒▒▒▒▒▒ttrrrrr:::::aam+++||│
+  │ 0x3000 │▒▒▒▒▒▒▒▒▒▒▒▒ttrrrrr:::::aaaam+||│
   └────────┴────────────────────────────────┘
 
 Chat loop after the first response. The K window, session keys, and
@@ -163,11 +163,13 @@ random, master secret, transcript hash): dormant once the session keys
 exist, but reserved - a reconnect re-runs the handshake and reuses it,
 and it sits below critical scratch (the reconnect-safe line), so it can
 never be permanent pool. The context pool therefore lives ABOVE
-that line - reconnect-safe caches + keepalive (a), conversation window
-(m), user/agent arena (+) - so it survives an idle/walk-away reconnect.
-Build 11's draining-FIFO receive let the RX buffer shrink (1460->592 B),
-and that freed budget went into this pool: ~961 B on 16 KiB, split 50/50
-by hardware_setup into ~480 B window + ~480 B arena. It scales with RAM,
-so larger machines get a far bigger window and arena (~8.6 KiB each at 32 KiB).
+that line - reconnect-safe caches, conversation window (m), and
+user/agent arena (+) - so it survives an idle/walk-away reconnect. In
+the current Build 12 native-tool layout the remaining 16 KiB pool is
+192 B, split 50/50 by hardware_setup into a 96 B window and a 96 B
+arena. The 32 KiB direct tier spends its extra low RAM on the
+normal-turn loop cache and tools-schema cache, so its seg-0
+window/arena are 224 B each; larger far-memory tiers keep the 50/50
+policy until the context window reaches the 1 MiB cap.
 ```
 <!-- END MAP: stage-dpi -->

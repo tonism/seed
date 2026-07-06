@@ -62,11 +62,9 @@ hardware_setup_phase_init_handoff:
     mov byte [handoff_addr + handoff_status], handoff_status_booting
     mov byte [blink_state], 0
     ; Build 9: size the conversation window from ram_top so it scales with RAM. The context pool
-    ; (window + arena) spans chat_context_start .. (ram_top - stack reserve); split it 50/50 and set
-    ; the compaction threshold to 3/4 of the window. The 0x100 reserve covers the ~196 B worst-case
-    ; static stack; the compile-time floor %if keeps pool/2 above the arena floor on 16K (bigger
-    ; machines only widen both). NOTE: ram_top is fixed 0x8000 on BIOS boot, so scaling currently
-    ; tops out near 32K until RAM detection lands (see HANDOFF.md context-management knobs).
+    ; (window + arena) spans chat_context_start .. (ram_top - stack reserve) and splits 50/50 until
+    ; the far-memory tiers clamp the window at 1 MB. The compaction threshold stays at 3/4 of the
+    ; live window.
     mov ax, [handoff_addr + handoff_ram_top]
     sub ax, 0x100
     ; Build 12 (32K floppy-free loop): on a 32K direct boot the chat-loop preload cache + the stack sit
@@ -183,7 +181,6 @@ hardware_setup_phase_display:
                                     ; both at the greeting, before agent_request resets esc_stop
     mov byte [dpi_reached], 0       ; Build 11 ESC gate: hook stays inert until dpi_phase sets this post-boot
     mov word [chat_context_used], 0
-    mov byte [prev_response_id], 0
     ; Native tool state lives in the reconnect-safe pool, not the boot-cleared low runtime block. The
     ; ROM BASIC sidecar can leave nonzero bytes there, so clear the capture FSM before the cold greeting
     ; and first DPI; otherwise DPI may skip the prompt as a bogus auto-continue.
@@ -793,22 +790,15 @@ hardware_nic_ports dw 0x250, 0x280, 0x2a0, 0x2c0, 0x2e0
                    dw 0x350, 0x360, 0x380, 0x3a0
                    dw 0
 
-; Build 9 (compaction redesign): copy the keep-alive GET template into its persistent pool slot
-; (ka_template_persistent) once at boot. agent_api_keepalive sends it from there during long
-; renders; relocating it out of the renderer frees that one sector for the compaction capture.
+; Build 11 ESC: stage the int 9 keyboard hook to its pool slot + install the vector before the network
+; I/O, so the source is copied while intact. Position-independent handler (only absolute esc_stop/
+; esc_int9_old refs at seg 0 + relative jumps), so it runs from the pool. It chains every non-ESC key
+; to the BIOS, so the prompt's keyboard input is unaffected.
 hardware_setup_stage_ka_template:
     push es
     push ds
     pop es
     cld
-    mov si, low_scratch_start + (ka_template_source - PHASE_BASE)
-    mov di, ka_template_persistent
-    mov cx, ka_request_len
-    rep movsb
-    ; Build 11 ESC: stage the int 9 keyboard hook to its pool slot + install the vector, HERE (before the
-    ; network I/O, like the ka template) so the source is copied while intact. Position-independent handler
-    ; (only absolute esc_stop/esc_int9_old refs at seg 0 + relative jumps), so it runs from the pool. It
-    ; chains every non-ESC key to the BIOS, so the prompt's keyboard input is unaffected.
     mov si, low_scratch_start + (esc_int9_handler_source - PHASE_BASE)
     mov di, esc_int9_handler
     mov cx, esc_int9_handler_len
@@ -823,14 +813,6 @@ hardware_setup_stage_ka_template:
     sti
     pop es
     ret
-ka_template_source:
-    db "GET /v1 HTTP/1.1", 13, 10
-    db "Host: api.openai.com", 13, 10
-    db 13, 10
-ka_template_source_end:
-%if (ka_template_source_end - ka_template_source) != ka_request_len
-%error "ka_request_len (layout.inc) does not match the staged keep-alive template length"
-%endif
 
 ; Build 11 ESC: the int 9 keyboard hook handler. Staged to esc_int9_handler (pool) at boot, runs from
 ; there. Position-independent: absolute seg-0 refs + relative internal jumps + an absolute far chain/jmp.

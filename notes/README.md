@@ -5,16 +5,18 @@ This directory is working memory for active branch design and experiments.
 Active docs (Build 12, branch `work/scaling`):
 
 ```text
-native-tool-calling-design.md  HISTORY/HANDOVER. Build 12 native function_call support shipped on the
-                               32 KiB loop-cache tier and the 16 KiB floppy-streamed tools path.
-memory-scaling-design.md       ROADMAP. 8088 + EMS scaling (M1/M2) SHIPPED in Build 12; the 286/386
-                               native extended memory + HMA continuation lives here (post-Codex work).
+native-tool-calling-design.md  SHIPPED RECORD. Build 12 native function_call support on the 32 KiB
+                               tools-cache tier and the 16 KiB floppy-streamed tools path.
+memory-scaling-design.md       ROADMAP. 8088 + EMS scaling (M1/M2) SHIPPED in Build 12; the remaining
+                               Build 12 memory work is 286/HMA and 386 unreal.
+build12-286-hma-386-handover.md
+                               HANDOVER. Fresh-chat brief for the remaining Build 12 memory tiers.
 ui-unification-design.md       ROADMAP/HISTORY. Build 12 UI polish shipped except the larger
                                render-room-dependent renderer work, such as a guaranteed glyph map.
 ```
 
 Completed/shipped design + attempt logs (Build 8-12: memory-layout redesign, 286 secure tier,
-auto-recertify, ECDSA scoping, M2 EMS, env save/load, all prior builds) are archived in `old/`. Their
+auto-recertify, ECDSA scoping, native tool calling, M2 EMS, env save/load, all prior builds) are archived in `old/`. Their
 reader-facing summaries live in `docs/` (`architecture.md`, `memory.md`, `security.md`,
 `crypto-feasibility.md`, `builds.md`). Per-build release summaries + the Build-13 roadmap are in
 `docs/builds.md`. Each new build opens a fresh top-level log and archives the prior one to `old/`.

@@ -2,10 +2,10 @@
 
 > STATUS (2026-07-05): **Milestones 1 + 2 SHIPPED in Build 12** — far seg:off `$r/$w/$x` to conventional
 > memory (M1), and the 256K+ LIM-EMS arena-first inversion (arena takes all conventional; context relocates
-> to the top of EMS, streamed via the 64K page frame with 16K bank-switching) + the 32K+ floppy-free chat
-> loop (M2). Reader-facing summary is in `docs/builds.md`. **The CONTINUATION (post-Codex Build 12 work)
-> is the 286/386 native extended memory + HMA** so context/arena scale past the EMS page-frame window — see
-> the tier sections below. This doc is the build-against reference for that remaining work.
+> to the top of EMS, streamed via the 64K page frame with 16K bank-switching) + the 32K+ cached chat
+> loop (M2). Reader-facing summary is in `docs/builds.md`. **The remaining Build 12 work is 286/HMA
+> native extended memory and 386+ unreal mode** so context/arena scale past the EMS page-frame window —
+> see the tier sections below. Build 13 is reserved for TLS 1.3 and the 64-bit/no-BIOS runtime.
 
 The settled design for letting seed's agent address far more than the 64 KiB of segment 0 — the
 goal being "address absolutely any size": ~640 KB on an XT, megabytes on an EMS box, 16 MB on a 286,
@@ -16,7 +16,7 @@ when tiers ship, the load-bearing parts graduate into docs/architecture.md.
 
 seed itself stays exactly where it is: **the resident runtime lives in low segment 0** (nucleus,
 crypto window, request buffers, the per-turn phase loader). What grows is the **agent-facing memory**:
-the conversation **window** (context) and the **arena** (the agent's `$w`/`$x` workspace). The agent
+the conversation **window** (context) and the **arena** (the agent's write/execute workspace). The agent
 sees **one flat linear address space** of an advertised size and never has to know how it is
 physically reached — seed's memory-HAL translates a flat address into the machine's real access
 mechanism, per capability tier. Same shape as the existing RAM / CPU / writable-media tiers.
@@ -35,7 +35,7 @@ mechanism, per capability tier. Same shape as the existing RAM / CPU / writable-
 
 ## The flat-address abstraction
 
-- The agent's `$r` / `$w` / `$x` take a **flat linear address**. Address syntax is stable hex; the
+- Native `read_mem` / `write_mem` / `exec` take a **flat linear address**. Address syntax is stable hex; the
   **max width grows with the tier** (20-bit on a plain 8088, up to 32-bit through the 386/4 GB tier,
   64-bit when long mode lands in Build 13). Parsed into a **32-bit value for now** (covers through
   386); widened to 64-bit in B13. An address beyond the advertised arena top is an error.
@@ -43,14 +43,14 @@ mechanism, per capability tier. Same shape as the existing RAM / CPU / writable-
   inherently fragmented (the 640 KB→1 MB video/ROM gap, hardware in the upper area). Each region is
   tagged (direct/windowed, executable/data, fast/slow) so the agent places hot/executable data in
   direct/fast memory and cold/bulk in windowed/slow, and **respects the holes**. **Direct** regions are
-  addressed by their **real** addresses (so code run via `$x` uses the same addresses at runtime — no
+  addressed by their **real** addresses (so code run via `exec` uses the same addresses at runtime — no
   logical↔physical mismatch). **Windowed** memory is a single paged *logical* range (data-only). Builds
-  on the existing `a@` arena-base + `cap@` window-cap ledger fields.
+  on the existing `a@` arena-base + `c@` context-cap ledger fields.
 - Two kinds of access, advertised so the agent knows the rules of each region:
   - **Direct** — far `seg:off` (8088), unreal-flat (386), long-flat (64-bit): touched in place, fast,
-    and **executable** (`$x` runs there).
+    and **executable** (`exec` runs there).
   - **Windowed** — 286 `int 15h` block-move, EMS bank-switch: reached by **copying through a
-    conventional window**, slow, and effectively **data-only** (`$x` = copy-down-to-conventional then run).
+    conventional window**, slow, and effectively **data-only** (`exec` = copy-down-to-conventional then run).
 
 ## The tier ladder
 
@@ -71,7 +71,7 @@ lives — option-ROM BIOSes, the EMS page frame, the NIC's shared buffer, other 
 RAM/registers — and a write/read-back probe can false-positive on a device buffer (the device owns it
 and will clobber it). It's also non-contiguous with conventional (video at 0xA0000–0xC0000) and small
 (~100 KB) beside the MB–GB the real tiers deliver. Flaky for little gain, so seed does **not advertise
-or manage** UMB as arena. The agent still has universal `$r/$w/$x`, so it can explore the upper area
+or manage** UMB as arena. The agent still has universal read/write/exec tools, so it can explore the upper area
 itself at its own risk — the same posture as the VRAM path — but it's never handed to it as pool memory.
 
 Notes:
@@ -101,9 +101,9 @@ the real machine.
 
 - **Flat→access on 8088**: uniform far, `seg = addr>>4, off = addr&0xF`; re-normalize when a multi-byte
   op would cross a 64 KB segment boundary.
-- **`$x` across the boundary**: uniform **far call**, agent code ends with `retf`. The agent already
+- **`exec` across the boundary**: uniform **far call**, agent code ends with `retf`. The agent already
   adapts its machine code to the tier it sees in the ledger; the calling convention is documented in
-  the tool contract. Windowed (EMS/286-ext) code is copied down to conventional before `$x`.
+  the tool contract. Windowed (EMS/286-ext) code is copied down to conventional before `exec`.
 - **Tool address width**: variable-length hex → a 32-bit value now (through the 386 tier), widened to
   64-bit in B13. Agent syntax never changes; only the max grows.
 - **Detection**: true conventional size via `int 12h`; extended size via the 286/386 BIOS; EMS via the
@@ -116,29 +116,29 @@ Each numbered milestone is a `build12:` COMMIT, landing only when that tier is f
 (addressing foundation + the window/arena scaling for that tier; internal sequencing is at the
 implementer's discretion). Matrix-green per milestone.
 
-1. **8088 far** — flat abstraction + wide-hex `$r/$w/$x` + far translation; arena past seg 0 into the
+1. **8088 far** — flat abstraction + wide-hex native read/write/exec + far translation; arena past seg 0 into the
    **clean contiguous conventional region** (~640 KB); window scales (50/50, streamed from far memory).
    The foundation every higher tier reuses. (UMB not offered — out of scope; see above.)
 2. **8088 + EMS** — bank-switch backend behind the windowed-access path; arena (and cold window
    overflow) extends into the EMS board. The V30 becomes fully addressable here.
-3. **286** — `int 15h` block-move window for native extended (16 MB) + HMA via A20; EMS support comes
-   free from #2's windowing logic (only a board with EMS uses it).
-4. **386+ unreal** — unreal-mode setup → 4 GB flat direct/executable; the windowed tiers fall away in
-   favor of direct access where present.
+3. **286 / HMA** — `int 15h AH=87h` block-move window for native extended memory (16 MB) plus HMA via
+   A20. EMS support comes free from #2's windowing logic when a board is present.
+4. **386+ unreal** — unreal-mode setup → 4 GB flat direct/executable while retaining BIOS calls in real
+   mode. The windowed tiers fall away in favor of direct access where present.
 
-**Build 13: 64-bit long mode** → TB. One CORE.SYS, early-CPUID pivot, but a native-driver runtime
-(long mode loses BIOS) — its own build. Designed-for here; built separately.
+**Build 13: TLS 1.3 + 64-bit long mode** → TB. One CORE.SYS, early-CPUID pivot, but a native-driver
+runtime because long mode loses BIOS. Build 13 is intentionally not the home for the 286/HMA or 386
+unreal work; those remain Build 12 scope.
 
 ## Milestone 1 status + the window-streaming design (Stage C)
 
-Milestone 1 splits into the **arena** half (DONE, committed 7195fb2) and the **window** half (Stage C, in
-progress).
+Milestone 1 split into the **arena** half and the **window** half; both are shipped for M1/M2.
 
-- **Stage A — far addressing (DONE):** `$r/$w/$x` take a 32-bit flat address → far `seg:off`; `$x` = far
+- **Stage A — far addressing (DONE):** native read/write/exec take a 32-bit flat address → far `seg:off`; `exec` = far
   call + `retf`; action line prints before the op. Validated on ibmpc82 @256 KB.
 - **Stage B — far-arena advert (DONE):** ledger field `far@00010000-<top>` (top = BDA conv-KB << 10);
   funded by dropping `gw/dns/mask`. Agent quoted `far@00010000-040000`.
-- **Stage C — window (context) streaming (IN PROGRESS):** the window is a fixed ~14 KB seg-0 buffer read
+- **Stage C — window (context) streaming (SHIPPED for M1/M2):** the window is a fixed ~14 KB seg-0 buffer read
   by ~95 sites (renderer, scanner, request builder, trim). A pure far window = a whole-loop rewrite, so use
   a **two-tier** design:
   - **Far context log** — the canonical conversation, appended sequentially in far memory (base = far arena
@@ -155,7 +155,7 @@ progress).
     scaling, low-risk); C1b far log canonical (append direct, grow past 64 KB, seg-0 = synced mirror); C2
     50/50 far-log/arena sizing + compaction on the far threshold; C3 the 1 MB cap + spill-to-arena. Each is
     a `build12:` commit; the nucleus is full so each needs space reclaimed (like Stage B dropped gw/dns/mask).
-  - **C1a + C1b DONE (implemented + validated 2026-06-29, not yet committed).** C1b = the far-log FLUSH
+  - **C1a + C1b DONE (implemented + validated 2026-06-29).** C1b = the far-log FLUSH
     model: at the compaction threshold the seg-0 window is FROZEN into the far log (far_flushed_len/esc
     advance, window resets) instead of being model-summarized; the whole far log (frozen turns ++ live
     window) streams every turn via a precomputed dialogue range; append_context renorms ds across 64K; the
@@ -164,7 +164,7 @@ progress).
     gate is the one thing the original C1b plan missed; without it every 16K machine got garbage context.
     Validated: a needle ("ZEPHYR") planted in turn 1 survived 5 overflow turns (multiple flushes) on a
     256K machine; the 32K seg-0 fallback recalls correctly.
-  - **C2 + C3 DONE (implemented + validated 2026-07-03, not yet committed).** The far region
+  - **C2 + C3 DONE (implemented + validated 2026-07-03).** The far region
     [0x10000 .. conv_top) is now SPLIT: far_window_cap = min(region/2, 1 MB) [C2 50/50 + C3 1 MB cap] is
     the far log's ceiling; the far ARENA the ledger advertises is far@<0x10000+cap>-<conv_top>, ABOVE the
     log — the overlap is gone (C3 spill-to-arena is automatic: arena = region - window_cap). The far log is
@@ -177,13 +177,14 @@ progress).
     real-mode far seg:off tops out ~1 MB), so its HW gate is milestone 3 (286 extended memory + windowed
     addressing). See stage-c-handoff.md. NB a splash/loading-glyph mis-centering regression (the far detection
     clobbered `ah` = screen cols before seed_col was computed) was found + fixed (reload cols from
-    [screen_cols]); user-confirmed centered. **Milestone 1 (8088 far) is now functionally complete;**
-    next is milestone 2 (8088+EMS) — plus the deferred list: provider-menu fix, proper testing incl the
-    16K matrix, and the slower-machine retry investigation.
+    [screen_cols]); user-confirmed centered.
+
+**Milestones 1 and 2 are functionally complete in Build 12.** The next implementation target is
+Milestone 3 (286/HMA native extended memory), followed by Milestone 4 (386+ unreal mode).
 
 ## Open risks / things to watch
 
-- **`$x` execute-and-return across a far/windowed boundary** is the delicate contract; get the far-call
+- **`exec` execute-and-return across a far/windowed boundary** is the delicate contract; get the far-call
   / copy-down-and-run conventions exactly right and documented.
 - **Window streaming**: building a >64 KB request by streaming context out of far/extended memory —
   must not regress the seg-0 request/TLS path.

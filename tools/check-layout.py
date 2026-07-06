@@ -139,7 +139,7 @@ def build_bands(c: dict[str, int], core: dict) -> list[dict]:
         ("per-turn TLS app framing (tls_app_*)", c["critical_scratch_end"], c["chat_model_cache"], "per-turn", "tls_app_* record framing"),
         ("chat config caches (reconnect rebuild)", c["chat_model_cache"], c["reconnect_state_start"], "reconnect", "model + key cache"),
         ("reconnect-safe state", c["reconnect_state_start"], c["reconnect_state_end"], "reconnect", "reconnect/compaction/esc state"),
-        ("keep-alive + ESC handler", c["ka_template_persistent"], c["chat_context_start"], "reconnect", "keepalive + ESC (survive reconnect)"),
+        ("ESC handler", c["esc_int9_handler"], c["chat_context_start"], "reconnect", "keyboard escape hook (survives reconnect)"),
         ("conversation window", c["chat_context_start"], c["chat_context_end"], "persistent", "context"),
         ("user/agent arena -> ram_top", c["chat_arena_start"], g16, "persistent", "arena"),
         ("16K stack guard / stack", g16, c["basic_sidecar_stack_top_16k"], "reserved", "stack"),

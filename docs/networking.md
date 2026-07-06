@@ -42,13 +42,13 @@ These hold for every supported adapter:
   records (headers+model / instructions+ledger / conversation+prompt). When the
   conversation+prompt would overflow the send buffer, flush across further records rather
   than truncating — one HTTP request, more TLS records, transparent to the adapter.
-- **Receive-buffer floor (Build 10).** The TLS receive buffer must hold the largest
-  application record whole — AEAD decrypts a record as a unit. A streamed response batches
-  into records far larger than one MSS, and Cloudflare honors neither `max_fragment_length`
-  (RFC 6066) nor `record_size_limit` (RFC 8449) on TLS 1.2, so the client cannot negotiate a
-  smaller cap. The buffer therefore stays MSS-sized (1460 B) — the floor for receiving a
-  streamed answer at all, and the reason the pool can't reclaim it. See `docs/builds.md`
-  (Build 10).
+- **Receive-buffer floor (Build 11/12).** Seed advertises a 592-byte TCP MSS and the TLS
+  receive path streams one TCP segment at a time through `tls_rx_copy`; it no longer needs
+  a whole TLS record in RAM. Large application records are decrypted and MAC-checked
+  incrementally. The 592-byte floor is still real: it must hold one segment, a 512-byte
+  floppy/prompt staging sector, the DNS qname tail, ClientHello, and DPI input aliases.
+  Do not grow this buffer casually; it directly trades against the reconnect-safe context
+  pool on 16 KiB.
 
 ## Per-NIC contracts
 

@@ -19,12 +19,14 @@ Seed boots two ways, and they exercise different memory sizes:
 - **16 KiB, ROM BASIC sidecar** (`--entry basic`, the default). The floppy sits
   in drive B:, the machine powers into ROM BASIC, and the harness types a BASIC
   bootstrap that POKEs `CORE.SYS` into RAM and runs it. `ram_top` ends up
-  ~`0x4000`, so the conversation window is ~480 B (arena ~480 B too). This is the
+  `0x4000`; in the current Build 12 layout the reconnect-safe pool leaves a
+  96 B conversation window and a 96 B arena. This is the
   compatibility gate.
 - **>=32 KiB, direct floppy boot** (`--entry direct --ram-kib 32`). The floppy
   sits in drive A:, the BIOS boots it directly - no sidecar, no BASIC. `ram_top`
-  is `0x8000`, so the window is large (~8 KB). This is the only way to reach the
-  big-window code paths (the `append_context` multi-record send).
+  is `0x8000`; the 32 KiB tier uses the extra low RAM for the cached normal-turn chat
+  loop cache and tools-schema cache, leaving a 224 B seg-0 window and 224 B
+  arena. This is the direct-boot / cache-path gate.
 
 `--entry direct` rewrites the profile cfg to put the floppy in A:. Without it a
 stale cfg leaves the floppy in B: and the machine lands in ROM BASIC.

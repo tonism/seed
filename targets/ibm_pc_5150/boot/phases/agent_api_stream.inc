@@ -41,7 +41,7 @@ agent_api_stream_phase:
     ; text closes the model string, so the reasoning prefix that follows skips its own leading quote.
     mov si, PHASE_LOAD_ADDR + (api_json_reasoning_prefix - PHASE_BASE)
     cmp byte [compacting_msg], 0
-    jne .chunk2_prev_model_open
+    jne .chunk2_do_reasoning
     mov si, PHASE_LOAD_ADDR + (api_json_tools_open_text - PHASE_BASE)
     call agent_api_stream_append_z_to_buffer
     mov cx, [prompt_tools_size]
@@ -50,37 +50,13 @@ agent_api_stream_phase:
     mov si, tools_cache
     call agent_api_stream_stream_contract.sc_copy   ; stream schema as <=440 B records; di=body on return
     jc .prefix_failed
-    jmp .chunk2_prev_model_closed
+    jmp .chunk2_model_closed
 .chunk2_tools_floppy:
     mov ax, [prompt_tools_cluster]
     call agent_api_stream_stream_contract
     jc .prefix_failed
-    jmp .chunk2_prev_model_closed
-.chunk2_prev_model_open:
-    cmp byte [prev_response_id], 0
-    je .chunk2_reasoning_open
-    mov si, PHASE_LOAD_ADDR + (api_json_prev_response_id_text - PHASE_BASE)
-    call agent_api_stream_append_z_to_buffer
-    mov si, prev_response_id
-    call agent_api_stream_append_z_to_buffer
-    mov al, '"'
-    stosb
-.chunk2_reasoning_closed:
+.chunk2_model_closed:
     mov si, PHASE_LOAD_ADDR + (api_json_reasoning_prefix - PHASE_BASE) + 1
-    jmp .chunk2_do_reasoning
-.chunk2_reasoning_open:
-    mov si, PHASE_LOAD_ADDR + (api_json_reasoning_prefix - PHASE_BASE)
-    jmp .chunk2_do_reasoning
-.chunk2_prev_model_closed:
-    cmp byte [prev_response_id], 0
-    je .chunk2_reasoning_closed
-    mov si, PHASE_LOAD_ADDR + (api_json_prev_response_id_text - PHASE_BASE) + 1
-    call agent_api_stream_append_z_to_buffer
-    mov si, prev_response_id
-    call agent_api_stream_append_z_to_buffer
-    mov al, '"'
-    stosb
-    jmp .chunk2_reasoning_closed
 .chunk2_do_reasoning:
     call agent_api_stream_append_z_to_buffer
     ; Build 11 #4: chunk 2 instructions value. CRITICAL: every TLS record's TX frame (record + ~75 B
@@ -134,17 +110,30 @@ agent_api_stream_phase:
     or al, [tool_fc_state]                    ; build when a prompt or native tool output is pending
     je .done
 .tail_build:
+    mov [api_stream_prompt_len], al
     mov di, api_request_plain + tls_record_header_len
-    cmp byte [tool_fc_state], 2
-    je .tail_fc_output
     mov si, PHASE_LOAD_ADDR + (api_json_user_item_open_text - PHASE_BASE)
     call agent_api_stream_append_z_to_buffer
+    cmp byte [tool_fc_state], 2
+    je .tail_fc_prompt
+    mov si, [dialogue_off]
+    mov cx, [dialogue_cnt]
+    mov dx, [dialogue_cnt + 2]
+    call agent_api_stream_append_context
+    jc .failed
+.tail_not_fc_output:
     cmp byte [compacting_msg], 0
-    jne .tail_close                           ; compaction: input = the window alone, no user prompt
+    jne .tail_close_json                      ; compaction: input = the window alone, no user prompt
+    mov si, PHASE_LOAD_ADDR + (api_json_user_label_text - PHASE_BASE)
+    call agent_api_stream_append_z_to_buffer
     call agent_api_stream_append_prompt_screen_to_buffer
     jc .failed
-.tail_close:
     jmp .tail_close_json
+.tail_fc_prompt:
+    mov al, [chat_resend_prompt_len]
+    mov [api_stream_prompt_len], al
+    call agent_api_stream_append_prompt_screen_to_buffer
+    jc .failed
 .tail_fc_output:
     call agent_api_stream_append_fc_output_item
 .tail_close_json:
@@ -161,9 +150,6 @@ agent_api_stream_phase:
     call .send_app_record
     jc .failed
     phase_call_res tls_prepare_3c501_receive
-    cmp byte [compacting_msg], 0
-    je .done
-    mov word [chat_context_used], 0
 .done:
     ; Reset keep-alive timing: this request is the last client activity, so the idle clock
     ; (Cloudflare's ~400s timeout) restarts here, with no pings outstanding for this exchange.
@@ -182,7 +168,7 @@ agent_api_stream_phase:
     mov word [api_stream_state], ax
     mov word [api_stream_seen], ax
     mov word [api_http_state], ax
-    mov word [api_stream_text_seen], ax
+    mov [api_stream_text_seen], al
     mov word [fc_match_state], ax
     ; Seed the pre-position cursor column; .emit_to_screen sets the real cursor on first output.
     mov [cursor_col], al
@@ -204,20 +190,23 @@ agent_api_stream_phase:
     phase_call_res tls_send_application_data_current_seq
     ret
 
-; Build 12 native tool calling: ready turns use the Responses input array. With previous_response_id
-; continuity, tool continuation sends only function_call_output; the function_call item already lives
-; in the referenced response. The cold boot greeting remains string-input.
-api_stream_json_close_text db '"}],"stream":true}', 0
+; Build 12 native tool calling: ready turns use a local Responses input array. Tool continuation
+; replays the captured function_call item plus function_call_output, with store:false so no remote
+; response state is retained. The cold boot greeting remains string-input.
+api_stream_json_close_text db '"}],"store":false,"stream":true}', 0
 api_stream_json_close_text_len equ $ - api_stream_json_close_text - 1
 api_json_user_item_open_text db '{"role":"user","content":"', 0
 api_json_user_item_open_text_len equ $ - api_json_user_item_open_text - 1
-api_json_prev_response_id_text db '","previous_response_id":"resp_', 0
-api_json_prev_response_id_text_len equ $ - api_json_prev_response_id_text - 1
+api_fc_call_open_text db '"},{"type":"function_call","call_id":"', 0
+api_fc_call_open_text_len equ $ - api_fc_call_open_text - 1
+api_fc_name_mid_text db '","name":"', 0
+api_fc_name_mid_text_len equ $ - api_fc_name_mid_text - 1
+api_fc_args_mid_text db '","arguments":"{', 0
+api_fc_args_mid_text_len equ $ - api_fc_args_mid_text - 1
 api_fc_output_open_text db '"},{"type":"function_call_output","call_id":"', 0
 api_fc_output_open_text_len equ $ - api_fc_output_open_text - 1
 api_fc_output_mid_text db '","output":"', 0
 api_fc_output_mid_text_len equ $ - api_fc_output_mid_text - 1
-api_fc_saved_output_text db 'saved', 0
 
 ; (Removed in M2e: agent_api_stream_append_floppy_prompt -- the in-place one-record floppy streamer was
 ; superseded by agent_api_stream_stream_contract, which streams the identity AND the contract as <=440 B
@@ -288,9 +277,9 @@ agent_api_stream_stream_contract:
     ret
 
 ; Build 11 #4c: append the dynamic char targets after the (floppy) compaction contract, so the model
-; sizes its note to the window without doing byte math itself. N = window/4 (the ~25% aim), M =
-; window/2 (the hard ceiling - emit_char caps the captured summary at exactly this, keeping the post-
-; summary window under the 75% trigger). Rendered as decimals; the fixed text length + the two digit
+; sizes its note to the window without doing byte math itself. N = window/4 (the aim), M =
+; window/3 (the hard ceiling - emit_char caps the captured summary at exactly this, leaving room for
+; the prompt that triggered pre-request compaction). Rendered as decimals; the fixed text length + the two digit
 ; counts are mirrored into Content-Length by compute_ready_body_lengths (api_compaction_targets_fixed_len
 ; + .u16_decimal_len). [es:di] advances; clobbers ax/bx/cx/dx/si.
 agent_api_stream_append_compaction_targets:
@@ -303,7 +292,9 @@ agent_api_stream_append_compaction_targets:
     mov si, PHASE_LOAD_ADDR + (api_targets_mid_text - PHASE_BASE)
     call agent_api_stream_append_z_to_buffer
     mov ax, [chat_context_len_var]
-    shr ax, 1                            ; M = window/2 (== chat_effective_cap on a compaction pass)
+    xor dx, dx
+    mov bx, 3
+    div bx                               ; M = window/3 (== chat_effective_cap on a compaction pass)
     call agent_api_stream_append_u16_decimal
     mov si, PHASE_LOAD_ADDR + (api_targets_post_text - PHASE_BASE)
     jmp agent_api_stream_append_z_to_buffer
@@ -351,7 +342,24 @@ agent_api_stream_append_z_to_buffer:
     ret
 
 agent_api_stream_append_fc_output_item:
-    mov si, PHASE_LOAD_ADDR + (api_fc_output_open_text - PHASE_BASE) + 3
+    mov si, PHASE_LOAD_ADDR + (api_fc_call_open_text - PHASE_BASE)
+    call agent_api_stream_append_z_to_buffer
+    mov si, fc_call_id
+    mov cl, [fc_call_id_len]
+    xor ch, ch
+    rep movsb
+    mov si, PHASE_LOAD_ADDR + (api_fc_name_mid_text - PHASE_BASE)
+    call agent_api_stream_append_z_to_buffer
+    mov si, fc_name
+    mov cl, [fc_name_len]
+    xor ch, ch
+    rep movsb
+    mov si, PHASE_LOAD_ADDR + (api_fc_args_mid_text - PHASE_BASE)
+    call agent_api_stream_append_z_to_buffer
+    mov si, fc_args_buf
+    mov cx, [fc_args_len]
+    rep movsb
+    mov si, PHASE_LOAD_ADDR + (api_fc_output_open_text - PHASE_BASE)
     call agent_api_stream_append_z_to_buffer
     mov si, fc_call_id
     mov cl, [fc_call_id_len]
@@ -359,13 +367,6 @@ agent_api_stream_append_fc_output_item:
     rep movsb
     mov si, PHASE_LOAD_ADDR + (api_fc_output_mid_text - PHASE_BASE)
     call agent_api_stream_append_z_to_buffer
-    cmp byte [fc_name], 's'
-    jne .fc_output_copy
-    cmp byte [fc_output_len], 5
-    jne .fc_output_copy
-    mov si, PHASE_LOAD_ADDR + (api_fc_saved_output_text - PHASE_BASE)
-    jmp agent_api_stream_append_z_to_buffer
-.fc_output_copy:
     mov si, fc_output_buf
     mov cl, [fc_output_len]
     xor ch, ch
@@ -492,24 +493,19 @@ api_json_tools_open_text_len equ $ - api_json_tools_open_text - 1
 ; and work across providers. Each stored turn becomes " User: <prompt> You: <response>". "You:" is
 ; deliberately identity-neutral (not "Assistant") - the agent's role/identity lives in the identity
 ; layer, chosen by identity/the user, not dictated by the transcript format.
-api_json_user_label_text db 'U:', 0
+api_json_user_label_text db ' U:', 0
 api_json_user_label_text_len equ $ - api_json_user_label_text - 1
 ; End the assistant label with a real newline in the raw window. append_context flattens it back to a
 ; space when the window is re-sent, so the model sees a compact transcript.
-api_json_you_label_text db 'A:', 10, 0
+api_json_you_label_text db ' A:', 10, 0
 api_json_you_label_text_len equ $ - api_json_you_label_text - 1
 ; Build 11 cleanup: the Build 9 invisible-compaction recap directive was removed along with the
 ; dead compact_next request-build branches (recap compaction is gone since Build 10; the sliding
 ; window in agent_request replaced it).
 
-; Build 9 ledger field labels (terse machine facts serialized from the handoff block)
+; Build 9/12 ledger field labels: only model-actionable tool facts. Network diagnostics stay in the
+; handoff block; the model does not need them on every turn.
 api_ledger_ram_text db 'r=', 0
-api_ledger_ip_text db ' i=', 0
-; Build 12 memory scaling: gw/dns/mask were dropped from the ledger -- seed does all the routing, the
-; model never acts on the gateway/DNS/netmask, so they were dead weight. The freed bytes fund " far@".
-api_ledger_fam_text db ' f=', 0
-api_ledger_nic_text db ' n@', 0
-api_ledger_irq_text db ' q=', 0
 api_ledger_arena_text db ' a@', 0
 api_ledger_cap_text db ' c@', 0
 api_ledger_save_text db ' s=', 0
@@ -521,10 +517,10 @@ api_ledger_far_text db ' F@', 0
 ; top = base + ems_page_count*16 KB). Always emitted fixed-width (empty base==top when no board), like far@.
 api_ledger_ems_text db ' e@', 0
 ; Serialized length (every field is fixed-width / zero-padded, so this is exact, not just an upper bound).
-; Labels (minus 10 NULs) + ram hex16(4) + ip dotted(15) + fam dec8(3) + nic hex16(4) + irq dec8(3)
-; + arena hex16(4) + cap hex16(4) + save(2) + far [base(8)+'-'+top(8)=17] + ems [base(8)+'-'+top(8)=17].
-api_ledger_labels_len equ $ - api_ledger_ram_text - 10
-api_ledger_len equ api_ledger_labels_len + (4 + 15 + 3 + 4 + 3 + 4 + 4 + 2 + 17 + 17)
+; Labels (minus 6 NULs) + ram hex16(4) + arena hex16(4) + cap hex16(4) + save(2) + trailing space
+; + far [base(8)+'-'+top(8)=17] + ems [base(8)+'-'+top(8)=17].
+api_ledger_labels_len equ $ - api_ledger_ram_text - 6
+api_ledger_len equ api_ledger_labels_len + (4 + 4 + 4 + 2 + 1 + 17 + 17)
 
 ; Build 10: chunk 2 is sent as two records (instructions; then ledger+directive+input-open),
 ; so enforce that EACH record fits the api_request_plain body. The old single-record build
@@ -547,36 +543,20 @@ api_ledger_len equ api_ledger_labels_len + (4 + 15 + 3 + 4 + 3 + 4 + 4 + 2 + 17 
 %error "chunk 2 record B (ledger+input-open) exceeds the api_request_plain body"
 %endif
 
-; ---- Build 9 ledger: terse machine-facts serialization of the handoff block ----
-; Appends "ram=<hex> ip=<dotted> fam=<dec> nic@<hex> irq=<dec> mac=<hex> a@.. cap@.. far@.. save=.." to
-; [es:di] from the resident handoff. es must equal ds. Clobbers ax/cx/dx/si; advances di.
+; ---- Build 9/12 ledger: terse tool-facing serialization of actionable runtime facts ----
+; Appends "r=<hex> a@<hex> c@<hex> F@<base>-<top> e@<base>-<top> s=<rw|ro> " to [es:di].
+; es must equal ds. Clobbers ax/dx/si; advances di.
 agent_api_stream_append_ledger:
     mov si, PHASE_LOAD_ADDR + (api_ledger_ram_text - PHASE_BASE)
     call agent_api_stream_append_z_to_buffer
-    ; advertise the ARENA CEILING as ram= (on a 32K direct boot the preload cache sits between the arena
-    ; and the stack, so the free arena tops out at loop_cache_start, not ram_top).
+    ; advertise the ARENA CEILING as r= (on a 32K direct boot the tools schema + preload cache sit
+    ; between the arena and the stack, so the free arena tops out at tools_cache, not ram_top).
     mov ax, [handoff_addr + handoff_ram_top]
     cmp ax, ram_tier_32k_min
     jb .ledger_ram_ready
-    mov ax, loop_cache_start
+    mov ax, tools_cache
 .ledger_ram_ready:
     call agent_api_stream_ledger_hex16
-    mov si, PHASE_LOAD_ADDR + (api_ledger_ip_text - PHASE_BASE)
-    call agent_api_stream_append_z_to_buffer
-    mov si, handoff_addr + handoff_ip_addr
-    call agent_api_stream_ledger_dotted
-    mov si, PHASE_LOAD_ADDR + (api_ledger_fam_text - PHASE_BASE)
-    call agent_api_stream_append_z_to_buffer
-    mov al, [handoff_addr + handoff_nic_family]
-    call agent_api_stream_ledger_dec8
-    mov si, PHASE_LOAD_ADDR + (api_ledger_nic_text - PHASE_BASE)
-    call agent_api_stream_append_z_to_buffer
-    mov ax, [handoff_addr + handoff_nic_base]
-    call agent_api_stream_ledger_hex16
-    mov si, PHASE_LOAD_ADDR + (api_ledger_irq_text - PHASE_BASE)
-    call agent_api_stream_append_z_to_buffer
-    mov al, [handoff_addr + handoff_nic_irq]
-    call agent_api_stream_ledger_dec8
     mov si, PHASE_LOAD_ADDR + (api_ledger_arena_text - PHASE_BASE)
     call agent_api_stream_append_z_to_buffer
     mov ax, chat_context_start
@@ -630,6 +610,8 @@ agent_api_stream_append_ledger:
 .save_ro:
     mov al, 'r'
     stosw
+    mov al, ' '
+    stosb
     ret
 agent_api_stream_ledger_hex32:     ; dx:ax -> 8 hex chars at [es:di] (high word first)
     push ax
@@ -660,40 +642,6 @@ agent_api_stream_ledger_nibble:    ; low nibble of al -> 1 hex char at [es:di]
     add al, 'a' - '0' - 10
 .nibble_emit:
     stosb
-    ret
-agent_api_stream_ledger_dotted:    ; 4 bytes at ds:si -> "a.b.c.d" at [es:di]
-    mov cx, 4
-.dotted_next:
-    lodsb
-    call agent_api_stream_ledger_dec8
-    dec cx
-    jz .dotted_done
-    mov al, '.'
-    stosb
-    jmp .dotted_next
-.dotted_done:
-    ret
-agent_api_stream_ledger_dec8:      ; al (0-255) -> exactly 3 decimal digits at [es:di]
-    push cx
-    push dx
-    xor ah, ah
-    mov cl, 100
-    div cl
-    mov dl, ah
-    add al, '0'
-    stosb
-    mov al, dl
-    xor ah, ah
-    mov cl, 10
-    div cl
-    mov dl, ah
-    add al, '0'
-    stosb
-    mov al, dl
-    add al, '0'
-    stosb
-    pop dx
-    pop cx
     ret
 
 ; ---- Build 9 conversation context: copy a chat_context range into [es:di], JSON-escaped, FLUSHING ----

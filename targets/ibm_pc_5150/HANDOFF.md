@@ -251,6 +251,7 @@ bounded; the user sees a dim, fast-typed `compacting context` status line. Measu
 send guarantees the reply has room to land. The window and arena scale with RAM on a larger
 machine, so it holds more verbatim context and compacts less often with no mechanism change.
 
-These knobs are advertised to the agent in the ledger (the model-facing serialization of this
-block) as `win@<hex> arena@<hex> compact@<hex>=<dec>`, so the agent can discover and tune them -
-writing the threshold byte retunes when compaction fires (higher = less often, lower = sooner).
+The model-facing ledger keeps only the cheap, actionable memory facts: `r=`/`a@` for the
+seg-0 arena, `F@`/`e@` for larger arenas, `s=` for save availability, and `c@` for the
+context-cap variable address. Network diagnostics remain in this handoff block, not in the
+per-turn model ledger.

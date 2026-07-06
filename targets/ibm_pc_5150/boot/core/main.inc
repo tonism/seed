@@ -231,17 +231,14 @@ preload_loop_cache:
     shr ax, 1
     shr ax, 1                  ; ax = phase entry count
     push ax                    ; commit it AFTER the prompt preloads, so they floppy-fill (count still 0)
-    ; Build 12 incr 3: preload the two streamed system prompts into their fixed top-of-cache slots
-    ; (agents_cfg, which ran before this preload's new call site, set the clusters + sizes). With
+    ; Build 12 incr 3: preload the normal-turn IDENTITY prompt into its fixed top-of-cache slot
+    ; (agents_cfg, which ran before this preload's new call site, set the cluster + size). With
     ; loop_cache_count still 0, load_core_sectors_at floppy-fills. The prompt LBA is read as a 1-sector
-    ; load whose data-area offset is cluster - fat_first_data_cluster.
+    ; load whose data-area offset is cluster - fat_first_data_cluster. COMPACT is rare and streams from
+    ; floppy so the local-history receive phase can keep its second sector.
     mov ax, [prompt_id_cluster]
     mov cx, [prompt_id_size]
     mov bx, prompt_id_cache
-    call .preload_one_prompt
-    mov ax, [prompt_compact_cluster]
-    mov cx, [prompt_compact_size]
-    mov bx, prompt_compact_cache
     call .preload_one_prompt
     ; Build 12 native tool calling: the tools schema is preloaded into tools_cache by the agents_cfg
     ; PHASE (not here) -- the resident nucleus is full, and agents_cfg already finds the cluster and runs
@@ -262,11 +259,9 @@ preload_loop_cache:
 .pp_done:
     ret
 
-; Build 12 incr 3 (32K floppy-free loop): resolve the streamed-prompt source for the X phase. ax =
-; the IDENTITY or COMPACT first cluster. When a 32K boot preloaded the prompts (loop_cache_count > 0),
-; return si = the fixed cache slot (no floppy); else read the one prompt sector into tls_rx_copy and
-; return si = tls_rx_copy. CF on a read failure. Resident so the tight net-window X phase stays small.
-; (ax IS the cluster being checked against, so on 32K a hit is guaranteed.)
+; Build 12 incr 3 (32K floppy-free normal loop): resolve the streamed-prompt source for the X phase.
+; IDENTITY is cached on 32K; COMPACT deliberately falls through to the floppy path. CF on a read
+; failure. Resident so the tight net-window X phase stays small.
 agent_resolve_prompt_source:
     cmp word [loop_cache_count], 0
     je .floppy
@@ -274,9 +269,7 @@ agent_resolve_prompt_source:
     je .id
     cmp ax, [prompt_compact_cluster]
     jne .floppy
-    mov si, prompt_compact_cache
-    clc
-    ret
+    jmp .floppy
 .id:
     mov si, prompt_id_cache
     clc

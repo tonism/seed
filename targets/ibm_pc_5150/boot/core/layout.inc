@@ -50,12 +50,11 @@ loop_cache_max_sectors equ 28
 loop_cache_len equ loop_cache_max_sectors * 512
 loop_cache_end equ runtime_stack_top - runtime_stack_guard_len
 loop_cache_start equ loop_cache_end - loop_cache_len
-; Build 12 incr 3: the two streamed system prompts (IDENTITY, COMPACT; each <= 512 B = 1 sector, see
-; the Makefile cap) cache in fixed slots at the TOP of the loop cache, independent of the phase count;
-; the phases fill from loop_cache_start upward. agent_api_stream_stream_contract streams from these
-; (si = slot) instead of reading the floppy on 32K, making the chat loop FULLY floppy-free.
-prompt_id_cache equ loop_cache_end - 2 * 512
-prompt_compact_cache equ loop_cache_end - 512
+; Build 12 incr 3: the normal-turn IDENTITY prompt (<=512 B = 1 sector, see the Makefile cap) caches
+; in a fixed slot at the TOP of the loop cache, independent of the phase count; the phases fill from
+; loop_cache_start upward. The rare COMPACT prompt streams from floppy so the local-history response
+; scanner can keep its second sector without moving the 32K cache below the 16K ceiling.
+prompt_id_cache equ loop_cache_end - 512
 ; Build 12 native tool calling: raw SSE function_call capture. The response phase loads at 0x0900
 ; during receive, so this sector at 0x0d00 is a low-memory handoff buffer that survives the later
 ; tool phase (loaded at 0x0700..0x0d00). This keeps native tools available on the 16K floor without

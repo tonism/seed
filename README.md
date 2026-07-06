@@ -23,11 +23,11 @@ tooling. The boot floppy is the reset boundary, so recovery is always a reboot a
 
 Three things make Seed unusual:
 
-- **A frontier model runs code on the machine.** Build 10 gives the cloud model
-  three tools — read, write, and *execute* memory (`$r`/`$w`/`$x`) — that it calls
-  inline in its replies. It pokes 8088 machine code into a free RAM arena, runs
-  it, and reads the result; Seed loops each result back into the model's context, so
-  the model acts on what it finds. The only safety net is the reboot floppy.
+- **A frontier model runs code on the machine.** Seed exposes native function tools
+  to read, write, and *execute* memory (`read_mem`, `write_mem`, `exec`). The model
+  can poke 8088 machine code into a free RAM arena, run it, and read the result; Seed
+  loops each result back into the model's locally-owned context with `store:false`.
+  The only safety net is the reboot floppy.
 - **A TLS stack in 16 KiB.** The TLS 1.2 record path — handshake state machine,
   SHA-256 transcript, key schedule, ChaCha20-Poly1305 record crypto, HTTP/1.1, and
   SSE (server-sent events) streaming — fits a 16 KiB RAM budget. It works by *not*
@@ -150,12 +150,14 @@ On the IBM PC 5150 target, Seed can:
 - run the **chat loop** (the "Default Prompt Interface", DPI): an initial model
   greeting, prompt input, and streamed model responses across multiple turns in
   one boot session,
-- carry recent conversation across turns — a rolling window of recent turns,
-  trimmed to fit the machine's RAM (Build 10; see Known Limitations),
-- run model-authored code in the machine's RAM (Build 10): the model issues inline
-  `$r`/`$w`/`$x` calls to read, write, and execute segment-0 memory, and Seed feeds
-  each result back into its context (the agentic loop, capped at 8 hops per turn),
-- detect installed RAM and scale the conversation pool to it (Build 10),
+- carry recent conversation across turns through local model-written compaction and
+  a RAM-scaled rolling window, with API requests sent as `store:false`,
+- run model-authored code in the machine's RAM: native tool calls read, write, and
+  execute flat memory addresses, and Seed feeds each result back through structured
+  `function_call_output` items,
+- save and load the local environment on writable media with native `save_env` and
+  `load_env` tools,
+- detect installed RAM and scale the conversation/context arena to it,
 - use shipped `AGENTS.CFG` / `NET.CFG` defaults and optional local `USER.CFG`
   state when present.
 

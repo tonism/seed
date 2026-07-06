@@ -106,7 +106,7 @@ agent_api_keepalive:
     mov ax, [0x046c]
     mov [ka_last_tick], ax
     mov word [tls_app_len], ka_request_len
-    mov word [tls_app_plain_ptr], ka_template_persistent
+    mov word [tls_app_plain_ptr], agent_response_phase_load_addr + (agent_response_ka_template - core_agent_response_phase_start)
     call tls_send_application_data_current_seq
     jc .ka_done
     ; Count the ping only once it is actually on the wire, so the .success drain expects

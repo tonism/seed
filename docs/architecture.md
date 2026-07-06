@@ -211,12 +211,10 @@ modules in the same high region," not new geometry. Fixed placement is the
 correct design when the number of layouts is small and known; runtime-relative
 solves a problem this contract does not have.
 
-**The seam for the >64 KiB future.** The vector table *is* the escape hatch.
-Today the vectors hold near pointers inside segment 0; a future EMS / unreal /
-protected-mode tier makes them far (`segment:offset`) pointers without touching
-a single call site. That is the segment-model-aware seam — designed for, not
-built now (YAGNI). "Gigabytes" remains its own future redesign; this contract
-only promises not to block it.
+**The seam for the >64 KiB tiers.** The vector table *is* the escape hatch.
+Today most vectors hold near pointers inside segment 0; the shipped EMS path and the
+remaining 286/HMA + 386 unreal tiers extend that seam with far or windowed access
+behind the same call sites. The 64-bit/no-BIOS runtime remains Build 13.
 
 ## Memory Shape: Lifetime-Ordered Bands
 
@@ -304,19 +302,21 @@ The tiers differ only in what they pin:
 16 KiB   demand-loads its phases in-loop (no room to preload). Acceptable: the
          loop reads between turns and before the race, never during either zone.
 
-32 KiB   preloads ONLY the chat loop's working set (its phases + the streamed
-         IDENTITY/COMPACT prompts) so the loop is floppy-free. It does NOT
+32 KiB   preloads ONLY the normal chat loop's working set (its phases + the streamed
+         IDENTITY prompt) so ordinary turns are floppy-free. The rare COMPACT prompt
+         can still stream from floppy. It does NOT
          greedily preload everything it could — the rest stays on floppy and
          that RAM becomes arena. Boot-time reads are encouraged when they buy
          loop-time RAM.
 ```
 
 > **Implemented (Build 12).** On a 32 KiB direct boot, the boot reads the loop's working set —
-> the chat-loop phases, the resident crypto (K) window, and the IDENTITY/COMPACT prompts — into a
+> the chat-loop phases, the resident crypto (K) window, and the IDENTITY prompt — into a
 > high RAM cache once (`loop_cache`, above the conversation window/arena and below the stack). The
-> phase loader (`load_core_sectors_at`) and the prompt streamer then serve from RAM, so a chat turn
-> reads **no floppy** (per-turn I/O ~25 sectors → 0). The window/arena ceiling drops to the cache
-> base, and the ledger advertises that as the RAM ceiling so an agent `$w` never lands in the cache.
+> phase loader (`load_core_sectors_at`) and the prompt streamer then serve ordinary turns from RAM, so a
+> normal chat turn reads **no floppy** (per-turn I/O ~25 sectors → 0). The rare compaction turn may still
+> stream the COMPACT prompt from floppy. The window/arena ceiling drops to the cache
+> base, and the ledger advertises that as the RAM ceiling so an agent write never lands in the cache.
 > 16 KiB is untouched: the path is gated on `ram_top`, and the 16 KiB loop demand-loads as before.
 
 ## Runtime Step Order
@@ -397,7 +397,7 @@ X   3        0x0900     application-data stream (encrypted send/receive)
 T   1        0x0d00     agent response parse
 B   1        0x0700     splash/result display
 Y   1        0x0700     Default Prompt Interface chat loop
-M   2        0x0900     minimal tool calling ($r/$w/$x): scan window, execute in seg 0
+M   2        0x0900     native tool calling: parse function_call, execute, stage output
 S   1        0x0700     best-effort USER.CFG save
 ```
 
@@ -419,27 +419,25 @@ What every part of the machine touches when the cloud model runs code on the
 
 ```text
 user types a prompt -> DPI captures it into the conversation window
-R  build request: instructions (RAM-tool grammar $r/$w/$x) + ledger (RAM size, IP, NIC,
-     and a@ = the free seg-0 arena base) + the JSON-escaped window + the prompt
+R  build request: instructions (native tool contract) + ledger (arena ranges, save state,
+     and c@ context-cap knob) + tools schema + the JSON-escaped window + the prompt,
+     always with store:false
 X  application-data stream: encrypt with the resident crypto window (ChaCha20-Poly1305)
-     and send over the live (reused) TLS session, then receive the streamed reply - the
-     renderer draws prose but HIDES any $-command (kept in the window for the tool phase,
-     shown once as a dim echo)
-M  tool phase (cold, loaded between turns): scan the window for
-     $r ADDR LEN / $w ADDR BYTES / $x ADDR; execute each in segment 0 -
-     read bytes / poke bytes / CALL the address; append a readable result line back
-     INTO the window (model-facing) + a dim "read from / write to / jump to <addr>" line
-   loop: a fired tool arms auto-continue - the next turn carries the tool result and the
-     model acts on it, up to 8 hops, then control returns to the user
+     and send over the live (reused) TLS session, then receive the streamed reply. If the
+     model emits text, the renderer draws it. If it emits a native function_call, the
+     receive scanner captures call_id/name/arguments and suppresses prose rendering.
+M  tool phase (cold, loaded between turns): parse the structured call and execute
+     read_mem / write_mem / exec / save_env / load_env. It renders a dim action line,
+     stores the structured output, and the next request locally replays the user item,
+     function_call, and function_call_output. The model then answers or calls another tool.
 ```
 
-Worked example (validated): asked to write `b8 34 12 c3` (x86 `mov ax,0x1234;
-ret`) into the arena and run it, the model `$w`s the four bytes, `$x`es the
-address, and `AX=0x1234` comes back through the window. It is deliberately
-minimal — four hand-aimed bytes, not general code generation — but the loop is
-real end to end: a cloud model authored machine code and a 1981 PC ran it. There
-is no sandbox; a `$x` into bad code hangs the machine, and recovery is a reboot
-from trusted media (see Authority Model and Recovery Boundary).
+Worked example (validated): asked to read 8 bytes from `0x00000400`, the model calls
+`read_mem`, Seed executes it locally, sends a `function_call_output`, and the model answers
+with `f8 03 f8 02 00 00 00 00`. The write/execute proof remains the same authority model:
+four hand-aimed bytes (`mov ax,0x1234; ret`) can be placed into the arena and run. There is
+no sandbox; a bad `exec` hangs the machine, and recovery is a reboot from trusted media (see
+Authority Model and Recovery Boundary).
 
 ## CPU And Crypto Budget
 
@@ -653,11 +651,10 @@ trusted bare-metal tooling.
 The Default Prompt Interface is Seed's disposable starter UI. It is useful
 enough to prove repeated chat after boot, but it is not the future environment
 and should not accumulate terminal, shell, or operating-system responsibilities.
-Each turn assembles minimal context — a model-compacted rolling conversation
-summary plus the current prompt — and the tool-result path lets the model emit
-`$r/$w/$x` directives that a cold tool phase executes in segment 0 between turns,
-with results flowing back through the same context window (the agentic loop; see
-the Demo above).
+Each turn assembles minimal local context — a model-compacted rolling note plus the
+recent dialogue and current prompt — and the native tool path lets the model call
+`read_mem`, `write_mem`, `exec`, `save_env`, and `load_env`. Tool results flow back
+as structured `function_call_output` items, not synthetic user prompts.
 
 Seed-owned context management is compact and volatile on the 16 KiB target:
 recent prompt/response state, a small rolling summary, and tool-result slots. It
@@ -757,14 +754,12 @@ arena; they do not become alternate products.
 
 ```text
 larger conversation window and arena (the default home for headroom)
-preloaded loop working set (the floppy-free 32 KiB chat loop)
+preloaded normal-turn working set (the cached 32 KiB chat loop)
 real, authenticated TLS on a 286-class CPU
 later: more NIC families and link types, additively
 ```
 
-The >64 KiB future — EMS bank-switching on the 8088, unreal/protected mode on
-286/386+ — stays additive through the relocation seam (near→far dispatch vectors,
-above), not a rewrite. Do not build it speculatively; only keep from blocking it.
-"Gigabytes" remains its own future redesign: keep fixed Seed-owned ranges, keep
-dynamic scratch/request/response ranges explicit and lifetime-tagged, and make
-the rest of the machine the user/agent environment's.
+The >64 KiB Build 12 path is additive through the relocation seam (near→far dispatch
+vectors, above), not a rewrite. EMS bank-switching on the 8088 is shipped; the remaining
+Build 12 memory tiers are 286/HMA native extended memory and 386+ unreal mode. The 64-bit,
+no-BIOS runtime is Build 13.

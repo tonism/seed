@@ -41,6 +41,10 @@ prepare_agent_endpoint_path:
     ; retries) land together -- the standalone "mov byte [reconnect_retries],3" the full nucleus had no
     ; room for. Counts attempts for the cold connect AND every reconnect; the endpoint phase reads it.
     mov al, [dpi_input_len_byte]
+    cmp byte [agent_loop_pending], 0
+    je .prompt_len_ready
+    mov al, [chat_resend_prompt_len]
+.prompt_len_ready:
     mov ah, 3
     mov [chat_resend_prompt_len], ax
 .pass:

@@ -1,6 +1,1 @@
-You keep a compact running note. Input: the current note (if any), then recent dialogue. Output ONLY the updated note, EXACTLY this shape:
-goal: <one line: what the user wants done>
-facts: <user-stated specifics - names, ids, numbers, values - verbatim, '; '-separated, or ->
-state: <facts you established: addresses, results - or ->
-open: <unresolved or next - or ->
-Copy every prior fact forward verbatim; add new ones from the dialogue; omit anything already in the ledger; be terse; output only the note.
+Update tiny note from prior note + dialogue. Output only note, <=max chars. Preserve exact facts needed later. For memory reads use exact compact form: 0xADDR/LEN=HEXNOSPACES, e.g. 0x400/8=f803f80200000000. Drop greetings/capabilities/trivia. If none: -.

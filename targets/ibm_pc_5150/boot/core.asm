@@ -552,10 +552,10 @@ core_el1_3c501_driver_end:
 
 align 512, db 0
 
-; Build 12 (32K floppy-free loop): the preloaded chat-loop working set (loop_preload_list — dpi/Y +
+; Build 12 (32K cached loop): the preloaded chat-loop working set (loop_preload_list — dpi/Y +
 ; agent_request/R + agent_api_stream/X + agent_response/T + tool/M + the K crypto window) is written
-; sequentially from loop_cache_start and must not collide with the two prompt slots pinned at the top
-; of the cache (prompt_id_cache / prompt_compact_cache, 2 sectors). The native function-call capture
+; sequentially from loop_cache_start and must not collide with the identity prompt slot pinned at the top
+; of the cache (prompt_id_cache, 1 sector). The native function-call capture
 ; buffer sits in the 32K stack guard, outside the loop cache. Placed here (not with the other
 ; layout guards near the top) because %if cannot forward-reference the phase labels. Keep the sum in
 ; sync with loop_preload_list (main.inc).
@@ -564,8 +564,8 @@ align 512, db 0
      ((core_agent_api_stream_phase_end - core_agent_api_stream_phase_start + 511) / 512) + \
      ((core_agent_response_phase_end - core_agent_response_phase_start + 511) / 512) + \
      ((core_tool_phase_end - core_tool_phase_start + 511) / 512) + \
-     ((core_link_window_end - core_link_window_start + 511) / 512)) > (loop_cache_max_sectors - 2)
-%error "32K chat-loop preload working set + 2 prompt sectors exceeds the loop cache (raise loop_cache_max_sectors)"
+     ((core_link_window_end - core_link_window_start + 511) / 512)) > (loop_cache_max_sectors - 1)
+%error "32K chat-loop preload working set + identity prompt sector exceeds the loop cache (raise loop_cache_max_sectors)"
 %endif
 
 ; Build 12 286 secure tier: the handshake-only P-256 ECDHE module. Assembled separately at its run

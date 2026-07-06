@@ -237,6 +237,7 @@ api_stream_seen equ input_len
 api_stream_completed equ input_start_col
 api_http_state equ form_left_col
 api_http_header_match equ form_field_col
+api_stream_fc_start_match equ api_http_header_match
 low_static_constants_start equ low_phase_state_end
 tls_label_master_secret equ low_static_constants_start
 tls_label_master_secret_len equ 13
@@ -456,13 +457,8 @@ chat_cache_end equ chat_key_cache + seed_key_len
 ; chat_arena_start / chat_context_len below are only the compile-time floor for the %error guard).
 ; ram_top is already in the handoff
 ; (offset 0x2c), so the ledger carries it and the agent derives the arena ceiling itself.
-; Build 9: keep-alive GET template at a fixed slot BEFORE the context pool, so the conversation
-; window and the user/agent arena form one contiguous block - trivially scalable with RAM and
-; split-adjustable, with no keepalive wedge in the middle. Staged once at boot by hardware_setup
-; (the renderer was too full at 511/512 B to host it; the floppy was rejected - the keepalive
-; fires mid-render, and a disk read there risks the long-render receive path).
 ; Build 11 never-blank reorg: reconnect-safe state relocated from the (full) resident nucleus.
-; Above the TLS/critical scratch and below the keep-alive template, so it survives a reconnect
+; Above the TLS/critical scratch and below the staged ESC handler, so it survives a reconnect
 ; handshake -- the whole reason the nucleus copies existed. chat_resend_prompt_len + reconnect_retries
 ; are ADJACENT so net_phase inits both in ONE word write (al = prompt len, ah = 3 retries). All are
 ; written-before-read each turn EXCEPT chat_context_used, which the cold greeting reads before any
@@ -595,11 +591,10 @@ render_type_agent equ 2                    ; model reply (agent_response)
 render_type_system equ 3                   ; tool results + status lines (tool_call / agent_endpoint / api_stream)
 ; Build 12 native tool calling: transient captured function_call state. State 1 means the SSE scanner
 ; saw a function_call and copied raw bytes to fc_capture_buf; state 2 means tool_call executed it and
-; the next request sends function_call_output against previous_response_id. The string buffers are JSON-ready:
-; call_id/name are raw identifiers, arguments is still the escaped Responses API argument string, and
-; output contains only Seed-generated JSON-safe ASCII. Args live in the 0x0d00 capture handoff and are
-; dead after tool_call parses them; output must live in reconnect-safe RAM because the 0x0900 request/
-; stream phases would otherwise overwrite it before function_call_output is serialized.
+; the next request locally replays function_call + function_call_output. The string buffers are JSON-ready:
+; call_id/name are raw identifiers, arguments is the escaped Responses API argument string, and output
+; contains only Seed-generated JSON-safe ASCII. Args and output must live in reconnect-safe RAM because
+; the 0x0900 request/stream phases overwrite the 0x0d00 capture handoff before they are serialized.
 tool_fc_state equ render_last_type + 1
 fc_match_state equ tool_fc_state + 1
 fc_capture_len equ fc_match_state + 1
@@ -610,21 +605,18 @@ fc_output_len equ fc_args_len + 2
 fc_suffix_len equ fc_output_len + 1           ; word: function_call + output suffix byte count
 fc_call_id equ fc_suffix_len + 2              ; <=47 chars + NUL
 fc_name equ fc_call_id + 48                   ; <=15 chars + NUL
-fc_args_buf equ fc_capture_buf                ; raw escaped "arguments" string, parsed from capture
-fc_args_max equ 384
-fc_output_buf equ fc_name + 16
+fc_args_buf equ fc_name + 16                  ; raw escaped "arguments" string, parsed from capture
+fc_args_max equ 48
+fc_output_buf equ fc_args_buf + fc_args_max
 fc_output_max equ 128
 reconnect_state_end equ fc_output_buf + fc_output_max
-ka_template_persistent equ reconnect_state_end
 ; Build 11 ESC: the int 9 keyboard hook handler is staged to this pool slot at boot (position-independent
 ; code; runs from here so it survives the phase-overlay churn). esc_int9_old saves the BIOS int 9 vector
-; the handler chains every key to. Both sit between the keep-alive template and the conversation window.
-esc_int9_handler equ ka_template_persistent + ka_request_len
+; the handler chains every key to. Both sit just below the conversation window.
+esc_int9_handler equ reconnect_state_end
 esc_int9_old equ esc_int9_handler + esc_int9_handler_len
-prev_response_id equ esc_int9_old + 4
-prev_response_id_max equ 56
-chat_context_start equ prev_response_id + prev_response_id_max
-chat_context_len equ 72
+chat_context_start equ esc_int9_old + 4
+chat_context_len equ 96
 chat_context_end equ chat_context_start + chat_context_len
 chat_arena_start equ chat_context_end
 ; Build 12 auto-recertify: the captured rotated leaf (286 secure path only) lands in the handshake-
@@ -632,7 +624,7 @@ chat_arena_start equ chat_context_end
 ; (p256_module_load + p256_module_max_len) up to loop_cache_end. This is the MID-CHAT-SAFE home:
 ;  - every 286 connect's tls_client_hello sets loop_cache_count=0, so the chat loop demand-loads its
 ;    phases + prompt streams from floppy afterward; the cache content here (including
-;    prompt_id_cache/prompt_compact_cache, which sit in this same tail) is therefore already invalid
+;    prompt_id_cache, which sits in this same tail) is therefore already invalid
 ;    when the capture overwrites it -- harmless;
 ;  - the LIVE CONVERSATION arena (chat_arena_start) is far below and is never touched;
 ;  - the loaded module (<= 24 sectors) ends at/below leaf_capture_buf, so it doesn't overlap either.
@@ -643,7 +635,7 @@ leaf_capture_buf equ p256_module_load + p256_module_max_len
 %if leaf_capture_buf + leaf_capture_max > loop_cache_end
 %error "leaf-capture slot overflows the loop cache / runtime stack guard"
 %endif
-chat_arena_floor_min equ 64
+chat_arena_floor_min equ 96
 %if (chat_arena_start + chat_arena_floor_min) > (basic_sidecar_stack_top_16k - basic_sidecar_stack_guard_len_16k)
 %error "context pool leaves no minimum arena floor below the 16K stack reserve"
 %endif

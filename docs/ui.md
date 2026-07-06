@@ -72,11 +72,11 @@ status line, then the answer.
 
 ## Tool Calls
 
-When the model emits a tool command mid-stream — `$r`/`$w`/`$x` (read, write, or execute
-memory, Build 10) — Seed never draws the raw command. It suppresses the `$`-line from the
-bright screen and renders one dim action line in its place: `read from <addr>`, `write to
-<addr>`, or `jump to <addr>`, so the user sees *what* the agent touched, never the syntax.
-The full result — the bytes read, or `ax`/`cf` after an execute — is written back only into
-the model's conversation window, not the screen: the agent acts on its own output while the
-user's view stays clean. The agentic loop auto-continues until the model stops calling
-tools, then control returns to the `>` prompt.
+When the model emits a native tool call (`read_mem`, `write_mem`, `exec`, `save_env`,
+or `load_env`), Seed never draws raw protocol JSON. It renders one dim action line in
+its place: `read from <addr>`, `write to <addr>`, `jump to <addr>`, or the corresponding
+save/load status, so the user sees *what* the agent touched, never the wire syntax.
+The structured result is sent back to the model as `function_call_output`; short user-facing
+results such as memory bytes may also render as normal answer text when the model responds.
+The agentic loop auto-continues until the model stops calling tools, then control returns to
+the `>` prompt.

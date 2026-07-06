@@ -272,10 +272,15 @@ tool_phase:
     mov byte [fc_output_buf], 0
     ret
 .compute_fc_suffix_len:
-    mov ax, api_fc_output_open_text_len - 3 + api_fc_output_mid_text_len + api_stream_json_close_text_len
+    mov ax, api_fc_call_open_text_len + api_fc_name_mid_text_len + api_fc_args_mid_text_len
+    add ax, api_fc_output_open_text_len + api_fc_output_mid_text_len + api_stream_json_close_text_len
     xor bh, bh
     mov bl, [fc_call_id_len]
     add ax, bx
+    add ax, bx
+    mov bl, [fc_name_len]
+    add ax, bx
+    add ax, [fc_args_len]
     mov bl, [fc_output_len]
     add ax, bx
     mov [fc_suffix_len], ax

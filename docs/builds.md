@@ -35,7 +35,7 @@ build 8   Default Prompt Interface chat loop
 build 9   minimal context management for agentic continuity
 build 10  minimal tool calling through controlled RAM access
 build 11  release hardening: FIFO budget, robust reconnect, real compaction, ESC, tool-directive rendering
-build 12  capability-tiered layout (one CORE.SYS, NIC HAL, 32K floppy-free loop, 2-image) + 286 secure tier (real ECDHE + pinned RSA cert auth, auto-recertify)
+build 12  capability-tiered layout (one CORE.SYS, NIC HAL, 32K cached chat loop, 2-image) + 286 secure tier (real ECDHE + pinned RSA cert auth, auto-recertify)
 ```
 
 Builds 1–4 are the boot-presentation and hardware-setup milestones listed above; the substantive
@@ -85,7 +85,7 @@ user/agent environment.
 ## Build 9 — minimal context management
 
 Gives continuity across turns without a writeable boot medium. Each request is four layers: identity
-(static, on the floppy) + ledger (machine facts from the handoff block) + conversation (a
+(static, on the floppy) + ledger (compact tool memory map from runtime state) + conversation (a
 model-compacted rolling window) + the current prompt. The request streams as chunked TLS records so
 the prefix needn't fit one send buffer; the conversation is compacted by the model (never local
 heuristics), reconnect-safe in RAM reclaimed from the stack reserve, and shares that pool with a
@@ -101,7 +101,7 @@ $r ADDR LEN   - read up to 32 B of RAM (seg 0); the bytes flow back into the win
 $w ADDR BYTES - write RAM (seg 0)
 $x ADDR       - CALL a seg-0 address; AX/CF flow back into the window
 RAM detection - int 0x12 in the loader, so the pool scales with the machine (~49 KiB at 64 KiB+)
-arena advert  - the ledger carries a@ = the free seg-0 arena base for a safe $w + $x
+arena advert  - the ledger carries a@/r= for the safe seg-0 arena base/ceiling
 agentic loop  - a fired tool auto-continues (capped at 8 hops), then control returns to the user
 ```
 
@@ -145,8 +145,9 @@ capability-tiered layout - one CORE.SYS, two build-time-fixed layouts dispatched
   enforces it on every build. Fast crypto is the 16K baseline (the slow path deleted).
 NIC HAL - a boot-populated dispatch vtable + four floppy-loaded driver modules (ne / wd8003 / 3c503 /
   3c501); only the detected family loads into a resident slot, so inactive drivers cost 0 RAM.
-32K floppy-free chat loop - the K window + identity/compaction prompt streams preload into a high cache,
-  so per-turn floppy I/O drops ~25 -> 0 sectors. The 16K floor still demand-loads.
+32K cached chat loop - the K window + normal-turn phases + identity prompt stream preload into a high
+  cache, so ordinary-turn floppy I/O drops ~25 -> 0 sectors. The rare COMPACT prompt may still stream
+  from floppy; the 16K floor demand-loads.
 two-image build - 160K (headline) and 360K (for the 286) from one CORE.SYS that auto-detects floppy
   geometry from the boot-sector BPB. Seed boots on the 286.
 286 secure tier - real ECDHE key agreement (optimised constant-time P-256) + RSA-2048 server-cert auth
@@ -179,28 +180,30 @@ pieces still open before it tags. Sequenced so the tool loop and UI land first, 
 native tool calling T3-T7 (SHIPPED) - the inline "$r/$w/$x" text
   grammar is replaced by the OpenAI Responses API's structured function_call protocol. Seed captures
   function_call SSE bytes in the 512-B receive scanner, parses and executes read_mem/write_mem/exec/
-  save_env/load_env between turns, continues with `previous_response_id` + structured tool-output
-  input items, and deletes the old "$"-scan / synthetic Continue path. Validated 5 July 2026
-  on original-speed 32 KiB vm-net-ne2k8 direct boot: plain chat returned "ok"; read_mem(0x00000400,8)
-  returned "f8 03 f8 02 00 00 00 00". The 16 KiB BASIC-sidecar tier streams the one-sector TOOLS schema
-  from floppy and uses a low 0x0d00 capture handoff, so native tools no longer depend on the 32K loop cache.
+  save_env/load_env between turns, then locally replays the submitted user item plus the captured
+  `function_call` and `function_call_output` input items with `store:false` (no server-side response
+  chain). The old "$"-scan / synthetic Continue path is gone. Validated 5 July 2026 on original-speed
+  32 KiB vm-net-ne2k8 direct boot: plain chat returned "ok"; read_mem(0x00000400,8) returned
+  "f8 03 f8 02 00 00 00 00". The 16 KiB BASIC-sidecar tier streams the one-sector TOOLS schema from
+  floppy and uses a low 0x0d00 capture handoff, so native tools no longer depend on the 32K loop cache;
+  the same read_mem prompt was pcap-verified on 16 KiB with local replay + `store:false`.
 UI polish - SHIPPED: the shared render_last_type tracker gives one blank between user/agent/system
   render groups and none within a run; model responses wrap on spaces in the last eight columns so the
   next word starts on the next line instead of splitting at the hard edge; and the identity prompt
   carries the situational-awareness + ASCII/non-ASCII guardrails.
-memory scaling continuation (286/386 native extended memory + HMA) - M1/M2 (8088 far + LIM EMS) SHIPPED
-  (see below). The next reach is the 286/386's native extended memory (>1 MB flat via unreal/protected
-  mode or the HMA), so context + arena scale past the EMS page-frame window without bank-switching.
-  ROADMAP + the M2 EMS story it builds on: notes/memory-scaling-design.md.
+memory scaling continuation (286/HMA + 386 unreal) - M1/M2 (8088 far + LIM EMS) SHIPPED
+  (see below). Still Build 12 scope: 286 native extended memory via `int 15h AH=87h`, HMA via A20,
+  and 386+ unreal mode for BIOS-compatible 4 GB direct access. ROADMAP + the M2 EMS story it builds
+  on: notes/memory-scaling-design.md.
 ```
 
 ## Build 13 — future
 
 ```text
+TLS 1.3 - a cleaner handshake (not a memory play; record-size caps are ignored on 1.2/1.3). Research-stage.
 64-bit host memory - long mode (one CORE.SYS, early-CPUID pivot) reaching terabytes; a native-driver
-  runtime (loses BIOS). The far end of the memory-scaling tier ladder. See notes/memory-scaling-design.md.
-TLS 1.3 - a cleaner handshake (not a memory play; record-size caps are ignored on 1.2/1.3). Pairs with
-  the 286+ secure tier. Research-stage.
+  runtime because long mode loses BIOS. Build 13 is intentionally limited to TLS 1.3 plus this
+  64-bit/no-BIOS runtime; 286/HMA and 386 unreal stay in Build 12.
 ```
 
 ## Forward-looking ideas
@@ -232,8 +235,9 @@ Bigger bets and research:
 ```text
 environment save/load - SHIPPED (Build 12): "$s" writes ENV.DAT (conversation window + arena + screen)
   to the boot floppy when writable; "$l" reboots into the saved state; boot auto-loads ENV.DAT if
-  present. A writable-media capability tier, orthogonal to the RAM/CPU tiers. (Design history moved to
-  notes/old/env-save-load-design.md; becomes native save_env/load_env tools under Build-13 native tools.)
+  present. A writable-media capability tier, orthogonal to the RAM/CPU tiers. Build 12 native function
+  calling exposes this as `save_env` / `load_env`. Design history moved to
+  notes/old/env-save-load-design.md.
 true security on larger / faster machines (separate exploration, CPU-gated) - MEASURED to be CPU-gated,
   not RAM-gated (spike: tools/crypto-bench/, results/FINDINGS.md + entropy_certauth_scoping.md). The
   4.77 MHz / 16 KiB target makes deliberate, documented sacrifices; each was measured:
@@ -257,13 +261,13 @@ true security on larger / faster machines (separate exploration, CPU-gated) - ME
   The stock-8088 product stays honestly
   "encrypted but not secure" (per-record app-data IS MAC-verified after the FIFO collapse - record
   integrity, not a secure channel); real entropy + a pinned key is the honest middle ground there.
-reach / perf - beyond segment 0 (>64 KiB): SHIPPED (Build 12, memory scaling milestones 1+2) - $r/$w/$x
-  reach conventional memory via far seg:off translation, and on a 256K+ machine with LIM EMS the
+reach / perf - beyond segment 0 (>64 KiB): SHIPPED (Build 12, memory scaling milestones 1+2) - native
+  read/write/exec reach conventional memory via far seg:off translation, and on a 256K+ machine with LIM EMS the
   arena takes all conventional memory (executable) while the conversation context relocates to the top
   of EMS, streamed through the 64K page frame with 16K bank-switching (arena-first inversion). The 32K+
-  floppy-free chat loop also SHIPPED (Build 12). REMAINING: 286/386 native extended memory + HMA (see
+  cached normal-turn chat loop also SHIPPED (Build 12). REMAINING: 286/386 native extended memory + HMA (see
   "Build 12 — remaining work" above, notes/memory-scaling-design.md); render-rate optimization for very long replies;
-  TLS 1.3 (moved up to the Build-13 list).
+  TLS 1.3 (Build 13).
 full TCP retransmit (survive a genuinely bad link) - an unacked-byte buffer + RTO timers + ACK tracking +
   receive reordering, so a dropped packet is a fast resend instead of a ~15 s re-handshake. The client
   handshake-send slices (SYN, ClientHello, CKE+CCS+Finished flight) already retransmit; loss testing

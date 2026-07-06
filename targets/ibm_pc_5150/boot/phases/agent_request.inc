@@ -160,7 +160,6 @@ agent_request_phase:
     mov byte [api_http_header_match], 0
     cmp byte [handoff_addr + handoff_status], handoff_status_ready
     je .build_ready_openai_request
-    mov byte [prev_response_id], 0
     mov byte [dpi_input_len_byte], 0
     mov byte [dpi_prompt_marker_row], 0
     mov byte [api_stream_event_ready], 0
@@ -238,12 +237,6 @@ agent_request_phase:
     mov ax, [chat_context_used]
     mov [note_len], ax
 .note_len_kept:
-    xor ax, ax
-    mov [chat_context_used], ax
-    mov [far_flushed_len], ax
-    mov [far_flushed_len + 2], ax
-    mov [far_flushed_esc], ax
-    mov [far_flushed_esc + 2], ax
     ; Build 12 Stage C (C1b) far-log flush (>64 KB machine): replaces the Build-11 model-summarize
     ; compaction when the far log is active. When the seg-0 window reaches the 75% trigger
     ; (chat_compact_threshold), FREEZE it into the far log -- it was just mirrored at far_flushed_len by
@@ -254,10 +247,35 @@ agent_request_phase:
     ; compaction branches all take the normal path. Reconnect-safe: the flush zeroes used, so a rebuild
     ; re-mirrors 0 bytes and re-flushes nothing. On a <=64 KB machine the far log is inactive, so this
     ; falls through to the Build-11 model-summarize compaction (compacting_msg=1) -- exact Build-11 behavior.
+    ; Also compact BEFORE the real request when the current prompt would overflow the seg-0 window once
+    ; appended. That is the standard local-history path: summarize old context first, then send/store the
+    ; user's prompt against the compacted note instead of dropping old context in the response renderer.
     mov byte [compacting_msg], 0
+    cmp byte [tool_fc_state], 2
+    je .not_compaction_pass              ; tool convention: function_call_output must be immediate
+    mov al, [compact_next]
+    mov byte [compact_next], 0
+    or al, al
+    jnz .force_compaction
+    mov ax, [chat_context_used]
+    or ax, ax
+    jz .check_threshold
+    xor bh, bh
+    mov bl, [chat_resend_prompt_len]
+    or bx, bx
+    jz .check_threshold
+    add bx, api_json_user_label_text_len + api_json_you_label_text_len
+    add ax, bx
+    cmp ax, [chat_context_len_var]
+    ja .force_compaction
+.check_threshold:
     mov ax, [chat_context_used]
     cmp ax, [chat_compact_threshold]
     jb .not_compaction_pass
+.force_compaction:
+    mov ax, [chat_context_used]
+    or ax, ax
+    jz .not_compaction_pass
     cmp word [far_log_seg_var], 0
     je .model_summarize_compaction       ; <=64 KB machine: keep Build-11 model-summarize compaction
     push ax
@@ -307,7 +325,9 @@ agent_request_phase:
     mov ax, [chat_context_len_var]
     cmp byte [compacting_msg], 0
     je .cap_full
-    shr ax, 1
+    xor dx, dx
+    mov bx, 3
+    div bx
 .cap_full:
     mov [chat_effective_cap], ax
     call .restore_prompt_from_screen
@@ -443,10 +463,14 @@ agent_request_phase:
 .prompt_len_ready:
     cmp byte [tool_fc_state], 2
     jne .tail_user_len
-    mov ax, [fc_suffix_len]
+    add ax, [fc_suffix_len]
+    add ax, api_json_user_item_open_text_len
     jmp .tail_len_ready
 .tail_user_len:
     add ax, api_json_user_item_open_text_len + api_ready_stream_close_text_len
+    cmp byte [compacting_msg], 0
+    jne .tail_len_ready
+    add ax, api_json_user_label_text_len
 .tail_len_ready:
     mov [api_response_pending_len], ax
     add ax, bx
@@ -461,17 +485,6 @@ agent_request_phase:
     add ax, api_json_tools_open_text_len - 1
     add ax, [prompt_tools_size]
 .no_tools_len:
-    cmp byte [prev_response_id], 0
-    je .no_prev_id_len
-    add ax, api_json_prev_response_id_text_len
-    push ax
-    mov si, prev_response_id
-    mov cx, prev_response_id_max
-    call agent_request_phase_strlen_z_bounded
-    pop dx
-    jc .body_failed
-    add ax, dx
-.no_prev_id_len:
     ; instructions value = the compaction contract (compaction) OR identity + ledger (normal turn).
     ; Build 11 #4: the contract/identity are streamed off the floppy, so their length is the cached
     ; file size (prompt_compact_size / prompt_id_size), not a compile-time string length. The bytes
@@ -479,7 +492,7 @@ agent_request_phase:
     cmp byte [compacting_msg], 0
     je .instr_normal
     ; Compaction: instructions = the floppy contract + the seed-appended dynamic char targets
-    ; " Target about <N> characters, at most <M>." (N = window/4, M = window/2). The fixed text is a
+    ; " Target about <N> characters, at most <M>." (N = window/4, M = window/3). The fixed text is a
     ; constant; the two decimals vary, so size them with .u16_decimal_len (bx holds the running body
     ; while the digit counts are computed). Must match exactly what the stream phase renders.
     add ax, [prompt_compact_size]
@@ -491,7 +504,9 @@ agent_request_phase:
     call .u16_decimal_len
     add bx, ax
     mov ax, [chat_context_len_var]
-    shr ax, 1                            ; M = window/2
+    xor dx, dx
+    mov cx, 3
+    div cx                               ; M = window/3
     call .u16_decimal_len
     add bx, ax
     mov ax, bx
@@ -511,6 +526,11 @@ agent_request_phase:
     ; (api_body_len_hi:api_body_len). far_flushed_esc is 0 until the first flush -> identical to C1a.
     mov si, chat_context_start
     mov cx, [chat_context_used]
+    cmp byte [tool_fc_state], 2
+    jne .count_window_ready
+    mov cx, [note_len]                  ; tool continuations replay current user+tool items only;
+                                        ; any compacted note still rides in instructions
+.count_window_ready:
     push ax                             ; body-so-far (fixed prefix/identity/ledger, < 64 KB)
     call agent_request_phase_json_bytes_len   ; ax = current window length JSON-escaped (clc; bx kept)
     pop dx                             ; body-so-far
@@ -643,7 +663,7 @@ api_json_input_text db '","input":"', 0
 ; Build 9: the tiered ready input-prefix templates were removed; identity+ledger + the
 ; instructions/input-open templates now live in agent_api_stream.inc (built/sent as chunk 2).
 api_json_boot_prompt_text db 'Greet.', 0
-api_json_boot_stream_close_text db '","stream":true}', 0
+api_json_boot_stream_close_text db '","store":false,"stream":true}', 0
 ; Build 12 native tool calling: the STREAMED ready close is agent_api_stream's api_stream_json_close_text,
 ; which grew to the array-envelope close ('"}],"store":false,"stream":true}'). compute_ready_body_lengths
 ; sizes the streamed ready request, so track THAT length here (not the boot path's string-input close).
@@ -715,34 +735,6 @@ agent_request_phase_append_crlf_to_buffer:
     stosb
     mov al, 10
     stosb
-    ret
-
-agent_request_phase_append_json_bytes_to_buffer:
-    jcxz .done
-.next:
-    lodsb
-    cmp al, '"'
-    je .escape
-    cmp al, '\'
-    je .escape
-    cmp al, 32
-    jb .space
-    stosb
-    loop .next
-    ret
-.escape:
-    mov ah, al
-    mov al, '\'
-    stosb
-    mov al, ah
-    stosb
-    loop .next
-    ret
-.space:
-    mov al, ' '
-    stosb
-    loop .next
-.done:
     ret
 
 %unmacro phase_call_res 1

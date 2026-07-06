@@ -37,22 +37,6 @@ agent_response_phase:
     ret
 
 .accept_raw_byte:
-    cmp byte [api_http_state], 0
-    je .resp_id_capture_done
-    cmp al, '"'
-    je .resp_id_capture_end
-    xor bx, bx
-    mov bl, [api_http_header_match]
-    cmp bl, prev_response_id_max - 1
-    jae .parser_ret
-    mov [prev_response_id + bx], al
-    inc byte [api_http_header_match]
-    mov byte [prev_response_id + bx + 1], 0
-    ret
-.resp_id_capture_end:
-    mov word [api_http_state], 0
-    ret
-.resp_id_capture_done:
     cmp byte [tool_fc_state], 3
     jne .fc_capture_done
     mov bx, [fc_capture_len]
@@ -87,13 +71,6 @@ agent_response_phase:
     ret
 
 .scan_idle:
-    mov si, PHASE_LOAD_ADDR + (response_id_pattern - PHASE_BASE)
-    mov di, api_http_header_match
-    call .match_char
-    jc .fc_args_probe
-    mov word [api_http_state], 1
-    ret
-.fc_args_probe:
     cmp byte [handoff_addr + handoff_status], handoff_status_ready
     jne .fc_no_match
     mov si, PHASE_LOAD_ADDR + (arguments_pattern - PHASE_BASE)
@@ -107,7 +84,7 @@ agent_response_phase:
     ret
 .fc_start_probe:
     mov si, PHASE_LOAD_ADDR + (fc_start_pattern - PHASE_BASE)
-    mov di, api_stream_prompt_len
+    mov di, api_stream_fc_start_match
     call .match_char
     jc .fc_no_match
     mov al, 1
@@ -172,6 +149,28 @@ agent_response_phase:
     ret
 
 .emit_char:
+    cmp byte [api_stream_prompt_len], 0
+    jne .emit_store
+    cmp byte [compacting_msg], 0
+    je .emit_to_screen
+.emit_store:
+    cmp byte [chat_prompt_len_cache], 0
+    jne .prompt_appended
+    push ax
+    call .append_prompt_to_context
+    pop ax
+.prompt_appended:
+    mov bx, [chat_context_used]
+    cmp bx, [chat_effective_cap]
+    jae .emit_char_stored
+    mov [chat_context_start + bx], al
+    inc word [chat_context_used]
+.emit_char_stored:
+    cmp word [compacting_msg], 0
+    je .emit_to_screen
+    mov byte [api_stream_text_seen], 1
+    ret
+.emit_to_screen:
     cmp byte [api_stream_seen], 0
     jne .live_ready
     cmp byte [handoff_addr + handoff_status], handoff_status_ready
@@ -230,17 +229,100 @@ agent_response_phase:
     mov byte [cursor_col], dpi_prompt_col
     ret
 
+.append_prompt_to_context:
+    push cx
+    mov byte [chat_prompt_len_cache], 1
+    cmp byte [compacting_msg], 0
+    je .apt_not_compaction
+    mov word [chat_context_used], 0
+    jmp .apt_done
+.apt_not_compaction:
+    cmp byte [agent_loop_pending], 0
+    je .apt_real_turn
+    cmp byte [tool_fc_state], 2
+    jne .apt_done
+.apt_real_turn:
+    mov al, [api_stream_prompt_len]
+    or al, al
+    je .apt_done
+    xor ah, ah
+    mov bx, ax
+    add bx, api_json_user_label_text_len + api_json_you_label_text_len
+    mov ax, [chat_context_used]
+    add bx, ax
+    cmp bx, [chat_context_len_var]
+    jbe .apt_fits
+    mov byte [compact_next], 1
+    mov [chat_effective_cap], ax
+    jmp .apt_done
+.apt_fits:
+    mov di, chat_context_start
+    mov ax, [chat_context_used]
+    add di, ax
+    mov byte [di], ' '
+    inc di
+    mov word [di], 'U:'
+    inc di
+    inc di
+    push es
+    mov ax, [video_seg]
+    mov es, ax
+    mov al, [dpi_prompt_marker_row]
+    and al, 0x7f
+    mov bl, [screen_cols]
+    mul bl
+    xor bh, bh
+    mov bl, dpi_prompt_col + 2
+    add ax, bx
+    shl ax, 1
+    mov si, ax
+    mov cl, [api_stream_prompt_len]
+    xor ch, ch
+    mov dl, dpi_prompt_col + 2
+.apt_screen_next:
+    mov al, [es:si]
+    mov [di], al
+    inc di
+    inc si
+    inc si
+    inc dl
+    cmp dl, [screen_cols]
+    jb .apt_screen_count
+    mov dl, dpi_prompt_col + 2
+    add si, (dpi_prompt_col + 2) * 2
+.apt_screen_count:
+    loop .apt_screen_next
+    pop es
+    mov byte [di], ' '
+    inc di
+    mov word [di], 'A:'
+    inc di
+    inc di
+    mov byte [di], 10
+    inc di
+    mov ax, di
+    sub ax, chat_context_start
+    mov [chat_context_used], ax
+.apt_done:
+    pop cx
+    ret
+
 completed_pattern db 'response.completed', 0
 done_pattern equ completed_pattern
 arguments_pattern db 'arguments":"{', 0
 fc_start_pattern db 'function_call', 0
-response_id_pattern db '"id":"resp_', 0
 delta_key_pattern db 'delta":"', 0
 
-; Keep-alive GET template relocated to the persistent pool (ka_template_persistent), staged once
-; at boot by hardware_setup. It must sit at a fixed address that survives the whole receive loop;
-; it previously lived here (the only persistent loaded phase), but this one-sector phase is now
-; full, so the pool hosts it instead. agent_api_keepalive sends it from there during long renders.
+; Keep-alive GET template. It lives in this phase instead of persistent RAM: agent_response is loaded
+; for the whole receive/render loop, which is the only time agent_api_keepalive can send it.
+agent_response_ka_template:
+    db "GET /v1 HTTP/1.1", 13, 10
+    db "Host: api.openai.com", 13, 10
+    db 13, 10
+agent_response_ka_template_end:
+%if (agent_response_ka_template_end - agent_response_ka_template) != ka_request_len
+%error "ka_request_len (layout.inc) does not match the response keep-alive template length"
+%endif
 
 %unmacro phase_call_res 1
 
