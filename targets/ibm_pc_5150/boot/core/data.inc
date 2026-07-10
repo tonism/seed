@@ -604,12 +604,20 @@ fc_args_len equ fc_name_len + 1
 fc_output_len equ fc_args_len + 2
 fc_suffix_len equ fc_output_len + 1           ; word: function_call + output suffix byte count
 fc_call_id equ fc_suffix_len + 2              ; <=47 chars + NUL
-fc_name equ fc_call_id + 48                   ; <=15 chars + NUL
-fc_args_buf equ fc_name + 16                  ; raw escaped "arguments" string, parsed from capture
-fc_args_max equ 48
+fc_name equ fc_call_id + 48                   ; <=9 chars + NUL (longest native name: write_mem)
+fc_args_buf equ fc_name + 10                  ; raw escaped "arguments" string, parsed from capture
+fc_args_max equ 47
 fc_output_buf equ fc_args_buf + fc_args_max
-fc_output_max equ 128
-reconnect_state_end equ fc_output_buf + fc_output_max
+fc_output_max equ 44
+; One prior native tool pair for local store:false replay on every tier, including the 16K floor.
+; Metadata is packed into live scratch after parse: fc_match_state = prior call_id len,
+; fc_capture_len low = prior output len, fc_capture_len high = prior tool-name len.
+fc_prev_call_id equ fc_output_buf + fc_output_max
+fc_prev_call_id_max equ 48
+fc_prev_name_code equ fc_prev_call_id + fc_prev_call_id_max
+fc_prev_output equ fc_prev_name_code + 1
+fc_prev_output_max equ 42
+reconnect_state_end equ fc_prev_output + fc_prev_output_max
 ; Build 11 ESC: the int 9 keyboard hook handler is staged to this pool slot at boot (position-independent
 ; code; runs from here so it survives the phase-overlay churn). esc_int9_old saves the BIOS int 9 vector
 ; the handler chains every key to. Both sit just below the conversation window.

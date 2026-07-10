@@ -12,6 +12,12 @@
 %endmacro
 
 agent_response_phase:
+    cmp byte [tool_fc_state], 2
+    jne .fc_state_ready
+    xor ax, ax
+    mov [tool_fc_state], al
+    mov [fc_capture_len], ax
+.fc_state_ready:
     call .scan_tls_record
     ; Keep the live session alive through a long render (see agent_api_keepalive). Called
     ; here, after the record is scanned/rendered, so the ping's record build never disturbs
@@ -19,6 +25,11 @@ agent_response_phase:
     ; agent_response_phase_load_addr across the whole receive loop (the only loaded code
     ; that does), so it is the home for both the call site and the request template.
     phase_call_res agent_api_keepalive
+    cmp byte [api_stream_completed], 3
+    jne .return_status
+    mov al, 0x11
+    phase_call_res ne_transmit_tcp_flags
+.return_status:
     cmp byte [api_stream_completed], 3
     ret
 
@@ -38,7 +49,10 @@ agent_response_phase:
 
 .accept_raw_byte:
     cmp byte [tool_fc_state], 3
+    je .fc_capture_byte
+    cmp byte [tool_fc_state], 4
     jne .fc_capture_done
+.fc_capture_byte:
     mov bx, [fc_capture_len]
     cmp bx, fc_capture_max - 1
     jae .fc_capture_done
@@ -50,6 +64,21 @@ agent_response_phase:
     call .match_char
     jc .scan_delta
 .done_ready:
+    cmp byte [tool_fc_state], 4
+    jne .done_maybe_fc
+.done_clear_fc:
+    xor ax, ax
+    mov [tool_fc_state], al
+    mov [fc_capture_len], ax
+    jmp .completion_ready
+.done_maybe_fc:
+    cmp byte [tool_fc_state], 3
+    je .done_freeze_fc
+    cmp byte [tool_fc_state], 5
+    je .done_clear_fc
+    jmp .completion_ready
+.done_freeze_fc:
+    mov byte [tool_fc_state], 1
 .completion_ready:
     mov al, 3
     ; Treat SSE completion as terminal for this streamed response. HTTP/SSE reuse is still not reliable
@@ -73,28 +102,47 @@ agent_response_phase:
 .scan_idle:
     cmp byte [handoff_addr + handoff_status], handoff_status_ready
     jne .fc_no_match
-    mov si, PHASE_LOAD_ADDR + (arguments_pattern - PHASE_BASE)
-    mov di, fc_match_state
-    call .match_char
-    jc .fc_start_probe
-    mov al, 3
-    mov [tool_fc_state], al
-    mov word [fc_capture_len], 0
-    mov byte [api_stream_text_seen], 1
-    ret
-.fc_start_probe:
+    cmp byte [tool_fc_state], 4
+    je .fc_start_probe
+    cmp byte [tool_fc_state], 3
+    je .fc_start_probe
+    cmp byte [tool_fc_state], 5
+    je .fc_done_probe
     mov si, PHASE_LOAD_ADDR + (fc_start_pattern - PHASE_BASE)
     mov di, api_stream_fc_start_match
     call .match_char
     jc .fc_no_match
-    mov al, 1
-    mov [tool_fc_state], al
-    mov [api_stream_text_seen], al
+    mov byte [tool_fc_state], 5
+    mov word [fc_capture_len], 0
     ret
+.fc_done_probe:
+    mov si, PHASE_LOAD_ADDR + (output_done_pattern - PHASE_BASE)
+    mov di, fc_match_state
+    call .match_char
+    jc .fc_no_match
+    mov al, 4
+    mov [tool_fc_state], al
+    mov word [fc_capture_len], 0
+    ret
+.fc_start_probe:
+	mov si, PHASE_LOAD_ADDR + (fc_start_pattern - PHASE_BASE)
+	mov di, api_stream_fc_start_match
+	call .match_char
+	jc .fc_no_match
+	mov al, 3
+	mov [tool_fc_state], al
+	mov [api_stream_text_seen], al
+	mov [api_stream_completed], al
+	mov byte [tls_key_schedule_ready], tls_key_schedule_quiet_reconnect
+	ret
 .fc_no_match:
-    cmp byte [tool_fc_state], 1
+    cmp byte [tool_fc_state], 4
     je .parser_ret
     cmp byte [tool_fc_state], 3
+    je .parser_ret
+    cmp byte [tool_fc_state], 1
+    je .parser_ret
+    cmp byte [tool_fc_state], 5
     je .parser_ret
     mov si, PHASE_LOAD_ADDR + (delta_key_pattern - PHASE_BASE)
     mov di, api_stream_delta_match
@@ -309,8 +357,8 @@ agent_response_phase:
 
 completed_pattern db 'response.completed', 0
 done_pattern equ completed_pattern
-arguments_pattern db 'arguments":"{', 0
-fc_start_pattern db 'function_call', 0
+output_done_pattern db 'output_item.done', 0
+fc_start_pattern db '"function_call"', 0
 delta_key_pattern db 'delta":"', 0
 
 ; Keep-alive GET template. It lives in this phase instead of persistent RAM: agent_response is loaded

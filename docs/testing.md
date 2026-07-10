@@ -92,6 +92,32 @@ never by source port.
 - **Reconnect survival**: `--post-dpi-idle 20` before a turn forces a keep-alive
   close + reconnect; the turn should still answer.
 
+## Build 12 Memory Tiers
+
+- **286 HMA/native extended**: `python3 tools/run-286-86box.py --mem-kib 2048`
+  boots the 360K image on an AMI 286 AT-compatible harness with 1 MiB above 1 MiB exposed
+  through BIOS `int 15h AH=88h/87h`.
+- **386 unreal**: `python3 tools/run-386-86box.py` boots the 360K image on the
+  tracked `vm-net-386` shape (`adi386sx`/`i386sx`, 4096 KiB RAM) for
+  unreal-mode access.
+- **EMS regression**: use `targets/ibm_pc_5150/86box/vm-net-ems/86box.cfg` with
+  the normal direct/network harness when touching the shared far/EMS context path.
+
+For intermittent "model did not respond" captures, start the rootless watcher
+before the VM run:
+
+```sh
+python3 tools/watch-86box-session.py --profile vm-net-ne2k8 --duration 7200
+```
+
+It waits for matching 86Box processes, logs TCP socket state changes, warns when
+more than one 86Box TCP/443 socket remains established, and captures periodic
+plus socket-change screen/OCR snapshots under `build/ibm_pc_5150/watch/`. Add
+`--pcap` only on hosts where `sudo -n tcpdump --version` works; packet capture
+uses a bounded rotating ring by default (`--pcap-rotate-mb`,
+`--pcap-rotate-files`). Otherwise packet capture is reported as unavailable and
+the watcher continues with sockets and screens.
+
 ## NIC matrix
 
 The compatibility gate is original-speed 4.77 MHz, 16 KiB `vm-net-ne2k8` via the

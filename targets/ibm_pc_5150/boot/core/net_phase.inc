@@ -54,7 +54,7 @@ prepare_agent_endpoint_path:
     ; window below 75% the loop naturally falls through to the real turn and exits. The clean
     ; prompt-len capture above runs ONCE (the compaction receive clobbers dpi_input_len_byte, which
     ; aliases the RX buffer), and reconnect_retries is intentionally shared across both passes.
-    call_core_phase core_agent_request_phase_start, core_agent_request_phase_end
+    call .build_request
     jc .restore
     load_core_window core_link_window_start, core_link_window_end
     jc .restore
@@ -71,7 +71,7 @@ prepare_agent_endpoint_path:
     call .stream_and_exchange
     jnc .pass_done
 .rebuild_and_connect:
-    call_core_phase core_agent_request_phase_start, core_agent_request_phase_end
+    call .build_request
     jc .restore
 .connect_new_session:
     call_core_phase core_agent_endpoint_phase_start, core_agent_endpoint_phase_end
@@ -110,6 +110,7 @@ prepare_agent_endpoint_path:
     ; does not use tls_app_len here, so leaving it set is harmless for cold.
     call .stream_and_exchange
     jnc .pass_done
+    jmp .retry_dec
 .retry:
     ; Build 11 never-blank: this connect attempt failed (handshake phase OR the exchange). Silently
     ; retry the whole rebuild+connect up to 3x. The endpoint phase draws the single dim "> reconnect"
@@ -143,7 +144,7 @@ prepare_agent_endpoint_path:
     ; Save the verified modulus pointer + flag; the pre-tls_probe re-adopt installs it after the reload.
     mov ax, [p256_x509_result_mod_ptr]
     mov [recert_mod_ptr], ax
-    mov byte [recert_flag], 1
+    mov byte [recert_flag], 2
 .retry_dec:
     dec byte [reconnect_retries]
     jnz .rebuild_and_connect
@@ -166,6 +167,14 @@ prepare_agent_endpoint_path:
     jc .se_done
     jmp agent_api_exchange
 .se_done:
+    ret
+.build_request:
+    cmp word [far_log_seg_var], 0
+    je .br_request
+    call_core_phase core_context_mirror_phase_start, core_context_mirror_phase_end
+.br_request:
+    call_core_phase core_agent_request_phase_start, core_agent_request_phase_end
+.br_done:
     ret
 
 ; secure_capture_chunk -- resident 286-gated trampoline so the K-window cert-drain can fold one

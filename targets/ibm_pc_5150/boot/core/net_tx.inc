@@ -1,5 +1,6 @@
 ne_transmit_tcp_ack:
     mov al, 0x10
+ne_transmit_tcp_flags:
     xor cx, cx
     mov si, tcp_remote_ack
     call build_tcp_segment_frame

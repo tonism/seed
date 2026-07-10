@@ -25,6 +25,10 @@ ems_frame_seg equ 0xD000        ; 64 KB page frame; slot S window seg = ems_fram
 ems_page_size equ 0x4000        ; 16 KB logical page
 ems_max_pages equ 256           ; probe ceiling: 256 * 16 KB = 4 MB (the board's max)
 ems_flat_base_hi equ 0x0010     ; EMS flat base 0x00100000 (high word; low word 0)
+hma_flat_base_hi equ 0x0010     ; HMA base 0x00100000; top is 0x0010fff0 (exclusive)
+hma_flat_top_lo equ 0xfff0
+hma_flat_top_hi equ 0x0010
+ext_flat_base_hi equ 0x0011     ; native extended arena starts after the HMA window: 0x00110000
 low_scratch_start equ 0x0700
 low_scratch_end equ 0x1000
 ; Build 12 NIC HAL: the resident active-driver slot — the 4th nucleus sector. The shared resident
@@ -61,6 +65,18 @@ prompt_id_cache equ loop_cache_end - 512
 ; using the 32K-only loop-cache/stack-guard band.
 fc_capture_max equ 512
 fc_capture_buf equ low_scratch_start + 0x0600
+; Tool-memory helper handoff. The parser phase sets this byte to 'r'/'w'/'e' after parsing a native
+; memory call, then the resident chat loop loads the helper phase in the net window. It lives just above
+; the 0x0f00 tool scratch and outside every whole-sector phase load.
+tool_scratch_base equ net_setup_phase_start + 3 * 512
+tool_sink equ tool_scratch_base
+tool_helper_pending equ net_setup_phase_start + 3 * 512 + 1
+tool_addr    equ tool_scratch_base + 2
+tool_seg     equ tool_scratch_base + 6
+tool_farptr  equ tool_scratch_base + 8
+tool_readlen equ tool_scratch_base + 12
+tool_readbuf equ tool_scratch_base + 14
+tool_scratch_end equ tool_readbuf + 32
 ; Build 12 native tool calling: the resident tools-schema buffer on the loop-cache tiers (32K/256K).
 ; The schema is kept <=1 sector so the cache only steals 512 B from the context/arena pool; a 2-sector
 ; cache leaves the 32K window too small for ordinary turns after the parser state grew this block.
@@ -68,6 +84,7 @@ fc_capture_buf equ low_scratch_start + 0x0600
 tools_cache_sectors equ 1
 tools_cache_len equ tools_cache_sectors * 512
 tools_cache equ loop_cache_start - tools_cache_len
+tools_schema_max_len equ 384
 ; Build 12 286 secure tier: the handshake-only P-256 ECDHE module (core/p256_module.asm, incbin'd into
 ; CORE.SYS). Loaded ONLY on the 286 secure path (handoff_flag_cpu_286plus) into a high overlay band
 ; that ALIASES the 32K loop cache — lifetime-disjoint: the module runs during the boot handshake; the
@@ -179,6 +196,9 @@ handoff_flag_fpu equ 0x0020
 ; boot-sector write-back probe; a write-protected floppy -- the recovery-boundary mode -- leaves it
 ; clear, so persistence silently no-ops there.
 handoff_flag_writable_media equ 0x0040
+handoff_flag_cpu_386plus equ 0x0080
+handoff_flag_hma equ 0x0100
+handoff_flag_unreal equ 0x0200
 handoff_status_booting equ 1
 handoff_status_no_nic equ 2
 handoff_status_ready equ 3

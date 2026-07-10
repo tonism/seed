@@ -798,6 +798,7 @@ def rewrite_vm_config(
     wrote_fdd2_fn = False
     wrote_fdd2_type = False
     wrote_video_filter = False
+    direct_fdd_type = "525_2hd" if floppy.stat().st_size > 184320 else "525_1dd"
 
     def flush_general_tail():
         # All VM profiles render with nearest-neighbour scaling (crisp CGA pixels). Forced here so it
@@ -873,7 +874,7 @@ def rewrite_vm_config(
                     wrote_fdd1_fn = True
                 continue
             if stripped.startswith("fdd_01_type ="):
-                out.append("fdd_01_type = none" if rom_basic else "fdd_01_type = 525_1dd")
+                out.append("fdd_01_type = none" if rom_basic else f"fdd_01_type = {direct_fdd_type}")
                 continue
             if stripped.startswith("fdd_02_check_bpb ="):
                 if not rom_basic:
@@ -1840,6 +1841,14 @@ def classify_running_vm(
         if ocr_lines_suggest_dpi_ready(lines):
             verdict = "success"
             detail = f"ocr_{engine or 'unknown'}_dpi"
+    missing_expected = missing_expected_ocr_text(lines, args.screen_expect_text)
+    if args.screen_expect_text and (engine is None or missing_expected):
+        verdict = "missing-expected"
+        detail = (
+            "ocr_unavailable"
+            if engine is None
+            else "missing " + ", ".join(repr(text) for text in missing_expected)
+        )
 
     print(f"{label}: shape={shape_verdict} ({shape_detail})")
     if should_ocr:
@@ -2028,6 +2037,19 @@ def ocr_lines_suggest_rom_basic(lines: list[str]) -> bool:
         or "copyright ibm corp" in joined
         or "syntax error" in joined
     )
+
+
+def missing_expected_ocr_text(lines: list[str], expected_text: list[str]) -> list[str]:
+    if not expected_text:
+        return []
+    folded = " ".join(lines).casefold()
+    folded = re.sub(r"\s+", " ", folded)
+    missing: list[str] = []
+    for text in expected_text:
+        expected = re.sub(r"\s+", " ", text.strip().casefold())
+        if expected and expected not in folded:
+            missing.append(text)
+    return missing
 
 
 def screen_ocr_lines(path: Path, timeout: float) -> tuple[str | None, list[str]]:
@@ -2295,6 +2317,12 @@ def main() -> int:
         help="exit non-zero unless --screen-oracle classifies the final VM screen as success",
     )
     parser.add_argument(
+        "--screen-expect-text",
+        action="append",
+        default=[],
+        help="require OCR from the final --screen-oracle capture to contain this text; repeatable",
+    )
+    parser.add_argument(
         "--no-screen-ocr",
         action="store_true",
         help="disable local OCR on final screen captures",
@@ -2518,6 +2546,7 @@ def main() -> int:
         # Direct BIOS floppy boot: main floppy in A: (rom_basic=False), no sidecar.
         # A >=32K machine boots Seed straight from A:, giving ram_top 0x8000 and the
         # full-size context window - the only way to exercise the big-window send path.
+        image_args = [f"A:{floppy}"]
         config = vm_path / "86box.cfg"
         restore_config = (config, config.read_bytes())
         rewrite_vm_config(

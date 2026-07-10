@@ -27,8 +27,8 @@ agent_endpoint_phase:
     mov al, [reconnect_retries]
     or al, al
     jz .render_reconnect_failed
-    cmp byte [recert_flag], 0
-    jne .render_recertify
+    cmp byte [recert_flag], 2
+    je .render_recertify
     cmp al, 3
     jne .endpoint_body
     cmp byte [handoff_addr + handoff_status], handoff_status_ready
@@ -46,6 +46,9 @@ agent_endpoint_phase:
     ; the recertify is silent (no status line), exactly like "> reconnect"; the dots/splash cover it.
     ; "> recertify" is 11 chars (== "> reconnect"), so a mid-chat recert cleanly overwrites the earlier
     ; "> reconnect" on the same row (reads as one line transitioning reconnect -> recertify).
+    cmp al, 3
+    je .endpoint_body
+    mov byte [recert_flag], 1
     cmp byte [handoff_addr + handoff_status], handoff_status_ready
     jne .endpoint_body
     mov si, low_scratch_start + (recertify_msg_text - PHASE_BASE)

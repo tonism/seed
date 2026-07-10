@@ -122,6 +122,28 @@ core_hardware_setup_phase_end:
 
 align 512, db 0
 
+core_ext_layout_phase_start:
+%include "phases/ext_layout.inc"
+core_ext_layout_phase_end:
+
+%if (core_ext_layout_phase_end - core_ext_layout_phase_start) > 512
+%error "extended-memory layout phase exceeds one sector"
+%endif
+
+times 512 - (core_ext_layout_phase_end - core_ext_layout_phase_start) db 0
+
+core_unreal_setup_phase_start:
+%define PHASE_BASE core_unreal_setup_phase_start
+%include "phases/unreal_setup.inc"
+%undef PHASE_BASE
+core_unreal_setup_phase_end:
+
+%if (core_unreal_setup_phase_end - core_unreal_setup_phase_start) > 512
+%error "unreal setup phase exceeds one sector"
+%endif
+
+times 512 - (core_unreal_setup_phase_end - core_unreal_setup_phase_start) db 0
+
 core_packet_io_init_phase_start:
 %define PHASE_BASE core_packet_io_init_phase_start
 %include "phases/packet_io_init.inc"
@@ -236,6 +258,30 @@ core_agent_setup_phase_end:
 
 align 512, db 0
 
+core_context_mirror_phase_start:
+%define PHASE_BASE core_context_mirror_phase_start
+%include "phases/context_mirror.inc"
+%undef PHASE_BASE
+core_context_mirror_phase_end:
+
+%if (core_context_mirror_phase_end - core_context_mirror_phase_start) > 512
+%error "context mirror phase exceeds one sector"
+%endif
+
+times 512 - (core_context_mirror_phase_end - core_context_mirror_phase_start) db 0
+
+core_ext_read_chunk_phase_start:
+%define PHASE_BASE core_ext_read_chunk_phase_start
+%include "phases/ext_read_chunk.inc"
+%undef PHASE_BASE
+core_ext_read_chunk_phase_end:
+
+%if (core_ext_read_chunk_phase_end - core_ext_read_chunk_phase_start) > 512
+%error "native extended read chunk phase exceeds one sector"
+%endif
+
+times 512 - (core_ext_read_chunk_phase_end - core_ext_read_chunk_phase_start) db 0
+
 core_agent_request_phase_start:
 %define PHASE_BASE core_agent_request_phase_start
 %include "phases/agent_request.inc"
@@ -325,6 +371,34 @@ core_tool_phase_end:
 
 align 512, db 0
 
+core_tool_memory_phase_start:
+%define PHASE_BASE core_tool_memory_phase_start
+%define PHASE_LOAD_ADDR net_setup_phase_start
+%include "phases/tool_memory.inc"
+%undef PHASE_LOAD_ADDR
+%undef PHASE_BASE
+core_tool_memory_phase_end:
+
+%if (((core_tool_memory_phase_end - core_tool_memory_phase_start + 511) / 512) * 512) > (low_scratch_end - net_setup_phase_start)
+%error "tool memory helper phase rounds to too many sectors for the net setup window"
+%endif
+
+align 512, db 0
+
+core_tool_replay_prev_phase_start:
+%define PHASE_BASE core_tool_replay_prev_phase_start
+%define PHASE_LOAD_ADDR low_scratch_start
+%include "phases/tool_replay_prev.inc"
+%undef PHASE_LOAD_ADDR
+%undef PHASE_BASE
+core_tool_replay_prev_phase_end:
+
+%if (core_tool_replay_prev_phase_end - core_tool_replay_prev_phase_start) > 512
+%error "tool replay previous phase exceeds one sector"
+%endif
+
+times 512 - (core_tool_replay_prev_phase_end - core_tool_replay_prev_phase_start) db 0
+
 core_dpi_phase_start:
 %define PHASE_BASE core_dpi_phase_start
 %include "phases/dpi.inc"
@@ -405,6 +479,16 @@ core_phase_table:
     dw (core_hardware_setup_phase_end - core_hardware_setup_phase_start + 511) / 512
     dw low_scratch_start
     dw 0
+    db '0', 0
+    dw (core_ext_layout_phase_start - $$) / 512
+    dw (core_ext_layout_phase_end - core_ext_layout_phase_start + 511) / 512
+    dw high_crypto_scratch_start
+    dw 0
+    db 'Z', 0
+    dw (core_unreal_setup_phase_start - $$) / 512
+    dw (core_unreal_setup_phase_end - core_unreal_setup_phase_start + 511) / 512
+    dw low_scratch_start
+    dw 0
     db 'I', 0
     dw (core_packet_io_init_phase_start - $$) / 512
     dw (core_packet_io_init_phase_end - core_packet_io_init_phase_start + 511) / 512
@@ -450,6 +534,16 @@ core_phase_table:
     dw (core_agent_setup_phase_end - core_agent_setup_phase_start + 511) / 512
     dw low_scratch_start
     dw 0
+    db 'G', 0
+    dw (core_context_mirror_phase_start - $$) / 512
+    dw (core_context_mirror_phase_end - core_context_mirror_phase_start + 511) / 512
+    dw low_scratch_start
+    dw 0
+    db 'J', 0
+    dw (core_ext_read_chunk_phase_start - $$) / 512
+    dw (core_ext_read_chunk_phase_end - core_ext_read_chunk_phase_start + 511) / 512
+    dw low_scratch_start
+    dw 0
     db 'R', 0
     dw (core_agent_request_phase_start - $$) / 512
     dw (core_agent_request_phase_end - core_agent_request_phase_start + 511) / 512
@@ -484,6 +578,16 @@ core_phase_table:
     dw (core_tool_phase_start - $$) / 512
     dw (core_tool_phase_end - core_tool_phase_start + 511) / 512
     dw low_scratch_start
+    dw 0
+    db '1', 0
+    dw (core_tool_replay_prev_phase_start - $$) / 512
+    dw (core_tool_replay_prev_phase_end - core_tool_replay_prev_phase_start + 511) / 512
+    dw low_scratch_start
+    dw 0
+    db 'O', 0
+    dw (core_tool_memory_phase_start - $$) / 512
+    dw (core_tool_memory_phase_end - core_tool_memory_phase_start + 511) / 512
+    dw net_setup_phase_start
     dw 0
     db 'S', 0
     dw (core_save_phase_start - $$) / 512

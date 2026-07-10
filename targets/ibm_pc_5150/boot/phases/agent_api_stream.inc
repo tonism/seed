@@ -10,6 +10,8 @@
     dw %1 - (PHASE_LOAD_ADDR + ($ - PHASE_BASE) + 2)
 %endmacro
 
+api_ctx_native_chunk equ tls_rx_copy + 0x30
+
 agent_api_stream_phase:
     push ds
     pop es
@@ -114,13 +116,13 @@ agent_api_stream_phase:
     mov di, api_request_plain + tls_record_header_len
     mov si, PHASE_LOAD_ADDR + (api_json_user_item_open_text - PHASE_BASE)
     call agent_api_stream_append_z_to_buffer
-    cmp byte [tool_fc_state], 2
-    je .tail_fc_prompt
     mov si, [dialogue_off]
     mov cx, [dialogue_cnt]
     mov dx, [dialogue_cnt + 2]
     call agent_api_stream_append_context
     jc .failed
+    cmp byte [tool_fc_state], 2
+    je .tail_fc_prompt
 .tail_not_fc_output:
     cmp byte [compacting_msg], 0
     jne .tail_close_json                      ; compaction: input = the window alone, no user prompt
@@ -136,6 +138,7 @@ agent_api_stream_phase:
     jc .failed
 .tail_fc_output:
     call agent_api_stream_append_fc_output_item
+    jc .failed
 .tail_close_json:
     mov si, PHASE_LOAD_ADDR + (api_stream_json_close_text - PHASE_BASE)
     call agent_api_stream_append_z_to_buffer
@@ -201,6 +204,8 @@ api_fc_call_open_text db '"},{"type":"function_call","call_id":"', 0
 api_fc_call_open_text_len equ $ - api_fc_call_open_text - 1
 api_fc_name_mid_text db '","name":"', 0
 api_fc_name_mid_text_len equ $ - api_fc_name_mid_text - 1
+; fc_args_buf starts after agent_response's `arguments":"{` match, so replay must restore the
+; leading object brace before the captured escaped key/value bytes.
 api_fc_args_mid_text db '","arguments":"{', 0
 api_fc_args_mid_text_len equ $ - api_fc_args_mid_text - 1
 api_fc_output_open_text db '"},{"type":"function_call_output","call_id":"', 0
@@ -283,21 +288,19 @@ agent_api_stream_stream_contract:
 ; counts are mirrored into Content-Length by compute_ready_body_lengths (api_compaction_targets_fixed_len
 ; + .u16_decimal_len). [es:di] advances; clobbers ax/bx/cx/dx/si.
 agent_api_stream_append_compaction_targets:
-    mov si, PHASE_LOAD_ADDR + (api_targets_pre_text - PHASE_BASE)
-    call agent_api_stream_append_z_to_buffer
+    mov al, '~'
+    stosb
     mov ax, [chat_context_len_var]
     shr ax, 1
     shr ax, 1                            ; N = window/4
     call agent_api_stream_append_u16_decimal
-    mov si, PHASE_LOAD_ADDR + (api_targets_mid_text - PHASE_BASE)
-    call agent_api_stream_append_z_to_buffer
+    mov al, '/'
+    stosb
     mov ax, [chat_context_len_var]
     xor dx, dx
     mov bx, 3
     div bx                               ; M = window/3 (== chat_effective_cap on a compaction pass)
-    call agent_api_stream_append_u16_decimal
-    mov si, PHASE_LOAD_ADDR + (api_targets_post_text - PHASE_BASE)
-    jmp agent_api_stream_append_z_to_buffer
+    jmp agent_api_stream_append_u16_decimal
 
 agent_api_stream_append_u16_decimal:
     ; ax = u16 -> variable-width decimal at [es:di]. Renders the dynamic compaction char targets (N/M)
@@ -322,15 +325,8 @@ agent_api_stream_append_u16_decimal:
     pop cx
     ret
 
-; Build 12: shortened (was ' Target about '/' characters, at most ') to reclaim phase bytes for the
-; tools splice. Same meaning to the model; Content-Length auto-tracks the derived _len constants.
-api_targets_pre_text db ' ~', 0
-api_targets_pre_len equ $ - api_targets_pre_text - 1
-api_targets_mid_text db ' max ', 0
-api_targets_mid_len equ $ - api_targets_mid_text - 1
-api_targets_post_text db '.', 0
-api_targets_post_len equ $ - api_targets_post_text - 1
-api_compaction_targets_fixed_len equ api_targets_pre_len + api_targets_mid_len + api_targets_post_len
+; Build 12: shortened (was ' Target about '/' characters, at most ') to reclaim phase bytes.
+api_compaction_targets_fixed_len equ 2
 
 agent_api_stream_append_z_to_buffer:
     lodsb
@@ -342,33 +338,44 @@ agent_api_stream_append_z_to_buffer:
     ret
 
 agent_api_stream_append_fc_output_item:
+    cmp byte [fc_match_state], 0
+    je .current_fc_output
+    call agent_api_stream_stream_contract.sc_flush_record
+    jc .append_done
+    mov ax, (((core_tool_replay_prev_phase_end - core_tool_replay_prev_phase_start + 511) / 512) << 8) | ((core_tool_replay_prev_phase_start - $$) / 512)
+    phase_call_res run_core_phase
+.current_fc_output:
     mov si, PHASE_LOAD_ADDR + (api_fc_call_open_text - PHASE_BASE)
     call agent_api_stream_append_z_to_buffer
-    mov si, fc_call_id
-    mov cl, [fc_call_id_len]
-    xor ch, ch
-    rep movsb
+    call .append_call_id
     mov si, PHASE_LOAD_ADDR + (api_fc_name_mid_text - PHASE_BASE)
     call agent_api_stream_append_z_to_buffer
     mov si, fc_name
     mov cl, [fc_name_len]
-    xor ch, ch
     rep movsb
     mov si, PHASE_LOAD_ADDR + (api_fc_args_mid_text - PHASE_BASE)
     call agent_api_stream_append_z_to_buffer
     mov si, fc_args_buf
     mov cx, [fc_args_len]
     rep movsb
+    ; A prompt + function_call + function_call_output can exceed one 440-byte TLS body. Split after
+    ; the arguments bytes; api_fc_output_open_text's leading `"}' closes this item in the next record.
+    call agent_api_stream_stream_contract.sc_flush_record
+    jc .append_done
     mov si, PHASE_LOAD_ADDR + (api_fc_output_open_text - PHASE_BASE)
     call agent_api_stream_append_z_to_buffer
-    mov si, fc_call_id
-    mov cl, [fc_call_id_len]
-    xor ch, ch
-    rep movsb
+    call .append_call_id
     mov si, PHASE_LOAD_ADDR + (api_fc_output_mid_text - PHASE_BASE)
     call agent_api_stream_append_z_to_buffer
     mov si, fc_output_buf
     mov cl, [fc_output_len]
+    rep movsb
+.append_done:
+    ret
+.append_call_id:
+    mov si, fc_call_id
+    mov cl, [fc_call_id_len]
+.append_counted:
     xor ch, ch
     rep movsb
     ret
@@ -493,11 +500,11 @@ api_json_tools_open_text_len equ $ - api_json_tools_open_text - 1
 ; and work across providers. Each stored turn becomes " User: <prompt> You: <response>". "You:" is
 ; deliberately identity-neutral (not "Assistant") - the agent's role/identity lives in the identity
 ; layer, chosen by identity/the user, not dictated by the transcript format.
-api_json_user_label_text db ' U:', 0
+api_json_user_label_text db 'U:', 0
 api_json_user_label_text_len equ $ - api_json_user_label_text - 1
 ; End the assistant label with a real newline in the raw window. append_context flattens it back to a
 ; space when the window is re-sent, so the model sees a compact transcript.
-api_json_you_label_text db ' A:', 10, 0
+api_json_you_label_text db 'A:', 10, 0
 api_json_you_label_text_len equ $ - api_json_you_label_text - 1
 ; Build 11 cleanup: the Build 9 invisible-compaction recap directive was removed along with the
 ; dead compact_next request-build branches (recap compaction is gone since Build 10; the sliding
@@ -513,14 +520,15 @@ api_ledger_save_text db ' s=', 0
 ; Both bounds are computed at emit time (hex32) -- base = 0x10000 + far_window_cap (above the far log),
 ; top = conv_top. Always emitted, fixed-width -> the ledger stays == api_ledger_len (CL counts it exactly).
 api_ledger_far_text db ' F@', 0
+api_ledger_hma_text db ' H@', 0
 ; Build 12 milestone 2: the EMS windowed arena as flat range " ems@<base>-<top>" (base 0x00100000,
 ; top = base + ems_page_count*16 KB). Always emitted fixed-width (empty base==top when no board), like far@.
 api_ledger_ems_text db ' e@', 0
 ; Serialized length (every field is fixed-width / zero-padded, so this is exact, not just an upper bound).
-; Labels (minus 6 NULs) + ram hex16(4) + arena hex16(4) + cap hex16(4) + save(2) + trailing space
-; + far [base(8)+'-'+top(8)=17] + ems [base(8)+'-'+top(8)=17].
-api_ledger_labels_len equ $ - api_ledger_ram_text - 6
-api_ledger_len equ api_ledger_labels_len + (4 + 4 + 4 + 2 + 1 + 17 + 17)
+; Labels (minus 7 NULs) + ram hex16(4) + arena hex16(4) + cap hex16(4) + save(2) + trailing space
+; + far/HMA/extended-or-EMS ranges [base(8)+'-'+top(8)=17 each].
+api_ledger_labels_len equ $ - api_ledger_ram_text - 7
+api_ledger_len equ api_ledger_labels_len + (4 + 4 + 4 + 2 + 1 + 17 + 17 + 17)
 
 ; Build 10: chunk 2 is sent as two records (instructions; then ledger+directive+input-open),
 ; so enforce that EACH record fits the api_request_plain body. The old single-record build
@@ -580,13 +588,34 @@ agent_api_stream_append_ledger:
     mov ax, [far_arena_top]
     mov dx, [far_arena_top + 2]
     call agent_api_stream_ledger_hex32
-    ; Build 12 milestone 2: ems@<base>-<top> -- the EMS windowed arena, flat range above the 1 MB ceiling.
-    ; base = 0x00100000 (constant); top = base + ems_page_count*16 KB (== base when no board -> empty range,
-    ; the EMS-inactive form). Always emitted fixed-width so the ledger stays == api_ledger_len.
+    ; HMA is a separate direct range: it is above the ROM/device hole, so it cannot be honestly folded
+    ; into F@'s conventional range.
+    mov si, PHASE_LOAD_ADDR + (api_ledger_hma_text - PHASE_BASE)
+    call agent_api_stream_append_z_to_buffer
+    xor ax, ax
+    mov dx, hma_flat_base_hi
+    call agent_api_stream_ledger_hex32
+    mov al, '-'
+    stosb
+    xor ax, ax
+    mov dx, hma_flat_base_hi
+    test byte [handoff_addr + handoff_flags + 1], handoff_flag_hma >> 8
+    jz .hma_top_ready
+    mov ax, hma_flat_top_lo
+    mov dx, hma_flat_top_hi
+.hma_top_ready:
+    call agent_api_stream_ledger_hex32
+    ; Build 12 extended/EMS arena. EMS keeps the synthetic 0x00100000 base; native extended memory starts
+    ; after HMA at 0x00110000 so H@ remains the only advertised direct HMA range.
     mov si, PHASE_LOAD_ADDR + (api_ledger_ems_text - PHASE_BASE)
     call agent_api_stream_append_z_to_buffer
     xor ax, ax
-    mov dx, ems_flat_base_hi                      ; base = 0x00100000
+    mov dx, ems_flat_base_hi
+    test byte [handoff_addr + handoff_flags + 1], handoff_flag_hma >> 8
+    jz .ext_base_ready
+    inc dx
+.ext_base_ready:
+    push dx
     call agent_api_stream_ledger_hex32
     mov al, '-'
     stosb
@@ -595,10 +624,11 @@ agent_api_stream_append_ledger:
     ; base (0x100000) for the empty EMS range.
     mov ax, [far_ctx_base]
     mov dx, [far_ctx_base + 2]
-    cmp dx, ems_flat_base_hi
+    pop bx
+    cmp dx, bx
     jae .ems_top_ready
     xor ax, ax
-    mov dx, ems_flat_base_hi                      ; no EMS: top = base = 0x00100000 (empty range)
+    mov dx, bx
 .ems_top_ready:
     call agent_api_stream_ledger_hex32
     mov si, PHASE_LOAD_ADDR + (api_ledger_save_text - PHASE_BASE)
@@ -666,6 +696,8 @@ agent_api_stream_append_context:        ; si = source offset/ptr, dx:cx = byte c
     ; dialogue read reaches here on an EMS (>64 KB) machine; the note read is <=64 KB-only. ds=0 at entry.
     cmp byte [far_ctx_base + 2], 0x10
     jb .ctx_conv_entry
+    cmp word [ems_page_count], 0
+    je .ctx_ext_entry
     mov al, [ems_ctx_page]               ; boot-precomputed page + frame offset of far_ctx_base; the read
     mov bl, al                           ; starts there (dialogue_off is 0 on a >64 KB machine). bl = page
     mov si, [ems_ctx_off]
@@ -673,6 +705,17 @@ agent_api_stream_append_context:        ; si = source offset/ptr, dx:cx = byte c
     out dx, al                           ; map the first page into slot 0 (al = page); dx is free (count in bp)
     mov ax, ems_frame_seg
     mov ds, ax                           ; ds = frame segment (the EMS source); bl = live page
+    jmp .ctx_next
+.ctx_ext_entry:
+    mov ax, [far_ctx_base]
+    mov dx, [far_ctx_base + 2]
+    add ax, si
+    adc dx, 0
+    mov [tool_addr], ax
+    mov [tool_addr + 2], dx
+    xor ax, ax
+    mov [api_http_state], ax
+    mov ds, ax
     jmp .ctx_next
 .ctx_conv_entry:
     mov ds, [far_log_seg_var]            ; ds = far context log (0x1000) or seg 0 (<=64 KB fallback)
@@ -682,14 +725,50 @@ agent_api_stream_append_context:        ; si = source offset/ptr, dx:cx = byte c
     jz .ctx_done                         ; 32-bit count (bp:cx) exhausted (also the zero-length entry case)
     cmp di, api_request_plain + tls_record_header_len + api_request_plain_len - 2
     jae .ctx_flush                       ; leave room for one escaped pair before the payload cap
+    cmp byte [es:far_ctx_base + 2], 0x10
+    jb .ctx_source_ready
+    cmp word [es:ems_page_count], 0
+    jne .ctx_source_ready
+    cmp word [es:api_http_state], 0
+    jne .ctx_source_ready
+    mov ax, cx
+    or bp, bp
+    jz .ctx_ext_count_low
+    mov ax, 512
+    jmp .ctx_ext_count_ready
+.ctx_ext_count_low:
+    cmp ax, 512
+    jbe .ctx_ext_count_ready
+    mov ax, 512
+.ctx_ext_count_ready:
+    mov [es:tool_readlen], ax
+    push cx
+    push bp
+    push di
+    mov ax, (((core_ext_read_chunk_phase_end - core_ext_read_chunk_phase_start + 511) / 512) << 8) | ((core_ext_read_chunk_phase_start - $$) / 512)
+    mov bx, low_scratch_start
+    phase_call_res run_core_phase_at
+    pop di
+    pop bp
+    pop cx
+    jc .ctx_ext_failed
+    mov si, api_ctx_native_chunk
+    mov ax, [es:tool_readlen]
+    mov [es:api_http_state], ax
+.ctx_source_ready:
     lodsb                                ; al = [ds:si] (far log or frame); si++
     cmp byte [es:far_ctx_base + 2], 0x10  ; es=0 here -> reads the seg-0 var regardless of ds
-    jae .ctx_ems_renorm
+    jae .ctx_high_renorm
     test si, si
     jnz .ctx_no_renorm
     mov bx, ds
     add bx, 0x1000                       ; si wrapped 64 KB -> advance to the next paragraph window
     mov ds, bx
+    jmp .ctx_no_renorm
+.ctx_high_renorm:
+    cmp word [es:ems_page_count], 0
+    jne .ctx_ems_renorm
+    dec word [es:api_http_state]
     jmp .ctx_no_renorm
 .ctx_ems_renorm:
     cmp si, 0x4000                       ; frame offset wrapped the 16 KB page -> map the next page
@@ -753,6 +832,10 @@ agent_api_stream_append_context:        ; si = source offset/ptr, dx:cx = byte c
     add sp, 10                           ; discard the 5 flush-pushed words (bx, far ds, si, bp, cx)
     pop ds                               ; restore the ENTRY-pushed ds (=0) -- balances the stack + the
                                          ; ds=0-on-exit contract (an unbalanced ret here jumped to 0x0000)
+    stc
+    ret
+.ctx_ext_failed:
+    pop ds
     stc
     ret
 ; Build 9 (Phase 3b): dim status shown while a compaction reply is in flight - explains the slow

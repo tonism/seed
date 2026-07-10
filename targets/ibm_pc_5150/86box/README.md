@@ -31,6 +31,15 @@ targets/ibm_pc_5150/86box/vm-net-wd8003e/86box.cfg
 targets/ibm_pc_5150/86box/vm-net-wd8003eb/86box.cfg
 ```
 
+The Build 12 386 unreal-mode gate uses the AT-compatible profile:
+
+```text
+targets/ibm_pc_5150/86box/vm-net-386/86box.cfg
+```
+
+That profile uses the ADI 386SX/Phoenix BIOS shape with 4096 KiB RAM and a
+16-bit ISA NE2000 adapter.
+
 Current CGA machine shape:
 
 ```text

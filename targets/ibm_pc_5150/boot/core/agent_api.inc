@@ -57,7 +57,11 @@ agent_api_exchange:
     je .hard_failed
     ret
 .failed:
-    mov byte [handoff_addr + handoff_net_status], 0xf0
+    ; Close this app-data socket before the retry rebuilds request/TLS state. The next SYN path
+    ; also has a cached cleanup, but late exchange failures can otherwise leave a SLiRP host socket
+    ; established until VM exit.
+    mov al, 0x11
+    call ne_transmit_tcp_flags
     cmp byte [api_stream_completed], 2
     jae .success
     ; All NICs: a receive/ack failure after text rendered means the answer streamed but the

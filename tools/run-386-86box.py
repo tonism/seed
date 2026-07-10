@@ -1,21 +1,13 @@
 #!/usr/bin/env python3
-"""Boot a Seed floppy image on an AT-compatible 286 86Box VM and screenshot the result.
+"""Boot a Seed floppy image on an AT-compatible 386 86Box VM.
 
-The 286 secure tier's test harness (Build 12). The AT's 1.2 MB drive rejects the
-single-sided 160K image, so this boots the 360K double-sided image (the 2-image
-decision). A crafted CMOS gets the 286 BIOS past SETUP (it halts on a blank CMOS; the XT
-has none). 6 MHz is the security clock (the lowest secure CPU); --speed picks others.
+Build 12 unreal-mode validation harness. It uses the same 360K boot image and
+NE2000 SLiRP network path as the 286 harness, but selects the local 86Box
+`adi386sx` machine with an `i386sx` CPU. Default RAM is 4096 KiB so BIOS
+int 15h reports native extended memory and Seed can enable HMA/unreal mode.
 
-An ne2k8 NIC on SLiRP is attached so the 286 can run the REAL secure handshake end to
-end (the 286 secure tier needs the network -- without a NIC the boot dies at DHCP). The
-286 is a direct floppy boot, so ram_top is the loader's 0x8000 (the 32K tier): the
-floppy-free loop cache + the 286-only P-256 module both live in that high region.
-
-Reuses run86box.py's macOS window screenshot helper.
-
-  python3 tools/run-286-86box.py                      # boot floppy-360k.img @6 MHz, networked
-  python3 tools/run-286-86box.py --mem-kib 2048       # expose 1 MiB native extended memory
-  python3 tools/run-286-86box.py --speed 8 --timeout 90
+  python3 tools/run-386-86box.py
+  python3 tools/run-386-86box.py --mem-kib 8192 --speed 25 --timeout 90
 """
 from __future__ import annotations
 import argparse
@@ -25,23 +17,22 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, "tools/crypto-bench")
-import run86box as rb  # noqa: E402  (emulator_path, ComCapture, screenshot_window)
+import run86box as rb  # noqa: E402
 
 ROOT = rb.ROOT
 DEFAULT_IMG = ROOT / "build" / "ibm_pc_5150" / "floppy-360k.img"
-VM_PATH = ROOT / "build" / "ibm_pc_5150" / "vm-286-360k"
-NVR = VM_PATH / "nvr" / "ami286.nvr"
+VM_PATH = ROOT / "build" / "ibm_pc_5150" / "vm-386-360k"
+NVR = VM_PATH / "nvr" / "adi386sx.nvr"
 GLOBAL_CFG = VM_PATH / "86box_global.cfg"
 
 
 def cmos(mem_kib: int) -> bytes:
-    """AT CMOS: RTC + 1.2M floppy A + base/extended RAM, no FPU."""
     c = bytearray(128)
     c[0x0A] = 0x26; c[0x0B] = 0x02; c[0x0D] = 0x80
     c[0x04] = 0x12; c[0x07] = 0x01; c[0x08] = 0x06; c[0x09] = 0x26
-    c[0x10] = 0x20                  # floppy A = 1.2M 5.25" AT drive; boots the 360K image
-    c[0x14] = 0x21                  # equipment: 1 floppy, CGA 80-col, no FPU
-    base_kib = 512 if mem_kib < 1024 else 640
+    c[0x10] = 0x20
+    c[0x14] = 0x21
+    base_kib = 640 if mem_kib >= 1024 else mem_kib
     ext_kib = max(0, mem_kib - 1024)
     c[0x15] = base_kib & 0xFF; c[0x16] = (base_kib >> 8) & 0xFF
     c[0x17] = ext_kib & 0xFF; c[0x18] = (ext_kib >> 8) & 0xFF
@@ -57,8 +48,8 @@ emu_build_num = 8200
 sound_muted = 1
 vid_renderer = qt_software
 [Machine]
-machine = ami286
-cpu_family = 286
+machine = adi386sx
+cpu_family = i386sx
 cpu_multi = 1
 cpu_speed = {speed}
 cpu_use_dynarec = 0
@@ -70,7 +61,7 @@ gfxcard = cga
 keyboard_type = keyboard_at
 mouse_type = none
 [Network]
-net_01_card = ne2k8
+net_01_card = ne2k
 net_01_link = 1
 net_01_net_type = slirp
 net_01_promisc = 0
@@ -79,11 +70,11 @@ net_02_link = 0
 net_03_link = 0
 net_04_link = 0
 
-[NE2000 Compatible 8-bit #1]
+[NE2000 Compatible #1]
 base = 0300
 irq = 3
 bios_addr = 00000
-mac = 2b:86:12
+mac = 2b:86:13
 mac_oui = 00:86:b0
 
 [Storage controllers]
@@ -146,13 +137,10 @@ def launch_86box(img: Path) -> None:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--image", default=str(DEFAULT_IMG))
-    ap.add_argument("--speed", type=int, default=6, help="286 clock in MHz (default 6 = security clock)")
-    ap.add_argument("--mem-kib", type=int, default=512,
-                    help="total RAM in KiB (default 512; use 2048+ for HMA/native extended-memory gates)")
-    ap.add_argument("--timeout", type=float, default=120.0,
-                    help="seconds to wait before the screenshot (default 120: the @6 secure handshake "
-                         "is the slow case -- ECDHE keypair gen ~6.6s + handshake ~14s + the model reply)")
-    ap.add_argument("--out", default=str(ROOT / "build" / "ibm_pc_5150" / "boot-286-360k.png"))
+    ap.add_argument("--speed", type=int, default=16, help="386 clock in MHz (default 16)")
+    ap.add_argument("--mem-kib", type=int, default=4096, help="total RAM in KiB (default 4096)")
+    ap.add_argument("--timeout", type=float, default=90.0)
+    ap.add_argument("--out", default=str(ROOT / "build" / "ibm_pc_5150" / "boot-386-360k.png"))
     args = ap.parse_args()
 
     img = Path(args.image).resolve()
@@ -179,7 +167,7 @@ def main():
         ok = rb.screenshot_window(out)
     finally:
         subprocess.run(["pkill", "-9", "-f", "86Box"], capture_output=True)
-    print(f"286 @{args.speed} MHz, {args.mem_kib} KiB boot of {img.name} ({img.stat().st_size} B)")
+    print(f"386 @{args.speed} MHz, {args.mem_kib} KiB boot of {img.name} ({img.stat().st_size} B)")
     print(f"screenshot: {out}  ({'ok' if ok else 'FAILED to capture'})")
 
 

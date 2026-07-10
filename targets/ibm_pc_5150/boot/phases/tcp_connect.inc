@@ -68,6 +68,26 @@ tcp_reopen_cached_target:
 .done:
     ret
 
+tcp_close_cached_target:
+    mov ax, [tcp_source_port_word]
+    or ax, ax
+    jz .done
+    mov al, 0x11                       ; FIN|ACK when the old receive state is still valid.
+    mov dx, [tcp_remote_ack]
+    or dx, [tcp_remote_ack + 2]
+    jnz .send
+    mov al, 0x04                       ; If the ack was clobbered, RST with the current seq is still
+                                       ; a useful retry cleanup and avoids abandoned host sockets.
+.send:
+    xor cx, cx
+    mov si, tcp_remote_ack
+    phase_call_res build_tcp_segment_frame
+    mov si, ne_tx_frame
+    call [nic_vt_transmit]
+.done:
+    clc
+    ret
+
 tcp_connect_target:
     call tcp_resolve_target_name
     jc .done
@@ -141,6 +161,7 @@ tcp_open_resolved_target:
 ; once), so it is a true retransmit the server dedups, not a new connection. CF clear = connected
 ; (SYN-ACK received); CF set = exhausted. Used by both the cold connect and the mid-chat reopen.
 ne_tcp_syn_handshake:
+    call tcp_close_cached_target
     call tcp_reset_state
     mov cx, tcp_syn_retry_count
 .try:

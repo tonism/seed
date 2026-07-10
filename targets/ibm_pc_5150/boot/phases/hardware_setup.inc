@@ -109,6 +109,23 @@ hardware_setup_detect_cpu:
     cmp ah, 0xf0
     je .done                     ; bits 12-15 stuck high => 8086/8088/V20 (leave 286+ bit clear)
     or word [handoff_addr + handoff_flags], handoff_flag_cpu_286plus
+    ; 286 vs 386+: on a 286 the high FLAGS bits stay forced low; a 386 in real mode lets IOPL/NT
+    ; (bits 12-14) change through PUSHF/POPF. Keep this behind the 286+ gate so 8088-class CPUs never
+    ; see it as a consumer decision.
+    pushf
+    pop ax
+    mov cx, ax
+    xor ah, 0x70
+    push ax
+    popf
+    pushf
+    pop ax
+    push cx
+    popf
+    xor ax, cx
+    test ah, 0x70
+    jz .done
+    or word [handoff_addr + handoff_flags], handoff_flag_cpu_386plus
 .done:
     ret
 
@@ -264,6 +281,10 @@ hardware_setup_phase_display:
     mul bx                                        ; dx:ax = conv_KB * 1024 = conv_top (bytes)
     mov [far_arena_top], ax
     mov [far_arena_top + 2], dx
+    mov ax, (((core_ext_layout_phase_end - core_ext_layout_phase_start + 511) / 512) << 8) | ((core_ext_layout_phase_start - $$) / 512)
+    mov bx, high_crypto_scratch_start
+    phase_call_res run_core_phase_at
+    jnc .far_log_inactive
     cmp word [ems_page_count], 0
     jne .far_ems_invert
     ; --- M1 layout (no EMS): context @ 0x10000, arena above [0x10000+cap .. conv_top]. cap =

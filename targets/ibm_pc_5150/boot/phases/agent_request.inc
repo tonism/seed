@@ -12,101 +12,6 @@
 %endmacro
 
 agent_request_phase:
-    ; Build 12 Stage C (C1b): mirror the seg-0 window into the far context log just ABOVE the frozen
-    ; history (at flat offset far_flushed_len), so agent_api_stream streams the whole far log -- frozen
-    ; turns ++ the live window -- from far memory. The append point is normalized to a far pointer:
-    ; seg = far_log_seg + (far_flushed_len >> 4), off = far_flushed_len & 0xF (the window is < 64 KB, so
-    ; off + window never crosses a 64 KB boundary -- no mid-copy renorm). On cold boot far_flushed_len
-    ; and used are both 0 (a 0-byte copy to far_log_seg:0). The window is stable across this phase + a
-    ; reconnect re-mirror is idempotent (a flush zeroes used, so the resend copies 0 bytes). ds=0 here.
-    ; Skipped when the far log is inactive (<=64 KB machine): the seg-0 window stays canonical there.
-    cmp word [far_log_seg_var], 0
-    je .far_mirror_done
-    ; Build 12 Stage C (C2/C3): bound the far log at its window cap so it can't grow into the far arena.
-    ; If frozen history + the live window would reach far_window_cap, DROP the old history (reset the log to
-    ; the current window) before mirroring -- a hard reset at the (large: >=tens of KB) cap. Runs before the
-    ; mirror so the reset lands the current window at offset 0. (drop-oldest/summarize is a future refinement.)
-    mov ax, [far_flushed_len]
-    mov dx, [far_flushed_len + 2]
-    add ax, [chat_context_used]
-    adc dx, 0                            ; dx:ax = far_flushed_len + used (the log size after this mirror)
-    cmp dx, [far_window_cap + 2]
-    ja .far_log_full
-    jb .far_cap_ok
-    cmp ax, [far_window_cap]
-    jb .far_cap_ok
-.far_log_full:
-    xor ax, ax
-    mov [far_flushed_len], ax
-    mov [far_flushed_len + 2], ax
-    mov [far_flushed_esc], ax
-    mov [far_flushed_esc + 2], ax
-.far_cap_ok:
-    push es
-    ; Build 12 M2b/M2e: on an EMS machine the context lives in EMS (far_ctx_base >= 0x100000, high word
-    ; >= 0x0010) -- mirror via the page frame; else the M1 conventional far-log write (byte-for-byte).
-    cmp word [far_ctx_base + 2], 0x0010
-    jae .far_mirror_ems
-    mov ax, [far_flushed_len]
-    mov dx, [far_flushed_len + 2]
-    mov di, ax
-    and di, 0x000f                       ; di = append offset within the paragraph
-    mov cx, 4
-.mirror_norm:
-    shr dx, 1
-    rcr ax, 1
-    loop .mirror_norm                    ; ax = far_flushed_len >> 4 (paragraphs; < 64K on this tier)
-    add ax, far_log_seg
-    mov es, ax                           ; es:di = normalized far-log append point
-    mov si, chat_context_start
-    mov cx, [chat_context_used]
-    cld
-    rep movsb                            ; seg-0 window -> far log at far_flushed_len
-    pop es
-    jmp .far_mirror_done
-.far_mirror_ems:
-    ; EMS windowed write: seg-0 window [chat_context_start, +used) -> flat (far_ctx_base + far_flushed_len).
-    ; rel = flat - 0x100000; map page rel>>14 into frame slot 0, walk di in [0..0x4000), remap on wrap.
-    ; ds=0 (source window), es=frame seg. Registers ax/bx/cx/dx/si/di are rebuilt after .far_mirror_done.
-    mov ax, [far_ctx_base]
-    mov dx, [far_ctx_base + 2]
-    add ax, [far_flushed_len]
-    adc dx, [far_flushed_len + 2]
-    sub ax, 0
-    sbb dx, 0x0010                       ; dx:ax = rel = flat - 0x100000
-    mov di, ax
-    and di, 0x3fff                       ; di = offset within the 16 KB frame page
-    mov cl, 14
-.ems_wr_pshift:
-    shr dx, 1
-    rcr ax, 1
-    dec cl
-    jnz .ems_wr_pshift                   ; ax = page number = rel >> 14 (page < 256, dx now 0)
-    mov bx, ax                           ; bx = current EMS page
-    mov dx, ems_base_port
-    mov al, bl
-    out dx, al                           ; map page into slot 0
-    mov ax, ems_frame_seg
-    mov es, ax
-    mov si, chat_context_start
-    mov cx, [chat_context_used]
-    cld
-    jcxz .ems_wr_done
-.ems_wr_loop:
-    lodsb                                ; al = [ds:si] (seg-0 window); si++
-    stosb                                ; [es:di] = al (frame); di++
-    cmp di, 0x4000
-    jb .ems_wr_cont
-    xor di, di                           ; page boundary: reset frame offset, map next page
-    inc bx
-    mov dx, ems_base_port
-    mov al, bl
-    out dx, al
-.ems_wr_cont:
-    loop .ems_wr_loop
-.ems_wr_done:
-    pop es
-.far_mirror_done:
     cmp byte [handoff_addr + handoff_status], handoff_status_ready
     je .session_ready
     ; A RECONNECT (reconnect_retries<3) reuses the cold connect's cached config: seed_* was read on the
@@ -237,19 +142,18 @@ agent_request_phase:
     mov ax, [chat_context_used]
     mov [note_len], ax
 .note_len_kept:
-    ; Build 12 Stage C (C1b) far-log flush (>64 KB machine): replaces the Build-11 model-summarize
-    ; compaction when the far log is active. When the seg-0 window reaches the 75% trigger
+    ; Build 12 Stage C (C1b) far-log flush (>64 KB machine): replaces the <=64 KB local drop
+    ; fallback when the far log is active. When the seg-0 window reaches the 75% trigger
     ; (chat_compact_threshold), FREEZE it into the far log -- it was just mirrored at far_flushed_len by
     ; the phase entry, so the flush only advances far_flushed_len past it (+ folds its JSON-escaped length
     ; into far_flushed_esc for the Content-Length) and resets the seg-0 window to empty. The full
     ; conversation lives on in far memory and streams in full every turn; nothing is summarized or dropped.
     ; compacting_msg stays 0 -> the two-pass summarize loop never fires (net_phase) and the dormant
     ; compaction branches all take the normal path. Reconnect-safe: the flush zeroes used, so a rebuild
-    ; re-mirrors 0 bytes and re-flushes nothing. On a <=64 KB machine the far log is inactive, so this
-    ; falls through to the Build-11 model-summarize compaction (compacting_msg=1) -- exact Build-11 behavior.
-    ; Also compact BEFORE the real request when the current prompt would overflow the seg-0 window once
-    ; appended. That is the standard local-history path: summarize old context first, then send/store the
-    ; user's prompt against the compacted note instead of dropping old context in the response renderer.
+    ; re-mirrors 0 bytes and re-flushes nothing. On a <=64 KB machine the far log is inactive, so overflow
+    ; keeps any existing compacted note and drops the live dialogue before the real request. That avoids the
+    ; old model-summarize pre-pass, which can complete with no visible text and loop forever on the 16 KiB
+    ; native Responses path.
     mov byte [compacting_msg], 0
     cmp byte [tool_fc_state], 2
     je .not_compaction_pass              ; tool convention: function_call_output must be immediate
@@ -277,7 +181,7 @@ agent_request_phase:
     or ax, ax
     jz .not_compaction_pass
     cmp word [far_log_seg_var], 0
-    je .model_summarize_compaction       ; <=64 KB machine: keep Build-11 model-summarize compaction
+    je .drop_dialogue_context            ; <=64 KB machine: keep note prefix, drop live dialogue
     push ax
     mov si, chat_context_start
     mov cx, ax
@@ -289,14 +193,15 @@ agent_request_phase:
     adc word [far_flushed_len + 2], 0
     mov word [chat_context_used], 0
     jmp .not_compaction_pass
-.model_summarize_compaction:
-    mov byte [compacting_msg], 1
+.drop_dialogue_context:
+    mov ax, [note_len]
+    mov [chat_context_used], ax
 .not_compaction_pass:
     ; Build 12 Stage C (C1b): precompute the "input" DIALOGUE range here (agent_request knows
     ; far_flushed_len / note_len / compacting_msg / far_log_seg_var) so the maxed agent_api_stream phase
     ; just loads + streams it (segment = far_log_seg_var). >64 KB machine: the whole far log, far-log offset
     ; note_len .. far_log_used (= far_flushed_len + used). <=64 KB machine: the seg-0 window
-    ; [chat_context_start+note_len .. +used); a model-summarize compaction pass: the WHOLE seg-0 window.
+    ; [chat_context_start+note_len .. +used).
     mov ax, [chat_context_used]
     add ax, [far_flushed_len]
     mov dx, [far_flushed_len + 2]
@@ -526,11 +431,6 @@ agent_request_phase:
     ; (api_body_len_hi:api_body_len). far_flushed_esc is 0 until the first flush -> identical to C1a.
     mov si, chat_context_start
     mov cx, [chat_context_used]
-    cmp byte [tool_fc_state], 2
-    jne .count_window_ready
-    mov cx, [note_len]                  ; tool continuations replay current user+tool items only;
-                                        ; any compacted note still rides in instructions
-.count_window_ready:
     push ax                             ; body-so-far (fixed prefix/identity/ledger, < 64 KB)
     call agent_request_phase_json_bytes_len   ; ax = current window length JSON-escaped (clc; bx kept)
     pop dx                             ; body-so-far

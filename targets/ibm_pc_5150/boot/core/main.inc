@@ -50,6 +50,7 @@ start:
 hal_start:
     call_core_phase core_hardware_setup_phase_start, core_hardware_setup_phase_end
     jc network_error
+    call_core_phase core_unreal_setup_phase_start, core_unreal_setup_phase_end
 
     ; Build 12 UI unification: draw the banner FIRST -- right after hardware_setup sets up video + clears
     ; the screen, before any network/config. The splash phase clears + prints the top banner (newline
@@ -83,6 +84,10 @@ chat_loop:
     ; Native tools run before DPI from resident code. tool_call loads at 0x0700 so it must not be
     ; loaded by DPI itself (also 0x0700); doing that overwrote DPI and could skip the prompt.
     call_core_phase core_tool_phase_start, core_tool_phase_end
+    cmp byte [tool_helper_pending], 0
+    je .tool_helper_done
+    run_net_phase core_tool_memory_phase_start, core_tool_memory_phase_end
+.tool_helper_done:
     call_core_phase core_dpi_phase_start, core_dpi_phase_end
     call prepare_agent_endpoint_path
     ; Build 10 soft-fail: a chat turn ALWAYS returns to DPI. prepare_agent_endpoint_path tries reuse
@@ -287,15 +292,15 @@ agent_resolve_prompt_source:
     ret
 
 ; The chat-loop working set, as canonical load keys (sectors<<8 | sector-offset): dpi/Y,
-; agent_request/R, agent_api_stream/X, agent_response/T, tool/M, and the K crypto window (the
+; agent_request/R, agent_api_stream/X, agent_response/T, and the K crypto window (the
 ; dominant per-turn cost, reloaded every turn to restore 0x1800 after a $x; the cache copy is
-; pristine, so the reload becomes a RAM memcpy). Must stay <= loop_cache_max_entries; their total
-; sectors <= loop_cache_max_sectors (build-asserted in core.asm). 0 terminates the list.
+; pristine, so the reload becomes a RAM memcpy). The tool parser demand-loads so the cache stops before
+; the 286 recert leaf-capture tail. Must stay <= loop_cache_max_entries; their total sectors <=
+; loop_cache_max_sectors (build-asserted in core.asm). 0 terminates the list.
 loop_preload_list:
     dw (((core_dpi_phase_end - core_dpi_phase_start + 511) / 512) << 8) | ((core_dpi_phase_start - $$) / 512)
     dw (((core_agent_request_phase_end - core_agent_request_phase_start + 511) / 512) << 8) | ((core_agent_request_phase_start - $$) / 512)
     dw (((core_agent_api_stream_phase_end - core_agent_api_stream_phase_start + 511) / 512) << 8) | ((core_agent_api_stream_phase_start - $$) / 512)
     dw (((core_agent_response_phase_end - core_agent_response_phase_start + 511) / 512) << 8) | ((core_agent_response_phase_start - $$) / 512)
-    dw (((core_tool_phase_end - core_tool_phase_start + 511) / 512) << 8) | ((core_tool_phase_start - $$) / 512)
     dw (((core_link_window_end - core_link_window_start + 511) / 512) << 8) | ((core_link_window_start - $$) / 512)
     dw 0

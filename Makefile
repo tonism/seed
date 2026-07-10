@@ -153,8 +153,8 @@ $(FLOPPY_IMG): $(BOOT_BIN) $(LOADER_BIN) $(CORE_SYS) $(AGENT_CFG) $(USER_CFG) $(
 		|| { echo "error: $(IDENTITY_PROMPT) > 512 B (must fit one sector, streamed as <=440 B records)"; exit 1; }
 	@test $$(wc -c < $(COMPACT_PROMPT)) -le 512 \
 		|| { echo "error: $(COMPACT_PROMPT) > 512 B (contract staging reads one sector into tls_rx_copy)"; exit 1; }
-	@test $$(wc -c < $(TOOLS_SCHEMA)) -le 512 \
-		|| { echo "error: $(TOOLS_SCHEMA) > 512 B (resident tools buffer is 1 sector)"; exit 1; }
+	@test $$(wc -c < $(TOOLS_SCHEMA)) -le 384 \
+		|| { echo "error: $(TOOLS_SCHEMA) > 384 B (tools-cache tail stores native tool replay history)"; exit 1; }
 	python3 $(IMAGE_BUILDER) build \
 		--boot $(BOOT_BIN) \
 		--loader $(LOADER_BIN) \
@@ -175,8 +175,8 @@ $(FLOPPY_IMG_360K): $(BOOT_360K_BIN) $(LOADER_360K_BIN) $(CORE_SYS) $(AGENT_CFG)
 		|| { echo "error: $(IDENTITY_PROMPT) > 512 B (must fit one sector, streamed as <=440 B records)"; exit 1; }
 	@test $$(wc -c < $(COMPACT_PROMPT)) -le 512 \
 		|| { echo "error: $(COMPACT_PROMPT) > 512 B (contract staging reads one sector into tls_rx_copy)"; exit 1; }
-	@test $$(wc -c < $(TOOLS_SCHEMA)) -le 512 \
-		|| { echo "error: $(TOOLS_SCHEMA) > 512 B (resident tools buffer is 1 sector)"; exit 1; }
+	@test $$(wc -c < $(TOOLS_SCHEMA)) -le 384 \
+		|| { echo "error: $(TOOLS_SCHEMA) > 384 B (tools-cache tail stores native tool replay history)"; exit 1; }
 	python3 $(IMAGE_BUILDER) build \
 		--boot $(BOOT_360K_BIN) \
 		--loader $(LOADER_360K_BIN) \
