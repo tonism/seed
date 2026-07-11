@@ -12,15 +12,13 @@ and every byte of headroom above 16 KiB belongs to the user, not to Seed.** A
 bigger machine does not get a bigger Seed; it gets a bigger conversation and a
 bigger arena to build in. That principle is the spine of everything below.
 
-> **Status.** This contract describes the capability-tiered architecture being
-> implemented as Build 12 on `work/scaling`. The shape — tiers, lifetime-ordered
-> memory, the capability vector, the relocation model — is settled here and is
-> what new code is built against. The redesign lands in staged, matrix-green
-> increments (no big-bang); the byte-level maps are regenerated into
-> [`memory.md`](memory.md) once the boundaries are drawn and the new shape runs.
-> Measured numbers below are from the current tree and the crypto spike
-> (`tools/crypto-bench/results/FINDINGS.md`); they are re-measured as Build 12
-> runs.
+> **Status.** This contract describes the Build 12 capability-tiered architecture
+> on `work/scaling`: lifetime-ordered low memory, one `CORE.SYS`, native function
+> tools, RAM scaling from the 16 KiB floor through EMS / 286 native extended /
+> 386 unreal mode, and CPU-tiered security beginning at the 286. Byte-level maps
+> for the 16 KiB floor and profile examples for larger tiers are in
+> [`memory.md`](memory.md). Measured numbers below are from the current tree and
+> the crypto spike (`tools/crypto-bench/results/FINDINGS.md`).
 
 ## Core Shape
 
@@ -49,12 +47,12 @@ direction explicitly changes.
 ## Capability Tiers
 
 Seed scales by a small, boot-detected **capability vector**, not by shipping
-different products. The vector's primary dimensions today are **RAM** and **NIC
-family**; it also *holds* (carries, even where nothing acts on them yet) **CPU
-class** and **FPU present**, so future code can switch on them without another
-handoff change. Everything that can scale, scales by tier off this one vector.
+different products. The vector's primary dimensions today are **RAM / memory
+reach**, **CPU class**, **NIC family**, and **writable media**. Everything that
+can scale, scales by tier off this one vector.
 
-There are exactly **two RAM tiers, locked**, plus one CPU-class capability:
+There are exactly **two boot shapes, locked**, and several additive reach /
+capability tiers above them:
 
 ```text
 16 KiB  — the baseline and the canonical shape. EVERY feature works here,
@@ -62,23 +60,39 @@ There are exactly **two RAM tiers, locked**, plus one CPU-class capability:
           the shape the whole system is designed around. Inviolable.
 
 32 KiB  — the convenience tier. The chat loop no longer reads the floppy
-          mid-conversation (it preloads its working set at boot), and the rest
-          of the headroom becomes a much larger conversation window + arena.
+          mid-conversation (it preloads its working set and tools schema at
+          boot), and the rest of the headroom becomes a larger low
+          arena + conversation window.
           No new REQUIRED functionality — only performance and headroom.
 
->32 KiB  — NOT a third tier. Reuses the 32 KiB shape and simply keeps growing
-          the contiguous arena up to detected ram_top. There were only ever two
-          configurations to boot (16 KiB and 32 KiB, confirmed on hardware).
+>64 KiB conventional — far seg:off memory, directly readable/writable/executable
+          below the video/ROM hole. The direct arena claims the low executable
+          far memory and the canonical context relocates above it, growing with
+          conventional RAM.
+
+EMS       — 8088/V30-class path past the 1 MiB real-mode ceiling. Seed drives the
+          EMS board's bank registers directly; EMS is windowed/data, not direct
+          executable memory.
+
+286 HMA/native extended — A20 exposes HMA as a direct range; native extended
+          memory above HMA is reached by `int 15h AH=87h` block moves.
+
+386 unreal — BIOS-compatible real mode with 4 GB segment limits. High memory is
+          flat direct memory instead of an EMS or `int 15h` window.
 
 286+     — a CPU-class capability, orthogonal to RAM: the first processor fast
           enough to run a real, authenticated TLS handshake inside the
           provider's window (see [security.md](security.md)). "Secure" is a 286 tier,
           never the 16 KiB / 4.77 MHz floor.
+
+writable media — a persistence capability. If the boot floppy accepts writes,
+          Seed can save and restore the conversation window, arena, and screen.
 ```
 
-Functional parity is at 16 KiB. The 32 KiB and 286 tiers add performance,
-headroom, and — on the 286 — real confidentiality; they never add functionality
-the baseline lacks. A feature that only works above 16 KiB is a design failure.
+Functional parity is at 16 KiB. Larger memory and faster CPU tiers add performance,
+headroom, wider address reach, persistence when media allows it, and — on the 286 —
+real confidentiality; they do not make the basic agent/tool loop unavailable on the
+floor. A feature that cannot degrade to the 16 KiB shape is a design failure.
 
 ## Current Target Snapshot
 
@@ -86,8 +100,9 @@ The active implementation target is an IBM PC 5150-class machine:
 
 ```text
 CPU              8088-compatible, 4.77 MHz (baseline); 286 enables the secure tier
-RAM tiers        16 KiB (ROM BASIC sidecar entry) and 32 KiB (direct floppy boot)
-media            160 KiB 5.25-inch FAT12 floppy image, write-protected
+RAM tiers        16 KiB (ROM BASIC sidecar entry), 32 KiB direct boot, far conventional,
+                 EMS, 286 HMA/native extended, 386 unreal
+media            160 KiB headline FAT12 floppy image; 360 KiB profile image for 286 work
 video            BIOS text mode, CGA or MDA
 network          3c501, 3c503, NE1000/NE2000, Novell NE1000, WD8003 families
 runtime file     one visible CORE.SYS
@@ -96,17 +111,15 @@ runtime file     one visible CORE.SYS
 Current measured image (`tools/core-sys-info.py`, this tree):
 
 ```text
-CORE.SYS total bytes:        27648
-CORE.SYS total sectors:      54
-resident nucleus sectors:    4   (2048 B; 2033 B used — effectively full)
-phase count:                 19
-provider-critical K window:  14 sectors / 7168 bytes (0x1800..0x33f7)
-K-window slack to scratch:   9 bytes  (the forcing function — see below)
+CORE.SYS total bytes:        52224
+CORE.SYS total sectors:      102
+resident nucleus sectors:    4   (2048 B; 1495 nonzero B)
+phase count:                 28
+provider-critical K window:  15 sectors / 7680 bytes (0x1800..0x3600)
 ```
 
-That 9-byte slack is why the layout is being redesigned rather than extended:
-the verified crypto speedup the baseline now requires does not fit the shape it
-inherited. See Memory Shape and CPU And Crypto Budget.
+The resident nucleus is still fixed at four sectors; Build 12's growth is cold
+phases and optional high-memory overlays, not a larger always-resident Seed.
 
 ## Boot Artifact
 
@@ -122,7 +135,7 @@ visible runtime file:
 | sectors 8-11   root directory
 | sector 12+     file data
 |                CORE.SYS is the first FAT data file
-|                AGENTS.CFG, optional USER.CFG, then IDENTITY + COMPACT follow
+|                AGENTS.CFG, optional USER.CFG, then IDENTITY + COMPACT + TOOLS follow
 ```
 
 `CORE.SYS` is one file-backed runtime. The build splits its source into NASM
@@ -132,10 +145,11 @@ Model). The only thing that would ever justify a second image is a fundamentally
 different ISA — an ARM/RISC port where binary reuse is literally impossible.
 Compile-time multi-build per tier is out.
 
-`IDENTITY` and `COMPACT` are the two static system prompts (the agent's identity,
-and the compaction contract). They live on the floppy and are streamed into the
-request mid-chat rather than baked into a phase image — portable,
-hardware-agnostic text that never names the machine it runs on.
+`IDENTITY`, `COMPACT`, and `TOOLS` are static prompt/schema assets: the agent's
+identity, the compaction contract, and the native tool schema. They live on the
+floppy and are streamed into the request mid-chat rather than baked into a phase
+image. On the 32 KiB+ loop-cache tier, `IDENTITY` and `TOOLS` are also preloaded
+into high RAM so ordinary turns do not read the floppy.
 
 ## Entry Paths
 
@@ -179,16 +193,16 @@ Because the tiers are locked at two, both layouts are fully known at build time,
 so "relocation" never needs runtime address arithmetic:
 
 ```text
-16 KiB layout   the canonical shape (below). Demand-loads phases from floppy.
+16 KiB layout   the canonical shape (below). Demand-loads phases and tools schema from floppy.
                 Zero relocation tax — the hot path keeps fixed addressing.
 
 32 KiB layout   the SAME shape, plus a few optional modules placed at
-                build-time-fixed high addresses: the chat loop's working set
-                preloaded resident, and (on a 286) the real-crypto modules.
+                build-time-fixed high addresses: the chat loop's working set,
+                tools schema, and (on a 286) the real-crypto modules.
                 Everything else above is arena.
 
->32 KiB         the 32 KiB layout with the arena ceiling (ram_top) raised. The
-                module addresses do not move; only the arena grows.
+>32 KiB         the 32 KiB layout plus detected memory-reach backends. Module
+                addresses do not move; only the arena/context map grows.
 ```
 
 The handful of entry points that differ by tier — the phase loader's
@@ -212,9 +226,9 @@ correct design when the number of layouts is small and known; runtime-relative
 solves a problem this contract does not have.
 
 **The seam for the >64 KiB tiers.** The vector table *is* the escape hatch.
-Today most vectors hold near pointers inside segment 0; the shipped EMS path and the
-remaining 286/HMA + 386 unreal tiers extend that seam with far or windowed access
-behind the same call sites. The 64-bit/no-BIOS runtime remains Build 13.
+Most hot code still calls near pointers inside segment 0; far conventional, EMS,
+286 native extended, and 386 unreal mode sit behind memory-HAL helpers and the same
+native tool / context-streaming call sites. The 64-bit/no-BIOS runtime remains Build 13.
 
 ## Memory Shape: Lifetime-Ordered Bands
 
@@ -249,11 +263,12 @@ overlay zone  ── handshake-only crypto              handshake-only ⟷ per-t
                  ⟷ chat-loop transient scratch
 ──────────────────── reconnect-safe line ────────────────────
 session keys · reconnect caches · keepalive · ESC   reconnect-survives
-conversation window + USER/AGENT ARENA  ─────────►  session-persistent → ram_top
+USER/AGENT ARENA  (executable, at the low base)     session-persistent
+conversation window / context  (above the arena) ►  session-persistent → ram_top
 stack guard / stack
 ```
 
-Two ideas carry the weight:
+Three ideas carry the weight:
 
 - **The reconnect-safe line.** Everything that must survive a mid-session
   reconnect — the session keys, the rolling conversation window, the user/agent
@@ -271,6 +286,17 @@ Two ideas carry the weight:
   declared and asserted instead of reasoned in a comment. It is also what lets
   the bigger fast crypto land (below) without pushing the reconnect-safe line up
   and shrinking the user's arena.
+
+- **Arena-first placement.** Within the user region the executable arena sits at
+  the low base and the conversation context above it — and this holds on *every*
+  tier. Where a machine has slower windowed or extended memory (EMS, 286
+  native-extended, 386 high memory), the context relocates to the top of *that*
+  tier so the arena can claim all the fast, directly-executable low memory. The
+  rule is uniform: executable workspace as low as possible; the context — only
+  ever streamed out as data — takes the highest, slowest memory. Two consequences
+  fall out of it: the arena base is the same low address whether or not the
+  context has moved up, and the context is size-capped so every surplus byte on a
+  bigger machine flows to the arena, not the window.
 
 The win this shape buys: on 16 KiB the arena stops being the scrap left at the
 top and becomes *everything above one line*; on 32 KiB and up, essentially all
@@ -312,10 +338,10 @@ The tiers differ only in what they pin:
 
 > **Implemented (Build 12).** On a 32 KiB direct boot, the boot reads the loop's working set —
 > the chat-loop phases, the resident crypto (K) window, and the IDENTITY prompt — into a
-> high RAM cache once (`loop_cache`, above the conversation window/arena and below the stack). The
+> high RAM cache once (`loop_cache`, above the arena/context pool and below the stack). The
 > phase loader (`load_core_sectors_at`) and the prompt streamer then serve ordinary turns from RAM, so a
 > normal chat turn reads **no floppy** (per-turn I/O ~25 sectors → 0). The rare compaction turn may still
-> stream the COMPACT prompt from floppy. The window/arena ceiling drops to the cache
+> stream the COMPACT prompt from floppy. The arena/context ceiling drops to the cache
 > base, and the ledger advertises that as the RAM ceiling so an agent write never lands in the cache.
 > 16 KiB is untouched: the path is gated on `ram_top`, and the 16 KiB loop demand-loads as before.
 
@@ -332,11 +358,14 @@ entry normalize
   -> record boot drive + RAM top in the handoff (capability vector seed)
 
 hardware phase "."
-  -> H: display, handoff, adapter discovery (sets NIC family in the vector)
+  -> H: display, handoff, CPU/memory/media/NIC discovery (sets the capability vector)
+  -> 0: 286 HMA/native extended-memory layout probe when present
+  -> Z: 386 unreal setup when present
   -> I: packet I/O initialization
 
 internet phase (still ".")
   -> D: DHCP setup
+  -> N: NTP/RTC setup for certificate validity checks
   -> C: TCP connect to a generic probe path
 
 agent phase "o"
@@ -344,7 +373,9 @@ agent phase "o"
   -> U: USER.CFG load/parse
   -> Q: prompt for any missing agent/server/key/model/reasoning values
   -> E: selected-agent endpoint and DNS name preparation
+  -> V: selected-agent cache setup
   -> R: request construction
+  -> G/J: context mirror or extended-memory context chunk reads when required
   -> K: load the provider-critical crypto window
   -> L: build TLS ClientHello and low crypto constants
   -> C: TCP connect to the selected provider on port 443
@@ -355,8 +386,9 @@ agent phase "o"
 
 prompt loop "Default Prompt Interface"
   -> render the model greeting, then take prompts on the live (reused) TLS session
-  -> each turn builds the request, streams the reply, then a cold tool phase runs any
-     $r/$w/$x and loops the result back to the model (see "Demo" below)
+  -> each turn builds the request, streams the reply, then cold native-tool phases run any
+     function_call (`read_mem`, `write_mem`, `exec`, `save_env`, `load_env`) and replay the
+     function_call_output back to the model (see "Demo" below)
   -> reconnect (reload-before-race, then retry) only on a real drop
 
 failure
@@ -376,35 +408,45 @@ metadata (tools and the header read it); runtime dispatch is by sector offset,
 and *which* copy a phase runs from — demand-loaded low, or preloaded high on
 32 KiB — is the capability-vector decision routed through the dispatch table.
 
-Current 19-phase layout (regenerate with `make inspect` / `tools/core-sys-info.py`):
+Current 28-phase layout (regenerate with `make inspect` / `tools/core-sys-info.py`):
 
 ```text
 id  sectors  load addr  responsibility
-K   14       0x1800     provider-critical crypto: SHA-256, ChaCha20-Poly1305, TLS, API
-F   1        0x0700     failure action UI
+K   15       0x1800     provider-critical crypto: SHA-256, ChaCha20-Poly1305, TLS, API
+F   2        0x0700     failure action UI
 H   4        0x0700     hardware/display/NIC discovery
+0   1        0x3600     286 HMA/native extended-memory layout
+Z   1        0x0700     386 unreal-mode setup/refresh support
 I   1        0x0700     packet I/O initialization
 D   3        0x0900     DHCP setup
+N   2        0x0900     NTP/RTC setup for certificate validity
 C   3        0x0900     TCP connect
 L   2        0x0700     TLS ClientHello and low crypto constants
 E   1        0x0700     selected-agent endpoint setup
 A   2        0x0700     AGENTS.CFG provider config
 U   2        0x0700     USER.CFG persisted user values
-Q   3        0x0700     agent selection and missing-value prompts
+Q   2        0x0700     agent selection and missing-value prompts
+G   1        0x0700     context mirror into the far canonical log
+J   1        0x0700     extended/windowed context read chunk
 R   3        0x0900     API request construction
 V   1        0x0700     agent/endpoint cache
 X   3        0x0900     application-data stream (encrypted send/receive)
-T   1        0x0d00     agent response parse
+T   2        0x0900     agent response parse and function_call capture
 B   1        0x0700     splash/result display
 Y   1        0x0700     Default Prompt Interface chat loop
-M   2        0x0900     native tool calling: parse function_call, execute, stage output
+M   3        0x0700     native tool calling: parse function_call and dispatch helper
+1   1        0x0700     previous function_call replay helper
+O   4        0x0700     memory tools: read_mem/write_mem/exec backends
 S   1        0x0700     best-effort USER.CFG save
+P   3        0x0700     restore ENV.DAT into conversation/arena/screen
+W   1        0x0900     save ENV.DAT prep/write helper
 ```
 
-Phases that do network I/O — `D`, `C`, `R`, `X` — load at `0x0900` so they
-coexist with the TCP/NIC scratch; the `M` tool phase shares that window since it
-runs between turns when the network scratch is idle; the response parser `T`
-loads at `0x0d00`; every other cold phase loads at `0x0700`. This
+Phases that do network I/O — `D`, `N`, `C`, `R`, `X`, `T`, `W` — load at
+`0x0900` when they need to coexist with the TCP/NIC scratch or share that larger
+network window between turns. The 286 extended-layout phase `0` loads at `0x3600`
+because it runs while the high scratch band is still available. Most remaining
+cold phases load at `0x0700`. This
 phase-streaming design is what lets a TLS 1.2 record path — ChaCha20-Poly1305,
 SHA-256, HTTP/1.1, SSE streaming — run in 16 KiB on a 4.77 MHz 8088: only the
 nucleus and the crypto window stay resident, while the other phases stream from
@@ -432,12 +474,13 @@ M  tool phase (cold, loaded between turns): parse the structured call and execut
      function_call, and function_call_output. The model then answers or calls another tool.
 ```
 
-Worked example (validated): asked to read 8 bytes from `0x00000400`, the model calls
-`read_mem`, Seed executes it locally, sends a `function_call_output`, and the model answers
-with `f8 03 f8 02 00 00 00 00`. The write/execute proof remains the same authority model:
-four hand-aimed bytes (`mov ax,0x1234; ret`) can be placed into the arena and run. There is
-no sandbox; a bad `exec` hangs the machine, and recovery is a reboot from trusted media (see
-Authority Model and Recovery Boundary).
+Worked example (validated): asked to write and then read four bytes in the arena, the model calls
+`write_mem`, then `read_mem`, Seed executes both locally, sends `function_call_output` items, and
+the model answers from the returned bytes. The current memory tools intentionally cap
+`read_mem`/`write_mem` at four bytes per call on every tier while the native tool loop is hardened.
+The write/execute authority model is unchanged: four hand-aimed bytes (`mov ax,0x1234; ret`) can be
+placed into the arena and run. There is no sandbox; a bad `exec` hangs the machine, and recovery is
+a reboot from trusted media (see Authority Model and Recovery Boundary).
 
 ## CPU And Crypto Budget
 
@@ -452,7 +495,7 @@ constant-time primitives, verified against OpenSSL), so the baseline build skips
 it. Notably it is **not a size problem** — the real P-256 fits in ~3.4 KiB —
 purely a speed one: the 8088's slow `mul` is the wall.
 
-The resource profile, measured by packet-capture timing across two boots (the
+The 8086/8088-class resource profile, measured by packet-capture timing across two boots (the
 gaps between the VM's packets *are* the 8088's compute), holds the surprise
 about which resource dominates:
 
@@ -481,7 +524,34 @@ CHAT / TOOL-CALL TURN  -  session reused, no handshake     (model-wait bound)
   RAM  ██████████████
 ```
 
-The TLS handshake is ~14.5 s of the CPU pinned flat-out — SHA-256 hashing the
+That monitor remains valid for the 8086/8088 path. It is the
+encrypted-not-secure path: no real public-key work, no certificate
+authentication, and a dim `insecure` splash on pre-286 machines.
+
+The 6 MHz 286 secure path spends roughly the same boot phases on the screen, but
+the CPU profile is different: the public-key work is real, and it is the
+knife-edge. This is a budget-shaped monitor from the measured component timings
+in [crypto-feasibility.md](crypto-feasibility.md), not a replacement for the
+packet-capture trace above:
+
+```text
+286 @6 FIRST BOOT  -  secure path     (real ECDHE + RSA auth + reply)
+
+       |setup|P-256 ECDHE | RSA verify |reply
+  t/s  0   2   4   6   8   10  12  14  16  18  20
+  CPU  ░░▒▒▒▓█████████████████████████▓ ░░▒░
+  NET   ▓▒▒▒▒                         ▒ ▓▓▓▓▓▓▓
+  NIC    ░ ▒▒                         ▒ ▓▓▓▓▓▓
+  DSK  ▒████▓
+  RAM  ░▒▓█████████████████████████████████████
+```
+
+The 286 loads its secure overlay only on 286+ machines, uses real entropy, runs
+the genuine P-256/RSA path, and NTP-syncs the validity clock for cert checks.
+At 6 MHz the authenticated handshake greets but is still the tight path; at
+8 MHz it has comfortable room.
+
+On the 8088, the TLS handshake is ~14.5 s of the CPU pinned flat-out — SHA-256 hashing the
 2.8 KB certificate into the transcript, the PRF key schedule, and ChaCha — in
 two ~7 s halves that come out identical run to run (fixed arithmetic on fixed
 input). Everything else is small: the model thinks and replies in ~2.5 s, a
@@ -518,12 +588,12 @@ zone" would let the handshake-only SHA share space with chat scratch and *never
 touch the arena* — but at the 16K byte level that does not hold: there is no
 ~2 KB hole free *during the handshake* (it uses all of low scratch, including the
 packet TX buffer), so the SHA must stay resident. Conservation of bytes then wins:
-on a full 16 KiB machine the extra sector comes from the only elastic region, the
-arena — `high_crypto_scratch` base-raises by 512 B and the **arena goes 833 B →
-321 B** (still functional; the conversation window and boot/chat buffers are
-separate). **32 KiB is unaffected** — its arena is large and 512 B is noise, which
-is the real shape of the trade: faster crypto everywhere, paid for in 16K arena,
-free on the scale tier. It is also *load-bearing for the 286 secure tier* (below).
+on a full 16 KiB machine the extra sector comes from the only elastic upper pool.
+In the current native-tool layout that final pool is 192 B, split into a 96 B
+conversation window and a 96 B arena. **32 KiB is unaffected** — the extra RAM is
+buying the cached chat/tool loop, and the 512 B SHA cost is noise there. Faster
+crypto everywhere, paid for at the 16 KiB floor, is the real shape of the trade.
+It is also *load-bearing for the 286 secure tier* (below).
 
 And the part that is *not* tractable on the 8088 — the honest gap, and where it closes —
 is **capability-tiered security**, covered in full in [security.md](security.md). In short:
@@ -620,8 +690,9 @@ would cost arena. That sizing is the remaining seam decision, not code to write 
 
 Seed publishes machine state through the handoff block at `0000:0600`. The
 target-specific binary layout is in `targets/ibm_pc_5150/HANDOFF.md`. The
-handoff is also where the **capability vector lives and grows** — it already
-carries `ram_top` and `nic_family`; CPU class, FPU, and link-type extend it.
+handoff is also where the **capability vector lives and grows** — it carries
+`ram_top`, NIC family, CPU-class flags, FPU-present, writable-media, HMA, and
+unreal-mode availability. Link type remains a future extension.
 
 ```text
 build/runtime identity
@@ -633,7 +704,7 @@ NIC base, family, IRQ, and MAC when known
 network status and error code
 IPv4 address, router, DNS, and subnet
 detected RAM top
-(growing) CPU class, FPU present, link type
+CPU class, FPU present, writable media, HMA, unreal mode
 ```
 
 On IBM PC 5150-class real-mode hardware, Seed cannot enforce memory protection.
@@ -687,6 +758,80 @@ surface for things that are hard to reconstruct or timing-sensitive (the
 provider API channel, published hardware state). It should not own a general
 local-tool execution runtime. The machine does not need an underlying OS, shell,
 compiler, or command library for Seed itself to fulfill its contract.
+
+## Persistence: The Writable-Media Tier
+
+Everything the user and agent build at runtime — the conversation, and whatever the
+agent pokes into the arena — lives in RAM and is wiped on every restart. When the
+boot medium accepts writes, Seed can persist that state and restore it at the next
+boot, so the agent *accumulates across restarts* instead of booting fresh. This is a
+capability tier gated on **writable media present** (`handoff_flag_writable_media`),
+orthogonal to the RAM and CPU tiers and just as additive: no writable medium and the
+feature is simply absent, the 16 KiB floor untouched. Save and restore are cold phases
+(≈0 resident bytes), so the tier costs nothing on 16 KiB.
+
+**One clean unit: the contiguous user region.** The lifetime-ordered layout already
+isolates everything the user/agent owns into one contiguous block above the
+reconnect-safe line — the conversation window plus the arena — free of live code,
+hardware, and session state by design. That block is exactly what persists. Everything
+else in segment 0 is machine-specific and rebuilt every boot:
+
+```text
+IVT + BIOS data area         this boot's live vectors, tick/keyboard/disk state
+handoff / capability vector  this boot's detected RAM, NIC, IP, MAC, drive
+nucleus / driver / crypto    freshly loaded code for this machine's NIC and build
+TLS keys / scratch / stack   the session is dead after power-off — must re-handshake
+loop cache (32 KiB)          code, rebuilt at boot
+```
+
+**Boot as self, restore after the splash.** A literal full-RAM dump would be wrong: it
+would clobber the booting machine's live state with a dead snapshot. Instead Seed boots
+the machine *as itself* — a normal boot rebuilds the HAL, the network, and a fresh TLS
+session — then drops the saved user region into the already-configured pool. There is
+therefore **no capability-vector matching on restore**: the machine configures itself
+for whatever hardware it has, and only the user bytes come from the file. Restore
+**preloads memory; it does not resume a session** — a TLS session cannot survive a
+power-off, so a restore boot opens no connection and the user's first message carries
+the restored context into a fresh (cold) handshake. Because restore is a *read*, it
+works even from write-protected media; the writable-media bit gates only `save_env`.
+
+**Redisplay repaints the literal screen.** Seed also snapshots the video text buffer
+(char+attr cells) and paints it back verbatim at restore, so the user lands on the
+exact screen they left — prose, dim tool lines, prompts, wrapping and all. This is
+deliberately not reconstructed from the conversation window, which is the model-facing
+serialization and would look unfamiliar. The paint runs only when the saved column
+count matches this machine's; a 40↔80 mismatch clears the screen instead (the window
+still restores).
+
+**Triggers.** The native tools `save_env` and `load_env` drive it, and boot auto-loads
+`ENV.DAT` when present. `save_env` writes the snapshot to the boot drive (room-checked,
+best-effort — a status line if the medium is read-only or full); `load_env` is a
+mid-session revert that discards the current arena/context pool, restores the saved one, and
+redisplays.
+
+**The restore fit gate** is two tiers. A *silent fail-safe* on magic / format version /
+checksum — a corrupt, foreign, or incompatible file is ignored and the machine boots
+clean, never bricking the boot and never showing a menu. Then a *memory-fit* check of
+the saved region against this machine's arena+context span:
+
+```text
+equal                 restore + redisplay silently        (the common same-machine case)
+smaller than machine  restore at the saved context cap, warn (surplus becomes arena)
+larger than machine   will not fit — error: { new, restart }
+```
+
+The warning on a bigger machine exists because restored arena programs keep their
+absolute addresses. Seed restores the arena prefix at the same low addresses and keeps
+the saved context cap at the far end of the current pool; surplus RAM lands in the
+arena.
+
+**Trust.** `ENV.DAT` is the agent's own non-secret state, on a medium that already
+holds the plaintext key in `USER.CFG`. So it uses a checksum for corruption plus the
+version/magic gate against foreign files, and no cryptographic integrity (no key
+survives a read-only boot, and it is not a secret). One correctness guard: Seed
+neutralizes any line-start tool directive in the restored window so last session's
+calls cannot re-fire. The byte format is in [`memory.md`](memory.md), "ENV.DAT Snapshot
+Format."
 
 ## Recovery Boundary
 
@@ -755,11 +900,11 @@ arena; they do not become alternate products.
 ```text
 larger conversation window and arena (the default home for headroom)
 preloaded normal-turn working set (the cached 32 KiB chat loop)
+far conventional, EMS, HMA/native extended, and unreal-mode memory reach
 real, authenticated TLS on a 286-class CPU
 later: more NIC families and link types, additively
 ```
 
 The >64 KiB Build 12 path is additive through the relocation seam (near→far dispatch
-vectors, above), not a rewrite. EMS bank-switching on the 8088 is shipped; the remaining
-Build 12 memory tiers are 286/HMA native extended memory and 386+ unreal mode. The 64-bit,
-no-BIOS runtime is Build 13.
+vectors, above), not a rewrite. EMS bank-switching, 286 HMA/native extended memory, and
+386+ unreal mode are Build 12 tiers. The 64-bit, no-BIOS runtime is Build 13.

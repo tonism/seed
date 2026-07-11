@@ -10,7 +10,7 @@
     dw %1 - (PHASE_LOAD_ADDR + ($ - PHASE_BASE) + 2)
 %endmacro
 
-; Build 12 env save/load (notes/env-save-load-design.md), SAVE part 1 of 2: SCAN + PLAN. The save
+; Build 12 env save/load (design: docs/architecture.md, "Persistence"), SAVE part 1 of 2: SCAN + PLAN. The save
 ; writer (save_write) is at its 2-sector fs_sector_buffer ceiling, so the trim codec setup lives here
 ; in its own phase: compute region_len (full extent), region_stored (trailing-zero trim), the per-row
 ; screen row-length table + screen_stored, the file size, and the payload checksum -- all into fixed
@@ -20,14 +20,14 @@
 ; turns, so it reads only RAM/video here -- the actual disk I/O is all in save_write.
 save_prep_phase:
     mov byte [save_pending], 0       ; consume the request (chat_loop loads us as the save entry point)
-    ; --- region_len = full window+arena extent (ceiling - chat_context_start), mirrors restore ---
+    ; --- region_len = full arena+context extent (ceiling - chat_pool_start), mirrors restore ---
     mov ax, [handoff_addr + handoff_ram_top]
     sub ax, 0x100
     cmp word [handoff_addr + handoff_ram_top], ram_tier_32k_min
     jb .rl_ready
     mov ax, loop_cache_start
 .rl_ready:
-    sub ax, chat_context_start
+    sub ax, chat_pool_start
     mov [save_region_len], ax
 
     ; --- region_stored = highest non-zero byte + 1 (trailing-zero trim); 0 if the region is empty ---
@@ -36,7 +36,7 @@ save_prep_phase:
     or bx, bx
     jz .rs_done
     dec bx
-    cmp byte [chat_context_start + bx], 0
+    cmp byte [chat_pool_start + bx], 0
     je .rs_scan
     inc bx                           ; highest non-zero + 1
 .rs_done:
@@ -56,7 +56,7 @@ save_prep_phase:
 
     ; payload checksum = sum(region prefix) + sum(row-length table) + sum(kept screen cells)
     xor bx, bx                       ; bx = running checksum
-    mov si, chat_context_start
+    mov si, chat_pool_start
     mov cx, [save_region_stored]
     call save_prep_sum               ; bx += sum [ds:si .. +cx)
     mov si, save_rowlen_table

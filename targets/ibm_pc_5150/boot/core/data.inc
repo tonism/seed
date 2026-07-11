@@ -451,12 +451,11 @@ chat_cache_end equ chat_key_cache + seed_key_len
 
 ; Build 9 reconnect-safe context pool, reclaimed from the trimmed 16K stack reserve.
 ; Above the pinned chat config caches, below the (RAM-relative) stack. Holds the rolling
-; conversation summary; hardware_setup splits the pool (chat_context_start up to ram_top - stack
-; reserve) 50/50 into the conversation window and the user/agent arena. The arena base is dynamic
-; -- chat_context_start + the live window length -- published via the ledger a@ (the static
-; chat_arena_start / chat_context_len below are only the compile-time floor for the %error guard).
-; ram_top is already in the handoff
-; (offset 0x2c), so the ledger carries it and the agent derives the arena ceiling itself.
+; conversation summary and the user/agent arena. hardware_setup splits the pool
+; (chat_pool_start up to the tier ceiling) 50/50. The arena comes first; the context window
+; lives at the far end of the pool. The dynamic context base is ceiling - chat_context_len_var.
+; The ledger keeps the model-facing arena simple: a@ = chat_pool_start, r = dynamic context base
+; (arena ceiling), c@ = context byte cap.
 ; Build 11 never-blank reorg: reconnect-safe state relocated from the (full) resident nucleus.
 ; Above the TLS/critical scratch and below the staged ESC handler, so it survives a reconnect
 ; handshake -- the whole reason the nucleus copies existed. chat_resend_prompt_len + reconnect_retries
@@ -543,11 +542,11 @@ recert_mod_ptr equ recert_flag + 1
 far_flushed_len equ recert_mod_ptr + 2
 far_flushed_esc equ far_flushed_len + 4
 api_body_len_hi equ far_flushed_esc + 4
-; Build 12 Stage C (C1b): the far context log needs real RAM at flat 0x10000, which only exists when
-; conventional memory exceeds 64 KB. far_log_seg_var = the log's segment when active (far_log_seg), else
-; 0 -- and 0 doubles as the "inactive" flag. On a <=64 KB machine (the 16 KB matrix / RAM floor) the far
-; paths fall back to the seg-0 window + Build-11 model-summarize compaction (byte-for-byte Build 11);
-; only a >64 KB machine streams the canonical far log. Set once by hardware_setup, read every request.
+; Build 12 Stage C (C1b): the far context log needs real RAM above the 64 KB floor. far_log_seg_var = the
+; active conventional context segment, else 0 -- and 0 doubles as the "inactive" flag. On a <=64 KB
+; machine (the 16 KB matrix / RAM floor) the far paths fall back to the seg-0 window + Build-11
+; model-summarize compaction; only a >64 KB machine streams the canonical far log. Set once by
+; hardware_setup, read every request.
 far_log_seg_var equ api_body_len_hi + 2
 ; Build 12 Stage C (C1b): agent_request precomputes the "input" dialogue range (it knows far_flushed_len /
 ; note_len / compacting_msg / far_log_seg_var) and stashes it here for the maxed agent_api_stream phase to
@@ -555,12 +554,11 @@ far_log_seg_var equ api_body_len_hi + 2
 ; 32-bit dialogue_cnt. Written each ready request before the handshake, read after it -> reconnect-safe home.
 dialogue_off equ far_log_seg_var + 2
 dialogue_cnt equ dialogue_off + 2
-; Build 12 Stage C (C2/C3): the far conventional region [0x10000 .. conv_top) is SPLIT into a far-log
-; (context) half + a far-arena (agent workspace) half, so the ledger far@ advert no longer overlaps the
-; log. Boot-computed (hardware_setup): far_window_cap = min(region/2, 1 MB) is the far log's byte ceiling
-; (C2 50/50 + C3 1 MB cap); far_arena_base = 0x10000 + far_window_cap and far_arena_top = conv_top bound the
-; arena the ledger advertises (C3 spill-to-arena is automatic: arena = region - window_cap). All DWORDs
-; (the region exceeds 64 KB). Inactive (<=64 KB): cap 0, base==top==0x10000 (empty far range).
+; Build 12 Stage C (C2/C3): the far conventional region [0x10000 .. conv_top) is split arena-first:
+; arena [0x10000 .. ctx_base), context [ctx_base .. conv_top). Boot-computed (hardware_setup):
+; far_window_cap = min(region/2, 1 MB) is the context byte ceiling; far_arena_base/far_arena_top bound
+; the ledger-advertised workspace (C3 spill-to-arena is automatic: arena = region - window_cap). All
+; DWORDs (the region exceeds 64 KB). Inactive (<=64 KB): cap 0, base==top==0x10000 (empty far range).
 far_window_cap equ dialogue_cnt + 4
 far_arena_base equ far_window_cap + 4
 far_arena_top equ far_arena_base + 4
@@ -569,11 +567,11 @@ far_arena_top equ far_arena_base + 4
 ; milestone 1). The frame segment + I/O base + flat base are compile-time constants (layout.inc); the
 ; flat EMS range is [ems_flat_base_hi:0000 .. + ems_page_count*ems_page_size). Boot-set, read-only after.
 ems_page_count equ far_arena_top + 4
-; Build 12 milestone 2 (M2b/M2e): the FLAT base of the context (far) log. M1 kept it at 0x10000
-; (conventional); with the arena-first inversion the arena takes all conventional and the context moves
-; to the top of EMS on an EMS machine -- so the base is now a 32-bit flat address (dword), reached via the
-; same per-address dispatch as $r/$w (< 0x100000 direct seg:off; >= 0x100000 EMS-windowed). On a no-EMS
-; machine it stays 0x00010000 (byte-for-byte the M1 conventional path). far_flushed_len is its offset.
+; Build 12 milestone 2 (M2b/M2e): the FLAT base of the context (far) log. The arena-first layout puts
+; context at the far end of whichever high-memory pool is active: conventional top on M1, EMS/native
+; extended top on later tiers. The base is a 32-bit flat address (dword), reached via the same
+; per-address dispatch as $r/$w (< 0x100000 direct seg:off; >= 0x100000 windowed/high-memory backend).
+; far_flushed_len is its offset.
 far_ctx_base equ ems_page_count + 2
 ; Build 12 M2e: boot-precomputed decomposition of far_ctx_base into an EMS page number + frame offset, so
 ; the maxed agent_api_stream phase doesn't do the >>14 address math per request (it is tight on sectors).
@@ -620,13 +618,15 @@ fc_prev_output_max equ 42
 reconnect_state_end equ fc_prev_output + fc_prev_output_max
 ; Build 11 ESC: the int 9 keyboard hook handler is staged to this pool slot at boot (position-independent
 ; code; runs from here so it survives the phase-overlay churn). esc_int9_old saves the BIOS int 9 vector
-; the handler chains every key to. Both sit just below the conversation window.
+; the handler chains every key to. Both sit just below the arena/context pool.
 esc_int9_handler equ reconnect_state_end
 esc_int9_old equ esc_int9_handler + esc_int9_handler_len
-chat_context_start equ esc_int9_old + 4
+chat_pool_start equ esc_int9_old + 4
+chat_arena_start equ chat_pool_start
+chat_arena_floor_min equ 96
+chat_context_start equ chat_pool_start + chat_arena_floor_min
 chat_context_len equ 96
 chat_context_end equ chat_context_start + chat_context_len
-chat_arena_start equ chat_context_end
 ; Build 12 auto-recertify: the captured rotated leaf (286 secure path only) lands in the handshake-
 ; transient TAIL of the 32K loop cache -- just above the P-256 module's budget end
 ; (p256_module_load + p256_module_max_len) up to loop_cache_end. This is the MID-CHAT-SAFE home:
@@ -643,9 +643,11 @@ leaf_capture_buf equ p256_module_load + p256_module_max_len
 %if leaf_capture_buf + leaf_capture_max > loop_cache_end
 %error "leaf-capture slot overflows the loop cache / runtime stack guard"
 %endif
-chat_arena_floor_min equ 96
 %if (chat_arena_start + chat_arena_floor_min) > (basic_sidecar_stack_top_16k - basic_sidecar_stack_guard_len_16k)
 %error "context pool leaves no minimum arena floor below the 16K stack reserve"
+%endif
+%if (chat_context_start + chat_context_len) > (basic_sidecar_stack_top_16k - basic_sidecar_stack_guard_len_16k)
+%error "context window leaves no minimum room below the 16K stack reserve"
 %endif
 
 dpi_input_buf equ tls_rx_copy

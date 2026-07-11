@@ -137,7 +137,7 @@ P-256/WE1 **ECDSA** leaf. Today's RSA path survives only because the 286 forces 
 the RSA leaf is ever withdrawn for our profile, recertify fails closed and the user must
 act. So an ECDSA path is a tracked contingency, scoped by two fan-out spikes (the journey
 is in [crypto-feasibility.md](crypto-feasibility.md#the-ecdsa-question--scoped-not-built);
-the raw record is `notes/ecdsa-tier-scoping.md`):
+the raw record is `notes/old/ecdsa-tier-scoping.md`):
 
 - **Optimisation spike — field tuning can't make @6.** ECDSA verify is two scalar mults
   (~8.3 s with Shamir's trick); the best non-overlapping stack of field-level wins lands
@@ -162,7 +162,8 @@ the WR1 RSA leaf is served.
   greeting — accept, and the 1-bit-tamper reject).
 - **The measurements:** `tools/crypto-bench/` and `results/FINDINGS.md` (the raw lab log
   behind crypto-feasibility.md).
-- **Design records:** `notes/auto-recertify-plan.md`, `notes/ecdsa-tier-scoping.md`,
-  `notes/build12-286-secure-handover.md`.
+- **Working records:** `notes/old/auto-recertify-attempts.md`,
+  `notes/old/ecdsa-tier-scoping.md`, and
+  `notes/old/build12-layout-redesign-attempts.md`.
 - **Re-pin tooling:** `tools/gen-rsa-pinned-key.py` (`--mode anchor` for the CA),
   `tools/x509/` (the offline X.509 oracle + tamper matrix).

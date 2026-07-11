@@ -337,7 +337,7 @@ makes a bad bet, and one nobody has measured.
 is the floor** if the contingency fires. It stays design-intent — no code while the RSA leaf is
 served to 2029. The decision reference is
 [security.md](security.md#the-future-ecdsa-tier--scoped-not-built); the raw spike record is
-`notes/ecdsa-tier-scoping.md`.
+`notes/old/ecdsa-tier-scoping.md`.
 
 ---
 

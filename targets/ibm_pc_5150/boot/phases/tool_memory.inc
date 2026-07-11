@@ -27,10 +27,13 @@ tool_memory_phase:
     ret
 
 .do_exec:
+    mov cx, 1
+    call .addr_range_ok
+    jc .exec_range_fail
     call .addr_is_native_ext
     jnc .do_exec_ext
     call .addr_to_farptr             ; build [tool_farptr] = off:seg from the 32-bit tool_addr; es back to ds
-    mov ax, .word_ran                ; print "> ran <addr>" BEFORE the call: a jump into bad code never returns,
+    mov ax, .word_execute            ; print "> execute <addr>" BEFORE the call: bad code may never return,
     call .res_line                   ; so the action line must land first or the screen looks stuck on the
     call .res_close                  ; previous directive. es back to 0 for the far call.
     push ds
@@ -61,7 +64,7 @@ tool_memory_phase:
     call .compute_fc_suffix_len
     ret
 .do_exec_ext:
-    mov ax, .word_ran
+    mov ax, .word_execute
     call .res_line
     call .res_close
     mov cx, tool_ext_exec_len
@@ -102,16 +105,25 @@ tool_memory_phase:
     call .out_putc
     call .compute_fc_suffix_len
     ret
+.exec_range_fail:
+    mov ax, .word_execute_failed
+    call .res_fail_range
+    call .compute_fc_suffix_len
+    ret
 
 .do_read:
     mov cl, [tool_readlen]
     xor ch, ch
     jcxz .read_emit
+    call .addr_range_ok
+    jc .read_range_fail
     call .addr_is_unreal_ext
     jnc .read_unreal
     call .addr_is_native_ext
     jc .read_direct
     mov di, tool_readbuf
+    mov cl, [tool_readlen]
+    xor ch, ch
     call .ext_read_to_near
     jnc .read_emit
     mov byte [tool_readlen], 0
@@ -147,8 +159,8 @@ tool_memory_phase:
 .read_emit:
     mov ax, .word_read
     call .res_line
-    mov si, PHASE_LOAD_ADDR + (.text_bytes - PHASE_BASE)
-    call .out_str
+    call .fc_drop_read_from
+    mov byte [tool_sink], 1
     mov al, ':'
     call .out_putc
 .read_dump:
@@ -167,25 +179,40 @@ tool_memory_phase:
     dec word [tool_seg]
     jmp .read_byte
 .read_done:
-    mov si, PHASE_LOAD_ADDR + (.text_done - PHASE_BASE)
-    call .out_str
 .read_eol:
     call .res_close
+    call .compute_fc_suffix_len
+    ret
+.read_range_fail:
+    mov ax, .word_read_failed
+    call .res_fail_range
     call .compute_fc_suffix_len
     ret
 
 .do_write:
     mov si, [tool_readlen]           ; parser stored the byte-string scan pointer here
+    call .count_hex_bytes
+    or cx, cx
+    jnz .write_has_bytes
+    jmp .write_report
+.write_has_bytes:
+    call .addr_range_ok
+    jc .write_range_fail
+    mov si, [tool_readlen]
     call .addr_is_unreal_ext
     jnc .write_unreal
     call .addr_is_native_ext
     jnc .write_ext
     call .addr_to_esbx
+    mov bp, 4
 .write_byte:
+    or bp, bp
+    jz .write_eol
     call .parse_hex
     jc .write_eol
     mov [es:bx], al
     inc bx
+    dec bp
     jmp .write_byte
 .write_eol:
     push ds
@@ -199,7 +226,7 @@ tool_memory_phase:
     jc .write_ext_done
     stosb
     inc bp
-    cmp bp, 224
+    cmp bp, 4
     jb .write_ext_byte
 .write_ext_done:
     mov cx, bp
@@ -212,16 +239,25 @@ tool_memory_phase:
     call .refresh_unreal
     db 0x66, 0x8b, 0x1e
     dw tool_addr                         ; mov ebx, [tool_addr]
+    mov bp, 4
 .write_unreal_byte:
+    or bp, bp
+    jz .write_ext_report
     call .parse_hex
     jc .write_ext_report
     db 0x64, 0x67, 0x88, 0x03            ; mov [fs:ebx], al
     db 0x66, 0x43                        ; inc ebx
+    dec bp
     jmp .write_unreal_byte
 .write_report:
     mov ax, .word_wrote
     call .res_line
     call .res_close
+    call .compute_fc_suffix_len
+    ret
+.write_range_fail:
+    mov ax, .word_write_failed
+    call .res_fail_range
     call .compute_fc_suffix_len
     ret
 
@@ -474,8 +510,127 @@ align 8, db 0
     stc
     ret
 
+.count_hex_bytes:
+    xor bp, bp
+    mov di, 4
+.chb_next:
+    call .parse_hex
+    jc .chb_done
+    inc bp
+    dec di
+    jnz .chb_next
+.chb_done:
+    mov cx, bp
+    ret
+
+.addr_range_ok:
+    or cx, cx
+    jnz .range_nonempty
+    jmp .range_fail
+.range_nonempty:
+    mov si, [tool_addr]                ; start low
+    mov di, [tool_addr + 2]            ; start high
+    mov bx, si
+    mov bp, di
+    add bx, cx
+    adc bp, 0                          ; exclusive end = start + len
+    jc .range_fail
+
+    ; Low conventional arena: [chat_pool_start .. dynamic_context_base).
+    or di, di
+    jnz .range_far
+    or bp, bp
+    jnz .range_far
+    cmp si, chat_pool_start
+    jb .range_far
+    mov ax, [handoff_addr + handoff_ram_top]
+    sub ax, 0x100
+    cmp word [handoff_addr + handoff_ram_top], ram_tier_32k_min
+    jb .range_low_top_ready
+    mov ax, tools_cache
+.range_low_top_ready:
+    sub ax, [chat_context_len_var]
+    cmp si, ax
+    jae .range_far
+    cmp bx, ax
+    jbe .range_ok
+
+.range_far:
+    ; Far conventional arena: [far_arena_base .. far_arena_top).
+    mov ax, di
+    cmp ax, [far_arena_base + 2]
+    jb .range_hma
+    ja .range_far_start_ok
+    mov ax, si
+    cmp ax, [far_arena_base]
+    jb .range_hma
+.range_far_start_ok:
+    mov ax, bp
+    cmp ax, [far_arena_top + 2]
+    ja .range_hma
+    jb .range_ok
+    mov ax, bx
+    cmp ax, [far_arena_top]
+    jbe .range_ok
+
+.range_hma:
+    ; HMA direct arena: [0x00100000 .. 0x0010fff0), only when A20 opened it.
+    test word [handoff_addr + handoff_flags], handoff_flag_hma
+    jz .range_ext
+    cmp di, hma_flat_base_hi
+    jne .range_ext
+    cmp si, hma_flat_top_lo
+    jae .range_fail
+    cmp bp, hma_flat_top_hi
+    jne .range_fail
+    cmp bx, hma_flat_top_lo
+    jbe .range_ok
+    jmp .range_fail
+
+.range_ext:
+    ; EMS/native extended arena: [ledger e@ base .. far_ctx_base).
+    mov ax, ems_flat_base_hi
+    test word [handoff_addr + handoff_flags], handoff_flag_hma
+    jz .range_ext_base_ready
+    mov ax, ext_flat_base_hi
+.range_ext_base_ready:
+    cmp di, ax
+    jb .range_fail
+    mov ax, bp
+    cmp ax, [far_ctx_base + 2]
+    ja .range_fail
+    jb .range_ok
+    mov ax, bx
+    cmp ax, [far_ctx_base]
+    jbe .range_ok
+    jmp .range_fail
+
+.range_ok:
+    clc
+    ret
+.range_fail:
+    stc
+    ret
+
 ; ---- result emit: one readable line, model-facing output + dim screen echo ----
 .res_line:
+    call .res_open
+    call .out_hex32
+    call .phys_differs
+    jnc .res_line_done
+    mov si, PHASE_LOAD_ADDR + (.text_arrow - PHASE_BASE)
+    call .out_str
+    call .out_phys32
+.res_line_done:
+    ret
+.res_fail_range:
+    call .res_open
+    call .out_hex32
+    mov si, PHASE_LOAD_ADDR + (.text_out_of_range - PHASE_BASE)
+    call .out_str
+    call .res_close
+    ret
+.res_open:
     push ax
     mov byte [api_stream_seen], 1
     mov byte [tool_sink], 0
@@ -498,7 +653,6 @@ align 8, db 0
     pop si
     add si, PHASE_LOAD_ADDR - PHASE_BASE
     call .out_str
-    call .out_hex32
     ret
 .res_close:
     call .scr_clr_video
@@ -518,9 +672,12 @@ align 8, db 0
     ret
 
 .out_putc:
+    cmp byte [tool_sink], 2
+    je .out_putc_screen
     call .fc_out_putc
     cmp byte [tool_sink], 0
     jne .out_putc_done
+.out_putc_screen:
     call .scr_putc
 .out_putc_done:
     ret
@@ -535,6 +692,21 @@ align 8, db 0
     mov byte [fc_output_buf + bx + 1], 0
 .fop_done:
     pop bx
+    ret
+.fc_drop_read_from:
+    push ds
+    pop es
+    xor ch, ch
+    mov cl, [fc_output_len]
+    cmp cx, 10
+    jb .fdrf_done
+    sub cx, 10
+    inc cx
+    mov si, fc_output_buf + 10
+    mov di, fc_output_buf + 5
+    rep movsb
+    sub byte [fc_output_len], 5
+.fdrf_done:
     ret
 .scr_putc:
     push bx
@@ -553,9 +725,58 @@ align 8, db 0
     ret
 
 .out_hex32:
-    mov ax, [tool_addr + 2]
-    call .out_hex16
+    mov dx, [tool_addr + 2]
     mov ax, [tool_addr]
+.out_hex32_dxax:
+    push ax
+    push dx
+    mov al, '0'
+    call .out_putc
+    mov al, 'x'
+    call .out_putc
+    pop ax
+    call .out_hex16
+    pop ax
+    jmp .out_hex16
+.out_phys32:
+    call .addr_is_unreal_ext
+    jnc .out_hex32
+    call .addr_is_native_ext
+    jnc .out_hex32
+    mov dx, [tool_addr + 2]
+    cmp dx, ems_flat_base_hi
+    jb .out_hex32
+    cmp dx, hma_flat_base_hi
+    jne .out_phys32_ems
+    test word [handoff_addr + handoff_flags], handoff_flag_hma
+    jz .out_phys32_ems
+    cmp word [tool_addr], hma_flat_top_lo
+    jb .out_hex32
+.out_phys32_ems:
+    mov ax, [tool_addr]
+    and ax, 0x3fff
+    mov dx, ems_frame_seg >> 12
+    jmp .out_hex32_dxax
+.phys_differs:
+    call .addr_is_unreal_ext
+    jnc .phys_same
+    call .addr_is_native_ext
+    jnc .phys_same
+    mov dx, [tool_addr + 2]
+    cmp dx, ems_flat_base_hi
+    jb .phys_same
+    cmp dx, hma_flat_base_hi
+    jne .phys_diff
+    test word [handoff_addr + handoff_flags], handoff_flag_hma
+    jz .phys_diff
+    cmp word [tool_addr], hma_flat_top_lo
+    jb .phys_same
+.phys_diff:
+    stc
+    ret
+.phys_same:
+    clc
+    ret
 .out_hex16:
     push ax
     mov al, ah
@@ -574,7 +795,7 @@ align 8, db 0
     add al, '0'
     cmp al, '9'
     jbe .out_nib_emit
-    add al, 'a' - '0' - 10
+    add al, 'A' - '0' - 10
 .out_nib_emit:
     jmp .out_putc
 
@@ -641,12 +862,15 @@ align 8, db 0
 .ap_done:
     ret
 
-.word_read  db 'read from ', 0
-.word_wrote db 'write to ', 0
-.word_ran   db 'jump to ', 0
-.text_ax    db ' ax=', 0
-.text_cf    db ' cf=', 0
-.text_bytes db ' bytes', 0
-.text_done  db ' done', 0
+.word_read           db 'read from ', 0
+.word_wrote          db 'write to ', 0
+.word_execute        db 'execute ', 0
+.word_read_failed    db 'read failed: ', 0
+.word_write_failed   db 'write failed: ', 0
+.word_execute_failed db 'execute failed: ', 0
+.text_ax             db ' ax=', 0
+.text_cf             db ' cf=', 0
+.text_arrow          db ' -> ', 0
+.text_out_of_range   db ' out of range', 0
 
 %unmacro phase_call_res 1

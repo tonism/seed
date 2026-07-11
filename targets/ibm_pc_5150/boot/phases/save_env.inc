@@ -10,7 +10,7 @@
     dw %1 - (PHASE_LOAD_ADDR + ($ - PHASE_BASE) + 2)
 %endmacro
 
-; Build 12 env save/load (notes/env-save-load-design.md), SAVE part 2 of 2: WRITE. save_prep has
+; Build 12 env save/load (design: docs/architecture.md, "Persistence"), SAVE part 2 of 2: WRITE. save_prep has
 ; already filled the scratch (region_len/region_stored, screen_stored, file_size, payload checksum,
 ; the per-row screen row-length table). This phase does the FAT12 write to the boot drive: locate
 ; ENV.DAT (reuse) or a free root slot, free any old chain, find a contiguous free run, set the chain,
@@ -20,7 +20,7 @@
 ;
 ; The payload is emitted byte-stream style (save_emit_byte buffers into fs_sector_buffer, flushing a
 ; full sector at 512): the 28-byte header (built inline, header checksum summed over its first 26
-; bytes), then the region prefix (region_stored bytes from chat_context_start), then the encoded
+; bytes), then the region prefix (region_stored bytes from chat_pool_start), then the encoded
 ; screen (the 25-byte row-length table, then each row's row_len char+attr cells from video).
 fat_second_lba equ fat_fat_start_lba + 1
 
@@ -371,8 +371,8 @@ save_emit_data:
     mov [save_buf_idx], ax
     mov [save_sector_index], ax
     call save_emit_header                ; 28-byte header (< 512, no flush) into the buffer head
-    ; --- region prefix (region_stored bytes from chat_context_start) ---
-    mov si, chat_context_start
+    ; --- region prefix (region_stored bytes from chat_pool_start) ---
+    mov si, chat_pool_start
     mov cx, [save_region_stored]
 .ed_region:
     jcxz .ed_table

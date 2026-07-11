@@ -52,7 +52,7 @@ context_mirror_phase:
     out dx, al
     mov ax, ems_frame_seg
     mov es, ax
-    mov si, chat_context_start
+    call .context_base_si
     mov cx, [chat_context_used]
     cld
     jcxz .ok_pop
@@ -80,9 +80,9 @@ context_mirror_phase:
     shr dx, 1
     rcr ax, 1
     loop .conv_norm
-    add ax, far_log_seg
+    add ax, [far_log_seg_var]
     mov es, ax
-    mov si, chat_context_start
+    call .context_base_si
     mov cx, [chat_context_used]
     cld
     rep movsb
@@ -111,7 +111,8 @@ context_mirror_phase:
     dec ax
     mov [ctx_xfer_gdt + 0x10], ax
     mov [ctx_xfer_gdt + 0x18], ax
-    mov word [ctx_xfer_gdt + 0x12], chat_context_start
+    call .context_base_si
+    mov [ctx_xfer_gdt + 0x12], si
     mov byte [ctx_xfer_gdt + 0x14], 0
     mov byte [ctx_xfer_gdt + 0x15], 0x93
     mov ax, [far_ctx_base]
@@ -135,4 +136,14 @@ context_mirror_phase:
 
 .done:
     clc
+    ret
+
+.context_base_si:
+    mov si, [handoff_addr + handoff_ram_top]
+    sub si, 0x100
+    cmp word [handoff_addr + handoff_ram_top], ram_tier_32k_min
+    jb .ctx_base_ready
+    mov si, tools_cache
+.ctx_base_ready:
+    sub si, [chat_context_len_var]
     ret

@@ -21,19 +21,25 @@ tooling. The boot floppy is the reset boundary, so recovery is always a reboot a
 
 ## Why it's interesting
 
-Three things make Seed unusual:
+Four things make Seed unusual:
 
 - **A frontier model runs code on the machine.** Seed exposes native function tools
   to read, write, and *execute* memory (`read_mem`, `write_mem`, `exec`). The model
   can poke 8088 machine code into a free RAM arena, run it, and read the result; Seed
   loops each result back into the model's locally-owned context with `store:false`.
-  The only safety net is the reboot floppy.
+  Memory read/write calls are currently capped at 4 bytes while the native tool loop
+  is hardened. The only safety net is the reboot floppy.
 - **A TLS stack in 16 KiB.** The TLS 1.2 record path — handshake state machine,
   SHA-256 transcript, key schedule, ChaCha20-Poly1305 record crypto, HTTP/1.1, and
   SSE (server-sent events) streaming — fits a 16 KiB RAM budget. It works by *not*
   keeping it all resident: a 2 KiB nucleus and a 7 KiB crypto window stay in memory,
-  while 19 other **phases** (chunks of code) stream off the floppy on demand and
+  while 27 other **phases** (chunks of code) stream off the floppy on demand and
   time-share one small RAM **window**.
+- **One floppy scales past segment 0.** The same `CORE.SYS` starts at the 16 KiB
+  floor, uses a cached loop at 32 KiB, grows context and arena through far
+  conventional memory, drives EMS boards on 8088/V30-class machines, reaches 286
+  HMA/native extended memory, and uses 386 unreal mode for BIOS-compatible flat
+  high-memory access.
 - **…on a 4.77 MHz 8088.** That symmetric crypto — ChaCha20-Poly1305 and SHA-256 —
   runs on a sub-MIPS 16-bit CPU with no crypto acceleration, using hand-tuned field
   arithmetic, prepared HMAC pads, and an add-rotate-xor cipher that suits the part.
@@ -106,7 +112,8 @@ The model that runs *on* the machine is a frontier model too: GPT-5.5 in the dem
 ## How to read these docs
 
 New here? Read **[architecture.md](docs/architecture.md)** (how it works), then
-**[memory.md](docs/memory.md)** (the stage-by-stage memory picture), and stop.
+**[memory.md](docs/memory.md)** (the 16 KiB stage maps plus larger memory-profile
+examples), and stop.
 Everything else is contributor and runtime-contract reference — including the dated
 logs in `notes/`, which record how this was actually built, mistakes and all.
 
@@ -154,10 +161,12 @@ On the IBM PC 5150 target, Seed can:
   a RAM-scaled rolling window, with API requests sent as `store:false`,
 - run model-authored code in the machine's RAM: native tool calls read, write, and
   execute flat memory addresses, and Seed feeds each result back through structured
-  `function_call_output` items,
+  `function_call_output` items; memory read/write calls are currently capped at
+  4 bytes per call,
 - save and load the local environment on writable media with native `save_env` and
   `load_env` tools,
-- detect installed RAM and scale the conversation/context arena to it,
+- detect installed RAM and scale the conversation/context arena through far
+  conventional memory, EMS, 286 HMA/native extended memory, and 386 unreal mode,
 - use shipped `AGENTS.CFG` / `NET.CFG` defaults and optional local `USER.CFG`
   state when present.
 
@@ -165,11 +174,11 @@ On the IBM PC 5150 target, Seed can:
 
 Seed is a working agent on real 1981 hardware, with the rough edges that implies:
 
-- **Memory is tight on small machines.** The conversation window scales with RAM, so
-  the agent's recall is shorter on a 16 KiB machine — more RAM means a larger window and
-  longer memory. Build 11 replaced the old sliding-window trim with model-maintained
-  compaction (a terse running note plus a verbatim recent-dialogue tail), keeping more
-  meaning per byte; the smallest machines still forget oldest turns first.
+- **Memory is tight on small machines.** The 16 KiB floor is deliberately tiny:
+  the current native-tool layout has a 96 B context window and a 96 B arena. More
+  RAM quickly changes the shape — 32 KiB gets a cached loop, conventional RAM adds
+  far arena/context, EMS adds megabytes on an 8088, and 286/386 machines move the
+  context to high memory. The smallest machines still forget oldest turns first.
 - **Reconnect after a long idle.** The TLS session is held open across a response,
   but a long idle at the prompt lets the server close it. The next message reconnects
   automatically — a dim `> reconnect` line, then up to three silent retries; if all
@@ -210,7 +219,7 @@ emulator gotchas.
 Makefile                       build the FAT12 160 KiB floppy image
 config/                        shipped AGENTS.CFG / NET.CFG defaults
 docs/architecture.md           how Seed works + the hardware/memory contract
-docs/memory.md                 stage-by-stage byte-level memory maps
+docs/memory.md                 16 KiB byte-level maps + larger memory-profile examples
 docs/builds.md                 milestone and scope history (the roadmap)
 docs/crypto-feasibility.md     why a secure handshake needs a 286 (the crypto research)
 docs/{config,networking,ui,testing}.md   config, transport, UI, and test reference

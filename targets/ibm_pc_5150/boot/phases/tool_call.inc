@@ -14,7 +14,7 @@
 ; phase-state bytes around 0x0f55. Do not use fs_sector_buffer/capture space here: native result writes
 ; must not corrupt the raw call bytes before parsing or the late screen helpers/string table.
 ; One byte of scratch: 0 = emit to screen + result buffer, 1 = result-buffer only (model-facing data
-; the user does not need to see).
+; the user does not need to see), 2 = screen only.
 ; Build 12 memory scaling (milestone 1): read_mem/write_mem/exec take a 32-bit flat address and reach it via a far
 ; seg:off translation (`seg = A>>4, off = A&0xF`), so the agent can address conventional memory beyond
 ; segment 0. These scratch slots ride the same post-phase scratch as tool_sink:
@@ -22,7 +22,7 @@
 ;   tool_seg    word   the segment computed from tool_addr (the far access reloads es from it per byte,
 ;                      since the screen-output helpers clobber es)
 ;   tool_farptr dword  [off,seg] far pointer for `call far` in $x
-;   tool_readbuf 32 B  read_mem stages the far bytes here (seg 0) before the hex dump, so the far read (es=seg)
+;   tool_readbuf 32 B  read_mem stages capped bytes here (seg 0) before the hex dump, so the far read (es=seg)
 ;                      and the dump (es=video) don't fight over es
 fc_fail_code equ tool_seg                     ; parser-only diagnostic scratch; helper recomputes tool_seg
 %if tool_scratch_end > cursor_row
@@ -40,18 +40,20 @@ fc_fail_code equ tool_seg                     ; parser-only diagnostic scratch; 
 ; conversation window; the structured tool output is the model-facing result.
 ;
 ; Native tools:
-;   read_mem(addr,len)       read up to 32 bytes from addr
-;   write_mem(addr,bytes)    write hex bytes to addr
+;   read_mem(addr,len)       read up to 4 bytes from addr
+;   write_mem(addr,bytes)    write up to 4 hex bytes to addr
 ;   exec(addr)               far-call addr; report returned AX + CF
 ;   save_env()               persist ENV.DAT via the save phase
 ;   load_env()               reboot through int 19h so boot restore can load ENV.DAT
-; Result lines (screen; output buffer for the model):
-;   read <addr>: <bb> <bb> ...
-;   wrote <addr>: <bb> <bb> ...
-;   ran <addr>: ax=<aaaa> cf=<0|1>
+; Result lines show addr only, or addr -> mapped when EMS page-frame translation changes the target.
+; Read bytes are kept model-only; the model-facing read prefix stays compact:
+;   read from 0x<addr> / model: read 0x<addr>[: <bb> <bb> ...]
+;   write to 0x<addr>
+;   execute 0x<addr>: ax=<aaaa> cf=<0|1>
+;   <read|write|execute> failed: 0x<addr> out of range
 ;
 ; Write + execute is full control: the agent writes a routine into the arena and
-; exec jumps to it; that routine can load any segment / hit any port / call BIOS,
+; exec executes it; that routine can load any segment / hit any port / call BIOS,
 ; so three primitives escape the 64K segment-0 limit and own the machine. exec to
 ; code that never returns hangs the machine - reboot recovery, per the authority
 ; model ("the tool owns the crash"). Tool calls run BETWEEN turns with the TLS
@@ -145,7 +147,7 @@ tool_phase:
     ret
 
 ; Build 11 ESC: draw the dim "> stopped" system line (screen-only, NOT in the model window). Mirrors the
-; "> read from .." dim prefix in .res_open. Sets api_stream_seen so render_prompt leaves a gap and draws
+; "> read .." dim prefix in .res_open. Sets api_stream_seen so render_prompt leaves a gap and draws
 ; the next prompt below it. Called from .scan_done on a graceful stop (after any in-flight tool has run).
 .draw_stopped:
     mov si, PHASE_LOAD_ADDR + (.stopped_text - PHASE_BASE)
@@ -257,7 +259,7 @@ tool_phase:
     jc .fail_dec
     mov cx, ax
     call .arm_fc_result
-    cmp cx, 4                            ; cap so the 16K replay result line stays bounded
+    cmp cx, 4                            ; global tool cap keeps replay result lines bounded
     jbe .read_queue
     mov cx, 4
 .read_queue:

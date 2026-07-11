@@ -86,7 +86,7 @@ chat_loop:
     call_core_phase core_tool_phase_start, core_tool_phase_end
     cmp byte [tool_helper_pending], 0
     je .tool_helper_done
-    run_net_phase core_tool_memory_phase_start, core_tool_memory_phase_end
+    call_core_phase core_tool_memory_phase_start, core_tool_memory_phase_end
 .tool_helper_done:
     call_core_phase core_dpi_phase_start, core_dpi_phase_end
     call prepare_agent_endpoint_path

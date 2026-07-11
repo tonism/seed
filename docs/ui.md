@@ -74,8 +74,11 @@ status line, then the answer.
 
 When the model emits a native tool call (`read_mem`, `write_mem`, `exec`, `save_env`,
 or `load_env`), Seed never draws raw protocol JSON. It renders one dim action line in
-its place: `read from <addr>`, `write to <addr>`, `jump to <addr>`, or the corresponding
+its place: `read from <addr>`, `write to <addr>`, `execute <addr>`, or the corresponding
 save/load status, so the user sees *what* the agent touched, never the wire syntax.
+Out-of-range memory calls are recoverable and use the same dim system grouping:
+`read failed: <addr> out of range`, `write failed: <addr> out of range`, or
+`execute failed: <addr> out of range`.
 The structured result is sent back to the model as `function_call_output`; short user-facing
 results such as memory bytes may also render as normal answer text when the model responds.
 The agentic loop auto-continues until the model stops calling tools, then control returns to

@@ -352,9 +352,9 @@ def stage_tls(ctx) -> list[str]:
     # the window fills as the chat runs, the arena stays reserved. Painting it
     # here (not just in the chat-loop stage) keeps the densest moment honest -
     # there is no free band waiting below the stack.
-    fill(cells, c['critical_scratch_end'], c['chat_context_start'], 'agent_config')
+    fill(cells, c['critical_scratch_end'], c['chat_pool_start'], 'agent_config')
+    fill(cells, c['chat_arena_start'], c['chat_context_start'], 'arena')
     fill(cells, c['chat_context_start'], c['chat_context_end'], 'context')
-    fill(cells, c['chat_arena_start'], STACK_START, 'arena')
     return cells
 
 
@@ -487,7 +487,7 @@ STAGE_FOOTER_BUILDERS = {
         "derived; receive buffer holding the encrypted response; the rest\n"
         "of pre-response scratch (hmac_prepared + tls_server_random /\n"
         "master_secret / handshake_hash) filled by the handshake. The\n"
-        "context pool above critical scratch (caches a, window m, arena +)\n"
+        "context pool above critical scratch (caches a, arena +, window m)\n"
         "is already reserved. Nothing is free here - 16 KiB at full pack."
     ),
     'dpi': lambda ctx: (
@@ -498,12 +498,14 @@ STAGE_FOOTER_BUILDERS = {
         "exist, but reserved - a reconnect re-runs the handshake and reuses it,\n"
         "and it sits below critical scratch (the reconnect-safe line), so it can\n"
         "never be permanent pool. The context pool therefore lives ABOVE\n"
-        "that line - reconnect-safe caches + keepalive (a), conversation window\n"
-        "(m), user/agent arena (+) - so it survives an idle/walk-away reconnect.\n"
-        "Build 11's draining-FIFO receive let the RX buffer shrink (1460->592 B),\n"
-        "and that freed budget went into this pool: ~961 B on 16 KiB, split 50/50\n"
-        "by hardware_setup into ~480 B window + ~480 B arena. It scales with RAM,\n"
-        "so larger machines get a far bigger window and arena (~8.6 KiB each at 32 KiB)."
+        "that line - reconnect-safe caches, user/agent arena (+), and\n"
+        "conversation window (m) - so it survives an idle/walk-away reconnect. In\n"
+        "the current Build 12 native-tool layout the remaining 16 KiB pool is\n"
+        "192 B, split 50/50 by hardware_setup into a 96 B arena and a 96 B\n"
+        "window at the far end. The 32 KiB direct tier spends its extra low RAM on the\n"
+        "normal-turn loop cache and tools-schema cache, so its seg-0\n"
+        "arena/window are 224 B each; larger far-memory tiers keep the 50/50\n"
+        "policy until the context window reaches the 1 MiB cap."
     ),
     'cleanup': None,  # generated dynamically below
 }

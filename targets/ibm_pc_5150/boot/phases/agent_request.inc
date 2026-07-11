@@ -183,7 +183,7 @@ agent_request_phase:
     cmp word [far_log_seg_var], 0
     je .drop_dialogue_context            ; <=64 KB machine: keep note prefix, drop live dialogue
     push ax
-    mov si, chat_context_start
+    call .context_base_si
     mov cx, ax
     call agent_request_phase_json_bytes_len   ; ax = escaped length of the window being frozen
     add [far_flushed_esc], ax
@@ -200,8 +200,8 @@ agent_request_phase:
     ; Build 12 Stage C (C1b): precompute the "input" DIALOGUE range here (agent_request knows
     ; far_flushed_len / note_len / compacting_msg / far_log_seg_var) so the maxed agent_api_stream phase
     ; just loads + streams it (segment = far_log_seg_var). >64 KB machine: the whole far log, far-log offset
-    ; note_len .. far_log_used (= far_flushed_len + used). <=64 KB machine: the seg-0 window
-    ; [chat_context_start+note_len .. +used).
+    ; note_len .. far_log_used (= far_flushed_len + used). <=64 KB machine: the seg-0 context window
+    ; [context_base+note_len .. +used).
     mov ax, [chat_context_used]
     add ax, [far_flushed_len]
     mov dx, [far_flushed_len + 2]
@@ -209,11 +209,12 @@ agent_request_phase:
     mov si, [note_len]                   ; default source offset = note_len (far-log relative)
     cmp word [far_log_seg_var], 0
     jne .dlg_off_ready
-    add si, chat_context_start           ; seg-0 fallback: the offset is chat_context_start-relative
+    call .context_base_bx
+    add si, bx                           ; seg-0 fallback: absolute low context pointer
 .dlg_off_ready:
     cmp byte [compacting_msg], 0
     je .dlg_sub_note
-    mov si, chat_context_start           ; compaction: stream the WHOLE seg-0 window (note ++ dialogue)
+    call .context_base_si                ; compaction: stream the WHOLE seg-0 window (note ++ dialogue)
     mov ax, [chat_context_used]
     xor dx, dx
     jmp .dlg_store
@@ -429,7 +430,7 @@ agent_request_phase:
     ; live seg-0 window -- so its escaped length is far_flushed_esc (the frozen part, a running DWORD)
     ; plus the escaped current window. That can exceed 64 KB, so carry into the 32-bit body total
     ; (api_body_len_hi:api_body_len). far_flushed_esc is 0 until the first flush -> identical to C1a.
-    mov si, chat_context_start
+    call .context_base_si
     mov cx, [chat_context_used]
     push ax                             ; body-so-far (fixed prefix/identity/ledger, < 64 KB)
     call agent_request_phase_json_bytes_len   ; ax = current window length JSON-escaped (clc; bx kept)
@@ -548,6 +549,20 @@ agent_request_phase:
     jnz .dl_loop
     mov ax, bx
     pop bx
+    ret
+
+.context_base_si:
+    call .context_base_bx
+    mov si, bx
+    ret
+.context_base_bx:
+    mov bx, [handoff_addr + handoff_ram_top]
+    sub bx, 0x100
+    cmp word [handoff_addr + handoff_ram_top], ram_tier_32k_min
+    jb .ctx_base_ready
+    mov bx, tools_cache
+.ctx_base_ready:
+    sub bx, [chat_context_len_var]
     ret
 
 http_post_text db 'POST ', 0

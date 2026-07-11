@@ -373,14 +373,14 @@ align 512, db 0
 
 core_tool_memory_phase_start:
 %define PHASE_BASE core_tool_memory_phase_start
-%define PHASE_LOAD_ADDR net_setup_phase_start
+%define PHASE_LOAD_ADDR low_scratch_start
 %include "phases/tool_memory.inc"
 %undef PHASE_LOAD_ADDR
 %undef PHASE_BASE
 core_tool_memory_phase_end:
 
-%if (((core_tool_memory_phase_end - core_tool_memory_phase_start + 511) / 512) * 512) > (low_scratch_end - net_setup_phase_start)
-%error "tool memory helper phase rounds to too many sectors for the net setup window"
+%if (((core_tool_memory_phase_end - core_tool_memory_phase_start + 511) / 512) * 512) > (tool_scratch_base - low_scratch_start)
+%error "tool memory helper phase rounds into the tool scratch window"
 %endif
 
 align 512, db 0
@@ -587,7 +587,7 @@ core_phase_table:
     db 'O', 0
     dw (core_tool_memory_phase_start - $$) / 512
     dw (core_tool_memory_phase_end - core_tool_memory_phase_start + 511) / 512
-    dw net_setup_phase_start
+    dw low_scratch_start
     dw 0
     db 'S', 0
     dw (core_save_phase_start - $$) / 512

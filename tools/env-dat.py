@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Create and inspect ENV.DAT — Seed's persisted environment snapshot.
 
-ENV.DAT is the env save/load file (notes/env-save-load-design.md). It carries TWO things, for two
+ENV.DAT is the env save/load file (format: docs/memory.md, "ENV.DAT Snapshot Format"). It carries TWO things, for two
 different audiences:
-  - the conversation window + arena ("region") -> restored into chat_context_start, for the MODEL
-    (rides into the request so the agent remembers);
+  - the arena + conversation window ("region") -> restored into chat_pool_start, for the MODEL
+    (the context window sits at the far end and rides into the request so the agent remembers);
   - a literal screen snapshot (the video text buffer, char+attr cells) -> painted back to video
     memory verbatim, for the USER (so they land on the EXACT screen they left -- dim tool lines,
     prompts, wrapping and all -- not a semantic reconstruction of the window).
@@ -26,10 +26,10 @@ restores fast:
   0x05  1   flags                   (reserved, 0)
   0x06  2   build_number            (provenance, informational)
   0x08  2   ram_top                 (save-time RAM top; a hint for the restore warning)
-  0x0a  2   chat_context_len_var    (the OLD window/arena split boundary)
+  0x0a  2   chat_context_len_var    (context cap at the end of the region)
   0x0c  2   chat_context_used       (valid conversation bytes in the window)
   0x0e  2   note_len                (compacted-memory prefix length within the window)
-  0x10  2   region_len              (FULL window+arena extent -> chat_context_start)
+  0x10  2   region_len              (FULL arena+window extent from chat_pool_start)
   0x12  2   region_stored           (region bytes in the file; trailing zeros trimmed, <= region_len)
   0x14  1   screen_cols             (FULL snapshot width; 0 = no snapshot)
   0x15  1   screen_rows             (FULL snapshot height)
@@ -39,9 +39,10 @@ restores fast:
   0x1c  ..  payload: [region_stored region bytes][screen_stored encoded-screen bytes]
 
 The region block (full region_len, conceptually):
-  [0 .. used)            conversation window     [0..note_len) note, [note_len..used) dialogue
-  [used .. len_var)      unused window slack
-  [len_var .. region_len) the arena (agent $w-built bytes; 0 if empty)
+  [0 .. arena_len)                 arena (agent $w-built bytes; 0 if empty)
+  [arena_len .. arena_len+used)    conversation window [0..note_len) note, [note_len..used) dialogue
+  [arena_len+used .. region_len)   unused window slack
+where arena_len = region_len - chat_context_len_var.
 ...but only region_stored bytes (up to the last non-zero) are stored; the rest is restored as zero.
 The screen is row-major char+attr cells; per row, trailing spaces are dropped and the count kept.
 
@@ -151,8 +152,11 @@ def parse(blob: bytes) -> dict:
     payload_ok = payload_present and checksum16(payload) == payload_ck
     region = b""
     screen_cells = b""
+    window = b""
+    arena_len = max(0, region_len - window_cap)
     if payload_present:
         region = payload[:region_stored] + b"\x00" * (region_len - region_stored)
+        window = region[arena_len:arena_len + window_cap]
         if screen_cols:
             screen_cells = decode_screen(payload[region_stored:], screen_cols, screen_rows)
     return {
@@ -163,7 +167,7 @@ def parse(blob: bytes) -> dict:
         "screen_cols": screen_cols, "screen_rows": screen_rows, "screen_stored": screen_stored,
         "header_checksum_ok": header_ok,
         "payload_present": payload_present, "payload_checksum_ok": payload_ok,
-        "window": region, "screen_cells": screen_cells,
+        "arena_len": arena_len, "region": region, "window": window, "screen_cells": screen_cells,
     }
 
 
@@ -197,9 +201,10 @@ def cmd_create(args: argparse.Namespace) -> int:
     if window_cap + len(arena) > region_len:
         print(f"error: arena overflows region_len", file=sys.stderr)
         return 2
+    arena_len = region_len - window_cap
     region = bytearray(region_len)
-    region[:used] = window
-    region[window_cap:window_cap + len(arena)] = arena
+    region[:len(arena)] = arena
+    region[arena_len:arena_len + used] = window
 
     screen_cells = b""
     screen_cols = screen_rows = 0
@@ -238,10 +243,11 @@ def cmd_inspect(args: argparse.Namespace) -> int:
     print(f"  format_version   {f['format_version']}")
     print(f"  build_number     {f['build_number']}")
     print(f"  ram_top          0x{f['ram_top']:04x}")
-    print(f"  window_cap       {f['window_cap']}   (chat_context_len_var)")
+    print(f"  window_cap       {f['window_cap']}   (chat_context_len_var; context at region end)")
     print(f"  used             {f['used']}   (chat_context_used)")
     print(f"  note_len         {f['note_len']}")
-    print(f"  region           {f['region_stored']}/{f['region_len']} stored (trailing zeros trimmed)")
+    print(f"  region           {f['region_stored']}/{f['region_len']} stored "
+          f"(arena {f['arena_len']} + context {f['window_cap']}; trailing zeros trimmed)")
     print(f"  screen           {f['screen_cols']}x{f['screen_rows']}  ({f['screen_stored']} bytes encoded)")
     print(f"  header_checksum  [{ok(f['header_checksum_ok'])}]")
     print(f"  payload          {'present' if f['payload_present'] else 'TRUNCATED'}  "

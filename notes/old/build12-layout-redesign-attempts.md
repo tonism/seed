@@ -5,7 +5,7 @@ features / NICs / CPUs / crypto *additive* instead of byte-scrounging
 (`docs/builds.md`). Build 11 shipped (tag `build-11`); its log is archived in
 `notes/old/build11-hardening-attempts.md`. Work branch: `work/scaling`. The
 design-of-record is `docs/architecture.md` (rewritten this build); the original
-design charter (how we got here) is `notes/memory-layout-redesign-brief.md`.
+design charter (how we got here) is `notes/old/memory-layout-redesign-brief.md`.
 
 Scope (user, locked 2026-06-11): **rearchitect for Build-11 feature PARITY** —
 establish the structure (capability vector, lifetime-banded memory, single source
@@ -289,7 +289,8 @@ sectors, check-layout OK).
 - **286 secure tier — real crypto** — the harness now boots Seed on the 286 (above), so
   this is unblocked: land the optimised real P-256 ECDHE + RSA-2048 cert-chain verify +
   entropy, 286-gated on `handoff_flag_cpu_286plus`, fitting the ~15 s window. Test policy:
-  6 MHz 286 + always the 4.77 MHz 8088/16K regression. Brief: `notes/build12-286-secure-handover.md`.
+  6 MHz 286 + always the 4.77 MHz 8088/16K regression. Follow-up record: the later
+  "286 secure tier" entries in this file plus `auto-recertify-attempts.md`.
 - **"insecure" splash warning** — once secure crypto ships, a dim "insecure" on the
   splash's 2nd line (right-aligned with "seed build 12") for pre-286 machines (gate on
   `handoff_flag_cpu_286plus` clear).

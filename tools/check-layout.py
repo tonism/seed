@@ -119,7 +119,7 @@ LIFETIMES = {
 
 def build_bands(c: dict[str, int], core: dict) -> list[dict]:
     """The fixed 16 KiB band map, low -> high. Each band is a non-overlapping
-    address range; ``end`` is exclusive. The context/arena bands scale up with
+    address range; ``end`` is exclusive. The arena/context bands scale up with
     ram_top on bigger machines (shown here at the 16 KiB ceiling)."""
     nucleus_end = c["core_load_addr"] + core["resident_bytes"]
     k_start = core["k_load"]
@@ -139,9 +139,9 @@ def build_bands(c: dict[str, int], core: dict) -> list[dict]:
         ("per-turn TLS app framing (tls_app_*)", c["critical_scratch_end"], c["chat_model_cache"], "per-turn", "tls_app_* record framing"),
         ("chat config caches (reconnect rebuild)", c["chat_model_cache"], c["reconnect_state_start"], "reconnect", "model + key cache"),
         ("reconnect-safe state", c["reconnect_state_start"], c["reconnect_state_end"], "reconnect", "reconnect/compaction/esc state"),
-        ("ESC handler", c["esc_int9_handler"], c["chat_context_start"], "reconnect", "keyboard escape hook (survives reconnect)"),
+        ("ESC handler", c["esc_int9_handler"], c["chat_pool_start"], "reconnect", "keyboard escape hook (survives reconnect)"),
+        ("user/agent arena", c["chat_arena_start"], c["chat_context_start"], "persistent", "arena"),
         ("conversation window", c["chat_context_start"], c["chat_context_end"], "persistent", "context"),
-        ("user/agent arena -> ram_top", c["chat_arena_start"], g16, "persistent", "arena"),
         ("16K stack guard / stack", g16, c["basic_sidecar_stack_top_16k"], "reserved", "stack"),
     ]
     return [

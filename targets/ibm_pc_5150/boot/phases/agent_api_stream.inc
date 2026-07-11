@@ -95,10 +95,11 @@ agent_api_stream_phase:
     ; The note exists ONLY on a <=64 KB machine (it rode the model-summarize compaction; note_len is 0 on a
     ; >64 KB machine, so the note_len==0 gate above skips this block there). So the note always reads from
     ; the seg-0 window -- ds = far_log_seg_var = 0 on that machine. (No far/seg branch needed.)
-    mov si, chat_context_start
+    mov si, [dialogue_off]
+    sub si, [note_len]
     mov cx, [note_len]
     xor dx, dx                                 ; C1b: 32-bit count high word (the note is small)
-    call agent_api_stream_append_context      ; the note [chat_context_start ..+note_len), escaped
+    call agent_api_stream_append_context      ; the note [context_base .. +note_len), escaped
     jc .prefix_failed
 .chunk2_input_open:
     mov si, PHASE_LOAD_ADDR + (api_json_input_open_text - PHASE_BASE)
@@ -517,8 +518,8 @@ api_ledger_arena_text db ' a@', 0
 api_ledger_cap_text db ' c@', 0
 api_ledger_save_text db ' s=', 0
 ; Build 12 memory scaling (C2/C3): the far ARENA (agent workspace) as flat range " far@<base>-<top>".
-; Both bounds are computed at emit time (hex32) -- base = 0x10000 + far_window_cap (above the far log),
-; top = conv_top. Always emitted, fixed-width -> the ledger stays == api_ledger_len (CL counts it exactly).
+; Both bounds are computed at emit time (hex32). The arena is before context, so conventional M1 emits
+; [0x10000 .. ctx_base); later tiers add EMS/native ranges separately. Always emitted, fixed-width.
 api_ledger_far_text db ' F@', 0
 api_ledger_hma_text db ' H@', 0
 ; Build 12 milestone 2: the EMS windowed arena as flat range " ems@<base>-<top>" (base 0x00100000,
@@ -557,27 +558,27 @@ api_ledger_len equ api_ledger_labels_len + (4 + 4 + 4 + 2 + 1 + 17 + 17 + 17)
 agent_api_stream_append_ledger:
     mov si, PHASE_LOAD_ADDR + (api_ledger_ram_text - PHASE_BASE)
     call agent_api_stream_append_z_to_buffer
-    ; advertise the ARENA CEILING as r= (on a 32K direct boot the tools schema + preload cache sit
-    ; between the arena and the stack, so the free arena tops out at tools_cache, not ram_top).
+    ; advertise the low ARENA CEILING as r=. With arena-first ordering the conversation window sits
+    ; at the far end of the low pool, so r = pool_ceiling - context_cap.
     mov ax, [handoff_addr + handoff_ram_top]
-    cmp ax, ram_tier_32k_min
-    jb .ledger_ram_ready
+    sub ax, 0x100
+    cmp ax, ram_tier_32k_min - 0x100
+    jb .ledger_pool_ready
     mov ax, tools_cache
-.ledger_ram_ready:
+.ledger_pool_ready:
+    sub ax, [chat_context_len_var]
     call agent_api_stream_ledger_hex16
     mov si, PHASE_LOAD_ADDR + (api_ledger_arena_text - PHASE_BASE)
     call agent_api_stream_append_z_to_buffer
-    mov ax, chat_context_start
-    add ax, [chat_context_len_var]
+    mov ax, chat_pool_start
     call agent_api_stream_ledger_hex16
     mov si, PHASE_LOAD_ADDR + (api_ledger_cap_text - PHASE_BASE)
     call agent_api_stream_append_z_to_buffer
     mov ax, chat_context_len_var
     call agent_api_stream_ledger_hex16
-    ; Build 12 Stage C (C2/C3): far@<arena_base>-<arena_top> -- the far ARENA (agent $w/$x workspace), which
-    ; now sits ABOVE the far context log (base = 0x10000 + far_window_cap), not overlapping it. Both bounds
-    ; are boot-computed DWORDs, emitted fixed-width (hex32) so the ledger stays == api_ledger_len. On a
-    ; <=64 KB machine base == top == 0x10000 (empty far range).
+    ; Build 12 Stage C (C2/C3): F@<arena_base>-<arena_top> -- the far ARENA (agent $w/$x workspace),
+    ; which sits before the far context log. Both bounds are boot-computed DWORDs, emitted fixed-width
+    ; (hex32) so the ledger stays == api_ledger_len. On a <=64 KB machine base == top == 0x10000.
     mov si, PHASE_LOAD_ADDR + (api_ledger_far_text - PHASE_BASE)
     call agent_api_stream_append_z_to_buffer
     mov ax, [far_arena_base]
@@ -676,11 +677,11 @@ agent_api_stream_ledger_nibble:    ; low nibble of al -> 1 hex char at [es:di]
 
 ; ---- Build 9 conversation context: copy a chat_context range into [es:di], JSON-escaped, FLUSHING ----
 ; Build 11 #4 note-as-memory: range-based - si = start ptr, cx = byte count. Callers pass the NOTE
-; range [chat_context_start .. +note_len) (into "instructions") and the DIALOGUE range
-; [chat_context_start+note_len .. +used) (into "input") separately; the compaction pass passes the whole
+; range [context_base .. +note_len) (into "instructions") and the DIALOGUE range
+; [context_base+note_len .. +used) (into "input") separately; the compaction pass passes the whole
 ; window. es=ds; tls_send leaves es=ds. A big range flushes across TLS records as the buffer fills.
 ; Build 12 Stage C: ds:si is the source -- on a >64 KB machine ds=far_log_seg_var (0x1000) and si is a
-; FAR-LOG OFFSET; on a <=64 KB machine ds=0 (far_log_seg_var) and si is a seg-0 pointer (chat_context_start
+; FAR-LOG OFFSET; on a <=64 KB machine ds=0 (far_log_seg_var) and si is a seg-0 pointer (context-base
 ; based). The count is now 32-bit in dx:cx (C1b: the canonical far log grows past 64 KB). ds is loaded from
 ; far_log_seg_var and RENORMALIZED +0x1000 whenever si wraps a 64 KB boundary (only the far log ever wraps;
 ; a seg-0 window never reaches 0xFFFF), so the read walks the whole flat log; ds is restored to 0 for the

@@ -61,14 +61,13 @@ hardware_setup_phase_init_handoff:
     mov word [handoff_addr + handoff_ram_top], bp
     mov byte [handoff_addr + handoff_status], handoff_status_booting
     mov byte [blink_state], 0
-    ; Build 9: size the conversation window from ram_top so it scales with RAM. The context pool
-    ; (window + arena) spans chat_context_start .. (ram_top - stack reserve) and splits 50/50 until
-    ; the far-memory tiers clamp the window at 1 MB. The compaction threshold stays at 3/4 of the
-    ; live window.
+    ; Build 9/12: size the low arena/context pool from ram_top. The pool spans chat_pool_start ..
+    ; tier ceiling and splits 50/50; arena is the lower half and the context window lives at the
+    ; far end. The compaction threshold stays at 3/4 of the live window.
     mov ax, [handoff_addr + handoff_ram_top]
     sub ax, 0x100
     ; Build 12 (32K floppy-free loop): on a 32K direct boot the chat-loop preload cache + the stack sit
-    ; above loop_cache_start, so the conversation window/arena must top out THERE, not at ram_top, or
+    ; above loop_cache_start, so the arena/context pool must top out THERE, not at ram_top, or
     ; chatting would overwrite the cached phases. (16K keeps ram_top - stack reserve.)
     cmp word [handoff_addr + handoff_ram_top], ram_tier_32k_min
     jb .pool_ceiling_ready
@@ -76,7 +75,7 @@ hardware_setup_phase_init_handoff:
     ; so the 32K conventional window/arena top out at tools_cache (2 sectors lower) and never clobber it.
     mov ax, tools_cache
 .pool_ceiling_ready:
-    sub ax, chat_context_start
+    sub ax, chat_pool_start
     shr ax, 1
     mov [chat_context_len_var], ax
     mov [chat_effective_cap], ax    ; #4: boot default = full window (the cold greeting skips the
@@ -261,7 +260,7 @@ hardware_setup_phase_display:
     mov word [far_flushed_esc + 2], 0
     ; Activate the far log only when conventional RAM (BDA word at 0x0413, KB) exceeds 64 KB -- otherwise
     ; flat 0x10000 is unbacked and the seg-0 window stays canonical (Build-11 fallback). far_log_seg_var
-    ; holds the active segment (far_log_seg) or 0 = inactive. ds=0 here, so 0x0413 reads the BDA directly.
+    ; holds the active conventional context segment or 0 = inactive. ds=0 here, so 0x0413 reads the BDA directly.
     ; Inactive default: zero cap, empty far arena range (base == top == 0x10000).
     mov word [far_log_seg_var], 0
     xor ax, ax
@@ -287,8 +286,8 @@ hardware_setup_phase_display:
     jnc .far_log_inactive
     cmp word [ems_page_count], 0
     jne .far_ems_invert
-    ; --- M1 layout (no EMS): context @ 0x10000, arena above [0x10000+cap .. conv_top]. cap =
-    ; min((conv_top-0x10000)/2, 1 MB). far_ctx_base stays 0x10000. Byte-for-byte the milestone-1 path. ---
+    ; --- M1 layout (no EMS): arena first [0x10000 .. conv_top-cap), context at the far end
+    ; [conv_top-cap .. conv_top). cap = min((conv_top-0x10000)/2, 1 MB). ---
     sub ax, 0
     sbb dx, 1                                     ; dx:ax = conv_top - 0x10000 = far region
     shr dx, 1
@@ -304,10 +303,20 @@ hardware_setup_phase_display:
 .cap_ready:
     mov [far_window_cap], ax
     mov [far_window_cap + 2], dx
-    add ax, 0
-    adc dx, 1                                     ; + 0x00010000 -> far arena base = 0x10000 + window cap
-    mov [far_arena_base], ax
-    mov [far_arena_base + 2], dx
+    mov ax, [far_arena_top]
+    mov dx, [far_arena_top + 2]
+    sub ax, [far_window_cap]
+    sbb dx, [far_window_cap + 2]                  ; context base / far arena top = conv_top - cap
+    mov [far_ctx_base], ax
+    mov [far_ctx_base + 2], dx
+    mov [far_arena_top], ax
+    mov [far_arena_top + 2], dx
+    mov cx, 4
+.ctx_seg_shift:
+    shr dx, 1
+    rcr ax, 1
+    loop .ctx_seg_shift
+    mov [far_log_seg_var], ax
     jmp .far_log_inactive
 .far_ems_invert:
     ; M2b: the EMS-invert layout math lives in hardware_setup_ems_layout at the phase TAIL (past the

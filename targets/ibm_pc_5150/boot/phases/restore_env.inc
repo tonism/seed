@@ -7,16 +7,16 @@
     dw %1 - (low_scratch_start + ($ - PHASE_BASE) + 2)
 %endmacro
 
-; Build 12 env save/load (notes/env-save-load-design.md), step 3: restore a saved environment from
+; Build 12 env save/load (design: docs/architecture.md, "Persistence"), step 3: restore a saved environment from
 ; the boot drive at boot, BEFORE the cold greeting. Hooked into prepare_agent_path: CF=0 here => the
 ; window is populated + the screen repainted, and the caller SKIPS the greeting; CF=1 => no/invalid
 ; save, the caller falls through to the normal greeting. Restore is a READ, so it is NOT gated on
 ; writable media.
 ;
-; ENV.DAT carries two things for two audiences: the conversation window+arena ("region") for the
-; MODEL (restored into chat_context_start, rides into the request), and a literal screen snapshot
-; (the video text buffer) for the USER (painted back verbatim so they land on the exact screen they
-; left). FAIL-SAFE: the whole file is staged at env_restore_stage (0x1800, the not-yet-loaded K
+; ENV.DAT carries two things for two audiences: the arena+conversation window ("region") for the MODEL
+; (restored into chat_pool_start, with context at the far end), and a literal screen snapshot (the video
+; text buffer) for the USER (painted back verbatim so they land on the exact screen they left).
+; FAIL-SAFE: the whole file is staged at env_restore_stage (0x1800, the not-yet-loaded K
 ; window) and validated there (magic / format / header checksum / fit / payload checksum) BEFORE any
 ; byte is copied into the window or video memory. Any failure returns CF=1 with the boot-empty window
 ; intact. (The fit MENU for bigger-machine/won't-fit is step 3c; here a misfit just returns CF=1.)
@@ -123,7 +123,7 @@ restore_env_phase:
     call restore_env_sum
     cmp ax, [env_restore_stage + env_hdr_checksum]
     jne .fail
-    ; region_len fit: <= this machine's pool (ceiling - chat_context_start). ceiling mirrors
+    ; region_len fit: <= this machine's pool (ceiling - chat_pool_start). ceiling mirrors
     ; hardware_setup: loop_cache_start on a 32K direct boot, else ram_top - the 0x100 stack reserve.
     mov ax, [handoff_addr + handoff_ram_top]
     sub ax, 0x100
@@ -131,13 +131,14 @@ restore_env_phase:
     jb .pool_ready
     mov ax, loop_cache_start
 .pool_ready:
-    sub ax, chat_context_start       ; ax = this machine's pool (window+arena bytes)
+    sub ax, chat_pool_start          ; ax = this machine's pool (arena+window bytes)
+    mov [fs_bytes_left], ax          ; current pool length, used by the commit copy below
     ; Build 12 step 3c, fit gate (non-interactive). region_len vs pool:
     ;   >  pool : won't fit -> dim error line + clean boot (the save needs a bigger machine)
     ;   == pool : silent restore (the common same-machine case, incl. every same-machine $l revert)
-    ;   <  pool : bigger machine than when saved -> restore at the OLD size + a dim warning, continue
-    ;             (surplus RAM lands as arena; the window keeps its saved size since the agent's arena
-    ;             programs hold their old addresses). The warn flag rides fs_current_cluster -- free
+    ;   <  pool : bigger machine than when saved -> restore with the saved context cap + a dim warning
+    ;             (surplus RAM lands as arena; arena programs keep their old addresses). The warn flag
+    ;             rides fs_current_cluster -- free
     ;             during restore (we read by LBA, not by cluster-walk) and untouched by the commit/paint.
     mov byte [fs_current_cluster], 0
     mov dx, [env_restore_stage + env_hdr_region_len]
@@ -146,6 +147,9 @@ restore_env_phase:
     je .fit_checked
     mov byte [fs_current_cluster], 1 ; region_len < pool -> warn
 .fit_checked:
+    mov ax, [env_restore_stage + env_hdr_window_cap]
+    cmp ax, [env_restore_stage + env_hdr_region_len]
+    ja .fail
     ; Format 2: payload = region_stored + screen_stored bytes (both trimmed). It must match the staged
     ; file size, and its checksum the header field.
     mov ax, [env_restore_stage + env_hdr_region_stored]
@@ -160,20 +164,35 @@ restore_env_phase:
     cmp ax, [env_restore_stage + env_hdr_payload_checksum]
     jne .fail
 
-    ; --- valid: commit the region. CLEAR the full region_len first (so the trimmed-away trailing
-    ; window slack + empty arena come back as zero), then paint the stored prefix. ---
+    ; --- valid: commit the region. CLEAR the full current pool first. Then split the saved prefix:
+    ; arena bytes restore at chat_pool_start, context bytes restore at the current top-of-pool context
+    ; base. On a larger machine, the extra space naturally lands in the arena gap below context. ---
     push ds
     pop es
-    mov di, chat_context_start
-    mov cx, [env_restore_stage + env_hdr_region_len]
+    mov ax, [env_restore_stage + env_hdr_window_cap]
+    mov [chat_context_len_var], ax
+    mov dx, [env_restore_stage + env_hdr_region_len]
+    sub dx, ax                       ; dx = saved arena prefix length
+    mov [fs_bytes_this], dx
+    mov di, chat_pool_start
+    mov cx, [fs_bytes_left]
     xor al, al
     rep stosb
     mov si, env_restore_stage + env_hdr_len
-    mov di, chat_context_start
+    mov di, chat_pool_start
     mov cx, [env_restore_stage + env_hdr_region_stored]
+    mov dx, [fs_bytes_this]
+    cmp cx, dx
+    jbe .arena_count_ready
+    mov cx, dx
+.arena_count_ready:
     rep movsb
-    mov ax, [env_restore_stage + env_hdr_window_cap]
-    mov [chat_context_len_var], ax
+    mov cx, [env_restore_stage + env_hdr_region_stored]
+    sub cx, [fs_bytes_this]
+    jbe .region_done
+    call .context_base_di
+    rep movsb
+.region_done:
     mov ax, [env_restore_stage + env_hdr_used]
     mov [chat_context_used], ax
     mov ax, [env_restore_stage + env_hdr_note_len]
@@ -190,6 +209,16 @@ restore_env_phase:
     mov byte [api_stream_seen], 1
 .restored:
     clc
+    ret
+
+.context_base_di:
+    mov di, [handoff_addr + handoff_ram_top]
+    sub di, 0x100
+    cmp word [handoff_addr + handoff_ram_top], ram_tier_32k_min
+    jb .ctx_base_ready
+    mov di, loop_cache_start
+.ctx_base_ready:
+    sub di, [chat_context_len_var]
     ret
 
 ; Build 12 step 3c (error): the saved region needs more pool than this machine has. Per the UI

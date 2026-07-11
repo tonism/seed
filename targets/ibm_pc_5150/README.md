@@ -38,13 +38,13 @@ BIOS loads boot sector
   -> asks agent? when the saved choice is missing or invalid
   -> asks server? and key? on one form when the selected agent needs both
   -> resolves the selected agent host and proves TCP 443 connection
-  -> sends a minimal TLS 1.2 ClientHello with SNI and P-256 ECDHE-ECDSA-CHACHA20-POLY1305 without extended master secret
+  -> sends a TLS 1.2 ClientHello with SNI and P-256 ECDHE-ECDSA-CHACHA20-POLY1305 without extended master secret
   -> parses ServerHello plus Certificate header
   -> drains the Certificate handshake to the next handshake boundary
   -> parses ServerKeyExchange and range-checks the P-256 public point
   -> parses ServerHelloDone
   -> maintains a live SHA-256 TLS handshake transcript context through ServerHelloDone
-  -> computes the sparse fixed-scalar ECDHE shared point
+  -> computes the baseline 8088 fixed-scalar premaster, or real ECDHE + pinned RSA cert auth on a 286+
   -> converts the Jacobian shared point into the affine X-coordinate pre-master secret
   -> derives TLS master secret and ChaCha20-Poly1305 traffic keys
   -> sends ClientKeyExchange, then ChangeCipherSpec + encrypted client Finished
@@ -52,9 +52,10 @@ BIOS loads boot sector
   -> uses a normal o marker during local crypto/key setup
   -> switches to a bright o marker for agent and environment prep
   -> writes validated agent config back best-effort
-  -> otherwise types the seed build splash rightward from that column
-  -> waits about 500 ms
-  -> halts
+  -> types the seed build splash and enters the Default Prompt Interface
+  -> streams chat turns over the live TLS session
+  -> captures native Responses function_call items
+  -> runs read_mem/write_mem/exec/save_env/load_env locally and replays function_call_output
 ```
 
 The floppy image is a minimal FAT12 filesystem with a stable reserved loader
@@ -171,8 +172,11 @@ the same TCP connect path, and runs the full TLS 1.2 / application-data path
 [../../docs/architecture.md](../../docs/architecture.md), "Provider Timing
 Model". It then runs the Default Prompt Interface chat loop over the established
 session as TLS application data: an initial model greeting, prompt input, and
-streamed model responses across multiple turns in one boot session. It writes
-the validated values back best-effort. Missing or invalid `AGENTS.CFG` content falls back to
+streamed model responses across multiple turns in one boot session. Native
+Responses function calls provide memory read/write/execute plus environment
+save/load; memory read/write calls are currently capped at 4 bytes while the
+native tool loop is hardened. It writes the validated values back best-effort.
+Missing or invalid `AGENTS.CFG` content falls back to
 built-in `openai`, `anthropic`, and `google`; other agent setup failures still
 fail in the bright `"o"` phase as `agent setup failed`.
 

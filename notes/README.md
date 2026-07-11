@@ -1,31 +1,47 @@
 # Notes
 
-This directory is working memory for active branch design and experiments.
+This directory is Seed's build-by-build **implementation log** — the dated record
+of how the runtime was actually built, mistakes and all. It is working memory, not
+reference documentation.
 
-Active docs (Build 12, branch `work/scaling`):
+- **Stable reference** (how Seed works, the contracts) lives in `docs/`:
+  `architecture.md`, `memory.md`, `security.md`, `crypto-feasibility.md`.
+- **Roadmap and forward-looking work** (the Build 13 plan and the backlog) live in
+  `docs/builds.md`, not here.
+- **Here** you get the attempt logs, plus two raw records that `docs/` and the boot
+  core still cite as evidence.
+
+Everything is archived under `old/`; each shipped build files its log there. The
+current branch (`work/scaling`, Build 12) has no open top-level log.
+
+## Attempt logs
+
+Oldest at the top. Each is a chronological grind log for one target or build.
 
 ```text
-native-tool-calling-design.md  SHIPPED RECORD. Build 12 native function_call support on the 32 KiB
-                               tools-cache tier and the 16 KiB floppy-streamed tools path.
-memory-scaling-design.md       ROADMAP. 8088 + EMS scaling (M1/M2) SHIPPED in Build 12; the remaining
-                               Build 12 memory work is 286/HMA and 386 unreal.
-build12-286-hma-386-handover.md
-                               HANDOVER. Fresh-chat brief for the remaining Build 12 memory tiers.
-ui-unification-design.md       ROADMAP/HISTORY. Build 12 UI polish shipped except the larger
-                               render-room-dependent renderer work, such as a guaranteed glyph map.
+16kb-windowed-nucleus-attempts.md      16 KiB windowed-nucleus floor
+24kb-windowed-attempts.md              24 KiB windowed target
+32kb-slim-attempts.md                  32 KiB slim target
+48kb-slim-attempts.md                  48 KiB slim target
+default-prompt-interface-attempts.md   Build 8  chat loop (DPI)
+build9-context-attempts.md             Build 9  context management
+build10-tool-calling-attempts.md       Build 10 RAM read/write/exec tool calling
+build11-hardening-attempts.md          Build 11 FIFO, reconnect, compaction, ESC, rendering
+build12-layout-redesign-attempts.md    Build 12 capability-tiered layout + 286 secure tier
+build12-memory-scaling-attempts.md     Build 12 far / EMS / HMA / unreal memory ladder
+auto-recertify-attempts.md             Build 12 silent leaf-rotation re-pin
 ```
 
-Completed/shipped design + attempt logs (Build 8-12: memory-layout redesign, 286 secure tier,
-auto-recertify, ECDSA scoping, native tool calling, M2 EMS, env save/load, all prior builds) are archived in `old/`. Their
-reader-facing summaries live in `docs/` (`architecture.md`, `memory.md`, `security.md`,
-`crypto-feasibility.md`, `builds.md`). Per-build release summaries + the Build-13 roadmap are in
-`docs/builds.md`. Each new build opens a fresh top-level log and archives the prior one to `old/`.
+## Raw records still cited elsewhere
 
-Use `docs/` for stable project documentation that should guide users and future
-contributors. Use `notes/` for branch-local reasoning, measured attempts,
-failed paths, and design sketches that may change quickly.
+Not an attempt log, kept because live references point at it:
 
-Attempts logs use this shape:
+```text
+ecdsa-tier-scoping.md    the ECDSA secure-tier spike; the raw measurement record
+                         behind docs/security.md and docs/crypto-feasibility.md
+```
+
+## Log format
 
 ```text
 short branch context / baseline / target

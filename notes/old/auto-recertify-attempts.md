@@ -1,6 +1,6 @@
 # Auto-recertify — attempts / grind log
 
-Plan: `notes/auto-recertify-plan.md`. Memory: `project_auto_recertify`. The goal: make a ~90-day
+Plan: `notes/old/auto-recertify-plan.md`. Memory: `project_auto_recertify`. The goal: make a ~90-day
 leaf rotation silent by verifying a freshly-presented leaf against the pinned issuing CA (GTS WR1),
 off the ~15s race. This log is the grind; the polished spec is `tools/x509/PARSER_CONTRACT.md`.
 
@@ -67,7 +67,7 @@ with WR1 constants, port the adopt math (n0inv Newton + r2 doubling), the recert
 
 User picked "start the port now" + chose to set the clock from the network (HTTP Date header) into
 the CMOS RTC so cert validity has a correct "now" (the VM clock is unreliable), and "scope an ECDSA
-tier next" (captured in notes/ecdsa-tier-scoping.md).
+tier next" (captured in `notes/old/ecdsa-tier-scoping.md`).
 
 ### 2a — the strict-DER parser in asm — DONE, unicorn-green on the full matrix
 `core/x509_verify.inc` (`x509_parse_leaf`): the strict TLV reader + positional Certificate/TBS walk

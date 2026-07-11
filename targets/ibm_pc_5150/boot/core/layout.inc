@@ -11,9 +11,9 @@ handoff_addr equ 0x0600
 low_sha256_k equ 0x0500
 runtime_stack_top equ 0x8000
 runtime_stack_guard_len equ 1536
-; Build 12 Stage C: the far context log lives at the base of the far conventional region (flat 0x10000 =
-; segment 0x1000), the same base the ledger advertises as far@00010000. C1a mirrors the seg-0 window
-; here and streams the request from it; later phases make it canonical and split it 50/50 with the arena.
+; Build 12 Stage C: the legacy/default far context segment. Hardware setup recomputes
+; far_log_seg_var when conventional RAM is split arena-first, so this constant is only the
+; inactive/default 0x10000 base, not a permanent layout promise.
 far_log_seg equ 0x1000
 ; Build 12 milestone 2 (EMS): the windowed backend targets the Lo-tech EMS board (86Box isamem
 ; `lotechems`) — bare-metal, so seed drives the board's mapping registers directly (no int 67h/EMM).
@@ -43,7 +43,7 @@ nic_vt_slot_count equ 5
 ; Build 12 (32K floppy-free chat loop): on a 32K DIRECT boot the chat-loop working set (the dpi,
 ; agent_request, K crypto window, agent_api_stream, agent_response and tool phases) is preloaded into
 ; a high RAM cache at boot, so the loop runs with NO mid-conversation floppy reads. The cache sits
-; ABOVE the conversation window/arena and BELOW the runtime stack guard, and exists ONLY on 32K (on
+; ABOVE the arena/context pool and BELOW the runtime stack guard, and exists ONLY on 32K (on
 ; 16K ram_top=0x4000 is below loop_cache_start, so the region is absent and the preload is skipped).
 ; ram_tier_32k_min gates it (ram_top >= this => 32K direct boot). loop_cache_max_sectors caps the
 ; working set (Y/R/K/X/T/M = 26 sectors today, T=tool grew to 3 for the EMS $r/$w path); hardware_setup
@@ -61,13 +61,13 @@ loop_cache_start equ loop_cache_end - loop_cache_len
 prompt_id_cache equ loop_cache_end - 512
 ; Build 12 native tool calling: raw SSE function_call capture. The response phase loads at 0x0900
 ; during receive, so this sector at 0x0d00 is a low-memory handoff buffer that survives the later
-; tool phase (loaded at 0x0700..0x0d00). This keeps native tools available on the 16K floor without
-; using the 32K-only loop-cache/stack-guard band.
+; parser phase (loaded at 0x0700..0x0d00). The memory helper may later load through 0x0d00 because
+; the parser has already copied call id/name/arguments into reconnect-safe state. This keeps native
+; tools available on the 16K floor without using the 32K-only loop-cache/stack-guard band.
 fc_capture_max equ 512
 fc_capture_buf equ low_scratch_start + 0x0600
 ; Tool-memory helper handoff. The parser phase sets this byte to 'r'/'w'/'e' after parsing a native
-; memory call, then the resident chat loop loads the helper phase in the net window. It lives just above
-; the 0x0f00 tool scratch and outside every whole-sector phase load.
+; memory call, then the resident chat loop loads the helper phase below this 0x0f00 scratch window.
 tool_scratch_base equ net_setup_phase_start + 3 * 512
 tool_sink equ tool_scratch_base
 tool_helper_pending equ net_setup_phase_start + 3 * 512 + 1
@@ -78,7 +78,7 @@ tool_readlen equ tool_scratch_base + 12
 tool_readbuf equ tool_scratch_base + 14
 tool_scratch_end equ tool_readbuf + 32
 ; Build 12 native tool calling: the resident tools-schema buffer on the loop-cache tiers (32K/256K).
-; The schema is kept <=1 sector so the cache only steals 512 B from the context/arena pool; a 2-sector
+; The schema is kept <=1 sector so the cache only steals 512 B from the arena/context pool; a 2-sector
 ; cache leaves the 32K window too small for ordinary turns after the parser state grew this block.
 ; 16K has NO resident buffer (tools_cache is referenced only on 32K+); it streams TOOLS from floppy.
 tools_cache_sectors equ 1
@@ -192,7 +192,7 @@ handoff_flag_mac_valid equ 0x0008
 handoff_flag_cpu_286plus equ 0x0010
 handoff_flag_fpu equ 0x0020
 ; Build 12 env save/load: writable boot media present. Gates the persistence tier (save/restore of
-; the conversation window + arena to the boot drive). Set by hardware_setup via a non-destructive
+; the arena + conversation window to the boot drive). Set by hardware_setup via a non-destructive
 ; boot-sector write-back probe; a write-protected floppy -- the recovery-boundary mode -- leaves it
 ; clear, so persistence silently no-ops there.
 handoff_flag_writable_media equ 0x0040
@@ -562,7 +562,7 @@ fat_dir_entries_per_sector equ 16
 fat_dir_entry_size equ 32
 fat_first_data_cluster equ 2
 fat_max_cluster equ 300
-; Build 12 env save/load (notes/env-save-load-design.md): the ENV.DAT snapshot format. The restore
+; Build 12 env save/load (format: docs/memory.md, "ENV.DAT Snapshot Format"): the ENV.DAT snapshot format. The restore
 ; phase (read) and the save phase (write) share these; tools/env-dat.py is the byte-for-byte
 ; reference implementation and MUST stay in sync. The header is little-endian; "SEDV" magic stored
 ; as two words (distinct from the handoff "SEED"). format is the compatibility axis: seed restores
@@ -570,7 +570,7 @@ fat_max_cluster equ 300
 env_magic_w0 equ 0x4553           ; 'S','E'
 env_magic_w1 equ 0x5644           ; 'D','V'
 ; Format 2 (Build 12): the payload is TRIMMED to skip dead space, so a save fits a floppy and restores
-; fast. The window+arena region drops its trailing zeros (store region_stored of region_len). The
+; fast. The arena+window region drops its trailing zeros (store region_stored of region_len). The
 ; screen snapshot is per-row trailing-blank trimmed: stored as [screen_rows row-length bytes][packed
 ; used cells]. region_len / screen_cols / screen_rows stay the FULL extents (for the fit check + the
 ; clear-before-paint). Format 1 (untrimmed) is dropped -- nothing shipped, so min == current == 2.
@@ -581,10 +581,10 @@ env_hdr_format equ 4
 env_hdr_flags equ 5
 env_hdr_build equ 6
 env_hdr_ram_top equ 8
-env_hdr_window_cap equ 10         ; chat_context_len_var at save time (the split boundary)
+env_hdr_window_cap equ 10         ; chat_context_len_var at save time (context cap at region end)
 env_hdr_used equ 12               ; chat_context_used (valid conversation bytes)
 env_hdr_note_len equ 14
-env_hdr_region_len equ 16         ; FULL window+arena extent -> chat_context_start (fit check + clear)
+env_hdr_region_len equ 16         ; FULL arena+window extent from chat_pool_start (fit check + clear)
 env_hdr_region_stored equ 18      ; (word) region bytes actually in the file (trailing zeros trimmed)
 env_hdr_screen_cols equ 20        ; (byte) screen snapshot width; 0 = no snapshot
 env_hdr_screen_rows equ 21        ; (byte) screen snapshot height

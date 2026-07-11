@@ -211,7 +211,9 @@ agent_response_phase:
     mov bx, [chat_context_used]
     cmp bx, [chat_effective_cap]
     jae .emit_char_stored
-    mov [chat_context_start + bx], al
+    call .context_base_di
+    add di, bx
+    mov [di], al
     inc word [chat_context_used]
 .emit_char_stored:
     cmp word [compacting_msg], 0
@@ -304,7 +306,7 @@ agent_response_phase:
     mov [chat_effective_cap], ax
     jmp .apt_done
 .apt_fits:
-    mov di, chat_context_start
+    call .context_base_di
     mov ax, [chat_context_used]
     add di, ax
     mov byte [di], ' '
@@ -349,10 +351,25 @@ agent_response_phase:
     mov byte [di], 10
     inc di
     mov ax, di
-    sub ax, chat_context_start
+    call .context_base_bx
+    sub ax, bx
     mov [chat_context_used], ax
 .apt_done:
     pop cx
+    ret
+
+.context_base_di:
+    call .context_base_bx
+    mov di, bx
+    ret
+.context_base_bx:
+    mov bx, [handoff_addr + handoff_ram_top]
+    sub bx, 0x100
+    cmp word [handoff_addr + handoff_ram_top], ram_tier_32k_min
+    jb .ctx_base_ready
+    mov bx, tools_cache
+.ctx_base_ready:
+    sub bx, [chat_context_len_var]
     ret
 
 completed_pattern db 'response.completed', 0

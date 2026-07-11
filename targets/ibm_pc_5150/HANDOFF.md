@@ -49,25 +49,32 @@ offset  size  value
 
 This block is also Seed's **capability vector** — the boot-detected facts that
 drive what loads and where (see [../../docs/architecture.md](../../docs/architecture.md),
-"Capability Tiers" and "The One-Artifact Relocation Model"). Three dimensions are
+"Capability Tiers" and "The One-Artifact Relocation Model"). These dimensions are
 live today (struct version 4):
 
 ```text
 RAM tier     derived from RAM top (0x2c): < 32 KiB = 16K tier, >= 32 KiB = 32K tier.
-             (Only 16K and 32K boot configurations exist; >32K reuses the 32K tier.)
+             (Only 16K and 32K boot shapes exist; >32K reuses the 32K shape and grows
+             arena/context through the memory-reach tiers.)
 NIC family   0x10, used to select the active adapter path.
 CPU class    flags bit handoff_flag_cpu_286plus (0x0010): set when the CPU is a 286 or
              better (hardware_setup's FLAGS bits-12-15 test) — gates the secure tier.
+             flags bit handoff_flag_cpu_386plus (0x0080): set when the CPU supports the
+             386+ unreal-mode memory tier.
 Writable     flags bit handoff_flag_writable_media (0x0040): set when a non-destructive
 media        boot-sector write-back probe succeeds — gates the persistence tier (env
              save/load). Clear on write-protected media (the recovery-boundary mode).
+HMA          flags bit handoff_flag_hma (0x0100): A20 was enabled and the HMA direct
+             range is available.
+Unreal       flags bit handoff_flag_unreal (0x0200): 386 unreal mode is available for
+             high-memory direct access.
 ```
 
 The remaining capability dimensions are **reserved for later feature tiers**:
 
 ```text
-finer CPU class  V20 / 386 / 486 distinctions — only "is 286+" is needed today.
-FPU present      reserved flags bit 0x0020; held but inert (the FPU does not unlock
+finer CPU class  V20 / 486 distinctions beyond the live 286+ and 386+ flags.
+FPU present      flags bit 0x0020; held but inert (the FPU does not unlock
                  secure crypto; measured), so detection is deferred until a consumer.
 link type        wired / Wi-Fi — selects driver + setup-UI family (no Wi-Fi yet).
 ```
@@ -91,6 +98,9 @@ re-verify the low scratch fits via `tools/check-layout.py`.
 0x0010  CPU is 286 or better (handoff_flag_cpu_286plus) — gates the secure tier
 0x0020  FPU present (reserved; held but inert — the FPU does not unlock secure crypto)
 0x0040  writable boot media present (handoff_flag_writable_media) — gates the persistence tier
+0x0080  CPU is 386 or better (handoff_flag_cpu_386plus) — gates unreal setup
+0x0100  HMA available (handoff_flag_hma)
+0x0200  unreal mode available (handoff_flag_unreal)
 ```
 
 ## NIC Families
@@ -252,6 +262,6 @@ send guarantees the reply has room to land. The window and arena scale with RAM 
 machine, so it holds more verbatim context and compacts less often with no mechanism change.
 
 The model-facing ledger keeps only the cheap, actionable memory facts: `r=`/`a@` for the
-seg-0 arena, `F@`/`e@` for larger arenas, `s=` for save availability, and `c@` for the
-context-cap variable address. Network diagnostics remain in this handoff block, not in the
-per-turn model ledger.
+seg-0 arena, `F@` for far conventional arena, `H@` for HMA, `e@` for EMS or native
+extended arena, `s=` for save availability, and `c@` for the context-cap variable
+address. Network diagnostics remain in this handoff block, not in the per-turn model ledger.
