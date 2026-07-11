@@ -157,11 +157,13 @@ UI polish         grouped render spacing, word-wrap near the right edge, ASCII g
 ```
 
 Validation summary: the 16 KiB and 32 KiB tool loops are green with a uniform
-4-byte read/write cap; EMS high-address mapping is green; 286 @6 and @8 complete
-real authenticated TLS and reject a tampered pin; the 386 profile exists before
-unreal mode is used. The 286 post-DPI runner is still less mature than the
-16K/32K/EMS harnesses, so 286 validation should keep using targeted/manual
-evidence until that runner is hardened.
+4-byte read/write cap; far conventional and EMS high-address mapping are green;
+tracked 286 and 386 representative profiles exist before their memory tiers are
+used; generated 286 @6 and @8 runs complete real authenticated TLS and reject a
+tampered pin. The 286 post-DPI runner is still less mature than the
+16K/32K/EMS harnesses, so 286 validation should keep pairing tracked profile
+boot evidence with targeted/generated secure-path evidence until that runner is
+hardened.
 
 Detailed records now live in the focused docs: memory maps in `docs/memory.md`,
 runtime structure in `docs/architecture.md`, security/trust in `docs/security.md`,

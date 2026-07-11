@@ -47,6 +47,7 @@ CFG = """[General]
 emu_build_num = 8200
 sound_muted = 1
 vid_renderer = qt_software
+video_filter_method = 0
 [Machine]
 machine = adi386sx
 cpu_family = i386sx
@@ -108,6 +109,33 @@ tell application "System Events"
     repeat 30 times
       if exists window 1 then exit repeat
       delay 0.2
+    end repeat
+    repeat 20 times
+      set acceptedMovedDialog to false
+      repeat with oneWindow in windows
+        try
+          if exists button "I Copied It" of oneWindow then
+            click button "I Copied It" of oneWindow
+            set acceptedMovedDialog to true
+            exit repeat
+          end if
+        end try
+        try
+          set dialogPosition to position of oneWindow
+          set dialogSize to size of oneWindow
+          set dialogWidth to item 1 of dialogSize
+          set dialogHeight to item 2 of dialogSize
+          if dialogWidth > 350 and dialogWidth < 750 and dialogHeight > 150 and dialogHeight < 350 then
+            set clickX to (item 1 of dialogPosition) + (dialogWidth * 0.34)
+            set clickY to (item 2 of dialogPosition) + dialogHeight - 44
+            click at {clickX, clickY}
+            set acceptedMovedDialog to true
+            exit repeat
+          end if
+        end try
+      end repeat
+      if acceptedMovedDialog then exit repeat
+      delay 0.1
     end repeat
     repeat 40 times
       try

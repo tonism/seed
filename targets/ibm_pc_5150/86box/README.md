@@ -31,14 +31,26 @@ targets/ibm_pc_5150/86box/vm-net-wd8003e/86box.cfg
 targets/ibm_pc_5150/86box/vm-net-wd8003eb/86box.cfg
 ```
 
-The Build 12 386 unreal-mode gate uses the AT-compatible profile:
+Additional checked-in memory-tier representatives are:
 
 ```text
+targets/ibm_pc_5150/86box/vm-net-ne2k8-xt/86box.cfg   8088, 256 KiB far conventional
+targets/ibm_pc_5150/86box/vm-net-ems/86box.cfg        8088, 256 KiB + 4 MiB Lo-tech EMS
+targets/ibm_pc_5150/86box/vm-net-286/86box.cfg        286, 2048 KiB HMA/native extended
 targets/ibm_pc_5150/86box/vm-net-386/86box.cfg
 ```
 
-That profile uses the ADI 386SX/Phoenix BIOS shape with 4096 KiB RAM and a
-16-bit ISA NE2000 adapter.
+`vm-net-286` uses the AMI 286 AT-compatible BIOS shape with 2048 KiB RAM and an
+8-bit NE2000 adapter. `vm-net-386` uses the ADI 386SX/Phoenix BIOS shape with
+4096 KiB RAM and a 16-bit ISA NE2000 adapter. Both AT-class profiles use the
+360K floppy image; `tools/run-86box.sh vm-net-286` and
+`tools/run-86box.sh vm-net-386` select it automatically.
+
+The checked-in profiles are intentionally representative, not exhaustive: they
+cover main failure paths, NIC families, memory tiers, and the CPU classes implied
+by those tiers. Generated profiles under `build/ibm_pc_5150/` remain the right
+tool for automated sweeps and exact hardware mixes that would otherwise explode
+the tracked profile matrix.
 
 Current CGA machine shape:
 
@@ -52,12 +64,13 @@ Floppy:  5.25" single-sided drive as A:
 Disk A:  build/ibm_pc_5150/floppy-160k.img
 ```
 
-The original-speed 4.77 MHz, 16 KiB profiles are the
-compatibility gate through the ROM BASIC sidecar bootstrap. The normal BIOS
-boot path remains part of the same floppy for 32 KiB and larger machines, while
-the tracked emulator profiles exercise the sub-32 KiB entry path. Literal
-24 KiB IBM PC profiles in 86Box stop in POST with a memory-size error before
-ROM BASIC. Faster ad hoc profiles are not part of the normal workflow.
+The original-speed 4.77 MHz, 16 KiB profiles are the compatibility gate through
+the ROM BASIC sidecar bootstrap. The normal BIOS boot path remains part of the
+same floppy for 32 KiB and larger machines, while the tracked emulator profiles
+exercise the sub-32 KiB entry path, the direct 32 KiB path, far conventional
+memory, EMS, 286 HMA/native extended memory, and 386 unreal mode. Literal 24 KiB
+IBM PC profiles in 86Box stop in POST with a memory-size error before ROM BASIC.
+Faster ad hoc profiles are not part of the normal workflow.
 
 The 86Box NIC inventory for this target is tracked in:
 

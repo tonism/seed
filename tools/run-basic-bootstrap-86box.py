@@ -781,7 +781,7 @@ def ensure_com_passthrough(lines: list[str]) -> list[str]:
 
 def rewrite_vm_config(
     config: Path,
-    ram_kib: int,
+    ram_kib: int | None,
     floppy: Path,
     rom_basic: bool,
     com_passthrough: bool = False,
@@ -858,7 +858,7 @@ def rewrite_vm_config(
             wrote_video_filter = True
             continue
 
-        if stripped.startswith("mem_size ="):
+        if ram_kib is not None and stripped.startswith("mem_size ="):
             out.append(f"mem_size = {ram_kib}")
             continue
 
@@ -1203,6 +1203,66 @@ def launch_86box(
     return subprocess.Popen(cmd, **kwargs)
 
 
+def accept_moved_or_copied_dialog() -> bool:
+    """Dismiss 86Box's first-run/moved VM identity dialog non-interactively."""
+    script = """
+try
+  tell application "86Box" to activate
+end try
+delay 0.05
+tell application "System Events"
+  if not (exists process "86Box") then return "none"
+  tell process "86Box"
+    repeat with oneWindow in windows
+      try
+        if exists button "I Copied It" of oneWindow then
+          click button "I Copied It" of oneWindow
+          return "accepted"
+        end if
+      end try
+      try
+        set dialogPosition to position of oneWindow
+        set dialogSize to size of oneWindow
+        set dialogWidth to item 1 of dialogSize
+        set dialogHeight to item 2 of dialogSize
+        if dialogWidth > 350 and dialogWidth < 750 and dialogHeight > 150 and dialogHeight < 350 then
+          set clickX to (item 1 of dialogPosition) + (dialogWidth * 0.34)
+          set clickY to (item 2 of dialogPosition) + dialogHeight - 44
+          click at {clickX, clickY}
+          return "accepted"
+        end if
+      end try
+    end repeat
+  end tell
+end tell
+return "none"
+"""
+    result = subprocess.run(
+        ["osascript", "-e", script],
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode == 0 and result.stdout.strip() == "accepted"
+
+
+def wait_for_86box_window_or_identity_dialog(
+    profile: str | None,
+    pid: int | None,
+    timeout: float = 15.0,
+) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        window_id = find_86box_window_id(profile, pid)
+        if window_id is None and pid is not None:
+            window_id = find_86box_window_id(profile, None)
+        if window_id is not None:
+            return True
+        if accept_moved_or_copied_dialog():
+            print("harness: accepted 86Box moved/copied identity dialog", flush=True)
+        time.sleep(0.2)
+    return False
+
+
 def screenshot(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     run(["screencapture", "-x", str(path)])
@@ -1279,6 +1339,8 @@ def find_86box_window_id(
                 if layer != 0:
                     continue
                 title = cf_string(cf.CFDictionaryGetValue(item, key_title))
+                if title == "86Box VM Manager":
+                    continue
                 window_id = cf_number(cf.CFDictionaryGetValue(item, key_number))
                 if window_id == 0:
                     continue
@@ -1318,15 +1380,7 @@ def wait_for_86box_window(
     pid: int | None,
     timeout: float = 15.0,
 ) -> bool:
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        window_id = find_86box_window_id(profile, pid)
-        if window_id is None and pid is not None:
-            window_id = find_86box_window_id(profile, None)
-        if window_id is not None:
-            return True
-        time.sleep(0.2)
-    return False
+    return wait_for_86box_window_or_identity_dialog(profile, pid, timeout)
 
 
 def screenshot_86box_window_or_screen(
@@ -2194,7 +2248,7 @@ def main() -> int:
     parser.add_argument("--loader-floppy", type=Path, default=DEFAULT_LOADER_FLOPPY)
     parser.add_argument("--screenshot", type=Path, default=DEFAULT_SCREENSHOT)
     parser.add_argument("--oracle-screenshot", type=Path, default=DEFAULT_ORACLE_SCREENSHOT)
-    parser.add_argument("--ram-kib", type=int, default=16)
+    parser.add_argument("--ram-kib", type=int, default=None)
     parser.add_argument("--startup-delay", type=float, default=None)
     parser.add_argument("--capture-delay", type=float, default=None)
     parser.add_argument(
@@ -2456,6 +2510,8 @@ def main() -> int:
             args.startup_delay = DEFAULT_BASIC_STARTUP_DELAY
         if args.capture_delay is None:
             args.capture_delay = DEFAULT_BASIC_CAPTURE_DELAY
+        if args.ram_kib is None:
+            args.ram_kib = 16
     else:
         if args.startup_delay is None:
             args.startup_delay = DEFAULT_DIRECT_STARTUP_DELAY
@@ -2469,6 +2525,7 @@ def main() -> int:
 
     if not args.floppy.exists():
         raise SystemExit(f"missing floppy image: {args.floppy}")
+    args.floppy = args.floppy.resolve()
     if args.entry == "basic" and not args.basic.exists():
         raise SystemExit(f"missing BASIC bootstrap: {args.basic}")
     if (
@@ -2479,6 +2536,7 @@ def main() -> int:
         raise SystemExit(f"missing BASIC loader binary: {args.basic_loader}")
     if args.entry == "loader" and not args.loader.exists():
         raise SystemExit(f"missing BASIC loader binary: {args.loader}")
+    args.loader_floppy = args.loader_floppy.resolve()
 
     basic_text = ""
     run_text = ""

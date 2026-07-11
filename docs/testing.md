@@ -22,11 +22,12 @@ Seed boots two ways, and they exercise different memory sizes:
   `0x4000`; in the current Build 12 layout the reconnect-safe pool leaves a
   96 B conversation window and a 96 B arena. This is the
   compatibility gate.
-- **>=32 KiB, direct floppy boot** (`--entry direct --ram-kib 32`). The floppy
+- **>=32 KiB, direct floppy boot** (`--entry direct`). The floppy
   sits in drive A:, the BIOS boots it directly - no sidecar, no BASIC. `ram_top`
   is `0x8000`; the 32 KiB tier uses the extra low RAM for the cached normal-turn chat
   loop cache and tools-schema cache, leaving a 224 B seg-0 window and 224 B
-  arena. This is the direct-boot / cache-path gate.
+  arena. This is the direct-boot / cache-path gate. Direct runs preserve the
+  profile's checked-in `mem_size` unless `--ram-kib N` is passed explicitly.
 
 `--entry direct` rewrites the profile cfg to put the floppy in A:. Without it a
 stale cfg leaves the floppy in B: and the machine lands in ROM BASIC.
@@ -34,7 +35,9 @@ stale cfg leaves the floppy in B: and the machine lands in ROM BASIC.
 ## Key flags
 
 - `--profile <name>` - the 86Box profile (a NIC; see the matrix below).
-- `--ram-kib N` - machine RAM (sets `mem_size`); 16 (default) or 32 for direct.
+- `--ram-kib N` - machine RAM override (sets `mem_size`). Omit it for direct
+  profile gates so the profile's representative RAM tier is preserved. The
+  ROM BASIC sidecar defaults to 16 KiB.
 - `--entry basic|direct` - boot mode (above).
 - `--post-dpi-text "..."` - one chat turn; repeatable, one per turn. Each is
   typed after the DPI is ready and gated on the screen oracle. This drives a
@@ -85,7 +88,7 @@ never by source port.
   invent?". Recall of an un-derivable word proves the response entered the window.
 - **Invisible compaction**: keep chatting on 16 KiB until `compacting context`
   appears (dim). Recall a fact from before it to prove the recap carried forward.
-- **Big-window context flush** (needs `--entry direct --ram-kib 32`): two ~230 B
+- **Big-window context flush** (needs `--entry direct` on `vm-net-ne2k8`): two ~230 B
   prompts so turn 2's window+prompt exceeds one ~440 B TLS record. Establish a
   passcode in turn 1, recall it in turn 2 - confirms the chunked send and the
   JSON-escaping of the (quoted) stored response.
@@ -94,14 +97,24 @@ never by source port.
 
 ## Build 12 Memory Tiers
 
-- **286 HMA/native extended**: `python3 tools/run-286-86box.py --mem-kib 2048`
-  boots the 360K image on an AMI 286 AT-compatible harness with 1 MiB above 1 MiB exposed
-  through BIOS `int 15h AH=88h/87h`.
-- **386 unreal**: `python3 tools/run-386-86box.py` boots the 360K image on the
-  tracked `vm-net-386` shape (`adi386sx`/`i386sx`, 4096 KiB RAM) for
-  unreal-mode access.
-- **EMS regression**: use `targets/ibm_pc_5150/86box/vm-net-ems/86box.cfg` with
-  the normal direct/network harness when touching the shared far/EMS context path.
+The checked-in 86Box profiles are the representative matrix: failure paths,
+NIC families, memory tiers, and the CPU classes implied by those tiers. Profile
+generation remains for automation and exact hardware mixes that should not be
+tracked combinatorially.
+
+- **16 KiB 8088 sidecar**: `vm-net-ne2k8` with the default `--entry basic`.
+- **32 KiB 8088 direct**: `vm-net-ne2k8 --entry direct`.
+- **256 KiB 8088 far conventional**: `vm-net-ne2k8-xt --entry direct`.
+- **256 KiB 8088 + 4 MiB EMS**: `vm-net-ems --entry direct`.
+- **286 HMA/native extended**: tracked `vm-net-286` (`ami286`, 2048 KiB RAM)
+  with the 360K image, or `python3 tools/run-286-86box.py --mem-kib 2048` for
+  generated speed/RAM sweeps. This exposes 1 MiB above 1 MiB through BIOS
+  `int 15h AH=88h/87h`.
+- **386 unreal**: tracked `vm-net-386` (`adi386sx`/`i386sx`, 4096 KiB RAM), or
+  `python3 tools/run-386-86box.py` for generated automation.
+
+The harness handles 86Box's first-run "moved or copied" network-identity dialog
+itself during tests; no manual button press should be needed.
 
 For intermittent "model did not respond" captures, start the rootless watcher
 before the VM run:

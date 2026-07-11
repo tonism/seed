@@ -5,6 +5,11 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 VM_PROFILE=${1:-vm}
 VM_PATH="$ROOT/targets/ibm_pc_5150/86box/$VM_PROFILE"
 IMAGE="$ROOT/build/ibm_pc_5150/floppy-160k.img"
+case "$VM_PROFILE" in
+    vm-net-286|vm-net-386)
+        IMAGE="$ROOT/build/ibm_pc_5150/floppy-360k.img"
+        ;;
+esac
 
 if command -v 86Box >/dev/null 2>&1; then
   EMULATOR=86Box

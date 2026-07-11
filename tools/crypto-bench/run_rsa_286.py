@@ -48,6 +48,7 @@ def write_cfg(img):
 emu_build_num = 8200
 sound_muted = 1
 vid_renderer = qt_software
+video_filter_method = 0
 [Machine]
 machine = ibmat
 cpu_family = 286
