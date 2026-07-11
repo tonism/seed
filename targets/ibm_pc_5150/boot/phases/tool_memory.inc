@@ -710,10 +710,7 @@ align 8, db 0
     ret
 .scr_putc:
     push bx
-    mov bl, 0x08
-    test word [handoff_addr + handoff_flags], handoff_flag_mda
-    jz .sp_store
-    mov bl, 0x07
+    mov bl, [menu_idle_attr]
 .sp_store:
     phase_call_res print_char
     pop bx

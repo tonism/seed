@@ -13,16 +13,17 @@
 ; full name, Enter; anything else -> dim "> incorrect option", re-prompt. Flows below (no centered menu /
 ; absolute positioning). Keeps the two-tone failure beep.
 failure_action_phase:
+    call .draw_splash
     call failure_action_phase_notify_failure
     ; dim "> "-prefixed system error line (message + net code), drawn once
     call .newline
-    mov bl, 0x08
+    mov bl, [menu_idle_attr]
     mov al, '>'
     phase_call_res print_char
     mov al, ' '
     phase_call_res print_char
     call .message_ptr
-    mov bl, 0x08
+    mov bl, [menu_idle_attr]
     call .print_msg
     call .type_net_code
 .retry_prompt:
@@ -58,13 +59,13 @@ failure_action_phase:
     call .streq
     je .do_restart
     call .newline
-    mov bl, 0x08
+    mov bl, [menu_idle_attr]
     mov al, '>'
     phase_call_res print_char
     mov al, ' '
     phase_call_res print_char
     mov si, low_scratch_start + (fail_incorrect_text - PHASE_BASE)
-    mov bl, 0x08
+    mov bl, [menu_idle_attr]
     call .print_msg
     jmp .retry_prompt
 .do_retry:
@@ -94,6 +95,7 @@ failure_action_phase:
     mov byte [input_max], 8
     mov byte [input_len], 0
     mov byte [dpi_input_buf], 0
+    call .show_cursor
     mov al, [cursor_row]
     mov [menu_index], al
     mov bl, [ready_attr]
@@ -102,6 +104,7 @@ failure_action_phase:
     mov al, ' '
     phase_call_res print_char
 .read_key_loop:
+    call .sync_cursor
     xor ah, ah
     int 0x16
     cmp al, 0x0d
@@ -142,6 +145,7 @@ failure_action_phase:
     dec byte [cursor_col]
     jmp .read_key_loop
 .read_line_done:
+    call .hide_cursor
     mov al, [cursor_row]
     mov ah, [cursor_col]
     push ax
@@ -192,12 +196,12 @@ failure_action_phase:
     jne .net_code_done
 .net_code:
     mov al, ' '
-    mov bl, 0x08
+    mov bl, [menu_idle_attr]
     phase_call_res print_char
     mov al, [handoff_addr + handoff_net_error]
     call .type_hex_byte
     mov al, '/'
-    mov bl, 0x08
+    mov bl, [menu_idle_attr]
     phase_call_res print_char
     mov al, [handoff_addr + handoff_net_status]
     call .type_hex_byte
@@ -219,7 +223,7 @@ failure_action_phase:
     jbe .hex_ready
     add al, 7
 .hex_ready:
-    mov bl, 0x08
+    mov bl, [menu_idle_attr]
     phase_call_res print_char
     ret
 
@@ -230,6 +234,59 @@ failure_action_phase:
     phase_call_res print_char
     jmp .print_msg
 .print_msg_done:
+    ret
+
+.show_cursor:
+    mov cx, 0x0607
+    jmp .apply_cursor_shape
+.hide_cursor:
+    mov cx, 0x2000
+.apply_cursor_shape:
+    mov ah, 0x01
+    int 0x10
+    ret
+
+.sync_cursor:
+    mov ah, 0x02
+    xor bh, bh
+    mov dh, [cursor_row]
+    mov dl, [cursor_col]
+    int 0x10
+    ret
+
+.draw_splash:
+    mov ax, 0x0600
+    mov bh, 0x07
+    xor cx, cx
+    mov dh, 24
+    mov dl, [screen_cols]
+    dec dl
+    int 0x10
+    xor ax, ax
+    mov [cursor_row], ax
+    call .newline
+    mov al, [seed_col]
+    mov [cursor_col], al
+    mov bl, [seed_attr]
+    mov si, low_scratch_start + (failure_seed_text - PHASE_BASE)
+    call .print_msg
+    mov al, ' '
+    mov bl, [build_attr]
+    phase_call_res print_char
+    mov si, low_scratch_start + (failure_build_text - PHASE_BASE)
+    call .print_msg
+    call .newline
+    test word [handoff_addr + handoff_flags], handoff_flag_cpu_286plus
+    jnz .secure_no_warning
+    mov al, [seed_col]
+    add al, insecure_warning_col_offset
+    mov [cursor_col], al
+    mov bl, [build_attr]
+    mov si, low_scratch_start + (failure_insecure_text - PHASE_BASE)
+    call .print_msg
+    call .newline
+.secure_no_warning:
+    call .newline
     ret
 
 .newline:
@@ -252,6 +309,9 @@ retry_question_text db 'retry or restart?', 0
 retry_text db 'retry', 0
 restart_text db 'restart', 0
 fail_incorrect_text db 'incorrect option', 0
+failure_seed_text db 'seed', 0
+failure_build_text db 'build ', '0' + (build_number / 10), '0' + (build_number % 10), 0
+failure_insecure_text db 'insecure', 0
 
 failure_action_phase_notify_failure:
     mov ax, 5424

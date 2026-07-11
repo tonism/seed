@@ -194,15 +194,12 @@ agent_endpoint_phase:
     call .reconnect_advance_line
     jmp .render_dim_run
 
-; Render cx chars from [si] at the current cursor, dim (0x08 dark-gray on CGA; 0x07 normal on MDA
-; where 0x08 can be invisible) via the resident cursor-aware print_char -- which advances cursor_col,
+; Render cx chars from [si] at the current cursor with the runtime system-line attribute via the
+; resident cursor-aware print_char -- which advances cursor_col,
 ; so later text starts after the run unless the caller advances a line. print_char preserves ax/bx but
 ; sets cx=1, so only cx is saved across it; bl (the attribute) survives in bx.
 .render_dim_run:
-    mov bl, 0x08
-    test word [handoff_addr + handoff_flags], handoff_flag_mda
-    jz .rdr_next
-    mov bl, 0x07
+    mov bl, [menu_idle_attr]
 .rdr_next:
     lodsb
     push cx

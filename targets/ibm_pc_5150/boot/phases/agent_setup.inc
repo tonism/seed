@@ -95,13 +95,13 @@ agent_setup_phase:
     ret
 .ask_agent_invalid:
     call .newline
-    mov bl, 0x08                               ; dim system message (dark style), "> "-prefixed like the chat
+    mov bl, [menu_idle_attr]                   ; dim system message, "> "-prefixed like the chat
     mov al, '>'
     phase_call_res print_char
     mov al, ' '
     phase_call_res print_char
     mov si, low_scratch_start + (incorrect_text - PHASE_BASE)
-    mov bl, 0x08
+    mov bl, [menu_idle_attr]
     call .print_msg
     call .newline                              ; blank line between the system message and the agent's re-ask
     jmp .ask_agent_retry
@@ -123,6 +123,7 @@ agent_setup_phase:
     mov byte [input_len], 0
     mov di, [input_target]
     mov byte [di], 0
+    call .show_cursor
     mov al, [cursor_row]
     mov [menu_index], al                       ; remember the "> " marker row (to erase it on submit)
     mov bl, [ready_attr]
@@ -131,6 +132,7 @@ agent_setup_phase:
     mov al, ' '
     phase_call_res print_char
 .read_key_loop:
+    call .sync_cursor
     xor ah, ah
     int 0x16
     cmp al, 0x0d
@@ -171,6 +173,7 @@ agent_setup_phase:
     dec byte [cursor_col]
     jmp .read_key_loop
 .read_line_done:
+    call .hide_cursor
     ; erase the "> " marker (DPI-style): save the end cursor, go to the marker row col 0, print a space
     ; over the '>', restore, then break to the next line so the submitted line reads as the user's message.
     mov al, [cursor_row]
@@ -230,6 +233,24 @@ agent_setup_phase:
     inc di
     or al, al
     jnz .copy_z
+    ret
+
+.show_cursor:
+    mov cx, 0x0607
+    jmp .apply_cursor_shape
+.hide_cursor:
+    mov cx, 0x2000
+.apply_cursor_shape:
+    mov ah, 0x01
+    int 0x10
+    ret
+
+.sync_cursor:
+    mov ah, 0x02
+    xor bh, bh
+    mov dh, [cursor_row]
+    mov dl, [cursor_col]
+    int 0x10
     ret
 
 .newline:

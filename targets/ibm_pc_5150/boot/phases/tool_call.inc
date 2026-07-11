@@ -634,10 +634,7 @@ tool_phase:
 ; pause per char would drag badly on faster/bigger machines. Dim, but instant.
 .scr_putc:
     push bx
-    mov bl, 0x08
-    test word [handoff_addr + handoff_flags], handoff_flag_mda
-    jz .sp_store
-    mov bl, 0x07
+    mov bl, [menu_idle_attr]
 .sp_store:
     phase_call_res print_char
     pop bx

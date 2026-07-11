@@ -83,10 +83,7 @@ save_write_phase:
     mov byte [api_stream_seen], 1
     call save_scr_newline                ; di = fresh-line byte offset; es still = ds
     call save_video_seg_es               ; es = video segment
-    mov ah, 0x08                         ; dim grey (CGA); MDA 0x07
-    test word [handoff_addr + handoff_flags], handoff_flag_mda
-    jz .st_next
-    mov ah, 0x07
+    mov ah, [menu_idle_attr]
 .st_next:
     lodsb
     or al, al

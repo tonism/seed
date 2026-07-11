@@ -234,19 +234,19 @@ restore_env_phase:
     sub dx, ax                       ; dx = region_len - pool = extra RAM the save needs
     mov [fs_current_cluster], dx
     call .tb_newline
-    mov bl, 0x08
+    mov bl, [menu_idle_attr]
     mov al, '>'
     phase_call_res print_char
     mov al, ' '
     phase_call_res print_char
     mov si, low_scratch_start + (restore_toobig_text - PHASE_BASE)
-    mov bl, 0x08
+    mov bl, [menu_idle_attr]
     call .print_z                    ; "environment needs "
     mov ax, [fs_current_cluster]     ; the shortfall (extra RAM needed vs this machine)
-    mov bl, 0x08
+    mov bl, [menu_idle_attr]
     call .print_size                 ; "<n> <unit>"
     mov si, low_scratch_start + (restore_more_text - PHASE_BASE)
-    mov bl, 0x08
+    mov bl, [menu_idle_attr]
     call .print_z                    ; " more RAM"
 .tb_prompt:
     call .tb_newline
@@ -280,13 +280,13 @@ restore_env_phase:
     call .tb_streq
     je .tb_restart
     call .tb_newline
-    mov bl, 0x08
+    mov bl, [menu_idle_attr]
     mov al, '>'
     phase_call_res print_char
     mov al, ' '
     phase_call_res print_char
     mov si, low_scratch_start + (restore_incorrect_text - PHASE_BASE)
-    mov bl, 0x08
+    mov bl, [menu_idle_attr]
     call .print_z                    ; "incorrect option"
     jmp .tb_prompt
 .tb_restart:
@@ -317,6 +317,7 @@ restore_env_phase:
     mov byte [input_max], 12
     mov byte [input_len], 0
     mov byte [dpi_input_buf], 0
+    call .tb_show_cursor
     mov al, [cursor_row]
     mov [menu_index], al
     mov bl, [ready_attr]
@@ -325,6 +326,7 @@ restore_env_phase:
     mov al, ' '
     phase_call_res print_char
 .tb_rl_loop:
+    call .tb_sync_cursor
     xor ah, ah
     int 0x16
     cmp al, 0x0d
@@ -365,6 +367,7 @@ restore_env_phase:
     dec byte [cursor_col]
     jmp .tb_rl_loop
 .tb_rl_done:
+    call .tb_hide_cursor
     mov al, [cursor_row]
     mov ah, [cursor_col]
     push ax
@@ -395,6 +398,24 @@ restore_env_phase:
 .tb_streq_done:
     pop di
     pop si
+    ret
+
+.tb_show_cursor:
+    mov cx, 0x0607
+    jmp .tb_apply_cursor_shape
+.tb_hide_cursor:
+    mov cx, 0x2000
+.tb_apply_cursor_shape:
+    mov ah, 0x01
+    int 0x10
+    ret
+
+.tb_sync_cursor:
+    mov ah, 0x02
+    xor bh, bh
+    mov dh, [cursor_row]
+    mov dl, [cursor_col]
+    int 0x10
     ret
 
 .tb_newline:
@@ -480,10 +501,7 @@ restore_env_warn_line:
     mul ah
     shl ax, 1                        ; di = cursor_row * cols * 2 (row byte offset)
     mov di, ax
-    mov ah, 0x08                     ; CGA dim grey
-    test word [handoff_addr + handoff_flags], handoff_flag_mda
-    jz .wl_next
-    mov ah, 0x07
+    mov ah, [menu_idle_attr]
 .wl_next:
     lodsb
     or al, al
