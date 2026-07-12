@@ -22,8 +22,6 @@ memory-constrained machine to a cloud model, publishes a clear hardware and memo
 contract, then gets out of the way and leaves the rest open for user- and agent-built
 tooling. The boot floppy is the reset boundary, so recovery is always a reboot away.
 
-![A cloud model on a 16 KiB IBM PC 5150 reads the machine's live memory with a read tool call and reports the bytes, under 86Box](docs/images/seed-tool-call.png)
-
 ## Why it's interesting
 
 Four things make Seed unusual:
