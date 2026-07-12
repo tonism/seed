@@ -2,10 +2,10 @@
 
 <p align="center">
   <img src="docs/images/seed-demo-8088.gif" width="49%" alt="A cloud model on a 16 KiB 4.77 MHz 8088 IBM PC reads the BIOS clock and works out the time from the raw timer ticks; the boot splash shows a dim 'insecure' because the stock-8088 channel is encrypted but not secure. 86Box, sped up 8x.">
-  <img src="docs/images/seed-demo-286.gif" width="49%" alt="The same prompt on a 6 MHz 286: a real secure handshake (no insecure splash) that also finishes the read-and-compute first. 86Box, sped up 8x.">
+  <img src="docs/images/seed-demo-286.gif" width="49%" alt="The same prompt on a 512 KiB 6 MHz 286: a real secure handshake (no insecure splash) that also finishes the read-and-compute first. 86Box, sped up 8x.">
 </p>
 
-<p align="center"><sub><b>Same prompt, typed at the same moment, on two machines from the <code>seed build 12</code> splash.</b> &nbsp; Left: 16 KiB · 4.77 MHz 8088 — <i>encrypted, not secure</i>. &nbsp; Right: 6 MHz 286 — <i>secure, and it finishes first</i>. &nbsp; 86Box, sped up 8×.</sub></p>
+<p align="center"><sub><b>Same prompt, typed at the same moment, on two machines from the <code>seed build 12</code> splash.</b> &nbsp; Left: 16 KiB · 4.77 MHz 8088 — <i>encrypted, not secure</i>. &nbsp; Right: 512 KiB · 6 MHz 286 — <i>secure, and it finishes first</i>. &nbsp; 86Box, sped up 8×.</sub></p>
 
 **A frontier cloud model writes 8088 machine code, ships it over the network to a
 1981 IBM PC, and runs it there — then reads the result back into its own context.**
