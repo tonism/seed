@@ -115,7 +115,7 @@ tool_memory_phase:
     mov cl, [tool_readlen]
     xor ch, ch
     jcxz .read_emit
-    call .addr_range_ok
+    call .addr_read_ok
     jc .read_range_fail
     call .addr_is_unreal_ext
     jnc .read_unreal
@@ -521,6 +521,32 @@ align 8, db 0
     jnz .chb_next
 .chb_done:
     mov cx, bp
+    ret
+
+.addr_read_ok:
+    ; read_mem may read anywhere in conventional low memory [0 .. 0xA0000)
+    ; (BIOS data area, IVT, ROM shadows, etc. — reads are side-effect-free).
+    ; Higher reads (HMA / native extended) fall through to the arena range
+    ; check. write_mem / exec still call .addr_range_ok directly, so only reads
+    ; are widened; the model can never write or execute outside the arena.
+    or cx, cx
+    jz .addr_range_ok                  ; empty -> let the range check reject
+    mov si, [tool_addr]
+    mov di, [tool_addr + 2]
+    mov bx, si
+    mov bp, di
+    add bx, cx
+    adc bp, 0                          ; exclusive end = start + len
+    jc .addr_range_ok                  ; 32-bit wrap -> range check
+    cmp di, 0x000a                     ; start >= 0xA0000 ?
+    jae .addr_range_ok                 ; high read -> range check (HMA/ext)
+    cmp bp, 0x000a                     ; end high word
+    jb .addr_read_conv                 ; end < 0xA0000 -> all conventional
+    ja .addr_range_ok                  ; end > 0xA0000 -> range check
+    or bx, bx                          ; end == 0xA0000 exactly is fine
+    jnz .addr_range_ok
+.addr_read_conv:
+    clc
     ret
 
 .addr_range_ok:
