@@ -96,7 +96,8 @@ key sk-your-openai-key
 > header is exposed to anyone on the network path — and the "Try it" steps above boot
 > exactly such a machine. Even on a secure 286, `USER.CFG` stores the key in plaintext on
 > the image. Use a disposable key with strict limits, revoke it afterward, and don't share
-> an image that has your key in it.
+> an image that has your key in it. For a genuinely secure channel, run Seed on a 286 or
+> faster — see [System Requirements](#system-requirements).
 
 ## Authorship
 
@@ -117,12 +118,15 @@ examples), and stop.
 Everything else is contributor and runtime-contract reference — including the dated
 logs in `notes/`, which record how this was actually built, mistakes and all.
 
-## Minimum Specs
+## System Requirements
 
-Current IBM PC 5150 target:
+**Minimum — any PC.** Seed runs on a bone-stock 1981 IBM PC: a 4.77 MHz 8088 with
+16 KiB of RAM. The whole agent loop is functional at this floor — chat, the native
+read/write/execute tools, and the full TLS 1.2 record layer — though on a pre-286 CPU
+the channel is encrypted, *not* secure (see the recommendation below).
 
 ```text
-CPU       8088-compatible, 4.77 MHz
+CPU       8088-compatible, 4.77 MHz  (any PC)
 RAM       16 KiB minimum through ROM BASIC sidecar entry
           32 KiB minimum for direct BIOS floppy boot
 media     160 KiB 5.25-inch FAT12 floppy image
@@ -130,6 +134,18 @@ video     BIOS text mode, CGA or MDA
 network   supported ISA Ethernet adapter
 emulator  86Box profiles are provided for development and verification
 ```
+
+**Recommended — a 286, for a secure channel.** Confidentiality is CPU-tiered, and this
+is the one thing the 8088 floor cannot do. Below the 286 the key exchange is stubbed, so
+the connection is *encrypted but not secure* — anyone on the network path can recover the
+session keys, and a pre-286 machine says so with a dim **"insecure"** splash. A **286 or
+faster** runs a real authenticated handshake — ephemeral ECDHE key agreement plus a
+pinned-key RSA-2048 certificate verify — inside the provider's handshake window: **8 MHz
+is comfortable, 6 MHz works on a knife-edge.**
+
+> **If the channel needs to be secure, use a 286 or faster.** On anything slower, treat
+> the connection as public and use only a throwaway, rate-limited key. Details in
+> **Status** above and [docs/architecture.md](docs/architecture.md).
 
 Supported network families on the current target:
 
