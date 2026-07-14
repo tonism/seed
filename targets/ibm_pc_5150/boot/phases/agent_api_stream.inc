@@ -23,8 +23,6 @@ agent_api_stream_phase:
     jmp .done
 
 .ready_tail:
-    mov al, [chat_prompt_len_cache]
-    push ax
     cmp word [tls_app_len], 0
     je .stream_chunk2
     phase_call_res tls_prepare_3c501_receive
@@ -108,11 +106,13 @@ agent_api_stream_phase:
     sub ax, api_request_plain + tls_record_header_len
     call .send_app_record                     ; record B: ledger [+ note] + input-open (or targets)
     jc .prefix_failed
-.tail_pending:
-    pop ax
-    or al, [tool_fc_state]                    ; build when a prompt or native tool output is pending
-    je .done
 .tail_build:
+    xor ax, ax
+    mov ds, ax
+    mov es, ax
+    ; Reconnect handshakes can clobber api_stream_prompt_len; the durable
+    ; prompt length lives beside the retry counter in reconnect-safe state.
+    mov al, [chat_resend_prompt_len]
     mov [api_stream_prompt_len], al
     mov di, api_request_plain + tls_record_header_len
     mov si, PHASE_LOAD_ADDR + (api_json_user_item_open_text - PHASE_BASE)
@@ -133,8 +133,6 @@ agent_api_stream_phase:
     jc .failed
     jmp .tail_close_json
 .tail_fc_prompt:
-    mov al, [chat_resend_prompt_len]
-    mov [api_stream_prompt_len], al
     call agent_api_stream_append_prompt_screen_to_buffer
     jc .failed
 .tail_fc_output:
@@ -147,8 +145,6 @@ agent_api_stream_phase:
     sub ax, api_request_plain + tls_record_header_len
 
 .send_tail:
-    or ax, ax
-    jz .done
     cmp ax, api_request_plain_len
     ja .failed
     call .send_app_record
@@ -181,7 +177,6 @@ agent_api_stream_phase:
     ret
 
 .prefix_failed:
-    pop ax
 .failed:
     stc
     ret
@@ -284,7 +279,7 @@ agent_api_stream_stream_contract:
 
 ; Build 11 #4c: append the dynamic char targets after the (floppy) compaction contract, so the model
 ; sizes its note to the window without doing byte math itself. N = window/4 (the aim), M =
-; window/3 (the hard ceiling - emit_char caps the captured summary at exactly this, leaving room for
+; window/2 (the hard ceiling - emit_char caps the captured summary at exactly this, leaving room for
 ; the prompt that triggered pre-request compaction). Rendered as decimals; the fixed text length + the two digit
 ; counts are mirrored into Content-Length by compute_ready_body_lengths (api_compaction_targets_fixed_len
 ; + .u16_decimal_len). [es:di] advances; clobbers ax/bx/cx/dx/si.
@@ -298,9 +293,7 @@ agent_api_stream_append_compaction_targets:
     mov al, '/'
     stosb
     mov ax, [chat_context_len_var]
-    xor dx, dx
-    mov bx, 3
-    div bx                               ; M = window/3 (== chat_effective_cap on a compaction pass)
+    shr ax, 1                            ; M = window/2 (== chat_effective_cap on a compaction pass)
     jmp agent_api_stream_append_u16_decimal
 
 agent_api_stream_append_u16_decimal:
@@ -574,7 +567,7 @@ agent_api_stream_append_ledger:
     call agent_api_stream_ledger_hex16
     mov si, PHASE_LOAD_ADDR + (api_ledger_cap_text - PHASE_BASE)
     call agent_api_stream_append_z_to_buffer
-    mov ax, chat_context_len_var
+    mov ax, [chat_context_len_var]
     call agent_api_stream_ledger_hex16
     ; Build 12 Stage C (C2/C3): F@<arena_base>-<arena_top> -- the far ARENA (agent $w/$x workspace),
     ; which sits before the far context log. Both bounds are boot-computed DWORDs, emitted fixed-width
@@ -688,7 +681,10 @@ agent_api_stream_ledger_nibble:    ; low nibble of al -> 1 hex char at [es:di]
 ; flush (tls_app_len + the resident phase calls are ds=0-relative) and on every exit. es stays = the record
 ; body segment (0). The start offset si is always < 64 KB, so only the in-loop renorm is needed.
 agent_api_stream_append_context:        ; si = source offset/ptr, dx:cx = byte count
-    push ds
+    xor ax, ax
+    mov ds, ax
+    mov es, ax
+    push ax                              ; every exit restores ds=0, even if the caller arrived dirty
     mov bp, dx                           ; M2e: keep the byte-count HIGH word in bp -- the EMS entry/renorm
                                          ; reuse dx as the page-map port, which would otherwise clobber it.
     ; Build 12 M2b/M2e: when the context lives in EMS (far_ctx_base >= 0x100000) the source is the page

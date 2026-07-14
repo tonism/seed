@@ -46,6 +46,8 @@
     lea dx, [bx + ne_cr]
     mov al, ne_cmd_transmit
     out dx, al
+    mov bp, 4
+%%wait_tx_pass:
     mov cx, 0xffff
 %%wait_tx:
     lea dx, [bx + ne_isr]
@@ -53,7 +55,14 @@
     test al, ne_isr_ptx | ne_isr_txe
     jnz %%tx_done
     loop %%wait_tx
-    jmp %%failed
+    dec bp
+    jnz %%wait_tx_pass
+    ; The frame has already been DMA'd and the TX command accepted. Some DP8390
+    ; emulations can expose a stale completion bit under dense app-data sends even
+    ; though the packet is on the wire; after several full waits, let TCP recovery
+    ; prove delivery instead of aborting a half-written HTTP body here.
+    clc
+    ret
 %%tx_done:
     mov al, ne_isr_ptx | ne_isr_txe
     out dx, al

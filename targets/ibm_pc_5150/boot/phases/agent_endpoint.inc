@@ -25,10 +25,22 @@ agent_endpoint_phase:
     ; connect and its recertify stay silent during loading, and only a post-greet session shows the line.
     ; (agent_api_stream's session-reuse path still gates on handoff_status==ready, separately.)
     mov al, [reconnect_retries]
+    cmp byte [compacting_msg], 0
+    je .not_compacting
+    cmp al, 3
+    jne .not_compacting
+    mov si, low_scratch_start + (compact_msg_text - PHASE_BASE)
+    mov cx, compact_msg_len
+    call .draw_dim_status_line
+    jmp .endpoint_body
+.not_compacting:
     or al, al
     jz .render_reconnect_failed
+    test word [handoff_addr + handoff_flags], handoff_flag_cpu_286plus
+    jz .recertify_skip
     cmp byte [recert_flag], 2
     je .render_recertify
+.recertify_skip:
     cmp al, 3
     jne .endpoint_body
     cmp byte [handoff_addr + handoff_status], handoff_status_ready
@@ -191,7 +203,9 @@ agent_endpoint_phase:
     je .dsl_line
     mov byte [render_last_type], render_type_system
 .dsl_line:
+    push cx
     call .reconnect_advance_line
+    pop cx
     jmp .render_dim_run
 
 ; Render cx chars from [si] at the current cursor with the runtime system-line attribute via the
@@ -216,6 +230,10 @@ agent_endpoint_phase:
     mov ax, 0x0601
     mov cx, 0x0100
     phase_call_res scroll_text_area
+    test byte [dpi_prompt_marker_row], 0x80
+    jz .ral_scrolled
+    dec byte [dpi_prompt_marker_row]
+.ral_scrolled:
     mov byte [cursor_row], dpi_prompt_row
     jmp .ral_col
 .ral_down:
@@ -232,6 +250,8 @@ reconnect_failed_len equ 18
 ; mid-chat recert; the shared " failed" tail above appends to whichever line the cursor is parked on.
 recertify_msg_text db '> recertify'
 recertify_word_len equ 11
+compact_msg_text db '> compacting context'
+compact_msg_len equ 20
 
 host_openai_text db 'api.openai.com', 0
 

@@ -142,25 +142,22 @@ agent_request_phase:
     mov ax, [chat_context_used]
     mov [note_len], ax
 .note_len_kept:
-    ; Build 12 Stage C (C1b) far-log flush (>64 KB machine): replaces the <=64 KB local drop
-    ; fallback when the far log is active. When the seg-0 window reaches the 75% trigger
-    ; (chat_compact_threshold), FREEZE it into the far log -- it was just mirrored at far_flushed_len by
-    ; the phase entry, so the flush only advances far_flushed_len past it (+ folds its JSON-escaped length
-    ; into far_flushed_esc for the Content-Length) and resets the seg-0 window to empty. The full
-    ; conversation lives on in far memory and streams in full every turn; nothing is summarized or dropped.
-    ; compacting_msg stays 0 -> the two-pass summarize loop never fires (net_phase) and the dormant
-    ; compaction branches all take the normal path. Reconnect-safe: the flush zeroes used, so a rebuild
-    ; re-mirrors 0 bytes and re-flushes nothing. On a <=64 KB machine the far log is inactive, so overflow
-    ; keeps any existing compacted note and drops the live dialogue before the real request. That avoids the
-    ; old model-summarize pre-pass, which can complete with no visible text and loop forever on the 16 KiB
-    ; native Responses path.
+    ; Uniform compaction policy: every tier compacts when its active context reaches the 75% trigger.
+    ; <=64 KB uses the seg-0 window directly. >64 KB still uses the small seg-0 window as a staging tail
+    ; and freezes that tail into the far log when the staging window fills, but model compaction is
+    ; triggered from the full far-log fullness, not from the machine class.
     mov byte [compacting_msg], 0
     cmp byte [tool_fc_state], 2
     je .not_compaction_pass              ; tool convention: function_call_output must be immediate
     mov al, [compact_next]
     mov byte [compact_next], 0
     or al, al
-    jnz .force_compaction
+    jnz .start_compaction_if_used
+    cmp word [far_log_seg_var], 0
+    je .check_low_window
+    call .far_context_over_threshold
+    jnc .start_compaction_pass
+.check_low_window:
     mov ax, [chat_context_used]
     or ax, ax
     jz .check_threshold
@@ -171,17 +168,23 @@ agent_request_phase:
     add bx, api_json_user_label_text_len + api_json_you_label_text_len
     add ax, bx
     cmp ax, [chat_context_len_var]
-    ja .force_compaction
+    ja .low_window_full
 .check_threshold:
     mov ax, [chat_context_used]
     cmp ax, [chat_compact_threshold]
     jb .not_compaction_pass
-.force_compaction:
+.low_window_full:
+    cmp word [far_log_seg_var], 0
+    jne .flush_low_window
+.start_compaction_if_used:
     mov ax, [chat_context_used]
     or ax, ax
     jz .not_compaction_pass
-    cmp word [far_log_seg_var], 0
-    je .drop_dialogue_context            ; <=64 KB machine: keep note prefix, drop live dialogue
+.start_compaction_pass:
+    mov byte [compacting_msg], 1
+    jmp .not_compaction_pass
+.flush_low_window:
+    mov ax, [chat_context_used]
     push ax
     call .context_base_si
     mov cx, ax
@@ -193,9 +196,6 @@ agent_request_phase:
     adc word [far_flushed_len + 2], 0
     mov word [chat_context_used], 0
     jmp .not_compaction_pass
-.drop_dialogue_context:
-    mov ax, [note_len]
-    mov [chat_context_used], ax
 .not_compaction_pass:
     ; Build 12 Stage C (C1b): precompute the "input" DIALOGUE range here (agent_request knows
     ; far_flushed_len / note_len / compacting_msg / far_log_seg_var) so the maxed agent_api_stream phase
@@ -214,9 +214,18 @@ agent_request_phase:
 .dlg_off_ready:
     cmp byte [compacting_msg], 0
     je .dlg_sub_note
+    cmp word [far_log_seg_var], 0
+    jne .dlg_compact_far
     call .context_base_si                ; compaction: stream the WHOLE seg-0 window (note ++ dialogue)
     mov ax, [chat_context_used]
     xor dx, dx
+    jmp .dlg_store
+.dlg_compact_far:
+    xor si, si                           ; compaction: stream the WHOLE far log (frozen ++ live mirror)
+    mov ax, [far_flushed_len]
+    mov dx, [far_flushed_len + 2]
+    add ax, [chat_context_used]
+    adc dx, 0
     jmp .dlg_store
 .dlg_sub_note:
     sub ax, [note_len]                   ; dialogue excludes the note (it rides "instructions")
@@ -231,9 +240,7 @@ agent_request_phase:
     mov ax, [chat_context_len_var]
     cmp byte [compacting_msg], 0
     je .cap_full
-    xor dx, dx
-    mov bx, 3
-    div bx
+    shr ax, 1
 .cap_full:
     mov [chat_effective_cap], ax
     call .restore_prompt_from_screen
@@ -297,6 +304,49 @@ agent_request_phase:
     jmp .request_failed
 .request_failed:
     stc
+    ret
+
+.far_context_over_threshold:
+    ; CF clear means compact: far_used >= 3/4 far_window_cap. CF set means keep accumulating.
+    mov ax, [far_flushed_len]
+    mov dx, [far_flushed_len + 2]
+    add ax, [chat_context_used]
+    adc dx, 0
+    or ax, ax
+    jnz .fc_used
+    or dx, dx
+    jz .fc_below
+.fc_used:
+    push ax
+    push dx
+    mov ax, [far_window_cap]
+    mov dx, [far_window_cap + 2]
+    shr dx, 1
+    rcr ax, 1                            ; window/2
+    mov bx, ax
+    mov cx, dx
+    mov ax, [far_window_cap]
+    mov dx, [far_window_cap + 2]
+    shr dx, 1
+    rcr ax, 1
+    shr dx, 1
+    rcr ax, 1                            ; window/4
+    add ax, bx
+    adc dx, cx                           ; dx:ax = 3/4 window
+    mov bx, ax
+    mov cx, dx
+    pop dx
+    pop ax                               ; dx:ax = far_used
+    cmp dx, cx
+    ja .fc_compact
+    jb .fc_below
+    cmp ax, bx
+    jae .fc_compact
+.fc_below:
+    stc
+    ret
+.fc_compact:
+    clc
     ret
 
 .build_openai_body:
@@ -398,7 +448,7 @@ agent_request_phase:
     cmp byte [compacting_msg], 0
     je .instr_normal
     ; Compaction: instructions = the floppy contract + the seed-appended dynamic char targets
-    ; " Target about <N> characters, at most <M>." (N = window/4, M = window/3). The fixed text is a
+    ; "~<N>/<M>" (N = window/4, M = window/2). The fixed text is a
     ; constant; the two decimals vary, so size them with .u16_decimal_len (bx holds the running body
     ; while the digit counts are computed). Must match exactly what the stream phase renders.
     add ax, [prompt_compact_size]
@@ -410,9 +460,7 @@ agent_request_phase:
     call .u16_decimal_len
     add bx, ax
     mov ax, [chat_context_len_var]
-    xor dx, dx
-    mov cx, 3
-    div cx                               ; M = window/3
+    shr ax, 1                            ; M = window/2
     call .u16_decimal_len
     add bx, ax
     mov ax, bx

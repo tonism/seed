@@ -286,6 +286,8 @@ hardware_setup_phase_display:
     jnc .far_log_inactive
     cmp word [ems_page_count], 0
     jne .far_ems_invert
+    mov ax, [far_arena_top]
+    mov dx, [far_arena_top + 2]
     ; --- M1 layout (no EMS): arena first [0x10000 .. conv_top-cap), context at the far end
     ; [conv_top-cap .. conv_top). cap = min((conv_top-0x10000)/2, 1 MB). ---
     sub ax, 0

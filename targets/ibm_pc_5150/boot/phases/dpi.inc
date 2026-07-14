@@ -17,6 +17,7 @@
 %endmacro
 
 dpi_phase:
+    mov byte [recert_flag], 0
     ; Build 11 ESC gate: the DPI is live now -- open the int 9 hook's ESC/Ctrl+ESC gate. Until this runs
     ; (the entire boot network bring-up), the hook ignores ESC so it can't longjmp into a half-built chat
     ; loop. Idempotent -- set every loop; only the first transition matters.

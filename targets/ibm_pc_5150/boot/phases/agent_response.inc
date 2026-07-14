@@ -208,14 +208,7 @@ agent_response_phase:
     call .append_prompt_to_context
     pop ax
 .prompt_appended:
-    mov bx, [chat_context_used]
-    cmp bx, [chat_effective_cap]
-    jae .emit_char_stored
-    call .context_base_di
-    add di, bx
-    mov [di], al
-    inc word [chat_context_used]
-.emit_char_stored:
+    call .append_context_byte
     cmp word [compacting_msg], 0
     je .emit_to_screen
     mov byte [api_stream_text_seen], 1
@@ -292,28 +285,14 @@ agent_response_phase:
     cmp byte [tool_fc_state], 2
     jne .apt_done
 .apt_real_turn:
-    mov al, [api_stream_prompt_len]
-    or al, al
+    cmp byte [api_stream_prompt_len], 0
     je .apt_done
-    xor ah, ah
-    mov bx, ax
-    add bx, api_json_user_label_text_len + api_json_you_label_text_len
-    mov ax, [chat_context_used]
-    add bx, ax
-    cmp bx, [chat_context_len_var]
-    jbe .apt_fits
-    mov byte [compact_next], 1
-    mov [chat_effective_cap], ax
-    jmp .apt_done
-.apt_fits:
-    call .context_base_di
-    mov ax, [chat_context_used]
-    add di, ax
-    mov byte [di], ' '
-    inc di
-    mov word [di], 'U:'
-    inc di
-    inc di
+    mov al, ' '
+    call .append_context_byte
+    mov al, 'U'
+    call .append_context_byte
+    mov al, ':'
+    call .append_context_byte
     push es
     mov ax, [video_seg]
     mov es, ax
@@ -331,8 +310,7 @@ agent_response_phase:
     mov dl, dpi_prompt_col + 2
 .apt_screen_next:
     mov al, [es:si]
-    mov [di], al
-    inc di
+    call .append_context_byte
     inc si
     inc si
     inc dl
@@ -343,19 +321,68 @@ agent_response_phase:
 .apt_screen_count:
     loop .apt_screen_next
     pop es
-    mov byte [di], ' '
-    inc di
-    mov word [di], 'A:'
-    inc di
-    inc di
-    mov byte [di], 10
-    inc di
-    mov ax, di
-    call .context_base_bx
-    sub ax, bx
-    mov [chat_context_used], ax
+    mov al, ' '
+    call .append_context_byte
+    mov al, 'A'
+    call .append_context_byte
+    mov al, ':'
+    call .append_context_byte
+    mov al, 10
+    call .append_context_byte
 .apt_done:
     pop cx
+    ret
+
+.append_context_byte:
+    push ax
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    mov dl, al
+    mov bx, [chat_context_used]
+    cmp bx, [chat_effective_cap]
+    jb .acb_room
+    call .context_base_di
+    xor bx, bx
+    cmp byte [compacting_msg], 0
+    jne .acb_drop_ready
+    mov bx, [note_len]
+    cmp bx, [chat_effective_cap]
+    jb .acb_drop_ready
+    xor bx, bx
+.acb_drop_ready:
+    add di, bx
+    mov si, di
+    inc si
+    mov cx, [chat_effective_cap]
+    sub cx, bx
+    jz .acb_done
+    dec cx
+    jcxz .acb_store_tail
+    push ds
+    pop es
+    rep movsb
+.acb_store_tail:
+    call .context_base_di
+    mov bx, [chat_effective_cap]
+    dec bx
+    add di, bx
+    mov [di], dl
+    jmp .acb_done
+.acb_room:
+    call .context_base_di
+    add di, bx
+    mov [di], dl
+    inc word [chat_context_used]
+.acb_done:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop ax
     ret
 
 .context_base_di:

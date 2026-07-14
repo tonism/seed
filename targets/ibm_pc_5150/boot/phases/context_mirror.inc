@@ -9,6 +9,14 @@ context_mirror_phase:
     ; far_log_seg_var = 0 and keep the Build 11 local compaction path.
     cmp word [far_log_seg_var], 0
     je .done
+    cmp byte [compacting_msg], 0
+    je .not_compacted_note
+    xor ax, ax
+    mov [far_flushed_len], ax
+    mov [far_flushed_len + 2], ax
+    mov [far_flushed_esc], ax
+    mov [far_flushed_esc + 2], ax
+.not_compacted_note:
     mov ax, [far_flushed_len]
     mov dx, [far_flushed_len + 2]
     add ax, [chat_context_used]
