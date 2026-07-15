@@ -182,6 +182,8 @@ def main():
                          "is the slow case -- ECDHE keypair gen ~6.6s + handshake ~14s + the model reply)")
     ap.add_argument("--out", default=str(ROOT / "build" / "ibm_pc_5150" / "boot-286-360k.png"))
     args = ap.parse_args()
+    if args.mem_kib < 512:
+        raise SystemExit("ami286 profile requires at least 512 KiB RAM; use an XT profile for lower-memory tests")
 
     img = Path(args.image).resolve()
     if not img.exists():

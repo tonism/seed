@@ -341,9 +341,29 @@ agent_response_phase:
     push di
     push es
     mov dl, al
+    cmp dl, 32
+    jb .acb_space
+    cmp dl, '"'
+    je .acb_space
+    cmp dl, '\'
+    jne .acb_byte_ready
+.acb_space:
+    mov dl, ' '
+.acb_byte_ready:
     mov bx, [chat_context_used]
     cmp bx, [chat_effective_cap]
     jb .acb_room
+    cmp word [far_log_seg_var], 0
+    je .acb_slide
+    cmp byte [compacting_msg], 0
+    jne .acb_slide
+    push dx
+    call .flush_staging_to_far
+    pop dx
+    jc .acb_slide
+    xor bx, bx
+    jmp .acb_room
+.acb_slide:
     call .context_base_di
     xor bx, bx
     cmp byte [compacting_msg], 0
@@ -372,7 +392,9 @@ agent_response_phase:
     mov [di], dl
     jmp .acb_done
 .acb_room:
+    push bx
     call .context_base_di
+    pop bx
     add di, bx
     mov [di], dl
     inc word [chat_context_used]
@@ -383,6 +405,21 @@ agent_response_phase:
     pop dx
     pop cx
     pop ax
+    ret
+
+.flush_staging_to_far:
+    mov ax, (((core_context_mirror_phase_end - core_context_mirror_phase_start + 511) / 512) << 8) | ((core_context_mirror_phase_start - $$) / 512)
+    mov bx, low_scratch_start
+    phase_call_res run_core_phase_at
+    jc .fsf_done
+    mov ax, [chat_context_used]
+    add [far_flushed_len], ax
+    adc word [far_flushed_len + 2], 0
+    add [far_flushed_esc], ax
+    adc word [far_flushed_esc + 2], 0
+    mov word [chat_context_used], 0
+    clc
+.fsf_done:
     ret
 
 .context_base_di:

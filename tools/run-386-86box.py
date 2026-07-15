@@ -170,6 +170,8 @@ def main():
     ap.add_argument("--timeout", type=float, default=90.0)
     ap.add_argument("--out", default=str(ROOT / "build" / "ibm_pc_5150" / "boot-386-360k.png"))
     args = ap.parse_args()
+    if args.mem_kib < 640:
+        raise SystemExit("adi386sx profile requires at least 640 KiB RAM; use an XT profile for lower-memory tests")
 
     img = Path(args.image).resolve()
     if not img.exists():

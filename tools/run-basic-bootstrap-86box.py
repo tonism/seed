@@ -910,6 +910,93 @@ def rewrite_vm_config(
     config.write_text("\n".join(out) + "\n", encoding="utf-8")
 
 
+def vm_machine_name(config: Path) -> str | None:
+    in_machine_section = False
+    for line in config.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            in_machine_section = stripped == "[Machine]"
+            continue
+        if in_machine_section and stripped.startswith("machine ="):
+            return stripped.split("=", 1)[1].strip()
+    return None
+
+
+def at_cmos(mem_kib: int, machine: str) -> bytes | None:
+    if machine not in {"ami286", "adi386sx"}:
+        return None
+    c = bytearray(128)
+    c[0x0A] = 0x26
+    c[0x0B] = 0x02
+    c[0x0D] = 0x80
+    c[0x04] = 0x12
+    c[0x07] = 0x01
+    c[0x08] = 0x06
+    c[0x09] = 0x26
+    c[0x10] = 0x20
+    c[0x14] = 0x21
+    if machine == "ami286":
+        base_kib = 512 if mem_kib < 1024 else 640
+    else:
+        base_kib = 640 if mem_kib >= 1024 else mem_kib
+    ext_kib = max(0, mem_kib - 1024)
+    c[0x15] = base_kib & 0xFF
+    c[0x16] = (base_kib >> 8) & 0xFF
+    c[0x17] = ext_kib & 0xFF
+    c[0x18] = (ext_kib >> 8) & 0xFF
+    c[0x30] = ext_kib & 0xFF
+    c[0x31] = (ext_kib >> 8) & 0xFF
+    chk = sum(c[0x10:0x2E]) & 0xFFFF
+    c[0x2E] = (chk >> 8) & 0xFF
+    c[0x2F] = chk & 0xFF
+    return bytes(c)
+
+
+def at_min_ram_kib(machine: str) -> int | None:
+    if machine == "ami286":
+        return 512
+    if machine == "adi386sx":
+        return 640
+    return None
+
+
+def validate_vm_ram_override(vm_path: Path, ram_kib: int | None) -> None:
+    if ram_kib is None:
+        return
+    machine = vm_machine_name(vm_path / "86box.cfg")
+    if machine is None:
+        return
+    min_ram_kib = at_min_ram_kib(machine)
+    if min_ram_kib is not None and ram_kib < min_ram_kib:
+        raise SystemExit(
+            f"{machine} profile requires at least {min_ram_kib} KiB RAM; "
+            f"use an XT profile for {ram_kib} KiB tests"
+        )
+
+
+def prepare_vm_nvr(vm_path: Path, ram_kib: int | None) -> tuple[Path, bytes] | None:
+    machine = vm_machine_name(vm_path / "86box.cfg")
+    if machine is None:
+        return None
+    min_ram_kib = at_min_ram_kib(machine)
+    if min_ram_kib is None:
+        return None
+    if ram_kib is not None and min_ram_kib is not None and ram_kib < min_ram_kib:
+        raise SystemExit(
+            f"{machine} profile requires at least {min_ram_kib} KiB RAM; "
+            f"use an XT profile for {ram_kib} KiB tests"
+        )
+    nvr = vm_path / "nvr" / f"{machine}.nvr"
+    if not nvr.exists():
+        return None
+    restore = (nvr, nvr.read_bytes())
+    if ram_kib is not None:
+        cmos = at_cmos(ram_kib, machine)
+        if cmos is not None:
+            nvr.write_bytes(cmos)
+    return restore
+
+
 def boot_debug_marker(char: str) -> list[int]:
     return [
         0x50,  # push ax
@@ -1554,6 +1641,11 @@ def classify_86box_screen(path: Path) -> tuple[str, str]:
         return "success", f"lower_bright={lower_bright_pixels}"
     if lower_text_pixels >= 40:
         return "success", f"lower_text={lower_text_pixels}"
+    try:
+        if image_suggests_dpi_prompt(path):
+            return "success", "dpi_prompt"
+    except (OSError, ValueError):
+        pass
     if center_dim_pixels >= 15 and non_dark_pixels < max(4000, sampled_pixels // 120):
         return "freeze", f"center_dim={center_dim_pixels} non_dark={non_dark_pixels}"
     return (
@@ -1607,11 +1699,13 @@ def image_display_bounds(
 
 
 def image_suggests_dpi_prompt(path: Path) -> bool:
-    """Detect a real bottom-left DPI prompt when OCR drops the lone `>` marker.
+    """Detect a real idle DPI prompt when OCR drops the lone `>` marker.
 
     A true idle DPI prompt has the prompt glyph, the visible BIOS text cursor,
-    and an otherwise blank input row. Long streamed answers can put arbitrary
-    text at the bottom-left; those must not open the next harness gate.
+    and an otherwise blank input row. Seed may leave that row high on the screen
+    after a short greeting/answer, so scan text rows instead of only the bottom.
+    Long streamed answers can put arbitrary text at the left edge; those must not
+    open the next harness gate.
     """
     width, height, channels, rows = read_png_rgb(path)
     if width < 320 or height < 240:
@@ -1636,63 +1730,77 @@ def image_suggests_dpi_prompt(path: Path) -> bool:
     tail_x0 = min(display_x1 + 1, display_x0 + cell_w * 4)
     tail_x1 = max(tail_x0, display_x1 + 1 - max(8, display_w // 40))
 
-    prompt_pixels = 0
-    cursor_pixels = 0
-    tail_pixels = 0
-    prompt_min_x = width
-    prompt_max_x = 0
-    prompt_min_y = height
-    prompt_max_y = 0
-    cursor_min_x = width
-    cursor_max_x = 0
-    cursor_min_y = height
-    cursor_max_y = 0
+    def band_has_prompt(band_y0: int, band_y1: int) -> bool:
+        prompt_pixels = 0
+        cursor_pixels = 0
+        tail_pixels = 0
+        prompt_min_x = width
+        prompt_max_x = 0
+        prompt_min_y = height
+        prompt_max_y = 0
+        cursor_min_x = width
+        cursor_max_x = 0
+        cursor_min_y = height
+        cursor_max_y = 0
 
-    for y in range(y0, y1):
-        row = rows[y]
-        for x in range(prompt_x0, prompt_x1):
-            off = x * channels
-            r, g, b = row[off], row[off + 1], row[off + 2]
-            if r > 165 and g > 165 and b > 165:
-                prompt_pixels += 1
-                prompt_min_x = min(prompt_min_x, x)
-                prompt_max_x = max(prompt_max_x, x)
-                prompt_min_y = min(prompt_min_y, y)
-                prompt_max_y = max(prompt_max_y, y)
-        for x in range(cursor_x0, cursor_x1):
-            off = x * channels
-            r, g, b = row[off], row[off + 1], row[off + 2]
-            if r > 165 and g > 165 and b > 165:
-                cursor_pixels += 1
-                cursor_min_x = min(cursor_min_x, x)
-                cursor_max_x = max(cursor_max_x, x)
-                cursor_min_y = min(cursor_min_y, y)
-                cursor_max_y = max(cursor_max_y, y)
-        for x in range(tail_x0, tail_x1):
-            off = x * channels
-            r, g, b = row[off], row[off + 1], row[off + 2]
-            if r > 165 and g > 165 and b > 165:
-                tail_pixels += 1
+        for y in range(band_y0, band_y1):
+            row = rows[y]
+            for x in range(prompt_x0, prompt_x1):
+                off = x * channels
+                r, g, b = row[off], row[off + 1], row[off + 2]
+                if r > 165 and g > 165 and b > 165:
+                    prompt_pixels += 1
+                    prompt_min_x = min(prompt_min_x, x)
+                    prompt_max_x = max(prompt_max_x, x)
+                    prompt_min_y = min(prompt_min_y, y)
+                    prompt_max_y = max(prompt_max_y, y)
+            for x in range(cursor_x0, cursor_x1):
+                off = x * channels
+                r, g, b = row[off], row[off + 1], row[off + 2]
+                if r > 165 and g > 165 and b > 165:
+                    cursor_pixels += 1
+                    cursor_min_x = min(cursor_min_x, x)
+                    cursor_max_x = max(cursor_max_x, x)
+                    cursor_min_y = min(cursor_min_y, y)
+                    cursor_max_y = max(cursor_max_y, y)
+            for x in range(tail_x0, tail_x1):
+                off = x * channels
+                r, g, b = row[off], row[off + 1], row[off + 2]
+                if r > 165 and g > 165 and b > 165:
+                    tail_pixels += 1
 
-    prompt_width = prompt_max_x - prompt_min_x + 1 if prompt_pixels else 0
-    prompt_height = prompt_max_y - prompt_min_y + 1 if prompt_pixels else 0
-    cursor_width = cursor_max_x - cursor_min_x + 1 if cursor_pixels else 0
-    cursor_height = cursor_max_y - cursor_min_y + 1 if cursor_pixels else 0
-    prompt_shape = (
-        8 <= prompt_pixels <= max(220, cell_w * cell_h)
-        and 4 <= prompt_width <= cell_w + 2
-        and 8 <= prompt_height <= y1 - y0
-        and tail_pixels <= max(20, prompt_pixels // 3)
-    )
-    cursor_shape = (
-        6 <= cursor_pixels <= max(260, cell_w * cell_h)
-        and max(4, cell_w // 2) <= cursor_width <= cell_w * 2
-        and 1 <= cursor_height <= cell_h
-    )
-    return prompt_shape and (
-        cursor_shape
-        or tail_pixels <= max(20, prompt_pixels // 3)
-    )
+        prompt_width = prompt_max_x - prompt_min_x + 1 if prompt_pixels else 0
+        prompt_height = prompt_max_y - prompt_min_y + 1 if prompt_pixels else 0
+        cursor_width = cursor_max_x - cursor_min_x + 1 if cursor_pixels else 0
+        cursor_height = cursor_max_y - cursor_min_y + 1 if cursor_pixels else 0
+        prompt_shape = (
+            8 <= prompt_pixels <= max(220, cell_w * cell_h)
+            and 4 <= prompt_width <= cell_w + 2
+            and 8 <= prompt_height <= band_y1 - band_y0
+            and tail_pixels <= max(20, prompt_pixels // 3)
+        )
+        cursor_shape = (
+            6 <= cursor_pixels <= max(260, cell_w * cell_h)
+            and max(4, cell_w // 2) <= cursor_width <= cell_w * 2
+            and 1 <= cursor_height <= cell_h
+        )
+        return prompt_shape and (
+            cursor_shape
+            or tail_pixels <= max(20, prompt_pixels // 3)
+        )
+
+    # Preserve the old bottom-row check, then scan visible text rows from top to
+    # bottom. A half-cell step tolerates captures where the text grid is not
+    # aligned exactly to the detected display rectangle.
+    if band_has_prompt(y0, y1):
+        return True
+    scan_y0 = display_y0 + cell_h
+    scan_y1 = min(display_y1 + 1, display_y0 + (display_h * 99) // 100)
+    step = max(1, cell_h // 2)
+    for row_y0 in range(scan_y0, max(scan_y0, scan_y1 - cell_h + 1), step):
+        if band_has_prompt(row_y0, min(scan_y1, row_y0 + cell_h)):
+            return True
+    return False
 
 
 def image_prompt_band_crc(path: Path) -> int:
@@ -2556,9 +2664,11 @@ def main() -> int:
     floppy = args.floppy
     image_args: list[str] | None = None
     restore_config: tuple[Path, bytes] | None = None
+    restore_nvr: tuple[Path, bytes] | None = None
     vm_path = args.vm_path or (ROOT / "targets/ibm_pc_5150/86box" / args.profile)
     if not vm_path.is_dir():
         raise SystemExit(f"missing 86Box profile: {vm_path}")
+    validate_vm_ram_override(vm_path, args.ram_kib)
     if not args.allow_existing_86box:
         stop_matching_86box_pids(vm_path)
 
@@ -2587,6 +2697,7 @@ def main() -> int:
                 com_passthrough=com_passthrough,
                 muted=not args.sound,
             )
+            restore_nvr = prepare_vm_nvr(vm_path, args.ram_kib)
         else:
             image_args = [f"A:{floppy}"]
     elif args.entry == "basic":
@@ -2600,6 +2711,7 @@ def main() -> int:
             com_passthrough=com_passthrough,
             muted=not args.sound,
         )
+        restore_nvr = prepare_vm_nvr(vm_path, args.ram_kib)
     elif args.entry == "direct":
         # Direct BIOS floppy boot: main floppy in A: (rom_basic=False), no sidecar.
         # A >=32K machine boots Seed straight from A:, giving ram_top 0x8000 and the
@@ -2615,6 +2727,7 @@ def main() -> int:
             com_passthrough=com_passthrough,
             muted=not args.sound,
         )
+        restore_nvr = prepare_vm_nvr(vm_path, args.ram_kib)
 
     com_capture: ComCapture | None = None
     if args.com_capture is not None:
@@ -2857,6 +2970,8 @@ def main() -> int:
             pcap_capture.stop()
         if restore_config is not None:
             restore_config[0].write_bytes(restore_config[1])
+        if restore_nvr is not None:
+            restore_nvr[0].write_bytes(restore_nvr[1])
         if test_lock is not None:
             test_lock.release()
 

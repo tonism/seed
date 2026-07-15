@@ -168,7 +168,13 @@ agent_request_phase:
     add bx, api_json_user_label_text_len + api_json_you_label_text_len
     add ax, bx
     cmp ax, [chat_context_len_var]
-    ja .low_window_full
+    jbe .check_threshold
+    ; After a successful compaction, a tiny 16K window may still not have room
+    ; for note + pending prompt. Let the real turn run and rely on the response
+    ; store's note-preserving slide; otherwise the same note compacts forever.
+    cmp word [note_len], 0
+    jne .check_threshold
+    jmp .low_window_full
 .check_threshold:
     mov ax, [chat_context_used]
     cmp ax, [chat_compact_threshold]
@@ -249,6 +255,13 @@ agent_request_phase:
     mov al, [dpi_input_len_byte]
     mov [api_stream_prompt_len], al
     mov [chat_prompt_len_cache], al
+    cmp byte [compacting_msg], 0
+    je .prompt_cache_ready
+    ; A compaction response has no real user prompt to append, but the renderer
+    ; uses chat_prompt_len_cache as the one-shot "store prefix/reset done" flag.
+    ; Force it clear so the first summary byte resets chat_context_used.
+    mov byte [chat_prompt_len_cache], 0
+.prompt_cache_ready:
     push ds
     pop es
     mov di, api_request_plain + tls_record_header_len

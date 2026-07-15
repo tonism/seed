@@ -7,6 +7,9 @@ ctx_xfer_gdt equ tls_rx_copy
 context_mirror_phase:
     ; Mirror the live seg-0 chat window to the canonical far context log. <=64K machines leave
     ; far_log_seg_var = 0 and keep the Build 11 local compaction path.
+    push ds
+    xor ax, ax
+    mov ds, ax
     cmp word [far_log_seg_var], 0
     je .done
     cmp byte [compacting_msg], 0
@@ -27,11 +30,8 @@ context_mirror_phase:
     cmp ax, [far_window_cap]
     jb .cap_ok
 .far_log_full:
-    xor ax, ax
-    mov [far_flushed_len], ax
-    mov [far_flushed_len + 2], ax
-    mov [far_flushed_esc], ax
-    mov [far_flushed_esc + 2], ax
+    stc
+    jmp .return
 .cap_ok:
     push es
     cmp word [far_ctx_base + 2], ems_flat_base_hi
@@ -98,7 +98,7 @@ context_mirror_phase:
     pop es
 .ok:
     clc
-    ret
+    jmp .return
 
 .mirror_ext:
     ; 286 native extended memory is windowed through BIOS int 15h AH=87h. The live window is small
@@ -140,10 +140,12 @@ context_mirror_phase:
 .fail_pop:
     pop es
     stc
-    ret
+    jmp .return
 
 .done:
     clc
+.return:
+    pop ds
     ret
 
 .context_base_si:
