@@ -101,6 +101,30 @@ context_mirror_phase:
     jmp .return
 
 .mirror_ext:
+    test word [handoff_addr + handoff_flags], handoff_flag_unreal
+    jz .mirror_ext_bios
+    ; 386+ unreal mode keeps BIOS-compatible real mode while allowing a flat
+    ; write into the native extended context.
+    call .refresh_unreal
+    mov ax, [far_ctx_base]
+    mov dx, [far_ctx_base + 2]
+    add ax, [far_flushed_len]
+    adc dx, [far_flushed_len + 2]
+    mov [tool_addr], ax
+    mov [tool_addr + 2], dx
+    db 0x66, 0x8b, 0x3e
+    dw tool_addr                         ; mov edi, [tool_addr]
+    call .context_base_si
+    mov cx, [chat_context_used]
+    cld
+    jcxz .ok_pop
+.unreal_wr_loop:
+    lodsb
+    db 0x64, 0x67, 0x88, 0x07            ; mov [fs:edi], al
+    db 0x66, 0x47                        ; inc edi
+    loop .unreal_wr_loop
+    jmp .ok_pop
+.mirror_ext_bios:
     ; 286 native extended memory is windowed through BIOS int 15h AH=87h. The live window is small
     ; enough to copy in one block; odd byte counts copy one harmless pad byte past the streamed length.
     mov cx, [chat_context_used]
@@ -157,3 +181,42 @@ context_mirror_phase:
 .ctx_base_ready:
     sub si, [chat_context_len_var]
     ret
+
+.refresh_unreal:
+    push ax
+    pushf
+    cli
+    db 0x0f, 0x01, 0x16
+    dw low_scratch_start + (.unreal_gdt_ptr - PHASE_BASE) ; lgdt [unreal_gdt_ptr]
+    db 0x0f, 0x20, 0xc0                  ; mov eax, cr0
+    db 0x0c, 0x01                        ; or al, 1
+    db 0x0f, 0x22, 0xc0                  ; mov cr0, eax
+    db 0xea
+    dw low_scratch_start + (.refresh_pm - PHASE_BASE)
+    dw 0x0008
+.refresh_pm:
+    mov ax, 0x0010
+    db 0x8e, 0xe0                        ; mov fs, ax
+    db 0x0f, 0x20, 0xc0                  ; mov eax, cr0
+    db 0x24, 0xfe                        ; and al, ~1
+    db 0x0f, 0x22, 0xc0                  ; mov cr0, eax
+    db 0xea
+    dw low_scratch_start + (.refresh_rm - PHASE_BASE)
+    dw 0x0000
+.refresh_rm:
+    popf
+    pop ax
+    clc
+    ret
+
+align 8, db 0
+.unreal_gdt:
+    dq 0
+    dw 0xffff, 0x0000
+    db 0x00, 0x9a, 0x00, 0x00
+    dw 0xffff, 0x0000
+    db 0x00, 0x92, 0xcf, 0x00
+.unreal_gdt_end:
+.unreal_gdt_ptr:
+    dw .unreal_gdt_end - .unreal_gdt - 1
+    dd low_scratch_start + (.unreal_gdt - PHASE_BASE)

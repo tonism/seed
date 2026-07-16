@@ -2068,6 +2068,11 @@ def wait_for_dpi_prompt(
                 args.oracle_screenshot,
                 args.screen_ocr_timeout,
             )
+            if ocr_lines_suggest_seed_failure_menu(last_lines):
+                print(f"{label}: failure menu before DPI prompt")
+                print_screen_ocr_lines(label, last_engine, last_lines)
+                print(f"{label}: kept {args.oracle_screenshot}")
+                return False
             if last_shape[0] == "clean-failure":
                 print(f"{label}: clean failure before DPI prompt ({last_shape[1]})")
                 print_screen_ocr_lines(label, last_engine, last_lines)
@@ -2190,6 +2195,15 @@ def ocr_lines_suggest_dpi_ready(lines: list[str]) -> bool:
         if has_completion_trace and 1 <= len(folded) <= 6:
             return True
     return False
+
+
+def ocr_lines_suggest_seed_failure_menu(lines: list[str]) -> bool:
+    joined = " ".join(line.strip().lower() for line in lines)
+    return (
+        "failed" in joined
+        and "retry" in joined
+        and "restart" in joined
+    )
 
 
 def ocr_lines_suggest_rom_basic(lines: list[str]) -> bool:

@@ -332,6 +332,10 @@ agent_request_phase:
 .fc_used:
     push ax
     push dx
+%ifdef SEED_TEST_FAR_COMPACT_THRESHOLD
+    mov bx, (SEED_TEST_FAR_COMPACT_THRESHOLD & 0xffff)
+    mov cx, (SEED_TEST_FAR_COMPACT_THRESHOLD >> 16)
+%else
     mov ax, [far_window_cap]
     mov dx, [far_window_cap + 2]
     shr dx, 1
@@ -348,6 +352,7 @@ agent_request_phase:
     adc dx, cx                           ; dx:ax = 3/4 window
     mov bx, ax
     mov cx, dx
+%endif
     pop dx
     pop ax                               ; dx:ax = far_used
     cmp dx, cx

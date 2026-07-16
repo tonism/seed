@@ -7,7 +7,30 @@ ext_xfer_buf equ tls_rx_copy + 0x30
 
 ext_read_chunk_phase:
     mov cx, [tool_readlen]
-    jcxz .ok
+    jcxz .empty
+    test word [handoff_addr + handoff_flags], handoff_flag_unreal
+    jnz .unreal_read
+    jmp .bios_read
+.unreal_read:
+    call .refresh_unreal
+    db 0x66, 0x8b, 0x1e
+    dw tool_addr                         ; mov ebx, [tool_addr]
+    push ds
+    pop es
+    mov di, ext_xfer_buf
+.unreal_read_loop:
+    db 0x64, 0x67, 0x8a, 0x03            ; mov al, [fs:ebx]
+    stosb
+    db 0x66, 0x43                        ; inc ebx
+    loop .unreal_read_loop
+    mov ax, [tool_readlen]
+    add [tool_addr], ax
+    adc word [tool_addr + 2], 0
+    jmp .ok
+.empty:
+    clc
+    ret
+.bios_read:
     push ds
     pop es
     mov di, ext_xfer_gdt
@@ -43,3 +66,42 @@ ext_read_chunk_phase:
 .fail:
     stc
     ret
+
+.refresh_unreal:
+    push ax
+    pushf
+    cli
+    db 0x0f, 0x01, 0x16
+    dw low_scratch_start + (.unreal_gdt_ptr - PHASE_BASE) ; lgdt [unreal_gdt_ptr]
+    db 0x0f, 0x20, 0xc0                  ; mov eax, cr0
+    db 0x0c, 0x01                        ; or al, 1
+    db 0x0f, 0x22, 0xc0                  ; mov cr0, eax
+    db 0xea
+    dw low_scratch_start + (.refresh_pm - PHASE_BASE)
+    dw 0x0008
+.refresh_pm:
+    mov ax, 0x0010
+    db 0x8e, 0xe0                        ; mov fs, ax
+    db 0x0f, 0x20, 0xc0                  ; mov eax, cr0
+    db 0x24, 0xfe                        ; and al, ~1
+    db 0x0f, 0x22, 0xc0                  ; mov cr0, eax
+    db 0xea
+    dw low_scratch_start + (.refresh_rm - PHASE_BASE)
+    dw 0x0000
+.refresh_rm:
+    popf
+    pop ax
+    clc
+    ret
+
+align 8, db 0
+.unreal_gdt:
+    dq 0
+    dw 0xffff, 0x0000
+    db 0x00, 0x9a, 0x00, 0x00
+    dw 0xffff, 0x0000
+    db 0x00, 0x92, 0xcf, 0x00
+.unreal_gdt_end:
+.unreal_gdt_ptr:
+    dw .unreal_gdt_end - .unreal_gdt - 1
+    dd low_scratch_start + (.unreal_gdt - PHASE_BASE)
