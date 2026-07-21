@@ -99,10 +99,10 @@ never by source port.
   build a valid image with no `SEED/DRIVERS/` directory; a NIC-present boot from
   that image should fail as `driver setup failed` and offer retry/restart.
   Individual-image trims use `INCLUDE_NIC_DRIVER_NE`,
-  `INCLUDE_NIC_DRIVER_WD80X3`, `INCLUDE_NIC_DRIVER_3C503`, and
-  `INCLUDE_NIC_DRIVER_3C501`.
+  `INCLUDE_NIC_DRIVER_WD80X3`, `INCLUDE_NIC_DRIVER_3C503`,
+  `INCLUDE_NIC_DRIVER_3C501`, and `INCLUDE_NIC_DRIVER_PCNET`.
 
-## Build 12 Memory Tiers
+## Representative Profiles
 
 The checked-in 86Box profiles are the representative matrix: failure paths,
 NIC families, memory tiers, and the CPU classes implied by those tiers. Profile
@@ -125,6 +125,10 @@ tracked combinatorially.
   then reuse `NE.DRV`.
 - **16-bit ISA WD/DP8390 cards**: `vm-net-wd8013ebt` uses the 386SX direct-boot
   shape with the 360K image.
+- **16-bit ISA PCnet/LANCE cards**: `vm-net-pcnetisa`, `vm-net-pcnetracal`,
+  and `vm-net-pcnetisaplus` use the 386SX direct-boot shape with the 360K image.
+  `vm-net-pcnetisaplus` first exercises ISA PnP activation, then uses
+  `PCNET.DRV`.
 
 The harness handles 86Box's first-run "moved or copied" network-identity dialog
 itself during tests; no manual button press should be needed.
@@ -155,7 +159,8 @@ sidecar. The seven original-PC NIC profiles:
 Additional AT/386 NIC coverage profiles:
 
 `vm-net-ne2k`, `vm-net-novell-ne2k`, `vm-net-ne2kpnp`, `vm-net-de220p`,
-`vm-net-wd8013ebt`.
+`vm-net-wd8013ebt`, `vm-net-pcnetisa`, `vm-net-pcnetracal`, and
+`vm-net-pcnetisaplus`.
 
 `vm` and `vm-mda` have no card (expect a clean red `.` failure). Retest
 individual profiles when changing TLS timing or shared packet/NIC code.

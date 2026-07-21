@@ -12,9 +12,16 @@ packet_io_init_phase:
     push ds
     pop es
     call packet_io_init_phase_enable_wd_ram
+    cmp byte [handoff_addr + handoff_nic_family], family_pcnet
+    jne .init_resident_family
+    call [nic_vt_enter]
+    jc .done
+    jmp .init_done
+.init_resident_family:
     call [nic_vt_enter]
     call init_ne_packet_io_phase
     jc .done
+.init_done:
     mov word [ne_rx_read_limit], ne_rx_sample_len
     call [nic_vt_receive]
     jc .done

@@ -43,6 +43,9 @@ targets/ibm_pc_5150/86box/vm-net-novell-ne2k/86box.cfg 386SX, Novell 16-bit ISA 
 targets/ibm_pc_5150/86box/vm-net-ne2kpnp/86box.cfg    386SX, Realtek RTL8019AS ISA PnP NE2000
 targets/ibm_pc_5150/86box/vm-net-de220p/86box.cfg     386SX, D-Link DE-220P ISA PnP NE2000
 targets/ibm_pc_5150/86box/vm-net-wd8013ebt/86box.cfg  386SX, Western Digital 16-bit ISA WD8013EBT
+targets/ibm_pc_5150/86box/vm-net-pcnetisa/86box.cfg   386SX, AMD PCnet-ISA
+targets/ibm_pc_5150/86box/vm-net-pcnetracal/86box.cfg 386SX, Racal EtherBlaster
+targets/ibm_pc_5150/86box/vm-net-pcnetisaplus/86box.cfg 386SX, AMD PCnet-ISA+ ISA PnP
 ```
 
 `vm-net-286` uses the AMI 286 AT-compatible BIOS shape with 2048 KiB RAM and an
@@ -52,7 +55,10 @@ targets/ibm_pc_5150/86box/vm-net-wd8013ebt/86box.cfg  386SX, Western Digital 16-
 the same 386SX machine shape. `vm-net-ne2kpnp` and `vm-net-de220p` cover ISA
 PnP activation for NE-compatible cards before the same `NE.DRV` path.
 `vm-net-wd8013ebt` covers the 16-bit Western Digital shared-memory path on that
-same shape. AT-class profiles use the 360K floppy image;
+same shape. `vm-net-pcnetisa`, `vm-net-pcnetracal`, and
+`vm-net-pcnetisaplus` cover the PCnet/LANCE path through `PCNET.DRV`, with
+`vm-net-pcnetisaplus` also exercising ISA PnP activation. AT-class profiles use
+the 360K floppy image;
 `tools/run-86box.sh vm-net-286`, `tools/run-86box.sh vm-net-386`, and the
 card-specific 386 profiles select it automatically.
 

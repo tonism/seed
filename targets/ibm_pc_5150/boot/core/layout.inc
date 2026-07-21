@@ -290,6 +290,7 @@ dpi_prompt_col equ 0
 dpi_input_max_len equ 255   ; 256 B prompt region in RX (255 chars + 1 length byte; len is a byte, max 255)
 api_response_text_max_len equ 192
 load_ticks equ 6
+pnp_settle_ticks equ 18
 type_ticks equ 1
 done_ticks equ 9
 agent_slot_count equ 5
@@ -311,6 +312,7 @@ family_ne1000 equ 3
 family_3c501 equ 4
 family_wd8003 equ 5
 family_wd8013 equ 6
+family_pcnet equ 7
 el1_dataptr equ 0x08
 el1_rx_cmd equ 0x06
 el1_tx_cmd equ 0x07
@@ -372,6 +374,36 @@ ne_rx_header_len equ 4
 ne_rx_sample_len equ 64
 ne_rx_max_count equ 1518
 net_frame_buffer_len equ ne_rx_max_count
+pcnet_rdp equ 0x10
+pcnet_rap equ 0x12
+pcnet_reset equ 0x14
+pcnet_bdp equ 0x16
+pcnet_aprom_hw_isa equ 0x00
+pcnet_aprom_hw_pnp equ 0x01
+pcnet_aprom_sig_amd equ 0x5757
+pcnet_aprom_sig_racal equ 0x4452
+pcnet_csr_init equ 0x0001
+pcnet_csr_start equ 0x0002
+pcnet_csr_stop equ 0x0004
+pcnet_csr_tx_demand equ 0x0008
+pcnet_csr_idon equ 0x0100
+pcnet_desc_own equ 0x8000
+pcnet_desc_stp_enp equ 0x0300
+pcnet_desc_err equ 0x4000
+pcnet_rx_buf_len equ 1536
+pcnet_rx_buf_bcnt equ 0xf000 | ((0 - pcnet_rx_buf_len) & 0x0fff)
+; PCnet/LANCE bus-master buffers. PCnet is only valid for later ISA-class
+; profiles, so keep the DMA area above Seed's 0x8000 downward-growing stack.
+pcnet_dma_base equ 0x8000
+pcnet_init_block equ pcnet_dma_base
+pcnet_rx_desc equ pcnet_dma_base + 0x20
+pcnet_tx_desc equ pcnet_dma_base + 0x28
+pcnet_rx_buf equ pcnet_dma_base + 0x100
+pcnet_tx_buf equ pcnet_rx_buf + pcnet_rx_buf_len
+pcnet_dma_end equ pcnet_tx_buf + net_frame_buffer_len
+%if pcnet_dma_end > 0x10000
+%error "PCnet DMA workspace must stay below the 64KB real-mode segment ceiling"
+%endif
 dhcp_rx_frame_len equ 384
 ne_rcr_broadcast equ 0x04
 ne_rsr_prx equ 0x01

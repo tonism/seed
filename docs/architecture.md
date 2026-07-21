@@ -663,9 +663,10 @@ bounded **active-driver slot**. New families grow the floppy, not the resident
 footprint — one driver is ever live.
 
 > **Implemented (Build 13).** The NIC families are packaged as external driver
-> files — `NE.DRV` (ne1000/ne2000/Novell), `WD80X3.DRV`, `3C503.DRV`, `3C501.DRV`
-> under `SEED/DRIVERS/` when included. The shared DP8390 ring is one macro source
-> compiled into the three ring cards; `3c501` is fully custom. The boot scans
+> files — `NE.DRV` (ne1000/ne2000/Novell), `WD80X3.DRV`, `3C503.DRV`, `3C501.DRV`,
+> and `PCNET.DRV` under `SEED/DRIVERS/` when included. The shared DP8390 ring is
+> one macro source compiled into the three ring cards; `3c501` and PCnet/LANCE
+> are fully custom. The boot scans
 > `.DRV` files, validates the `SDRV` metadata, ABI version, one-sector size, and
 > family mask, then reads one suitable driver into the active-driver slot. One
 > match loads automatically; multiple matches show a `which driver?` chooser; no

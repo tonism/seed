@@ -7,32 +7,34 @@
     dw %1 - (low_scratch_start + ($ - PHASE_BASE) + 2)
 %endmacro
 
+hardware_ne_prom equ high_crypto_scratch_start
+
 hardware_setup_phase:
     call hardware_setup_phase_init_handoff
     call hardware_setup_detect_cpu
     call hardware_setup_phase_display
     ; Build 9 (compaction redesign): stage the keep-alive template into the persistent pool once at boot,
     ; so the renderer no longer carries it (frees its last bytes for compaction).
-    ; Build 11 #4 COLD-BOOT-FREEZE FIX (2026-06-10): this MUST run BEFORE the network I/O below.
-    ; hardware_setup loads at low_scratch_start, which == ne_tx_frame; the NIC's MAC-PROM read target
-    ; (ne_prom .. low_packet_scratch_end, a 32 B window just under fs_sector_buffer) OVERLAPS this
-    ; phase's tail, where stage_ka_template's CODE and ka_template_source DATA live. At some phase sizes
-    ; the routine's code lands inside ne_prom's window; read_network_address then writes the MAC PROM
-    ; over it, so calling stage_ka_template AFTER read_network_address (the old order) executed code the
-    ; MAC read had just clobbered -> hard cold-boot freeze, no splash. Size-fragile: Build 11 #4's
-    ; chat_effective_cap write (6 B) shifted the tail into range. Staging FIRST runs the routine + reads
-    ; ka_template_source while both are intact; the later MAC read can clobber that dead region harmlessly.
+    ; Build 11 #4 COLD-BOOT-FREEZE FIX (2026-06-10): stage this before network
+    ; I/O. This phase is size-fragile because it runs from low_scratch_start,
+    ; the same region used by packet scratch in later phases. Build 13 keeps
+    ; NE PROM bytes in hardware_ne_prom instead of ne_prom so the MAC read no
+    ; longer overwrites the currently loaded phase.
     call hardware_setup_stage_ka_template
     call probe_network_card
     jnc .card_ready
-    call activate_ne_pnp_card
+    call activate_pnp_nic_card
     jc .failed
+    ; ISA PnP activation is immediate from the config-register perspective, but
+    ; 86Box's RTL8019AS can still be settling when the DP8390 reset/PROM path
+    ; probes it on the next instruction. A short bounded pause keeps the first
+    ; PROM read deterministic and is harmless for already-ready PnP cards.
+    mov cx, pnp_settle_ticks
+    phase_call_res wait_ticks
     call probe_network_card
     jc .failed
 .card_ready:
     call resolve_network_config
-    ; read_network_address writes the MAC PROM into ne_prom, which physically overlaps this phase's own
-    ; image. Keep it as the last hardware-setup step; the following driver load happens in a fresh phase.
     call read_network_address
     clc
     ret
@@ -283,9 +285,8 @@ hardware_setup_phase_display:
     mov [far_log_seg_var], ax
     jmp .far_log_inactive
 .far_ems_invert:
-    ; M2b: the EMS-invert layout math lives in hardware_setup_ems_layout at the phase TAIL (past the
-    ; ne_prom MAC-PROM overlap at runtime 0x0CEE), so this ~90 B does NOT shift the network routines into
-    ; that clobber window (the size-fragile cold-boot-freeze hazard). Only a 3 B call sits here.
+    ; M2b: keep the EMS-invert layout math at the phase tail so this ~90 B block
+    ; does not perturb the hardware probe routine offsets. Only a 3 B call sits here.
     call hardware_setup_ems_layout
 .far_log_inactive:
     mov word [note_len], 0          ; #4 note-as-memory: no compacted note until the first compaction
@@ -372,16 +373,15 @@ probe_network_card:
     ret
 
 resolve_network_config:
+    test word [handoff_addr + handoff_flags], handoff_flag_config_resolved
+    jnz .resolved
     mov ax, [handoff_addr + handoff_nic_base]
     cmp ax, 0x250
     je .known_3c503
     cmp ax, 0x280
     je .detect_io_280
-    ; Build 12: any probed base at/above 0x300 is the NE-family range. hardware_nic_ports probes
-    ; 0x300..0x3a0, but resolve only dispatched the exact 0x300 -> an NE2000 jumpered higher (real
-    ; cards vary; 86Box's ibmat puts ne2k8 at 0x320) was found by the probe yet left unresolved
-    ; (no family -> no MAC -> packet_io_init "01/01"). `jae` routes the whole range to detect_ne.
-    ; 8088-safe: 0x300 still goes NE; bases below 0x300 (0x2a0/0x2c0/0x2e0) keep the old ELSE.
+    ; Build 13: bases at/above 0x300 cover the NE-family range and PCnet/LANCE ISA cards.
+    ; Probe PCnet first with its APROM signature, then fall through to the DP8390 PROM read.
     cmp ax, 0x300
     jae .detect_ne
     mov cx, load_ticks
@@ -404,6 +404,7 @@ resolve_network_config:
 .detect_ne:
     call autodetect_ne
     jnc store_auto_network_config
+.resolved:
     ret
 
 store_auto_network_config:
@@ -432,6 +433,12 @@ autodetect_io_280:
     ret
 
 autodetect_ne:
+    call probe_pcnet_mac
+    jc .probe_dp8390
+    mov al, family_pcnet
+    clc
+    ret
+.probe_dp8390:
     call probe_ne_family
     ret
 
@@ -449,6 +456,8 @@ read_network_address:
     je read_wd8003_mac
     cmp al, family_wd8013
     je read_wd8003_mac
+    cmp al, family_pcnet
+    je read_pcnet_mac
     ret
 
 read_3c501_mac:
@@ -567,6 +576,48 @@ read_wd8003_mac_raw:
     loop .read
     ret
 
+read_pcnet_mac:
+    call read_pcnet_mac_raw
+    call finish_handoff_mac
+    ret
+
+probe_pcnet_mac:
+    call read_pcnet_mac_raw
+    call validate_handoff_mac
+    jc .failed
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, 9
+    in al, dx
+    cmp al, pcnet_aprom_hw_isa
+    je .check_signature
+    cmp al, pcnet_aprom_hw_pnp
+    jne .failed
+.check_signature:
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, 14
+    in ax, dx
+    cmp ax, pcnet_aprom_sig_amd
+    je .done
+    cmp ax, pcnet_aprom_sig_racal
+    jne .failed
+.done:
+    clc
+    ret
+.failed:
+    stc
+    ret
+
+read_pcnet_mac_raw:
+    mov dx, [handoff_addr + handoff_nic_base]
+    mov di, handoff_addr + handoff_mac
+    mov cx, 6
+.read:
+    in al, dx
+    stosb
+    inc dx
+    loop .read
+    ret
+
 read_ne_prom_mac:
     call read_ne_prom_raw
     call copy_ne_mac
@@ -579,7 +630,7 @@ probe_ne_family:
     call validate_handoff_mac
     jc .failed
     mov al, family_ne1000
-    cmp byte [ne_prom + 16], 0x57
+    cmp byte [hardware_ne_prom + 16], 0x57
     jne .done
     call ne_prom_is_paired
     jc .done
@@ -643,7 +694,7 @@ read_ne_prom_raw:
 
     mov dx, [handoff_addr + handoff_nic_base]
     add dx, ne_data
-    mov di, ne_prom
+    mov di, hardware_ne_prom
     mov cx, ne_prom_len
 .read:
     in al, dx
@@ -657,7 +708,7 @@ read_ne_prom_raw:
     ret
 
 ne_prom_is_paired:
-    mov si, ne_prom
+    mov si, hardware_ne_prom
     mov cx, 6
 .pair:
     lodsb
@@ -672,7 +723,7 @@ ne_prom_is_paired:
     ret
 
 copy_ne_mac:
-    mov si, ne_prom
+    mov si, hardware_ne_prom
     mov al, [si]
     cmp al, [si + 1]
     jne .linear
@@ -838,10 +889,10 @@ esc_int9_handler_source_end:
 %error "esc_int9_handler_len (layout.inc) != the staged int 9 handler length"
 %endif
 
-; Build 12 M2b/M2e: EMS-invert context layout. Defined at the phase TAIL (highest offsets, past the
-; ne_prom MAC-PROM clobber window) so its ~90 B never shifts the network routines into that window --
-; the size-fragile cold-boot-freeze hazard. Called from the far-sizing (.far_ems_invert) with far_arena_top
-; already = conv_top and far_ctx_base still = 0x10000. Sets far_window_cap + far_ctx_base + ems_ctx_page/off.
+; Build 12 M2b/M2e: EMS-invert context layout. Defined at the phase TAIL
+; (highest offsets) so its ~90 B does not perturb the hardware probe routines.
+; Called from the far-sizing (.far_ems_invert) with far_arena_top already =
+; conv_top and far_ctx_base still = 0x10000. Sets far_window_cap + far_ctx_base + ems_ctx_page/off.
 ; ARENA takes ALL conventional [0x10000..conv_top]; CONTEXT = top min(pool/2,1MB) of EMS, pool = conv
 ; region + ems_size (ems_page_count << 14). ds=0. Clobbers ax/bx/cx/dx.
 hardware_setup_ems_layout:
@@ -895,149 +946,10 @@ hardware_setup_ems_layout:
     mov [ems_ctx_page], ax                        ; page number (< 256)
     ret
 
-isapnp_addr_port equ 0x0279
-isapnp_write_data_port equ 0x0a79
-isapnp_read_data_config equ 0x83
-isapnp_read_data_port equ (isapnp_read_data_config << 2) | 3
-isapnp_reg_set_read_data equ 0x00
-isapnp_reg_serial_isolation equ 0x01
-isapnp_reg_config_control equ 0x02
-isapnp_reg_wake_csn equ 0x03
-isapnp_reg_csn equ 0x06
-isapnp_reg_ldn equ 0x07
-isapnp_reg_activate equ 0x30
-isapnp_reg_io_range_check equ 0x31
-isapnp_reg_io_base_hi equ 0x60
-isapnp_reg_io_base_lo equ 0x61
-isapnp_reg_irq equ 0x70
-isapnp_reg_irq_type equ 0x71
-
-; 86Box exposes RTL8019AS and D-Link DE-220P as ISA PnP NE-compatible adapters.
-; Activate only those IDs, then let the existing NE PROM probe select ne1000/ne2000
-; and load NE.DRV by metadata.
-activate_ne_pnp_card:
-    mov si, low_scratch_start + (isapnp_key_normal - PHASE_BASE)
-    call isapnp_try_ne_key
-    jnc .done
-    call isapnp_return_to_key
-    mov si, low_scratch_start + (isapnp_key_rt - PHASE_BASE)
-    call isapnp_try_ne_key
-    jnc .done
-    call isapnp_return_to_key
-    stc
+activate_pnp_nic_card:
+    mov ax, (((core_pnp_activate_phase_end - core_pnp_activate_phase_start + 511) / 512) << 8) | ((core_pnp_activate_phase_start - $$) / 512)
+    mov bx, high_crypto_scratch_start
+    phase_call_res run_core_phase_at
     ret
-.done:
-    clc
-    ret
-
-isapnp_try_ne_key:
-    call isapnp_send_key
-    mov ax, (isapnp_read_data_config << 8) | isapnp_reg_set_read_data
-    call isapnp_write_reg
-    mov ax, (0x04 << 8) | isapnp_reg_config_control
-    call isapnp_write_reg
-    xor ax, ax
-    mov al, isapnp_reg_wake_csn
-    call isapnp_write_reg
-    mov di, handoff_addr + handoff_mac
-    mov cx, 4
-.read_id:
-    call isapnp_read_serial_byte
-    stosb
-    loop .read_id
-    mov cx, 5
-.drain_serial:
-    call isapnp_read_serial_byte
-    loop .drain_serial
-    cmp word [handoff_addr + handoff_mac], 0x8c4a
-    jne .check_dlink
-    cmp word [handoff_addr + handoff_mac + 2], 0x1980
-    je .configure
-.check_dlink:
-    cmp word [handoff_addr + handoff_mac], 0x8b11
-    jne .no_match
-    cmp word [handoff_addr + handoff_mac + 2], 0x0122
-    jne .no_match
-.configure:
-    mov ax, (0x01 << 8) | isapnp_reg_csn
-    call isapnp_write_reg
-    xor ax, ax
-    mov al, isapnp_reg_ldn
-    call isapnp_write_reg
-    mov ax, (0x03 << 8) | isapnp_reg_io_base_hi
-    call isapnp_write_reg
-    xor ax, ax
-    mov al, isapnp_reg_io_base_lo
-    call isapnp_write_reg
-    mov ax, (profile_irq << 8) | isapnp_reg_irq
-    call isapnp_write_reg
-    mov ax, (0x02 << 8) | isapnp_reg_irq_type
-    call isapnp_write_reg
-    xor ax, ax
-    mov al, isapnp_reg_io_range_check
-    call isapnp_write_reg
-    mov ax, (0x01 << 8) | isapnp_reg_activate
-    call isapnp_write_reg
-    clc
-    ret
-.no_match:
-    stc
-    ret
-
-isapnp_return_to_key:
-    mov ax, (0x02 << 8) | isapnp_reg_config_control
-    jmp isapnp_write_reg
-
-isapnp_send_key:
-    mov dx, isapnp_addr_port
-    mov cx, 32
-.write:
-    lodsb
-    out dx, al
-    loop .write
-    ret
-
-isapnp_write_reg:
-    mov dx, isapnp_addr_port
-    out dx, al
-    mov al, ah
-    mov dx, isapnp_write_data_port
-    out dx, al
-    ret
-
-isapnp_read_serial_byte:
-    push bx
-    push cx
-    xor ah, ah
-    mov bl, 1
-    mov cx, 8
-.bit:
-    mov dx, isapnp_addr_port
-    mov al, isapnp_reg_serial_isolation
-    out dx, al
-    mov dx, isapnp_read_data_port
-    in al, dx
-    cmp al, 0x55
-    jne .second
-    or ah, bl
-.second:
-    in al, dx
-    shl bl, 1
-    loop .bit
-    mov al, ah
-    pop cx
-    pop bx
-    ret
-
-isapnp_key_normal:
-    db 0x6a,0xb5,0xda,0xed,0xf6,0xfb,0x7d,0xbe
-    db 0xdf,0x6f,0x37,0x1b,0x0d,0x86,0xc3,0x61
-    db 0xb0,0x58,0x2c,0x16,0x8b,0x45,0xa2,0xd1
-    db 0xe8,0x74,0x3a,0x9d,0xce,0xe7,0x73,0x39
-isapnp_key_rt:
-    db 0xda,0x6d,0x36,0x1b,0x8d,0x46,0x23,0x91
-    db 0x48,0xa4,0xd2,0x69,0x34,0x9a,0x4d,0x26
-    db 0x13,0x89,0x44,0xa2,0x51,0x28,0x94,0xca
-    db 0x65,0x32,0x19,0x0c,0x86,0x43,0xa1,0x50
 
 %unmacro phase_call_res 1

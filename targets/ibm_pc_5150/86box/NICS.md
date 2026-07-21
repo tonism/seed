@@ -73,11 +73,12 @@ wd8013epa    Western Digital WD8013EP/A
 These are useful once we move beyond the strict original-PC shape. The generic,
 Novell, and ISA PnP NE2000-class adapters use the existing `NE.DRV` DP8390
 path. The PnP cards need a bounded ISA PnP activation pass first; Seed assigns
-the supported Realtek RTL8019AS and D-Link DE-220P IDs to I/O base 0x300 and
-IRQ 3, then lets the normal NE PROM probe and driver metadata selection run.
-The 16-bit Western Digital adapter uses the existing `WD80X3.DRV`
-shared-memory path with WD8013-specific ring bounds. These are covered by
-checked-in 386SX profiles.
+the supported Realtek RTL8019AS, D-Link DE-220P, and AMD PCnet-ISA+ IDs to I/O
+base 0x300 and IRQ 3, plus DMA 5 for PCnet-ISA+, then lets the normal MAC/PROM
+probe and driver metadata selection run. The PCnet/LANCE adapters use
+`PCNET.DRV`. The 16-bit Western Digital adapter uses the existing
+`WD80X3.DRV` shared-memory path with WD8013-specific ring bounds. These are
+covered by checked-in 386SX profiles.
 
 ```text
 ne2k             NE2000 Compatible             covered by vm-net-ne2k
@@ -85,15 +86,9 @@ novell_ne2k      Novell NE2000                 covered by vm-net-novell-ne2k
 ne2kpnp          Realtek RTL8019AS             covered by vm-net-ne2kpnp
 de220p           D-Link DE-220P                covered by vm-net-de220p
 wd8013ebt        Western Digital WD8013EBT     covered by vm-net-wd8013ebt
-```
-
-The remaining 86Box ISA candidates are PCnet/LANCE-class adapters, not NE/DP8390
-cards, so they need a separate driver path.
-
-```text
-pcnetisa     AMD PCnet-ISA
-pcnetracal   Racal Interlan EtherBlaster
-pcnetisaplus AMD PCnet-ISA+
+pcnetisa         AMD PCnet-ISA                 covered by vm-net-pcnetisa
+pcnetracal       Racal Interlan EtherBlaster   covered by vm-net-pcnetracal
+pcnetisaplus     AMD PCnet-ISA+                covered by vm-net-pcnetisaplus
 ```
 
 ## PCI And Newer Targets
@@ -152,6 +147,12 @@ ROM BASIC sidecar path later reached returned `ok` on those same
 representative families before the compact helper release; the released hex
 helper was smoke-tested through returned `ok` on `vm-net-ne2k8`.
 
+On 21 July 2026, the Build 13 PCnet/LANCE expansion reached the Default Prompt
+Interface and returned `kiwi` on `vm-net-pcnetisa`, `vm-net-pcnetracal`, and
+`vm-net-pcnetisaplus`. The same checkpoint revalidated `vm-net-ne2kpnp` and
+the original-speed 16 KiB `vm-net-ne2k8` path after moving the NE PROM read
+buffer out of the hardware-setup phase image.
+
 Also on 30 April 2026, the fixed shipped agent hosts were checked against
 Seed's single current TLS path: TLS 1.2, P-256,
 ECDHE-ECDSA-CHACHA20-POLY1305 without extended master secret. `api.openai.com`,
@@ -171,6 +172,9 @@ vm-net-ne2kpnp       Realtek RTL8019AS ISA PnP on 386SX; expected: ISA PnP activ
 vm-net-novell-ne1k   Novell NE1000; expected: auto family, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, encrypted client Finished, server Finished verification, OpenAI Responses request/response, returned ok below the existing splash
 vm-net-novell-ne2k   Novell NE2000 on 386SX; expected: auto family through NE.DRV, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ok
 vm-net-de220p        D-Link DE-220P ISA PnP on 386SX; expected: ISA PnP activation, auto family through NE.DRV, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ok
+vm-net-pcnetisa      AMD PCnet-ISA on 386SX; expected: auto family through PCNET.DRV, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ok
+vm-net-pcnetracal    Racal EtherBlaster on 386SX; expected: auto family through PCNET.DRV, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ok
+vm-net-pcnetisaplus  AMD PCnet-ISA+ ISA PnP on 386SX; expected: ISA PnP activation, auto family through PCNET.DRV, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ok
 vm-net-wd8003e       Western Digital WD8003E; expected: auto family, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, encrypted client Finished, server Finished verification, OpenAI Responses request/response, returned ok below the existing splash
 vm-net-wd8003eb      Western Digital WD8003EB; expected: auto family, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, encrypted client Finished, server Finished verification, OpenAI Responses request/response, returned ok below the existing splash
 vm-net-wd8013ebt     Western Digital WD8013EBT on 386SX; expected: auto family through WD80X3.DRV, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ok
