@@ -1,10 +1,10 @@
-; Build 12 auto-recertify: adopt a freshly chain-verified leaf as the fast-path RSA pin.
+; Build 13 external leaf: adopt a freshly WR1-verified leaf as the fast-path RSA key.
 ;
 ; After x509_parse_leaf + a successful chain-verify vs the pinned WR1, install the new leaf's public
-; key into the rsa_verify working constants (rsa_n / rsa_n0inv / rsa_r2) so the RETRY handshake's
+; key into the rsa_verify working workspace (rsa_n / rsa_n0inv / rsa_r2) so the RETRY handshake's
 ; in-race ServerKeyExchange-sig verify uses the new leaf -- 1 RSA verify, the @6 fast path again. The
-; read-only floppy can't persist it, so after a rotation it re-derives from WR1 on each boot (the
-; baked pin verifies stale -> recertify -> re-adopt). Oracle-gated: tools/crypto-bench/adopt_eval.py
+; read-only floppy can't persist it, so after a missing/stale external leaf it re-derives from WR1 on
+; each boot (fast pin missing/stale -> recertify -> re-adopt). Oracle-gated: tools/crypto-bench/adopt_eval.py
 ; proves the derived params make rsa_verify reproduce pow(sig,65537,n).
 ;
 ; in: SI = ptr to the 256-byte big-endian leaf modulus (x509_mod_ptr). clobbers everything.
@@ -30,6 +30,9 @@ rsa_adopt:
 ; of baking WR1's r2/one/n0inv constants -- saves ~514 B in the module so the captured leaf fits the
 ; handshake-transient slot above the module (not the arena -> mid-chat-safe recertify).
 rsa_adopt_derive:
+    push    ds
+    pop     es
+    mov     byte [rsa_key_ready], 0
     ; ---- 2. rsa_n0inv <- (-n^-1) mod 2^16  (Newton: inv=1; 4x inv = inv*(2 - n0*inv)) ----
     ; n is odd, so inv=1 is correct mod 2^1; each step doubles the correct bits -> mod 2^16 after 4.
     mov     bx, [rsa_n]             ; n0 = low 16 bits of n
@@ -48,6 +51,7 @@ rsa_adopt_derive:
     mov     [rsa_n0inv], di
 
     ; ---- 3. rsa_r2 <- 2^4096 mod n   (r = 1; double 4096 times: r = (2r) mod n) ----
+    cld
     mov     di, rsa_r2
     xor     ax, ax
     mov     cx, 128
@@ -95,6 +99,13 @@ rsa_adopt_derive:
 .nosub:
     dec     word [rsa_adopt_count]
     jnz     .dbl
+    ; ---- 4. rsa_one <- 1 as a full 128-limb value, then make the workspace visible to SKE verify. ----
+    mov     di, rsa_one
+    xor     ax, ax
+    mov     cx, 128
+    rep     stosw
+    mov     word [rsa_one], 1
+    mov     byte [rsa_key_ready], 1
     ret
 
 align 2

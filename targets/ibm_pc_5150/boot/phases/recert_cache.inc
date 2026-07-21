@@ -1,7 +1,7 @@
-; Build 13 recert cache: if a prior auto-recertification stored SEED/LEAF.DER on writable boot
-; media, verify that cached leaf against the pinned WR1 anchor and adopt it before opening a new TLS
-; socket. Missing, stale, malformed, or untrusted cache is ignored; the normal recertify path handles
-; rotation and failure. 286+ only because it uses the P-256/RSA module loaded by tls_client_hello.
+; Build 13 external leaf: verify the shipped/cached SEED/LEAF.DER against the pinned WR1 anchor and
+; adopt it before opening a new TLS socket. Missing, stale, malformed, or untrusted cache is ignored;
+; the normal recertify path captures and verifies the live leaf, then retries. 286+ only because it
+; uses the P-256/RSA module loaded by tls_client_hello.
 recert_cache_phase:
     test word [handoff_addr + handoff_flags], handoff_flag_cpu_286plus
     jz .done

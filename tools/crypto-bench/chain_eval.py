@@ -28,6 +28,7 @@ EXPORTS = ["certbuf", "certlen", "accept", "x509_mod_ptr"]
 WORDS = 128
 DATA = (
     "\nalign 2\n"
+    + "rsa_key_ready: db 0\nalign 2\n"
     + "".join(f"{n}: times {WORDS} dw 0\n" for n in
              ("rsa_n", "rsa_r2", "rsa_one", "rsa_sig", "rsa_result", "rsa_sm", "rsa_x"))
     + "rsa_n0inv: dw 0\n"

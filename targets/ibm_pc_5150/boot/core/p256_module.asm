@@ -120,10 +120,11 @@ p256_ep_copy_client_public_impl:
     rep movsb
     ret
 
-; ---- 286 secure tier increment B: RSA cert authentication (leaf-key pin) ----
-; Verify the ServerKeyExchange's RSA-PKCS1-v1.5-SHA256 signature against the PINNED leaf public key
-; (rsa_pinned_key.inc). This is the ONE in-race RSA verify; passing it proves the server holds the
-; pinned api.openai.com leaf private key (possession proof) -> the channel is authenticated.
+; ---- 286 secure tier increment B: RSA cert authentication (adopted leaf pin) ----
+; Verify the ServerKeyExchange's RSA-PKCS1-v1.5-SHA256 signature against the adopted leaf public key.
+; Standard images ship SEED/LEAF.DER; the resident L phase verifies that file against WR1 before this
+; point and adopts its key into rsa_workspace.inc. This is the ONE in-race RSA verify; passing it
+; proves the server holds the api.openai.com leaf private key (possession proof) -> authenticated.
 ; in:  SI = the 256-byte signature (big-endian wire bytes), DI = the 32-byte expected hash h =
 ;          SHA-256(client_random || server_random || ServerECDHParams) -- the resident K window does
 ;          the SHA (the module has none) and hands h in.
@@ -131,6 +132,11 @@ p256_ep_copy_client_public_impl:
 ;      EMSA-PKCS1-v1.5 block (00 01 FF..FF 00 DigestInfo h) with a whole-256-byte memcmp -- no lax
 ;      structural parsing, so padding-forgery vectors (e.g. Bleichenbacher-style) cannot slip through.
 p256_ep_verify_ske_sig_impl:
+    cmp byte [rsa_key_ready], 0
+    jne .have_key
+    stc
+    ret
+.have_key:
     push di                                      ; save h ptr
     mov di, rsa_sig
     call rsa_from_be256                          ; rsa_sig <- the wire signature (BE -> LE words)
@@ -354,11 +360,9 @@ p256_ep_adopt_leaf_impl:
     clc
     ret
 
-; x509_load_wr1: install the pinned WR1 modulus into the rsa_verify working constants. Only wr1_n is
-; baked; rsa_adopt_derive computes the Montgomery constants (r2, n0inv) on the fly -- ~514 B less in
-; the module so the captured leaf fits the handshake-transient slot above the module (not the arena ->
-; mid-chat-safe recertify). rsa_one is the shared 1; the ~2s r2 derivation is fully off-race. The
-; off-race chain-verify and the in-race leaf verify never overlap, so they share the rsa_* constants;
+; x509_load_wr1: install the pinned WR1 modulus into the rsa_verify working workspace. Only wr1_n is
+; baked; rsa_adopt_derive computes the Montgomery constants (r2, n0inv) on the fly. The off-race
+; chain-verify and the in-race leaf verify never overlap, so they share the runtime-only rsa_* words;
 ; after a successful chain-verify + adopt, rsa_* hold the new leaf for the retry handshake's SKE verify.
 x509_load_wr1:
     push ds
@@ -368,7 +372,6 @@ x509_load_wr1:
     mov di, rsa_n
     mov cx, 128
     rep movsw                            ; rsa_n <- WR1 modulus (already LE limbs)
-    mov word [rsa_one], 1                ; rsa_one = the integer 1 (shared; rsa_adopt_derive leaves it, rest stays 0)
     jmp rsa_adopt_derive                 ; derive rsa_r2 + rsa_n0inv from rsa_n; tail-call (rets to caller)
 
 ; ---- auto-recertify capture entry points (286-only; the leaf capture lives in the module) ----
@@ -396,7 +399,7 @@ p256_ep_recertify_prep_impl:
 %include "core/p256.inc"
 %include "core/p256_data.inc"
 %include "core/rsa_verify.inc"
-%include "core/rsa_pinned_key.inc"
+%include "core/rsa_workspace.inc"
 %include "core/x509_verify.inc"
 %include "core/rsa_adopt.inc"
 %include "core/rsa_anchor_wr1.inc"

@@ -93,11 +93,11 @@ tools_schema_max_len equ 384
 ; p256_module_load == loop_cache_start keeps the band above the 16K ceiling (absent on 16K). The module
 ; (code + data) must fit p256_module_max_sectors (build-asserted in p256_module.asm) AND the loop cache.
 p256_module_load equ loop_cache_start
-; Sized for the P-256 ECDHE code+data (incr A, 14 sectors) PLUS the RSA-2048 modexp + the pinned leaf
-; key + the SKE-signature verify (incr B) PLUS the auto-recertify trust core (X.509 strict parser +
-; adopt math + WR1 anchor). 26->24: the WR1 anchor now bakes only wr1_n (r2/n0inv derived via
-; rsa_adopt_derive), freeing ~514 B -- so the captured leaf gets the 24..27 slot above the module
-; (leaf_capture_buf, mid-chat-safe; see data.inc). Must stay <= the loop cache (asserted; cache = 27).
+; Sized for the P-256 ECDHE code+data (incr A, 14 sectors) PLUS the RSA-2048 modexp, the external
+; leaf SKE-signature verify (incr B), and the auto-recertify trust core (X.509 strict parser + adopt
+; math + WR1 anchor). The RSA verify workspace is emitted as zeroed data, not a baked host key;
+; SEED/LEAF.DER supplies the host leaf. The captured leaf gets the 24..27 slot above the module
+; (leaf_capture_buf, mid-chat-safe; see data.inc). Must stay <= the loop cache.
 p256_module_max_sectors equ 24
 p256_module_max_len equ p256_module_max_sectors * 512
 p256_module_end equ p256_module_load + p256_module_max_len

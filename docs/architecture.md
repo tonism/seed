@@ -821,14 +821,14 @@ best-effort — a status line if the medium cannot be written or is full); `load
 mid-session revert that discards the current arena/context pool, restores the saved one, and
 redisplays.
 
-**Recert cache.** The security path owns one separate best-effort file:
-`SEED/LEAF.DER`. It is not user state and it is not trusted just because it is on the
-floppy. After a 286+ auto-recertification verifies a freshly captured leaf against the
-baked WR1 anchor, Seed tries to write that DER to the boot medium. On later connects,
-before opening the TLS socket, Seed reads `SEED/LEAF.DER` when present, verifies strict
-DER, SAN, WR1 signature, and validity dates, and only then adopts it as the leaf pin.
-Missing, stale, malformed, full-media, or write-protected cases fall back to the baked
-leaf in `SEED.SYS` and the normal recertify path.
+**Leaf DER.** The security path owns one separate refreshable file:
+`SEED/LEAF.DER`. Standard images ship the current `api.openai.com` RSA leaf there, but it
+is not trusted just because it is on the floppy. Before opening a 286+ TLS socket, Seed
+reads the file, verifies strict DER, SAN, WR1 signature, and validity dates against the
+baked WR1 anchor, and only then adopts it as the leaf pin. After an auto-recertification
+verifies a freshly captured leaf, Seed tries to write that DER back to the boot medium.
+Missing, stale, malformed, full-media, or write-protected cases fall back to the normal
+live-leaf recertify path.
 
 **The restore fit gate** is two tiers. A *silent fail-safe* on magic / format version /
 checksum — a corrupt, foreign, or incompatible file is ignored and the machine boots

@@ -61,12 +61,13 @@ that channel is *secure* is CPU-tiered, and the product says so honestly:
 - **On a 286 it is a real secure channel (shipped, Build 12).** The optimised
   constant-time P-256 does a genuine ephemeral ECDHE key agreement, and the server is
   authenticated by verifying its RSA-2048 signature against a **pinned `api.openai.com`
-  key** — one in-race RSA verify, which is what makes a secure handshake fit the window
-  (8 MHz is the comfortable floor; 6 MHz is a knife-edge). When the pinned leaf rotates
-  (~90 days), the device silently re-pins — it checks the freshly-presented leaf is signed
-  by the pinned Google Trust Services CA that issued it, off the handshake race, and adopts
-  it. Writable media can cache that verified leaf as `SEED/LEAF.DER`; read-only media just
-  re-certifies after rotations until the image is updated. No rebuild, fail-closed.
+  leaf key** loaded from `SEED/LEAF.DER` after WR1 validation — one in-race RSA verify,
+  which is what makes a secure handshake fit the window (8 MHz is the comfortable floor;
+  6 MHz is a knife-edge). When the leaf rotates (~90 days), the device silently re-pins —
+  it checks the freshly-presented leaf is signed by the pinned Google Trust Services CA
+  that issued it, off the handshake race, and adopts it. Writable media refreshes
+  `SEED/LEAF.DER`; read-only media re-certifies on each boot after the shipped file is stale
+  until the image is updated. No rebuild of `SEED.SYS`, fail-closed.
 
 Full story: [docs/architecture.md](docs/architecture.md).
 

@@ -523,9 +523,9 @@ prompt_tools_size equ prompt_tools_cluster + 2
 ; the first compaction. This is what makes the post-compaction turn ANSWER the user's question instead
 ; of continuing the note (the note reads as system memory, not the latest conversation turn).
 note_len equ prompt_tools_size + 2
-; Build 12 auto-recertify: re-adopt a chain-verified leaf across the module reload. The reload (each
-; connect) reverts the module's pin to the baked one, so net_phase re-installs the verified leaf
-; before tls_probe. recert_flag=1 = the off-race chain-verify accepted the captured leaf this
+; Build 12/13 auto-recertify: re-adopt a chain-verified leaf across the module reload. The reload
+; clears the module's RSA workspace, so net_phase installs the verified leaf before tls_probe.
+; recert_flag=1 = the off-race chain-verify accepted the captured or cached leaf this
 ; prepare_agent_endpoint_path; recert_mod_ptr = its modulus (inside the capture buffer). Boot/entry
 ; zeroed (set at the prepare_agent_endpoint_path entry). (TEMPORARY-arena caveat: the modulus must
 ; still be in the capture buffer at re-adopt time -- true for the cold-boot recertify; the real home

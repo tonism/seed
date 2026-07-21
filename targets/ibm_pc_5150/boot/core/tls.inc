@@ -2028,7 +2028,7 @@ tls_parse_server_key_exchange:
     stc
     ret
 
-; Build 12 286 secure increment B: verify the ServerKeyExchange RSA signature against the pinned leaf
+; Build 12/13 286 secure tier: verify the ServerKeyExchange RSA signature against the adopted leaf
 ; key. Computes h = SHA-256(client_random || server_random || ServerECDHParams[69]) WITHOUT disturbing
 ; the handshake transcript (save/restore the SHA context, same pattern as the Finished hash), then
 ; hands the signature + h to the module's verifier. Reuses tls_premaster_secret (0x3600) as the
@@ -2050,7 +2050,7 @@ tls_verify_ske_signature:
     call sha256_restore_context
     mov si, [tls_next_handshake_body_ptr]
     add si, tls_ec_public_uncompressed_len + 8          ; -> the 256-byte signature (body+73); DI still = h
-    call word [p256_ep_verify_ske_sig]                  ; CF=0 valid (server holds the pinned key)
+    call word [p256_ep_verify_ske_sig]                  ; CF=0 valid (server holds the adopted leaf key)
     ret
 
 tls_finish_server_key_exchange:

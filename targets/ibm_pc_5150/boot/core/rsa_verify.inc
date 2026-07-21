@@ -12,7 +12,7 @@ cpu 8086
 ; rsa_verify  --  no args. Reads rsa_sig/rsa_n/rsa_r2/rsa_one/rsa_n0inv,
 ; writes rsa_result = rsa_sig^65537 mod rsa_n.
 ;
-;   sm  = montmul(sig, r2)        ; enter Montgomery domain: s*R mod N
+;   sm  = montmul(sig, r2)        ; enter Montgomery domain: s*R mod N (stored in rsa_result)
 ;   x   = sm
 ;   16x: x = montsqr(x)           ; x = sm^(2^16)
 ;   x   = montmul(x, sm)          ; x = sm^65537
@@ -22,11 +22,11 @@ rsa_verify:
     ; sm = montmul(sig, r2)
     mov     si, rsa_sig
     mov     bx, rsa_r2
-    mov     di, rsa_sm
+    mov     di, rsa_result
     call    montmul
 
     ; x = sm  (copy 128 limbs)
-    mov     si, rsa_sm
+    mov     si, rsa_result
     mov     di, rsa_x
     mov     cx, RSA_N_LIMBS
     cld
@@ -44,7 +44,7 @@ rsa_verify:
 
     ; x = montmul(x, sm)
     mov     si, rsa_x
-    mov     bx, rsa_sm
+    mov     bx, rsa_result
     mov     di, rsa_x
     call    montmul
 

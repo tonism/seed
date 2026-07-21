@@ -60,6 +60,8 @@ SEED_SYS_INFO := tools/core-sys-info.py
 LAYOUT_CHECK := tools/check-layout.py
 AGENT_CFG := $(wildcard config/AGENTS.CFG)
 USER_CFG := $(wildcard config/USER.CFG)
+LEAF_DER := tools/x509/certs/leaf.der
+LEAF_DER_MAX := 1536
 INCLUDE_USER_CFG ?= 1
 INCLUDE_NIC_DRIVERS ?= 1
 INCLUDE_NIC_DRIVER_NE ?= $(INCLUDE_NIC_DRIVERS)
@@ -85,7 +87,7 @@ NASM_FLAGS := -DLOADER_SECTORS=$(LOADER_SECTORS) -Itargets/$(TARGET)/boot/ -I$(B
 # LBA 11); only the physical geometry the AT requires differs. The .asm geometry
 # defines default to 160K, so the 160K artifacts stay byte-identical.
 NASM_FLAGS_360K := $(NASM_FLAGS) -DFLOPPY_TOTAL_SECTORS=720 -DFLOPPY_SPT=9 -DFLOPPY_HEADS=2 -DFLOPPY_MEDIA=0xfd
-FAT_FILES := --file $(SEED_SYS):SEED.SYS
+FAT_FILES := --file $(SEED_SYS):SEED.SYS --file $(LEAF_DER):SEED/LEAF.DER
 
 ifneq ($(AGENT_CFG),)
 FAT_FILES += --file $(AGENT_CFG):SEED/AGENTS.CFG
@@ -194,7 +196,7 @@ $(BASIC_BOOT_B_BAS): $(BASIC_BOOT_B_BIN) $(BASIC_BOOT_BUILDER) | $(BUILD_DIR)
 		--clear-top $(BASIC_BOOTSTRAP_CLEAR_TOP) \
 		--max-addr $(BASIC_BOOTSTRAP_MAX_ADDR)
 
-$(FLOPPY_IMG): FORCE $(BOOT_BIN) $(LOADER_BIN) $(SEED_SYS) $(FAT_DRIVER_DEPS) $(AGENT_CFG) $(USER_CFG) $(IDENTITY_PROMPT) $(COMPACT_PROMPT) $(TOOLS_SCHEMA) $(IMAGE_BUILDER) | $(BUILD_DIR)
+$(FLOPPY_IMG): FORCE $(BOOT_BIN) $(LOADER_BIN) $(SEED_SYS) $(FAT_DRIVER_DEPS) $(AGENT_CFG) $(USER_CFG) $(LEAF_DER) $(IDENTITY_PROMPT) $(COMPACT_PROMPT) $(TOOLS_SCHEMA) $(IMAGE_BUILDER) | $(BUILD_DIR)
 	@LC_ALL=C grep -l '["\\]' $(IDENTITY_PROMPT) $(COMPACT_PROMPT) >/dev/null 2>&1 \
 		&& { echo "error: a streamed prompt contains a \" or \\ (breaks JSON / Content-Length)"; exit 1; } || true
 	@# A streamed TLS record must stay <= the ~440 B api_request_plain body so its TX frame fits the
@@ -207,6 +209,8 @@ $(FLOPPY_IMG): FORCE $(BOOT_BIN) $(LOADER_BIN) $(SEED_SYS) $(FAT_DRIVER_DEPS) $(
 		|| { echo "error: $(COMPACT_PROMPT) > 512 B (contract staging reads one sector into tls_rx_copy)"; exit 1; }
 	@test $$(wc -c < $(TOOLS_SCHEMA)) -le 384 \
 		|| { echo "error: $(TOOLS_SCHEMA) > 384 B (tools-cache tail stores native tool replay history)"; exit 1; }
+	@test $$(wc -c < $(LEAF_DER)) -le $(LEAF_DER_MAX) \
+		|| { echo "error: $(LEAF_DER) > $(LEAF_DER_MAX) B (must fit the 286 leaf capture/cache buffer)"; exit 1; }
 	python3 $(IMAGE_BUILDER) build \
 		--boot $(BOOT_BIN) \
 		--loader $(LOADER_BIN) \
@@ -220,7 +224,7 @@ $(BOOT_360K_BIN): $(BOOT_SRC) | $(BUILD_DIR)
 $(LOADER_360K_BIN): $(LOADER_SRC) | $(BUILD_DIR)
 	nasm $(NASM_FLAGS_360K) -f bin -o $@ $<
 
-$(FLOPPY_IMG_360K): FORCE $(BOOT_360K_BIN) $(LOADER_360K_BIN) $(SEED_SYS) $(FAT_DRIVER_DEPS) $(AGENT_CFG) $(USER_CFG) $(IDENTITY_PROMPT) $(COMPACT_PROMPT) $(TOOLS_SCHEMA) $(IMAGE_BUILDER) | $(BUILD_DIR)
+$(FLOPPY_IMG_360K): FORCE $(BOOT_360K_BIN) $(LOADER_360K_BIN) $(SEED_SYS) $(FAT_DRIVER_DEPS) $(AGENT_CFG) $(USER_CFG) $(LEAF_DER) $(IDENTITY_PROMPT) $(COMPACT_PROMPT) $(TOOLS_SCHEMA) $(IMAGE_BUILDER) | $(BUILD_DIR)
 	@LC_ALL=C grep -l '["\\]' $(IDENTITY_PROMPT) $(COMPACT_PROMPT) >/dev/null 2>&1 \
 		&& { echo "error: a streamed prompt contains a \" or \\ (breaks JSON / Content-Length)"; exit 1; } || true
 	@test $$(wc -c < $(IDENTITY_PROMPT)) -le 512 \
@@ -229,6 +233,8 @@ $(FLOPPY_IMG_360K): FORCE $(BOOT_360K_BIN) $(LOADER_360K_BIN) $(SEED_SYS) $(FAT_
 		|| { echo "error: $(COMPACT_PROMPT) > 512 B (contract staging reads one sector into tls_rx_copy)"; exit 1; }
 	@test $$(wc -c < $(TOOLS_SCHEMA)) -le 384 \
 		|| { echo "error: $(TOOLS_SCHEMA) > 384 B (tools-cache tail stores native tool replay history)"; exit 1; }
+	@test $$(wc -c < $(LEAF_DER)) -le $(LEAF_DER_MAX) \
+		|| { echo "error: $(LEAF_DER) > $(LEAF_DER_MAX) B (must fit the 286 leaf capture/cache buffer)"; exit 1; }
 	python3 $(IMAGE_BUILDER) build \
 		--boot $(BOOT_360K_BIN) \
 		--loader $(LOADER_360K_BIN) \

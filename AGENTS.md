@@ -44,11 +44,13 @@ That image is a 160 KiB FAT12 floppy image with a stage 1 boot sector, a small
 reserved-sector FAT12 loader, FAT copies, a root directory, and file data. The
 loader reads the visible root `SEED.SYS` file through its FAT12 cluster chain
 and jumps to it at `0000:1000`. Runtime configuration and prompt files are
-shipped under the root `SEED/` directory. The tracked `AGENTS.CFG` file is
-shipped as `SEED/AGENTS.CFG` when present and overrides the built-in `openai`,
-`anthropic`, and `google` agent interfaces. Optional `USER.CFG` user-local
-state is ignored and included as `SEED/USER.CFG` only when `config/USER.CFG`
-exists. NIC driver files are shipped as `SEED/DRIVERS/*.DRV` by default; build
+shipped under the root `SEED/` directory. The current OpenAI RSA leaf ships as
+`SEED/LEAF.DER`; 286+ boots verify it against the baked WR1 anchor before use
+and may refresh it after verified recertification. The tracked `AGENTS.CFG`
+file is shipped as `SEED/AGENTS.CFG` when present and overrides the built-in
+`openai`, `anthropic`, and `google` agent interfaces. Optional `USER.CFG`
+user-local state is ignored and included as `SEED/USER.CFG` only when
+`config/USER.CFG` exists. NIC driver files are shipped as `SEED/DRIVERS/*.DRV` by default; build
 with `INCLUDE_NIC_DRIVERS=0` or per-driver `INCLUDE_NIC_DRIVER_*` switches to
 produce a floppy without some or all drivers. Runtime driver loading must scan
 the shipped `.DRV` files, select a suitable driver by metadata, ask if multiple

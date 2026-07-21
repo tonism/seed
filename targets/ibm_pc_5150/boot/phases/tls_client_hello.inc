@@ -10,7 +10,7 @@
 tls_client_hello_phase:
     ; Build 12 286 secure increment B: patch the ClientHello for the RSA cert-auth path BEFORE building
     ; it -- offer ECDHE_RSA (0xcca8) + advertise rsa_pkcs1_sha256 (0x0401), so the server presents an
-    ; RSA cert + an RSA-PKCS1-SHA256 ServerKeyExchange signature we verify against the pinned leaf key.
+    ; RSA cert + an RSA-PKCS1-SHA256 ServerKeyExchange signature we verify against the adopted leaf key.
     ; 286-only; the 8088 keeps ECDHE_ECDSA (0xcca9) -- unauthenticated, and its smaller ECDSA cert
     ; keeps the tight 8088 handshake window. The patch rides the L-phase image (re-applied per load).
     test word [handoff_addr + handoff_flags], handoff_flag_cpu_286plus
@@ -28,7 +28,7 @@ tls_client_hello_phase:
     jz .done
     call tls_client_hello_secure_prep            ; CF on module-load or keypair-gen failure -> retry
     jc .done
-    call recert_cache_phase                       ; best-effort SEED/LEAF.DER read+verify+adopt prep
+    call recert_cache_phase                       ; best-effort SEED/LEAF.DER read+WR1-verify+adopt prep
     cmp byte [save_pending], 2                    ; a fresh recertified capture from the failed try?
     jne .ok_done
     mov ax, (((core_save_prep_phase_end - core_save_prep_phase_start + 511) / 512) << 8) | ((core_save_prep_phase_start - $$) / 512)
