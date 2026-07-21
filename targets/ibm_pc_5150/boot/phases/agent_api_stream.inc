@@ -627,11 +627,7 @@ agent_api_stream_append_ledger:
     call agent_api_stream_ledger_hex32
     mov si, PHASE_LOAD_ADDR + (api_ledger_save_text - PHASE_BASE)
     call agent_api_stream_append_z_to_buffer
-    mov ah, 'o'
-    test byte [handoff_addr + handoff_flags], handoff_flag_writable_media
-    jz .save_ro
-    mov ah, 'w'
-.save_ro:
+    mov ah, '?'
     mov al, 'r'
     stosw
     mov al, ' '

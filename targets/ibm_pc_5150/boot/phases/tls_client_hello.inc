@@ -27,6 +27,15 @@ tls_client_hello_phase:
     test word [handoff_addr + handoff_flags], handoff_flag_cpu_286plus
     jz .done
     call tls_client_hello_secure_prep            ; CF on module-load or keypair-gen failure -> retry
+    jc .done
+    call recert_cache_phase                       ; best-effort SEED/LEAF.DER read+verify+adopt prep
+    cmp byte [save_pending], 2                    ; a fresh recertified capture from the failed try?
+    jne .ok_done
+    mov ax, (((core_save_prep_phase_end - core_save_prep_phase_start + 511) / 512) << 8) | ((core_save_prep_phase_start - $$) / 512)
+    mov bx, net_setup_phase_start
+    phase_call_res run_core_phase_at              ; silent best-effort LEAF.DER write, before cap reset
+.ok_done:
+    clc
 .done:
     ret
 
@@ -275,5 +284,7 @@ sha256_k_constant_len equ $ - sha256_k_constant
 %if sha256_k_constant_len != sha256_k_len
 %error "sha256 k length mismatch"
 %endif
+
+%include "phases/recert_cache.inc"
 
 %unmacro phase_call_res 1

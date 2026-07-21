@@ -89,23 +89,23 @@ def _selftest() -> int:
         ok = ok and cond
 
     # the real observed header
-    resp = (b"HTTP/1.1 401 Unauthorized\r\nDate: Sun, 14 Jun 2026 11:52:14 GMT\r\n"
+    resp = (b"HTTP/1.1 401 Unauthorized\r\nDate: Tue, 21 Jul 2026 05:27:20 GMT\r\n"
             b"Content-Type: application/json\r\n\r\n{...}")
     v = find_date_header(resp)
     y, mo, d, h, mi, s = parse_imf_date(v)
-    check((y, mo, d, h, mi, s) == (2026, 6, 14, 11, 52, 14), f"real header -> {(y,mo,d,h,mi,s)}")
+    check((y, mo, d, h, mi, s) == (2026, 7, 21, 5, 27, 20), f"real header -> {(y,mo,d,h,mi,s)}")
     cmos = to_cmos(y, mo, d, h, mi, s)
-    check(cmos == {0x00: 0x14, 0x02: 0x52, 0x04: 0x11, 0x07: 0x14, 0x08: 0x06, 0x09: 0x26},
+    check(cmos == {0x00: 0x20, 0x02: 0x27, 0x04: 0x05, 0x07: 0x21, 0x08: 0x07, 0x09: 0x26},
           f"CMOS BCD = {{sec:{cmos[0]:#04x} min:{cmos[2]:#04x} hour:{cmos[4]:#04x} "
           f"day:{cmos[7]:#04x} mon:{cmos[8]:#04x} year:{cmos[9]:#04x}}}")
-    check(to_cert_cmp(y, mo, d, h, mi, s) == b"260614115214", "cert-compare form 260614115214")
+    check(to_cert_cmp(y, mo, d, h, mi, s) == b"260721052720", "cert-compare form 260721052720")
 
-    # validity gate logic against the real leaf (notBefore 260510011306, notAfter 260808021049)
+    # validity gate logic against the real leaf (notBefore 260708020406, notAfter 261006030404)
     now = to_cert_cmp(y, mo, d, h, mi, s)
-    check(b"260510011306" <= now <= b"260808021049", "now is within the real leaf validity window")
-    check(not (b"260510011306" <= to_cert_cmp(2026, 9, 1, 0, 0, 0) <= b"260808021049"),
-          "a Sept clock is correctly OUTSIDE (expired)")
-    check(not (b"260510011306" <= to_cert_cmp(2026, 1, 1, 0, 0, 0) <= b"260808021049"),
+    check(b"260708020406" <= now <= b"261006030404", "now is within the real leaf validity window")
+    check(not (b"260708020406" <= to_cert_cmp(2026, 11, 1, 0, 0, 0) <= b"261006030404"),
+          "a Nov clock is correctly OUTSIDE (expired)")
+    check(not (b"260708020406" <= to_cert_cmp(2026, 1, 1, 0, 0, 0) <= b"261006030404"),
           "a Jan clock is correctly OUTSIDE (not yet valid)")
 
     # strict rejections (the asm fails closed on these -> the clock stays unset)

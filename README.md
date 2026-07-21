@@ -65,7 +65,8 @@ that channel is *secure* is CPU-tiered, and the product says so honestly:
   (8 MHz is the comfortable floor; 6 MHz is a knife-edge). When the pinned leaf rotates
   (~90 days), the device silently re-pins — it checks the freshly-presented leaf is signed
   by the pinned Google Trust Services CA that issued it, off the handshake race, and adopts
-  it. No rebuild, fail-closed.
+  it. Writable media can cache that verified leaf as `SEED/LEAF.DER`; read-only media just
+  re-certifies after rotations until the image is updated. No rebuild, fail-closed.
 
 Full story: [docs/architecture.md](docs/architecture.md).
 

@@ -13,22 +13,42 @@ Run: python3 tools/crypto-bench/recertify_eval.py
 from __future__ import annotations
 import hashlib
 import os
+import re
 import struct
 import sys
 
-from unicorn import Uc, UC_ARCH_X86, UC_MODE_16
+from unicorn import Uc, UC_ARCH_X86, UC_MODE_16, UC_HOOK_INTR
 from unicorn.x86_const import (UC_X86_REG_CS, UC_X86_REG_DS, UC_X86_REG_ES, UC_X86_REG_SS,
                                UC_X86_REG_SP, UC_X86_REG_FLAGS, UC_X86_REG_SI, UC_X86_REG_DI,
-                               UC_X86_REG_CX)
+                               UC_X86_REG_CX, UC_X86_REG_DX, UC_X86_REG_AX)
 
 sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "x509"))
 import capture_eval as CE   # cert_message() + the real chain
+import x509_verify as X
 
 ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 MODULE_BIN = os.path.join(ROOT, "build", "ibm_pc_5150", "p256_module.bin")
+LAYOUT = os.path.join(ROOT, "targets", "ibm_pc_5150", "boot", "core", "layout.inc")
 
-MODULE_LOAD = 0x4400          # p256_module_load = loop_cache_start (runtime_stack_top 0x8000 - 0x600 - 27*512)
+def layout_equ(name: str) -> int:
+    vals: dict[str, int] = {}
+    for raw in open(LAYOUT):
+        line = raw.split(";", 1)[0].strip()
+        m = re.match(r"^([A-Za-z_][A-Za-z0-9_]*)\s+equ\s+(.+)$", line)
+        if not m:
+            continue
+        key, expr = m.groups()
+        try:
+            vals[key] = int(eval(expr, {"__builtins__": {}}, vals))
+        except NameError:
+            continue
+        if key == name:
+            return vals[key]
+    raise KeyError(f"{name} not found in {LAYOUT}")
+
+
+MODULE_LOAD = layout_equ("p256_module_load")
 HANDOFF = 0x0600
 HANDOFF_FLAGS = 8
 FLAG_286 = 0x0010
@@ -52,9 +72,26 @@ class Mod:
         for r in (UC_X86_REG_CS, UC_X86_REG_DS, UC_X86_REG_ES, UC_X86_REG_SS):
             self.uc.reg_write(r, 0)
         self.uc.reg_write(UC_X86_REG_FLAGS, 0x0002)
+        self.uc.hook_add(UC_HOOK_INTR, self._interrupt)
         # set the 286 capability flag (the capture + chain entries gate on it)
         cur = struct.unpack("<H", bytes(self.uc.mem_read(HANDOFF + HANDOFF_FLAGS, 2)))[0]
         self.uc.mem_write(HANDOFF + HANDOFF_FLAGS, struct.pack("<H", cur | FLAG_286))
+
+    def _interrupt(self, uc, intno, _user_data):
+        if intno != 0x1A:
+            raise RuntimeError(f"unexpected interrupt {intno:#x}")
+        ah = (uc.reg_read(UC_X86_REG_AX) >> 8) & 0xFF
+        flags = uc.reg_read(UC_X86_REG_FLAGS)
+        if ah == 0x04:                       # RTC date: 2026-07-21
+            uc.reg_write(UC_X86_REG_CX, 0x2026)
+            uc.reg_write(UC_X86_REG_DX, 0x0721)
+            uc.reg_write(UC_X86_REG_FLAGS, flags & ~0x1)
+        elif ah == 0x02:                     # RTC time: 12:00:00
+            uc.reg_write(UC_X86_REG_CX, 0x1200)
+            uc.reg_write(UC_X86_REG_DX, 0x0000)
+            uc.reg_write(UC_X86_REG_FLAGS, flags & ~0x1)
+        else:
+            uc.reg_write(UC_X86_REG_FLAGS, flags | 0x1)
 
     def ep(self, name):
         return struct.unpack("<H", bytes(self.uc.mem_read(MODULE_LOAD + EP[name], 2)))[0]
@@ -112,7 +149,7 @@ def main() -> int:
         tbs = bytes(m.uc.mem_read(tbs_ptr, tbs_len))
         h = hashlib.sha256(tbs).digest()
         # check the TBS the module pointed at hashes to what WR1 signed
-        tbs_ok = hashlib.sha256(tbs).hexdigest() == hashlib.sha256(leaf[4:4 + 1062]).hexdigest()
+        tbs_ok = tbs == X.parse_certificate(leaf).tbs_span
         print(f"  [{'PASS' if tbs_ok else 'FAIL'}] result TBS span correct (sha {h.hex()[:8]})")
         # 3. chain_verify_sig: leaf sig (result sig_ptr) chains to the baked WR1, over the TBS hash
         mod_before = m.res("mod_ptr")                            # net_phase reads result_mod_ptr AFTER chain_verify

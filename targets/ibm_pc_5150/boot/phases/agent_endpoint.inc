@@ -60,6 +60,8 @@ agent_endpoint_phase:
     ; "> reconnect" on the same row (reads as one line transitioning reconnect -> recertify).
     cmp al, 3
     je .endpoint_body
+    ; The next L phase consumes this before cap_reset and silently writes SEED/LEAF.DER if possible.
+    mov byte [save_pending], 2
     mov byte [recert_flag], 1
     cmp byte [handoff_addr + handoff_status], handoff_status_ready
     jne .endpoint_body

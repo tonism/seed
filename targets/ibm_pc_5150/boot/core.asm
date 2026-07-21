@@ -216,8 +216,8 @@ core_tls_client_hello_phase_start:
 %undef PHASE_BASE
 core_tls_client_hello_phase_end:
 
-%if (core_tls_client_hello_phase_end - core_tls_client_hello_phase_start) > (low_scratch_end - low_scratch_start)
-%error "tls client hello phase exceeds low scratch window"
+%if (core_tls_client_hello_phase_end - core_tls_client_hello_phase_start) > (fs_sector_buffer - low_scratch_start)
+%error "tls client hello phase reaches fs sector buffer"
 %endif
 
 align 512, db 0

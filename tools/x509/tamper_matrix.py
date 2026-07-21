@@ -29,9 +29,10 @@ import der_build as B
 CERTS = os.path.join(os.path.dirname(__file__), "certs")
 LEAF = open(os.path.join(CERTS, "leaf.der"), "rb").read()
 WR1_N, WR1_E = X.anchor_modulus_from_cert(open(os.path.join(CERTS, "wr1.der"), "rb").read())
+REAL_CERT = X.parse_certificate(LEAF)
 
-NOW = datetime(2026, 6, 14, 12, 0, 0, tzinfo=timezone.utc)            # within the real leaf's validity
-PAST = datetime(2026, 9, 1, tzinfo=timezone.utc)                      # after the real leaf's notAfter
+NOW = datetime(2026, 7, 21, 12, 0, 0, tzinfo=timezone.utc)            # within the real leaf's validity
+PAST = datetime(2026, 11, 1, tzinfo=timezone.utc)                     # after the real leaf's notAfter
 EARLY = datetime(2026, 1, 1, tzinfo=timezone.utc)                     # before the real leaf's notBefore
 
 # synthetic CA + leaf keys (deterministic; generated once)
@@ -128,15 +129,16 @@ def build_vectors():
     synth_base = B.mint_cert(ca_n=CA_N, ca_d=CA_D, leaf_n=LEAF2048_N)
     add("C2 synthetic baseline -> synthetic CA", synth_base, CA_N, CA_E, True)
 
-    # --- real-leaf tampers vs WR1 (REJECT) --- (signatureValue bytes are der[1086:1342])
-    add("R1 signature bit flipped", flip_bit(LEAF, 1086, 0), WR1_N, WR1_E, False,
+    # --- real-leaf tampers vs WR1 (REJECT) ---
+    sig_off = find_offset(LEAF, REAL_CERT.signature)
+    add("R1 signature bit flipped", flip_bit(LEAF, sig_off, 0), WR1_N, WR1_E, False,
         "signature does not verify")
-    add("R2 signature last byte changed", flip_bit(LEAF, 1341, 3), WR1_N, WR1_E, False,
+    add("R2 signature last byte changed", flip_bit(LEAF, sig_off + len(REAL_CERT.signature) - 1, 3), WR1_N, WR1_E, False,
         "signature does not verify")
     san_off = find_offset(LEAF, b"api.openai.com", 600)                # the SAN dNSName (inside TBS)
     add("R3 TBS SAN host byte flipped", flip_bit(LEAF, san_off, 0), WR1_N, WR1_E, False,
         "signature does not verify")
-    nb_off = find_offset(LEAF, b"260510011306Z")                       # notBefore (inside TBS)
+    nb_off = find_offset(LEAF, REAL_CERT.validity.not_before.raw)       # notBefore (inside TBS)
     add("R4 TBS validity digit flipped", flip_bit(LEAF, nb_off, 0), WR1_N, WR1_E, False,
         "signature does not verify")
     add("R5 truncated (last byte dropped)", LEAF[:-1], WR1_N, WR1_E, False, "")
@@ -150,8 +152,10 @@ def build_vectors():
     add("R11 real leaf -> WRONG anchor (synth CA)", LEAF, CA_N, CA_E, False,
         "signature does not verify")
     # outer sigAlg OID last byte changed (sha256->other): inner(TBS) != outer -> caught pre-verify
-    assert LEAF[1078] == 0x0B, f"expected outer sigAlg OID tail 0x0B, got {LEAF[1078]:#x}"
-    add("R12 outer sigAlg substituted (inner!=outer)", flip_bit(LEAF, 1078, 2), WR1_N, WR1_E, False,
+    outer_sigalg_off = find_offset(LEAF, REAL_CERT.outer_sigalg, len(REAL_CERT.tbs_span))
+    outer_oid_tail = outer_sigalg_off + REAL_CERT.outer_sigalg.find(X.OID_SHA256_RSA) + len(X.OID_SHA256_RSA) - 1
+    assert LEAF[outer_oid_tail] == 0x0B, f"expected outer sigAlg OID tail 0x0B, got {LEAF[outer_oid_tail]:#x}"
+    add("R12 outer sigAlg substituted (inner!=outer)", flip_bit(LEAF, outer_oid_tail, 2), WR1_N, WR1_E, False,
         "mismatch")
     add("R13 real leaf, clock past notAfter", LEAF, WR1_N, WR1_E, False, "expired", now=PAST)
     add("R14 real leaf, clock before notBefore", LEAF, WR1_N, WR1_E, False, "not yet valid", now=EARLY)

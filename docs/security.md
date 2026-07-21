@@ -94,6 +94,14 @@ If all four pass, the new leaf is adopted as the pin and the handshake is retrie
 `> recertify` marks the pause (**mid-chat only** — silent during cold-boot loading), and
 a mid-chat rotation keeps the conversation (history lives in RAM).
 
+After a successful re-pin, Seed also tries to write the verified leaf DER to
+`SEED/LEAF.DER` on the boot medium. This is best-effort and silent: write-protected or
+full media simply continue without the cache. Later 286+ connects read that file before
+opening a TLS socket, verify it through the same strict-DER, SAN, WR1-signature, and date
+checks, and only then adopt it as the fast-path pin. The cache is therefore not
+trust-on-disk; the immutable WR1 anchor in `SEED.SYS` remains the trust root. A missing
+or invalid cache falls back to the baked leaf and the normal recertify path.
+
 This is deliberately **not trust-on-first-use**: a leaf is adopted only if a CA we
 *already* pinned signed it, for the *exact* host we expect, and only while it is in date
 — anything else **fails closed** and falls through to the normal reconnect-failed path.
@@ -121,6 +129,7 @@ the 16 KiB hot path carries none of it.
 ```text
 pinned leaf key    api.openai.com's RSA-2048 leaf — the in-race verify target
 pinned CA anchor   Google Trust Services WR1 (RSA-2048) — the durable re-pin anchor
+leaf DER cache     SEED/LEAF.DER, optional; verified against WR1 before adoption
 adoption rule      a new leaf is pinned ONLY if WR1 signed it, SAN == api.openai.com,
                    and it is in date — never trust-on-first-use
 failure            fail closed: an unverifiable leaf is not adopted; reconnect-failed path
@@ -132,12 +141,13 @@ human re-pin       leaf: automatic (auto-recertify); CA (WR1): manual, ~yearly c
 ## The future ECDSA tier — scoped, not built
 
 `api.openai.com` is **dual-cert load-balanced**: the 286's forced `ECDHE_RSA` profile
-still gets the WR1 RSA-2048 leaf (valid to **2029-02-20**), but default clients now get a
-P-256/WE1 **ECDSA** leaf. Today's RSA path survives only because the 286 forces it; if
-the RSA leaf is ever withdrawn for our profile, recertify fails closed and the user must
-act. So an ECDSA path is a tracked contingency, scoped by two fan-out spikes (the journey
-is in [crypto-feasibility.md](crypto-feasibility.md#the-ecdsa-question--scoped-not-built);
-the raw record is `notes/old/ecdsa-tier-scoping.md`):
+still gets an RSA-2048 leaf issued by WR1 (current checked pin: **2026-07-08** to
+**2026-10-06**; WR1 anchor valid to **2029-02-20**), but default clients now get a P-256/WE1
+**ECDSA** leaf. Today's RSA path survives only because the 286 forces it; if the RSA leaf
+is ever withdrawn for our profile, recertify fails closed and the user must act. So an ECDSA
+path is a tracked contingency, scoped by two fan-out spikes (the journey is in
+[crypto-feasibility.md](crypto-feasibility.md#the-ecdsa-question--scoped-not-built); the raw
+record is `notes/old/ecdsa-tier-scoping.md`):
 
 - **Optimisation spike — field tuning can't make @6.** ECDSA verify is two scalar mults
   (~8.3 s with Shamir's trick); the best non-overlapping stack of field-level wins lands

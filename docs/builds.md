@@ -189,6 +189,10 @@ build switches    INCLUDE_NIC_DRIVERS=0 omits all drivers; INCLUDE_NIC_DRIVER_NE
                   INCLUDE_NIC_DRIVER_3C501 omit individual files
 FAT12 builder     nested 8.3 directory support for the scoped runtime layout
 splash order      draw the CPU-class splash before driver loading/failure handling
+floppy policy     startup reads only; user save/config writes only when requested
+recert cache      after verified 286+ re-pin, best-effort write SEED/LEAF.DER and
+                  verify that cache before future pre-socket adoption
+NE.DRV            shared NE/DP8390 driver validated on 16-bit NE2000 and Novell NE2000
 3c501 receive     keep the single-buffer sample below the response phase, preserve ES,
                   and ignore truncated TCP payloads instead of ACKing partial data
 ```

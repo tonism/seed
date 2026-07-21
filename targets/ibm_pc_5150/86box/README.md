@@ -37,14 +37,18 @@ Additional checked-in memory-tier representatives are:
 targets/ibm_pc_5150/86box/vm-net-ne2k8-xt/86box.cfg   8088, 256 KiB far conventional
 targets/ibm_pc_5150/86box/vm-net-ems/86box.cfg        8088, 256 KiB + 4 MiB Lo-tech EMS
 targets/ibm_pc_5150/86box/vm-net-286/86box.cfg        286, 2048 KiB HMA/native extended
-targets/ibm_pc_5150/86box/vm-net-386/86box.cfg
+targets/ibm_pc_5150/86box/vm-net-386/86box.cfg        386SX, 4096 KiB unreal
+targets/ibm_pc_5150/86box/vm-net-ne2k/86box.cfg       386SX, generic 16-bit ISA NE2000
+targets/ibm_pc_5150/86box/vm-net-novell-ne2k/86box.cfg 386SX, Novell 16-bit ISA NE2000
 ```
 
 `vm-net-286` uses the AMI 286 AT-compatible BIOS shape with 2048 KiB RAM and an
 8-bit NE2000 adapter. `vm-net-386` uses the ADI 386SX/Phoenix BIOS shape with
-4096 KiB RAM and a 16-bit ISA NE2000 adapter. Both AT-class profiles use the
-360K floppy image; `tools/run-86box.sh vm-net-286` and
-`tools/run-86box.sh vm-net-386` select it automatically.
+4096 KiB RAM and a 16-bit ISA NE2000 adapter. `vm-net-ne2k` and
+`vm-net-novell-ne2k` are card-specific 16-bit NE/DP8390 coverage profiles on
+the same 386SX machine shape. AT-class profiles use the 360K floppy image;
+`tools/run-86box.sh vm-net-286`, `tools/run-86box.sh vm-net-386`, and the
+card-specific 386 profiles select it automatically.
 
 The checked-in profiles are intentionally representative, not exhaustive: they
 cover main failure paths, NIC families, memory tiers, and the CPU classes implied

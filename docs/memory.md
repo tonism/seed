@@ -343,8 +343,7 @@ stays capped at 1 MiB; surplus high memory belongs to the arena.
 
 ## ENV.DAT Snapshot Format
 
-The writable-media persistence tier (see [`architecture.md`](architecture.md),
-"Persistence: The Writable-Media Tier") saves the contiguous user region and the
+Persistence (see [`architecture.md`](architecture.md), "Persistence") saves the contiguous user region and the
 screen to `ENV.DAT` on the boot drive. The file is a header plus two payload
 sections: the arena+window region for the model, and the screen snapshot for the
 user. The context cap tells restore where the context suffix begins:

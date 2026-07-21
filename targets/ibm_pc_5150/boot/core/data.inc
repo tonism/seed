@@ -133,7 +133,10 @@ save_dir_lba        equ save_scratch_base + 18
 save_dir_off        equ save_scratch_base + 20
 save_old_cluster    equ save_scratch_base + 22
 save_rowlen_table   equ save_scratch_base + 24    ; one byte per screen row (<= 25)
-save_scratch_end    equ save_rowlen_table + 25
+save_mode           equ save_rowlen_table + 25    ; 0=ENV.DAT, 1=LEAF.DER recert cache
+save_scratch_end    equ save_mode + 1
+save_mode_env       equ 0
+save_mode_leaf      equ 1
 %if save_scratch_end > cursor_row
 %error "save scratch overruns into the live cursor/screen vars"
 %endif

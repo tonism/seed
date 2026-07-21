@@ -305,11 +305,11 @@ architecture is still what makes silent re-pin fit @6.
 
 The shipped 286 tier pins an RSA leaf — but `api.openai.com` is **dual-cert
 load-balanced** and migrating to ECDSA. The 286's forced `ECDHE_RSA` profile still draws
-the RSA-2048 leaf (via GTS WR1, valid to 2029-02-20); default clients now get a P-256/WE1
-ECDSA leaf. Today's pin survives only because the 286 forces RSA. So we asked the obvious
-next question — *if the RSA leaf ever goes away, can the 286 do ECDSA?* — and scoped it with
-two more parallel-agent spikes (the same method, findings adversarially checked against the
-shipped code).
+an RSA-2048 leaf via GTS WR1 (current checked pin: 2026-07-08 to 2026-10-06; WR1 anchor
+valid to 2029-02-20); default clients now get a P-256/WE1 ECDSA leaf. Today's pin survives
+only because the 286 forces RSA. So we asked the obvious next question — *if the RSA leaf ever
+goes away, can the 286 do ECDSA?* — and scoped it with two more parallel-agent spikes (the
+same method, findings adversarially checked against the shipped code).
 
 **First: is ECDSA verify even affordable @6?** ECDSA verify is `u1·G + u2·Q` — *two* scalar
 mults — against RSA's one modexp, so on this CPU it is ~2× the RSA verify (the opposite of a

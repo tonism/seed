@@ -24,7 +24,10 @@
 ; save_write returns it lands back in the resident chat loop, not in this phase's overwritten code. The save runs between
 ; turns, so it reads only RAM/video here -- the actual disk I/O is all in save_write.
 save_prep_phase:
+    cmp byte [save_pending], 2
+    je .recert_leaf
     mov byte [save_pending], 0       ; consume the request (chat_loop loads us as the save entry point)
+    mov byte [save_mode], save_mode_env
     ; --- region_len = full arena+context extent (ceiling - chat_pool_start), mirrors restore ---
     mov ax, [handoff_addr + handoff_ram_top]
     sub ax, 0x100
@@ -75,6 +78,55 @@ save_prep_phase:
     mov ax, (((core_save_write_phase_end - core_save_write_phase_start + 511) / 512) << 8) | \
             ((core_save_write_phase_start - $$) / 512)
     phase_jmp_res run_net_setup_phase
+
+.recert_leaf:
+    mov byte [save_pending], 0       ; consume the internal best-effort recert-cache save
+    mov byte [save_mode], save_mode_leaf
+    call save_prep_leaf_file_size
+    jc .recert_done
+    call save_prep_find_dir_slot     ; sets save_dir_lba/off + save_old_cluster for SEED/LEAF.DER
+    cmp word [save_dir_lba], 0
+    je .recert_done
+    mov ax, (((core_save_write_phase_end - core_save_write_phase_start + 511) / 512) << 8) | \
+            ((core_save_write_phase_start - $$) / 512)
+    phase_jmp_res run_net_setup_phase
+.recert_done:
+    clc
+    ret
+
+save_prep_leaf_file_size:
+    cmp byte [leaf_capture_buf], 0x30
+    jne .lf_fail
+    mov al, [leaf_capture_buf + 1]
+    test al, 0x80
+    jz .lf_short
+    cmp al, 0x81
+    je .lf_long1
+    cmp al, 0x82
+    jne .lf_fail
+    mov ah, [leaf_capture_buf + 2]
+    mov al, [leaf_capture_buf + 3]
+    add ax, 4
+    jmp .lf_check
+.lf_long1:
+    mov al, [leaf_capture_buf + 2]
+    xor ah, ah
+    add ax, 3
+    jmp .lf_check
+.lf_short:
+    xor ah, ah
+    add ax, 2
+.lf_check:
+    cmp ax, 4
+    jb .lf_fail
+    cmp ax, leaf_capture_max
+    ja .lf_fail
+    mov [save_file_size], ax
+    clc
+    ret
+.lf_fail:
+    stc
+    ret
 
 ; es = the video segment (CGA 0xb800 / MDA 0xb000)
 save_prep_video_es:
@@ -202,6 +254,10 @@ save_prep_find_dir_slot:
     push si
     push cx
     mov di, PHASE_LOAD_ADDR + (save_prep_env_name - PHASE_BASE)
+    cmp byte [save_mode], save_mode_leaf
+    jne .fd_name_ready
+    mov di, PHASE_LOAD_ADDR + (save_prep_leaf_name - PHASE_BASE)
+.fd_name_ready:
     mov cx, 11
 .fd_cmp:
     mov al, [si]
@@ -294,6 +350,7 @@ save_prep_record_slot:
 
 save_prep_seed_name db 'SEED       '
 save_prep_env_name db 'ENV     DAT'
+save_prep_leaf_name db 'LEAF    DER'
 
 %unmacro phase_call_res 1
 %unmacro phase_jmp_res 1

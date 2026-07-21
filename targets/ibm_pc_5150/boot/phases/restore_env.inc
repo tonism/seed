@@ -10,8 +10,8 @@
 ; Build 12 env save/load (design: docs/architecture.md, "Persistence"), step 3: restore a saved environment from
 ; the boot drive at boot, BEFORE the cold greeting. Hooked into prepare_agent_path: CF=0 here => the
 ; window is populated + the screen repainted, and the caller SKIPS the greeting; CF=1 => no/invalid
-; save, the caller falls through to the normal greeting. Restore is a READ, so it is NOT gated on
-; writable media.
+; save, the caller falls through to the normal greeting. Restore is a READ, so it is not gated on
+; writeability.
 ;
 ; ENV.DAT carries two things for two audiences: the arena+conversation window ("region") for the MODEL
 ; (restored into chat_pool_start, with context at the far end), and a literal screen snapshot (the video

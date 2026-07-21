@@ -191,10 +191,9 @@ handoff_flag_mac_valid equ 0x0008
 ; (0x0040+) until a consumer needs them (the FPU does not unlock secure crypto — measured).
 handoff_flag_cpu_286plus equ 0x0010
 handoff_flag_fpu equ 0x0020
-; Build 12 env save/load: writable boot media present. Gates the persistence tier (save/restore of
-; the arena + conversation window to the boot drive). Set by hardware_setup via a non-destructive
-; boot-sector write-back probe; a write-protected floppy -- the recovery-boundary mode -- leaves it
-; clear, so persistence silently no-ops there.
+; Reserved for a future writable-boot-media hint. Startup must not write the boot
+; floppy; persistence writes are attempted only when a save action explicitly
+; requests them.
 handoff_flag_writable_media equ 0x0040
 handoff_flag_cpu_386plus equ 0x0080
 handoff_flag_hma equ 0x0100

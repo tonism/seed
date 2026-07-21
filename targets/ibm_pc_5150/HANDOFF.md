@@ -61,9 +61,6 @@ CPU class    flags bit handoff_flag_cpu_286plus (0x0010): set when the CPU is a 
              better (hardware_setup's FLAGS bits-12-15 test) — gates the secure tier.
              flags bit handoff_flag_cpu_386plus (0x0080): set when the CPU supports the
              386+ unreal-mode memory tier.
-Writable     flags bit handoff_flag_writable_media (0x0040): set when a non-destructive
-media        boot-sector write-back probe succeeds — gates the persistence tier (env
-             save/load). Clear on write-protected media (the recovery-boundary mode).
 HMA          flags bit handoff_flag_hma (0x0100): A20 was enabled and the HMA direct
              range is available.
 Unreal       flags bit handoff_flag_unreal (0x0200): 386 unreal mode is available for
@@ -97,7 +94,7 @@ re-verify the low scratch fits via `tools/check-layout.py`.
 0x0008  MAC address valid
 0x0010  CPU is 286 or better (handoff_flag_cpu_286plus) — gates the secure tier
 0x0020  FPU present (reserved; held but inert — the FPU does not unlock secure crypto)
-0x0040  writable boot media present (handoff_flag_writable_media) — gates the persistence tier
+0x0040  reserved writable-media hint (handoff_flag_writable_media); startup does not probe or write
 0x0080  CPU is 386 or better (handoff_flag_cpu_386plus) — gates unreal setup
 0x0100  HMA available (handoff_flag_hma)
 0x0200  unreal mode available (handoff_flag_unreal)

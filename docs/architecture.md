@@ -49,7 +49,7 @@ direction explicitly changes.
 
 Seed scales by a small, boot-detected **capability vector**, not by shipping
 different products. The vector's primary dimensions today are **RAM / memory
-reach**, **CPU class**, **NIC family**, and **writable media**. Everything that
+reach**, **CPU class**, and **NIC family**. Everything that
 can scale, scales by tier off this one vector.
 
 There are exactly **two boot shapes, locked**, and several additive reach /
@@ -86,12 +86,13 @@ EMS       — 8088/V30-class path past the 1 MiB real-mode ceiling. Seed drives 
           provider's window (see [security.md](security.md)). "Secure" is a 286 tier,
           never the 16 KiB / 4.77 MHz floor.
 
-writable media — a persistence capability. If the boot floppy accepts writes,
-          Seed can save and restore the conversation window, arena, and screen.
+persistence — if the boot floppy accepts a requested save write, Seed can save
+          and restore the conversation window, arena, and screen. Startup does
+          not probe writeability.
 ```
 
 Functional parity is at 16 KiB. Larger memory and faster CPU tiers add performance,
-headroom, wider address reach, persistence when media allows it, and — on the 286 —
+headroom, wider address reach, persistence when requested writes succeed, and — on the 286 —
 real confidentiality; they do not make the basic agent/tool loop unavailable on the
 floor. A feature that cannot degrade to the 16 KiB shape is a design failure.
 
@@ -137,6 +138,7 @@ visible runtime file plus runtime-owned subdirectories:
 | sector 12+     file data
 |                SEED.SYS is the first FAT data file
 |                SEED/ holds AGENTS.CFG, optional USER.CFG, IDENTITY, COMPACT, TOOLS
+|                SEED/LEAF.DER may be created as a verified recert cache
 |                SEED/DRIVERS/ optionally holds one-sector NIC .DRV files
 ```
 
@@ -428,7 +430,7 @@ I   1        0x0700     packet I/O initialization
 D   3        0x0900     DHCP setup
 N   2        0x0900     NTP/RTC setup for certificate validity
 C   3        0x0900     TCP connect
-L   2        0x0700     TLS ClientHello and low crypto constants
+L   3        0x0700     TLS ClientHello, low crypto constants, recert cache
 E   1        0x0700     selected-agent endpoint setup
 A   2        0x0700     SEED/AGENTS.CFG provider config
 U   2        0x0700     SEED/USER.CFG persisted user values
@@ -702,7 +704,7 @@ would cost arena. That sizing is the remaining seam decision, not code to write 
 Seed publishes machine state through the handoff block at `0000:0600`. The
 target-specific binary layout is in `targets/ibm_pc_5150/HANDOFF.md`. The
 handoff is also where the **capability vector lives and grows** — it carries
-`ram_top`, NIC family, CPU-class flags, FPU-present, writable-media, HMA, and
+`ram_top`, NIC family, CPU-class flags, FPU-present, HMA, and
 unreal-mode availability. Link type remains a future extension.
 
 ```text
@@ -715,7 +717,7 @@ NIC base, family, IRQ, and MAC when known
 network status and error code
 IPv4 address, router, DNS, and subnet
 detected RAM top
-CPU class, FPU present, writable media, HMA, unreal mode
+CPU class, FPU present, HMA, unreal mode
 ```
 
 On IBM PC 5150-class real-mode hardware, Seed cannot enforce memory protection.
@@ -770,16 +772,15 @@ provider API channel, published hardware state). It should not own a general
 local-tool execution runtime. The machine does not need an underlying OS, shell,
 compiler, or command library for Seed itself to fulfill its contract.
 
-## Persistence: The Writable-Media Tier
+## Persistence
 
 Everything the user and agent build at runtime — the conversation, and whatever the
 agent pokes into the arena — lives in RAM and is wiped on every restart. When the
-boot medium accepts writes, Seed can persist that state and restore it at the next
-boot, so the agent *accumulates across restarts* instead of booting fresh. This is a
-capability tier gated on **writable media present** (`handoff_flag_writable_media`),
-orthogonal to the RAM and CPU tiers and just as additive: no writable medium and the
-feature is simply absent, the 16 KiB floor untouched. Save and restore are cold phases
-(≈0 resident bytes), so the tier costs nothing on 16 KiB.
+boot medium accepts an explicit save write, Seed can persist that state and restore it
+at the next boot, so the agent *accumulates across restarts* instead of booting fresh.
+Startup does not probe writeability; read-only media remains a clean recovery boundary,
+and failed save writes are reported as best-effort status. Save and restore are cold
+phases (≈0 resident bytes), so persistence costs nothing on 16 KiB.
 
 **One clean unit: the contiguous user region.** The lifetime-ordered layout already
 isolates everything the user/agent owns into one contiguous block above the
@@ -804,7 +805,7 @@ for whatever hardware it has, and only the user bytes come from the file. Restor
 **preloads memory; it does not resume a session** — a TLS session cannot survive a
 power-off, so a restore boot opens no connection and the user's first message carries
 the restored context into a fresh (cold) handshake. Because restore is a *read*, it
-works even from write-protected media; the writable-media bit gates only `save_env`.
+works even from write-protected media; `save_env` is the operation that attempts writes.
 
 **Redisplay repaints the literal screen.** Seed also snapshots the video text buffer
 (char+attr cells) and paints it back verbatim at restore, so the user lands on the
@@ -816,9 +817,18 @@ still restores).
 
 **Triggers.** The native tools `save_env` and `load_env` drive it, and boot auto-loads
 `ENV.DAT` when present. `save_env` writes the snapshot to the boot drive (room-checked,
-best-effort — a status line if the medium is read-only or full); `load_env` is a
+best-effort — a status line if the medium cannot be written or is full); `load_env` is a
 mid-session revert that discards the current arena/context pool, restores the saved one, and
 redisplays.
+
+**Recert cache.** The security path owns one separate best-effort file:
+`SEED/LEAF.DER`. It is not user state and it is not trusted just because it is on the
+floppy. After a 286+ auto-recertification verifies a freshly captured leaf against the
+baked WR1 anchor, Seed tries to write that DER to the boot medium. On later connects,
+before opening the TLS socket, Seed reads `SEED/LEAF.DER` when present, verifies strict
+DER, SAN, WR1 signature, and validity dates, and only then adopts it as the leaf pin.
+Missing, stale, malformed, full-media, or write-protected cases fall back to the baked
+leaf in `SEED.SYS` and the normal recertify path.
 
 **The restore fit gate** is two tiers. A *silent fail-safe* on magic / format version /
 checksum — a corrupt, foreign, or incompatible file is ignored and the machine boots

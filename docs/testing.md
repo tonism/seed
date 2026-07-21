@@ -119,6 +119,8 @@ tracked combinatorially.
   `int 15h AH=88h/87h`.
 - **386 unreal**: tracked `vm-net-386` (`adi386sx`/`i386sx`, 4096 KiB RAM), or
   `python3 tools/run-386-86box.py` for generated automation.
+- **16-bit ISA NE/DP8390 cards**: `vm-net-ne2k` and `vm-net-novell-ne2k` use
+  the 386SX direct-boot shape with the 360K image.
 
 The harness handles 86Box's first-run "moved or copied" network-identity dialog
 itself during tests; no manual button press should be needed.
@@ -141,10 +143,14 @@ the watcher continues with sockets and screens.
 ## NIC matrix
 
 The compatibility gate is original-speed 4.77 MHz, 16 KiB `vm-net-ne2k8` via the
-sidecar. The seven NIC profiles:
+sidecar. The seven original-PC NIC profiles:
 
 `vm-net-3c501`, `vm-net-3c503`, `vm-net-ne1k`, `vm-net-ne2k8`,
 `vm-net-novell-ne1k`, `vm-net-wd8003e`, `vm-net-wd8003eb`.
+
+Additional AT/386 NIC coverage profiles:
+
+`vm-net-ne2k`, `vm-net-novell-ne2k`.
 
 `vm` and `vm-mda` have no card (expect a clean red `.` failure). Retest
 individual profiles when changing TLS timing or shared packet/NIC code.

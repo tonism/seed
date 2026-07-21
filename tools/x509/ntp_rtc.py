@@ -107,28 +107,28 @@ def _selftest() -> int:
           "client request = 48 B, byte0=0x1B, rest zero")
 
     # round-trip a known time through a synthetic reply (the real observed leaf-validity epoch)
-    dt = datetime(2026, 6, 14, 11, 52, 14, tzinfo=timezone.utc)
+    dt = datetime(2026, 7, 21, 5, 27, 20, tzinfo=timezone.utc)
     secs = parse_ntp_seconds(ntp_reply_with(dt))
     cal = ntp_seconds_to_calendar(secs)
-    check(cal == (2026, 6, 14, 11, 52, 14), f"NTP reply -> {cal}")
+    check(cal == (2026, 7, 21, 5, 27, 20), f"NTP reply -> {cal}")
     # the seconds value is > 2^31 -> must be read unsigned
     check(secs > 0x80000000, f"2026 transmit-seconds {secs} is > 2^31 (unsigned read required)")
 
     # the shared half is REUSED (same outputs as http_date_rtc's expectations)
     cmos = to_cmos(*cal)
-    check(cmos == {0x00: 0x14, 0x02: 0x52, 0x04: 0x11, 0x07: 0x14, 0x08: 0x06, 0x09: 0x26},
+    check(cmos == {0x00: 0x20, 0x02: 0x27, 0x04: 0x05, 0x07: 0x21, 0x08: 0x07, 0x09: 0x26},
           f"CMOS BCD via shared to_cmos() = {{sec:{cmos[0]:#04x} .. year:{cmos[9]:#04x}}}")
-    check(to_cert_cmp(*cal) == b"260614115214", "cert-compare form via shared to_cert_cmp()")
+    check(to_cert_cmp(*cal) == b"260721052720", "cert-compare form via shared to_cert_cmp()")
 
-    # validity gate against the real leaf (notBefore 260510011306, notAfter 260808021049)
+    # validity gate against the real leaf (notBefore 260708020406, notAfter 261006030404)
     now = to_cert_cmp(*cal)
-    check(b"260510011306" <= now <= b"260808021049", "now is within the real leaf validity window")
-    sept = to_cert_cmp(*ntp_seconds_to_calendar(parse_ntp_seconds(
-        ntp_reply_with(datetime(2026, 9, 1, tzinfo=timezone.utc)))))
-    check(not (b"260510011306" <= sept <= b"260808021049"), "a Sept clock is OUTSIDE (expired)")
+    check(b"260708020406" <= now <= b"261006030404", "now is within the real leaf validity window")
+    nov = to_cert_cmp(*ntp_seconds_to_calendar(parse_ntp_seconds(
+        ntp_reply_with(datetime(2026, 11, 1, tzinfo=timezone.utc)))))
+    check(not (b"260708020406" <= nov <= b"261006030404"), "a Nov clock is OUTSIDE (expired)")
     jan = to_cert_cmp(*ntp_seconds_to_calendar(parse_ntp_seconds(
         ntp_reply_with(datetime(2026, 1, 1, tzinfo=timezone.utc)))))
-    check(not (b"260510011306" <= jan <= b"260808021049"), "a Jan clock is OUTSIDE (not yet valid)")
+    check(not (b"260708020406" <= jan <= b"261006030404"), "a Jan clock is OUTSIDE (not yet valid)")
 
     # the conversion is correct across leap days, month/year boundaries, and a wide range --
     # cross-checked against Python's datetime (ground truth) so the device-mirrorable algorithm is proven

@@ -80,6 +80,7 @@ is intentionally narrow:
 ```text
 root SEED.SYS runtime file
 SEED/ directory for runtime-owned config and prompt files
+optional SEED/LEAF.DER runtime-owned recert cache
 optional SEED/DRIVERS/ directory for NIC driver files
 uppercase 8.3 filenames
 one-cluster subdirectories
@@ -90,6 +91,12 @@ no dependency on writes succeeding
 Driver files are not config, but they follow the same optional-media discipline:
 Seed scans whatever one-sector `.DRV` files are present under `SEED/DRIVERS/`.
 Missing or unsuitable drivers are a hardware setup error, not a config prompt.
+
+`SEED/LEAF.DER` is also not config. It is a security cache that Seed may create after
+a 286+ auto-recertification verifies a freshly captured `api.openai.com` leaf against
+the baked WR1 anchor. On later boots Seed verifies the cached DER again before adopting
+it. Missing, invalid, or unwritable media simply fall back to the baked leaf in
+`SEED.SYS` and the normal recertify path.
 
 The current config path parses
 up to five `agent ` declarations from `SEED/AGENTS.CFG` when that file is available

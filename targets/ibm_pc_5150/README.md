@@ -68,9 +68,10 @@ root directory, and the `SEED.SYS`-first data area) is documented once in
 [../../docs/architecture.md](../../docs/architecture.md), "Boot Artifact".
 
 `SEED.SYS` is shipped in the FAT12 root directory and contains the current Seed
-runtime. Runtime-owned config and prompt files live under `SEED/`, and included
-NIC driver files live under `SEED/DRIVERS/`. Normal runtime updates can replace
-`SEED.SYS` without rewriting the boot sector or reserved loader; driver-only
+runtime. Runtime-owned config and prompt files live under `SEED/`, included NIC
+driver files live under `SEED/DRIVERS/`, and a writable boot medium may gain
+`SEED/LEAF.DER` after a verified auto-recertification. Normal runtime updates can
+replace `SEED.SYS` without rewriting the boot sector or reserved loader; driver-only
 updates can replace the relevant `.DRV` file when the driver ABI is unchanged.
 The build includes all current NIC drivers by default, but `INCLUDE_NIC_DRIVERS=0`
 or per-driver `INCLUDE_NIC_DRIVER_NE`, `INCLUDE_NIC_DRIVER_WD8003`,

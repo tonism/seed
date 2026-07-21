@@ -25,12 +25,6 @@
 fat_second_lba equ fat_fat_start_lba + 1
 
 save_write_phase:
-    ; --- writability gate (the boot probe set handoff_flag_writable_media) ---
-    test word [handoff_addr + handoff_flags], handoff_flag_writable_media
-    jnz .writable
-    mov si, save_msg_readonly
-    jmp .status
-.writable:
     mov ax, [save_file_size]             ; needed sectors = ceil(file_size / 512)
     add ax, 511
     mov cl, 9
@@ -64,18 +58,30 @@ save_write_phase:
     call save_write_abs_sector
     jc .err
 
+    cmp byte [save_mode], save_mode_leaf
+    je .emit_leaf
     call save_emit_data                  ; stream header + region + encoded screen into the data sectors
+    jmp .emit_done
+.emit_leaf:
+    call save_emit_leaf                  ; stream the captured, WR1-verified leaf DER cache
+.emit_done:
     jc .err
 
     call save_write_dir                  ; create/update the SEED/ directory entry
     jc .err
 
+    cmp byte [save_mode], save_mode_leaf
+    je .quiet_done
     mov si, save_msg_saved
     jmp .status
 .noroom:
+    cmp byte [save_mode], save_mode_leaf
+    je .quiet_done
     mov si, save_msg_noroom
     jmp .status
 .err:
+    cmp byte [save_mode], save_mode_leaf
+    je .quiet_done
     mov si, save_msg_diskerr
 .status:
     ; Draw the dim, screen-only status line (si -> a PHASE-relative z-string). api_stream_seen=1 makes
@@ -94,6 +100,9 @@ save_write_phase:
 .st_done:
     push ds
     pop es
+    ret
+.quiet_done:
+    clc
     ret
 
 ; advance to a fresh screen line (scroll the bottom text area if at the prompt row), di = its byte
@@ -125,7 +134,6 @@ save_scr_newline:
 
 save_msg_saved    db '> saved', 0
 save_msg_noroom   db '> no room', 0
-save_msg_readonly db '> read-only', 0
 save_msg_diskerr  db '> failed', 0
 
 ; es = the video segment (CGA 0xb800 / MDA 0xb000)
@@ -358,6 +366,27 @@ save_emit_data:
     stc
     ret
 
+save_emit_leaf:
+    xor ax, ax
+    mov [save_buf_idx], ax
+    mov [save_sector_index], ax
+    mov si, leaf_capture_buf
+    mov cx, [save_file_size]
+.el_next:
+    jcxz .el_flush
+    mov al, [si]
+    call save_emit_byte
+    jc .el_fail
+    inc si
+    dec cx
+    jmp .el_next
+.el_flush:
+    call save_emit_flush
+    ret
+.el_fail:
+    stc
+    ret
+
 ; build the 28-byte header into the buffer head, then the header checksum over its first 26 bytes.
 save_emit_header:
     mov ax, env_magic_w0
@@ -436,6 +465,10 @@ save_write_dir:
     add di, [save_dir_off]
     push di
     mov si, PHASE_LOAD_ADDR + (save_env_name - PHASE_BASE)
+    cmp byte [save_mode], save_mode_leaf
+    jne .wdir_name_ready
+    mov si, PHASE_LOAD_ADDR + (save_leaf_name - PHASE_BASE)
+.wdir_name_ready:
     mov cx, 11
     rep movsb
     mov al, 0x20                         ; attribute: archive
@@ -471,5 +504,6 @@ save_write_abs_sector:                   ; clobbers ax,cx,dx; CF on error
     ret
 
 save_env_name db 'ENV     DAT'
+save_leaf_name db 'LEAF    DER'
 
 %unmacro phase_call_res 1

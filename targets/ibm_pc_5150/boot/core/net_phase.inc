@@ -23,7 +23,7 @@ prepare_agent_path:
     ; from the boot drive. CF=0 => the conversation window is populated; skip the greeting entirely
     ; (ret to main, which sets status ready + enters chat_loop; the user's first prompt does the cold
     ; handshake carrying the restored window). CF=1 (no/invalid ENV.DAT, or a load failure) => fall
-    ; through to the normal greeting. Restore is a READ, so it is not gated on writable media. Runs
+    ; through to the normal greeting. Restore is a READ, so it is not gated on writeability. Runs
     ; ONLY on this cold-boot fall-through, never on the per-turn chat_loop call below. (Funded by the
     ; build_tcp_segment_frame golf in net_tx.inc -- the nucleus was exactly full.)
     call_core_phase core_restore_env_phase_start, core_restore_env_phase_end
