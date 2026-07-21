@@ -13,13 +13,14 @@ BIOS loads boot sector
   -> SEED.SYS clears text mode
   -> shows a dim . marker for hardware setup
   -> probes common ISA network card I/O bases
+  -> tries bounded ISA PnP activation for supported NE-compatible cards if no fixed card responds
   -> records the responding NIC I/O base if one is found
   -> publishes boot, video, and NIC state to the handoff block at 0000:0600
   -> draws the seed build splash and CPU-class warning
   -> turns the . marker red and plays a low failure tone if no card responds
   -> offers retry/restart after a critical failure; retry returns to hardware setup
   -> probes station-address PROMs when the responding I/O base is ambiguous
-  -> asks for adapter family only if the probes remain ambiguous
+  -> leaves the adapter family unresolved if automatic probes remain invalid
   -> records the current 86Box profile IRQ after adapter family resolution
   -> reads station-address PROMs into handoff when valid
   -> scans SEED/DRIVERS/*.DRV for a suitable driver

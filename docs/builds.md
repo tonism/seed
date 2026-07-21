@@ -193,6 +193,7 @@ floppy policy     startup reads only; user save/config writes only when requeste
 leaf DER          ship SEED/LEAF.DER as the fast-path leaf file; verify it against
                   WR1 before pre-socket adoption, refresh it after verified re-pin
 NE.DRV            shared NE/DP8390 driver validated on 16-bit NE2000 and Novell NE2000
+NE PnP            RTL8019AS and DE-220P ISA PnP activation, then shared NE.DRV
 WD80X3.DRV        shared WD80x3 driver covers WD8003E/EB and WD8013EBT
 3c501 receive     keep the single-buffer sample below the response phase, preserve ES,
                   and ignore truncated TCP payloads instead of ACKing partial data

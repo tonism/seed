@@ -119,8 +119,10 @@ tracked combinatorially.
   `int 15h AH=88h/87h`.
 - **386 unreal**: tracked `vm-net-386` (`adi386sx`/`i386sx`, 4096 KiB RAM), or
   `python3 tools/run-386-86box.py` for generated automation.
-- **16-bit ISA NE/DP8390 cards**: `vm-net-ne2k` and `vm-net-novell-ne2k` use
-  the 386SX direct-boot shape with the 360K image.
+- **16-bit ISA NE/DP8390 cards**: `vm-net-ne2k`, `vm-net-novell-ne2k`,
+  `vm-net-ne2kpnp`, and `vm-net-de220p` use the 386SX direct-boot shape with
+  the 360K image. The PnP profiles first exercise ISA PnP resource activation,
+  then reuse `NE.DRV`.
 - **16-bit ISA WD/DP8390 cards**: `vm-net-wd8013ebt` uses the 386SX direct-boot
   shape with the 360K image.
 
@@ -152,7 +154,8 @@ sidecar. The seven original-PC NIC profiles:
 
 Additional AT/386 NIC coverage profiles:
 
-`vm-net-ne2k`, `vm-net-novell-ne2k`, `vm-net-wd8013ebt`.
+`vm-net-ne2k`, `vm-net-novell-ne2k`, `vm-net-ne2kpnp`, `vm-net-de220p`,
+`vm-net-wd8013ebt`.
 
 `vm` and `vm-mda` have no card (expect a clean red `.` failure). Retest
 individual profiles when changing TLS timing or shared packet/NIC code.
