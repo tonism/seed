@@ -310,6 +310,7 @@ family_ne2000 equ 2
 family_ne1000 equ 3
 family_3c501 equ 4
 family_wd8003 equ 5
+family_wd8013 equ 6
 el1_dataptr equ 0x08
 el1_rx_cmd equ 0x06
 el1_tx_cmd equ 0x07
@@ -383,10 +384,13 @@ ne_rx_start_2k equ 0x46
 ne_rx_stop_2k equ 0x80
 wd_dp8390_offset equ 0x10
 wd_msr_enable_ram equ 0x40
+wd_id_extra_ram equ 0x40
+wd_type_wd8013ebt equ 0x05
 wd_ram_segment equ 0xd000
 wd_tx_start equ 0x00
 wd_rx_start equ 0x06
 wd_rx_stop equ 0x20
+wd8013_rx_stop equ 0x40
 eth_header_len equ 14
 ipv4_header_len equ 20
 udp_header_len equ 8

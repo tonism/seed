@@ -109,6 +109,7 @@ re-verify the low scratch fits via `tools/check-layout.py`.
 3  ne1000
 4  3c501
 5  wd8003
+6  wd8013
 ```
 
 ## Config Source
@@ -191,7 +192,7 @@ re-verify the low scratch fits via `tools/check-layout.py`.
 ```
 
 The block is filled through adapter-family resolution plus 3c501, 3c503,
-NE1000/NE2000, and WD8003 station-address PROM reads. It records IRQ 3 for the
+NE1000/NE2000, and WD80x3 station-address PROM reads. It records IRQ 3 for the
 current 86Box IBM PC 5150 profiles after adapter family resolution.
 
 For internet readiness, the block marks

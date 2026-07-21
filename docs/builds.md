@@ -185,7 +185,7 @@ SEED/DRIVERS/     optional external one-sector NIC driver files scanned at boot
 driver ABI        vtable header, SDRV metadata, family mask, and shared helper addresses
 driver selection  one suitable driver autoloads; multiple suitables ask; none fails cleanly
 build switches    INCLUDE_NIC_DRIVERS=0 omits all drivers; INCLUDE_NIC_DRIVER_NE,
-                  INCLUDE_NIC_DRIVER_WD8003, INCLUDE_NIC_DRIVER_3C503, and
+                  INCLUDE_NIC_DRIVER_WD80X3, INCLUDE_NIC_DRIVER_3C503, and
                   INCLUDE_NIC_DRIVER_3C501 omit individual files
 FAT12 builder     nested 8.3 directory support for the scoped runtime layout
 splash order      draw the CPU-class splash before driver loading/failure handling
@@ -193,6 +193,7 @@ floppy policy     startup reads only; user save/config writes only when requeste
 leaf DER          ship SEED/LEAF.DER as the fast-path leaf file; verify it against
                   WR1 before pre-socket adoption, refresh it after verified re-pin
 NE.DRV            shared NE/DP8390 driver validated on 16-bit NE2000 and Novell NE2000
+WD80X3.DRV        shared WD80x3 driver covers WD8003E/EB and WD8013EBT
 3c501 receive     keep the single-buffer sample below the response phase, preserve ES,
                   and ignore truncated TCP payloads instead of ACKing partial data
 ```

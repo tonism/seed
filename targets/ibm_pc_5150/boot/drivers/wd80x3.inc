@@ -1,4 +1,4 @@
-; WD8003 driver — Western Digital / SMC (DP8390 behind a windowed register bank + shared memory).
+; WD80x3 driver — Western Digital / SMC (DP8390 behind a windowed register bank + shared memory).
 ; Self-contained module loaded into nic_driver_slot at boot. enter/restore window the DP8390 (the
 ; packet path maps the NIC registers at nic_base + wd_dp8390_offset, then unmaps); the DP8390 ring
 ; (core/nic_ring.inc) drives TX/RX; metadata after the vtable declares supported detected families.
@@ -11,6 +11,10 @@
     nic_driver_metadata
 
 wd_enter:
+    mov dx, [handoff_addr + handoff_nic_base]
+    in al, dx
+    or al, wd_msr_enable_ram
+    out dx, al
     add word [handoff_addr + handoff_nic_base], wd_dp8390_offset
     ret
 wd_restore:

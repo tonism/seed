@@ -106,15 +106,15 @@ RAM tiers        16 KiB (ROM BASIC sidecar entry), 32 KiB direct boot, far conve
                  EMS, 286 HMA/native extended, 386 unreal
 media            160 KiB headline FAT12 floppy image; 360 KiB profile image for 286 work
 video            BIOS text mode, CGA or MDA
-network          3c501, 3c503, NE1000/NE2000, Novell NE1000, WD8003 families
+network          3c501, 3c503, NE1000/NE2000, Novell NE1000, WD80x3 families
 runtime file     one visible SEED.SYS plus optional external SEED/DRIVERS/*.DRV NIC files
 ```
 
 Current measured image (`tools/core-sys-info.py`, this tree):
 
 ```text
-SEED.SYS total bytes:        51712
-SEED.SYS total sectors:      101
+SEED.SYS total bytes:        52224
+SEED.SYS total sectors:      102
 resident nucleus sectors:    4   (2048 B; 1494 nonzero B)
 phase count:                 29
 provider-critical K window:  15 sectors / 7680 bytes (0x1800..0x3600)
@@ -663,7 +663,7 @@ bounded **active-driver slot**. New families grow the floppy, not the resident
 footprint — one driver is ever live.
 
 > **Implemented (Build 13).** The NIC families are packaged as external driver
-> files — `NE.DRV` (ne1000/ne2000/Novell), `WD8003.DRV`, `3C503.DRV`, `3C501.DRV`
+> files — `NE.DRV` (ne1000/ne2000/Novell), `WD80X3.DRV`, `3C503.DRV`, `3C501.DRV`
 > under `SEED/DRIVERS/` when included. The shared DP8390 ring is one macro source
 > compiled into the three ring cards; `3c501` is fully custom. The boot scans
 > `.DRV` files, validates the `SDRV` metadata, ABI version, one-sector size, and

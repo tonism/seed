@@ -197,6 +197,9 @@ hardware_setup_phase_display:
     cmp bx, ems_max_pages
     jb .ems_probe
 .ems_sized:
+    ; A plain NIC shared-RAM window can hold writes but cannot prove page 1 distinct from page 0.
+    cmp bx, 2
+    jb .ems_done
     mov [ems_page_count], bx
 .ems_done:
     pop es
@@ -410,7 +413,7 @@ store_auto_network_config:
 autodetect_io_280:
     call probe_wd8003_mac
     jc .probe_3c501
-    mov al, family_wd8003
+    call detect_wd_family
     clc
     ret
 .probe_3c501:
@@ -438,6 +441,8 @@ read_network_address:
     cmp al, family_ne2000
     je read_ne_prom_mac
     cmp al, family_wd8003
+    je read_wd8003_mac
+    cmp al, family_wd8013
     je read_wd8003_mac
     ret
 
@@ -528,6 +533,21 @@ probe_wd8003_mac:
     ret
 .failed:
     stc
+    ret
+
+detect_wd_family:
+    mov al, family_wd8003
+    test word [handoff_addr + handoff_flags], handoff_flag_cpu_286plus
+    jz .done
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, wd_saprom + 6
+    in al, dx
+    and al, 0xff ^ wd_id_extra_ram
+    cmp al, wd_type_wd8013ebt
+    mov al, family_wd8003
+    jne .done
+    mov al, family_wd8013
+.done:
     ret
 
 read_wd8003_mac_raw:

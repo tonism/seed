@@ -87,10 +87,10 @@ the boot loader and the BASIC loader can find the same runtime image.
 - OpenAI, Anthropic, and Google define the supported agent TLS compatibility
   surface. Extra default `AGENTS.CFG` entries may stay only if they fit the
   same path; do not add alternate crypto paths just to keep a gateway.
-- 3c501, 3c503, NE1000/NE2000, and WD8003 station-address PROM reads must stay
+- 3c501, 3c503, NE1000/NE2000, and WD80x3 station-address PROM reads must stay
   non-fatal.
 - The current first packet path covers the
-  5150 3c501, 3c503, NE1000/NE2000, and WD8003 families; keep later NIC
+  5150 3c501, 3c503, NE1000/NE2000, and WD80x3 families; keep later NIC
   expansion target-scoped.
 - Do not switch video modes on the current target. Keep the BIOS-provided text
   mode and use the detected column count for layout.
@@ -214,6 +214,7 @@ vm-net-ne2k8         auto family, MAC read, RX read check, DHCPDISCOVER/OFFER, D
 vm-net-novell-ne1k   auto family, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, encrypted client Finished, server Finished verification, application data, Default Prompt Interface chat loop below the existing splash (model greeting, prompt input, streamed multi-turn responses)
 vm-net-wd8003e       auto family, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, encrypted client Finished, server Finished verification, application data, Default Prompt Interface chat loop below the existing splash (model greeting, prompt input, streamed multi-turn responses)
 vm-net-wd8003eb      auto family, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, encrypted client Finished, server Finished verification, application data, Default Prompt Interface chat loop below the existing splash (model greeting, prompt input, streamed multi-turn responses)
+vm-net-wd8013ebt     auto family through WD80X3.DRV, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, Default Prompt Interface chat loop below the existing splash (model greeting, prompt input, streamed response)
 ```
 
 ## Commits

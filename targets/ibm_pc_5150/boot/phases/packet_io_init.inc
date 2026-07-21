@@ -27,7 +27,10 @@ packet_io_init_phase:
 
 packet_io_init_phase_enable_wd_ram:
     cmp byte [handoff_addr + handoff_nic_family], family_wd8003
+    je .enable
+    cmp byte [handoff_addr + handoff_nic_family], family_wd8013
     jne .done
+.enable:
     mov dx, [handoff_addr + handoff_nic_base]
     in al, dx
     or al, wd_msr_enable_ram
@@ -56,7 +59,14 @@ init_ne_packet_io_phase:
     cmp byte [handoff_addr + handoff_nic_family], family_ne2000
     je .pages_ready
     cmp byte [handoff_addr + handoff_nic_family], family_wd8003
+    je .pages_wd8003
+    cmp byte [handoff_addr + handoff_nic_family], family_wd8013
     jne .pages_1k
+    mov byte [ne_tx_start], wd_tx_start
+    mov byte [ne_rx_start], wd_rx_start
+    mov byte [ne_rx_stop], wd8013_rx_stop
+    jmp .pages_ready
+.pages_wd8003:
     mov byte [ne_tx_start], wd_tx_start
     mov byte [ne_rx_start], wd_rx_start
     mov byte [ne_rx_stop], wd_rx_stop

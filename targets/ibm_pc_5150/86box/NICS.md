@@ -3,10 +3,10 @@
 Build 5 treated network support as internet readiness. Stage 2 still probes
 common ISA Ethernet I/O bases, records the responding I/O base, starts
 resolving the adapter family when the base is ambiguous, and reads 3c501,
-3c503, NE1000/NE2000, and WD8003 station-address PROMs into the handoff block
+3c503, NE1000/NE2000, and WD80x3 station-address PROMs into the handoff block
 when they validate. It also records IRQ 3 for the current 5150 86Box profiles
 after adapter family resolution. The packet path now covers all current 5150
-candidate families: 3c501, 3c503, NE1000/NE2000, and WD8003. It initializes
+candidate families: 3c501, 3c503, NE1000/NE2000, and WD80x3. It initializes
 packet hardware, sends DHCPDISCOVER, waits for DHCPOFFER, parses IPv4 address,
 subnet mask, router, and DNS server, sends DHCPREQUEST, waits for DHCPACK,
 sends ARP for the DHCP-provided DNS server, resolves the selected agent host,
@@ -71,8 +71,10 @@ wd8013epa    Western Digital WD8013EP/A
 ## Later ISA Candidates
 
 These are useful once we move beyond the strict original-PC shape. The generic
-and Novell 16-bit NE2000 adapters use the existing `NE.DRV` DP8390 path and are
-covered by checked-in 386SX profiles.
+and Novell 16-bit NE2000 adapters use the existing `NE.DRV` DP8390 path, and
+the 16-bit Western Digital adapter uses the existing `WD80X3.DRV` shared-memory
+path with WD8013-specific ring bounds. These are covered by checked-in 386SX
+profiles.
 
 ```text
 ne2kpnp      Realtek RTL8019AS
@@ -80,12 +82,12 @@ de220p       D-Link DE-220P
 pcnetisa     AMD PCnet-ISA
 pcnetracal   Racal Interlan EtherBlaster
 pcnetisaplus AMD PCnet-ISA+
-wd8013ebt    Western Digital WD8013EBT
 ```
 
 ```text
 ne2k             NE2000 Compatible           covered by vm-net-ne2k
 novell_ne2k      Novell NE2000               covered by vm-net-novell-ne2k
+wd8013ebt        Western Digital WD8013EBT   covered by vm-net-wd8013ebt
 ```
 
 The RTL8019AS (`ne2kpnp`) and D-Link DE-220P are NE-compatible after ISA PnP
@@ -168,9 +170,10 @@ vm-net-novell-ne1k   Novell NE1000; expected: auto family, MAC read, RX read che
 vm-net-novell-ne2k   Novell NE2000 on 386SX; expected: auto family through NE.DRV, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ok
 vm-net-wd8003e       Western Digital WD8003E; expected: auto family, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, encrypted client Finished, server Finished verification, OpenAI Responses request/response, returned ok below the existing splash
 vm-net-wd8003eb      Western Digital WD8003EB; expected: auto family, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, encrypted client Finished, server Finished verification, OpenAI Responses request/response, returned ok below the existing splash
+vm-net-wd8013ebt     Western Digital WD8013EBT on 386SX; expected: auto family through WD80X3.DRV, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ok
 ```
 
-The WD8003 86Box profiles must use a five-digit shared-memory address and byte
+The WD80x3 86Box profiles must use a five-digit shared-memory address and byte
 size:
 
 ```ini

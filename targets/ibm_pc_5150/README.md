@@ -75,7 +75,7 @@ Normal runtime updates can replace `SEED.SYS` without rewriting the boot sector 
 reserved loader; driver-only updates can replace the relevant `.DRV` file when the
 driver ABI is unchanged.
 The build includes all current NIC drivers by default, but `INCLUDE_NIC_DRIVERS=0`
-or per-driver `INCLUDE_NIC_DRIVER_NE`, `INCLUDE_NIC_DRIVER_WD8003`,
+or per-driver `INCLUDE_NIC_DRIVER_NE`, `INCLUDE_NIC_DRIVER_WD80X3`,
 `INCLUDE_NIC_DRIVER_3C503`, and `INCLUDE_NIC_DRIVER_3C501` switches can
 intentionally produce a floppy without some or all drivers.
 
@@ -153,13 +153,13 @@ block, and resolves the adapter family. Known single-card bases continue
 automatically. Shared bases are resolved by station-address PROM probes when
 one family can be identified safely; `adapter?` remains a fallback question
 when the probes are invalid or ambiguous. For 3c501, 3c503,
-NE1000/NE2000-family, and WD8003-family cards, the boot core reads the
+NE1000/NE2000-family, and WD80x3-family cards, the boot core reads the
 station-address PROM and marks the MAC valid only after rejecting multicast,
 all-zero, and all-`ff` addresses. The boot core also records IRQ 3 for the
 current 86Box IBM PC 5150 profiles once the adapter family is known; real IRQ
 discovery is later scope.
 
-The boot core initializes NE1000/NE2000-family packet hardware
+The boot core initializes packet hardware through the active driver
 after a valid MAC read, polls the receive-ring pointers, reads one pending
 receive frame when available, sends a minimal DHCPDISCOVER, and performs a
 two-pass bounded filtered DHCPOFFER wait. When a DHCPOFFER is observed, the boot core

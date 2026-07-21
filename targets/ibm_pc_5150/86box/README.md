@@ -40,13 +40,15 @@ targets/ibm_pc_5150/86box/vm-net-286/86box.cfg        286, 2048 KiB HMA/native e
 targets/ibm_pc_5150/86box/vm-net-386/86box.cfg        386SX, 4096 KiB unreal
 targets/ibm_pc_5150/86box/vm-net-ne2k/86box.cfg       386SX, generic 16-bit ISA NE2000
 targets/ibm_pc_5150/86box/vm-net-novell-ne2k/86box.cfg 386SX, Novell 16-bit ISA NE2000
+targets/ibm_pc_5150/86box/vm-net-wd8013ebt/86box.cfg  386SX, Western Digital 16-bit ISA WD8013EBT
 ```
 
 `vm-net-286` uses the AMI 286 AT-compatible BIOS shape with 2048 KiB RAM and an
 8-bit NE2000 adapter. `vm-net-386` uses the ADI 386SX/Phoenix BIOS shape with
 4096 KiB RAM and a 16-bit ISA NE2000 adapter. `vm-net-ne2k` and
 `vm-net-novell-ne2k` are card-specific 16-bit NE/DP8390 coverage profiles on
-the same 386SX machine shape. AT-class profiles use the 360K floppy image;
+the same 386SX machine shape. `vm-net-wd8013ebt` covers the 16-bit
+Western Digital shared-memory path on that same shape. AT-class profiles use the 360K floppy image;
 `tools/run-86box.sh vm-net-286`, `tools/run-86box.sh vm-net-386`, and the
 card-specific 386 profiles select it automatically.
 

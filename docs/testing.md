@@ -99,7 +99,7 @@ never by source port.
   build a valid image with no `SEED/DRIVERS/` directory; a NIC-present boot from
   that image should fail as `driver setup failed` and offer retry/restart.
   Individual-image trims use `INCLUDE_NIC_DRIVER_NE`,
-  `INCLUDE_NIC_DRIVER_WD8003`, `INCLUDE_NIC_DRIVER_3C503`, and
+  `INCLUDE_NIC_DRIVER_WD80X3`, `INCLUDE_NIC_DRIVER_3C503`, and
   `INCLUDE_NIC_DRIVER_3C501`.
 
 ## Build 12 Memory Tiers
@@ -121,6 +121,8 @@ tracked combinatorially.
   `python3 tools/run-386-86box.py` for generated automation.
 - **16-bit ISA NE/DP8390 cards**: `vm-net-ne2k` and `vm-net-novell-ne2k` use
   the 386SX direct-boot shape with the 360K image.
+- **16-bit ISA WD/DP8390 cards**: `vm-net-wd8013ebt` uses the 386SX direct-boot
+  shape with the 360K image.
 
 The harness handles 86Box's first-run "moved or copied" network-identity dialog
 itself during tests; no manual button press should be needed.
@@ -150,7 +152,7 @@ sidecar. The seven original-PC NIC profiles:
 
 Additional AT/386 NIC coverage profiles:
 
-`vm-net-ne2k`, `vm-net-novell-ne2k`.
+`vm-net-ne2k`, `vm-net-novell-ne2k`, `vm-net-wd8013ebt`.
 
 `vm` and `vm-mda` have no card (expect a clean red `.` failure). Retest
 individual profiles when changing TLS timing or shared packet/NIC code.

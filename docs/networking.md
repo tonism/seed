@@ -91,17 +91,21 @@ a single-buffer card.
 - Treat Novell NE1000 as a separate verification target; do not assume NE2000
   evidence covers it until it passes the focused gates.
 
-### WD8003 (WD8003E / WD8003EB)
+### WD80x3 (WD8003E / WD8003EB / WD8013EBT)
 
 - Use the ACK-before-render shape. Global delayed-ACK experiments regressed
   WD8003E.
-- Treat WD8003E and WD8003EB as related but verify both independently; one passing
-  does not certify the other.
+- Treat WD8003E, WD8003EB, and WD8013EBT as related but verify them
+  independently; one passing does not certify the others.
+- Keep the shared-memory aperture enabled before DP8390 access. WD8013EBT can
+  otherwise pass early DHCP traffic and later fail on agent-endpoint ARP receive.
+- Keep the ring bounds family-specific: 8 KiB WD8003 cards use pages `0x06..0x1f`,
+  while the 16 KiB WD8013EBT profile uses pages `0x06..0x3f`.
 
 ## Why the carve-outs exist
 
-The shared rules above cover the DP8390-class cards (NE1000/NE2000 and 3c503) and
-WD8003. The 3c501 is the outlier: its el1 single-buffer hardware forces the
+The shared rules above cover the DP8390-class cards (NE1000/NE2000, 3c503, and
+WD80x3). The 3c501 is the outlier: its el1 single-buffer hardware forces the
 render-before-ACK pacing and the receive-latch handling. The remaining per-NIC
 branches in the boot core are therefore hardware-driven; most of the behavioral
 carve-outs are 3c501's. Reducing that surface — folding carve-outs back into the

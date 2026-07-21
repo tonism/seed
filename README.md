@@ -78,7 +78,7 @@ page — `seed-160k.img` (160 KB, **no API key included**).
 
 1. **Boot it in [86Box](https://86box.net/).** Configure an IBM PC/XT-class machine
    with **≥ 32 KB RAM** (16 KB boots, but the agent can barely remember a turn) and a
-   supported NIC (NE1000/NE2000, 3c501/3c503, or WD8003). Mount `seed-160k.img` as
+   supported NIC (NE1000/NE2000, 3c501/3c503, or WD80x3). Mount `seed-160k.img` as
    floppy A: and boot. The repo ships 86Box profiles — see `tools/run-86box.sh`.
 2. **Bring your own key.** On first boot Seed asks for a provider and key — pick
    OpenAI and paste yours. If the floppy is writable, Seed saves it for next time.
@@ -159,7 +159,7 @@ Supported network families on the current target:
 3Com 3c503
 NE1000 / NE2000 compatible
 Novell NE1000 compatible
-WD8003 compatible
+WD8003 / WD8013 compatible
 ```
 
 No-card machines fail cleanly with a text error and retry/restart choices.
@@ -236,7 +236,7 @@ emulator gotchas.
 
 The build includes the current NIC driver files by default. To produce a boot
 floppy without them, use `make INCLUDE_NIC_DRIVERS=0`; per-driver
-`INCLUDE_NIC_DRIVER_NE`, `INCLUDE_NIC_DRIVER_WD8003`,
+`INCLUDE_NIC_DRIVER_NE`, `INCLUDE_NIC_DRIVER_WD80X3`,
 `INCLUDE_NIC_DRIVER_3C503`, and `INCLUDE_NIC_DRIVER_3C501` switches can trim
 individual files.
 

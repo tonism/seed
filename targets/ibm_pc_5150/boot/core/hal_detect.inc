@@ -51,7 +51,7 @@ store_auto_network_config:
 autodetect_io_280:
     call probe_wd8003_mac
     jc .probe_3c501
-    mov al, family_wd8003
+    call detect_wd_family
     clc
     ret
 .probe_3c501:
@@ -62,6 +62,21 @@ autodetect_io_280:
     ret
 .failed:
     stc
+    ret
+
+detect_wd_family:
+    mov al, family_wd8003
+    test word [handoff_addr + handoff_flags], handoff_flag_cpu_286plus
+    jz .done
+    mov dx, [handoff_addr + handoff_nic_base]
+    add dx, wd_saprom + 6
+    in al, dx
+    and al, 0xff ^ wd_id_extra_ram
+    cmp al, wd_type_wd8013ebt
+    mov al, family_wd8003
+    jne .done
+    mov al, family_wd8013
+.done:
     ret
 
 autodetect_ne:
