@@ -4,7 +4,7 @@
 Supported stages:
 
   cold        BIOS-only RAM; Seed has not run yet.
-  loaded      CORE.SYS resident nucleus has been read in; no cold phase
+  loaded      SEED.SYS resident nucleus has been read in; no cold phase
               has run, no K LINK window yet.
   readiness   Hydration complete: K window loaded, handoff filled,
               persistent TLS state derived, TLS RX buffer holding the
@@ -15,8 +15,8 @@ Supported stages:
               phase. After cleanup has zeroed every DISCARDED range.
 
 When present, the cleanup-stage map is derived from the actual cleanup table
-embedded in CORE.SYS, so it stays in sync with the build. The earlier stages
-are reconstructed from layout.inc constants plus the CORE.SYS header
+embedded in SEED.SYS, so it stays in sync with the build. The earlier stages
+are reconstructed from layout.inc constants plus the SEED.SYS header
 (resident size, K window load address). No stage requires running the binary.
 
 Run with no flags to print all four stages to stdout. Use ``--update
@@ -239,7 +239,7 @@ def stage_cold(ctx) -> list[str]:
 
 
 def stage_nucleus(ctx) -> list[str]:
-    """CORE.SYS resident has just been loaded. main.inc has zeroed
+    """SEED.SYS resident has just been loaded. main.inc has zeroed
     low_runtime_state + high_crypto_scratch + critical_scratch and
     stamped boot drive + RAM top into the handoff block. No cold
     phase has run yet."""
@@ -254,10 +254,11 @@ def stage_nucleus(ctx) -> list[str]:
 
 
 def stage_hal(ctx) -> list[str]:
-    """H (hardware_setup) + I (packet_io_init) have run. The handoff
-    block now carries video mode, screen columns, NIC family/base/IRQ,
-    MAC. Persistent NIC TX/RX page tracking is initialised. UI
-    cursor/colour-attribute slots are populated in low_phase_state."""
+    """H (hardware_setup) + 2 (driver_load) + I (packet_io_init) have
+    run. The handoff block now carries video mode, screen columns, NIC
+    family/base/IRQ, MAC. The selected NIC driver is loaded into the
+    active-driver slot. Persistent NIC TX/RX page tracking is initialised.
+    UI cursor/colour-attribute slots are populated in low_phase_state."""
     cells = stage_nucleus(ctx)
     c = ctx.consts
     # Resident persistent runtime state, packed right up to the cold-phase
@@ -272,7 +273,7 @@ def stage_hal(ctx) -> list[str]:
 
 
 def stage_net(ctx) -> list[str]:
-    """D (dhcp_setup) + P (net_probe_cfg) + C (tcp_connect) have run.
+    """D (dhcp_setup) + C (tcp_connect) have run.
     Handoff now also carries IP/router/DNS/subnet; low_persistent_state
     has arp_target_mac and tcp_target_ip/seq/ack. DHCP/DNS/ARP
     transient slots in low_phase_state are populated. low_scratch
@@ -285,7 +286,7 @@ def stage_net(ctx) -> list[str]:
 
 def stage_agent_prep(ctx) -> list[str]:
     """A + U + Q (if needed) + E + R have run. The agent path has
-    consumed AGENTS.CFG + USER.CFG, asked the user for any missing
+    consumed SEED/AGENTS.CFG + SEED/USER.CFG, asked the user for any missing
     values, resolved the provider's DNS name, and used seed_* to
     build the HTTP POST into api_request_plain (the first 461 B of
     pre-response scratch).
@@ -383,7 +384,7 @@ def stage_dpi(ctx) -> list[str]:
 def stage_cleanup(ctx) -> list[str]:
     if not ctx.cleanup_ranges:
         raise RuntimeError(
-            'cleanup stage requires a CORE.SYS with phase M cleanup table'
+            'cleanup stage requires a SEED.SYS with phase M cleanup table'
         )
     cells = stage_tls(ctx)
     for addr, size in ctx.cleanup_ranges:
@@ -458,27 +459,28 @@ STAGE_FOOTER_BUILDERS = {
         "stages — currently all free."
     ),
     'nucleus': lambda ctx: (
-        f"CORE.SYS resident nucleus is at {_resident_range(ctx)}. The phase\n"
+        f"SEED.SYS resident nucleus is at {_resident_range(ctx)}. The phase\n"
         "loader, NIC TX/RX, TCP send/receive, and UI primitives live\n"
         "here. main.inc has cleared the runtime scratch and stamped\n"
         "boot_drive + ram_top into the handoff (the tiny 'h' cell)."
     ),
     'hal': lambda ctx: (
-        "H (hardware_setup) + I (packet_io_init) have run. Handoff\n"
-        "now carries video mode, NIC family/base/IRQ, MAC; NIC TX/RX\n"
-        "page tracking lives in low_runtime_state; UI cursor/colour\n"
-        "attrs sit in low_phase_state."
+        "H (hardware_setup) + 2 (driver_load) + I (packet_io_init) have\n"
+        "run. Handoff now carries video mode, NIC family/base/IRQ, MAC;\n"
+        "the selected NIC driver is resident in the active-driver slot;\n"
+        "NIC TX/RX page tracking lives in low_runtime_state; UI cursor/\n"
+        "colour attrs sit in low_phase_state."
     ),
     'net': lambda ctx: (
-        "D (dhcp_setup) + P (net_probe_cfg) + C (tcp_connect) have\n"
+        "D (dhcp_setup) + C (tcp_connect) have\n"
         "run. Handoff also carries IP/router/DNS/subnet; the persistent\n"
         "block has arp_target_mac and tcp_target_ip/seq/ack. Visual is\n"
         "identical to the HAL stage — the new bytes populate the same\n"
         "cells, just more densely inside them."
     ),
     'agent-prep': lambda ctx: (
-        "A + U + Q + E + R have run. seed_* loaded from AGENTS.CFG /\n"
-        "USER.CFG, the HTTP POST built into api_request_plain. The K\n"
+        "A + U + Q + E + R have run. seed_* loaded from SEED/AGENTS.CFG /\n"
+        "SEED/USER.CFG, the HTTP POST built into api_request_plain. The K\n"
         f"LINK window is still on the floppy — its {_k_window_kib(ctx)} KiB slot at\n"
         f"{_k_window_range(ctx)} stands empty, the largest visible free band."
     ),
@@ -589,18 +591,18 @@ def update_doc(doc: Path, blocks: dict) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument('--core-sys', type=Path,
-                        default=ROOT / 'build/ibm_pc_5150/CORE.SYS')
+                        default=ROOT / 'build/ibm_pc_5150/SEED.SYS')
     parser.add_argument('--layout', type=Path,
                         default=ROOT / 'targets/ibm_pc_5150/boot/core/layout.inc')
     parser.add_argument('--data', type=Path,
                         default=ROOT / 'targets/ibm_pc_5150/boot/core/data.inc')
     parser.add_argument('--listing', type=Path,
-                        default=ROOT / 'build/ibm_pc_5150/CORE.SYS.lst',
+                        default=ROOT / 'build/ibm_pc_5150/SEED.SYS.lst',
                         help='NASM listing file (produced via `make`). Used to '
                              'resolve label addresses that aren\'t plain equates.')
     parser.add_argument('--stage', choices=STAGES, action='append',
                         help='render only these stages (repeatable; default: '
-                             'all stages supported by the current CORE.SYS)')
+                             'all stages supported by the current SEED.SYS)')
     parser.add_argument('--update', type=Path,
                         help='patch generated blocks into this markdown file')
     args = parser.parse_args()
@@ -637,7 +639,7 @@ def main() -> int:
 
     stages = args.stage or (STAGES if cleanup_ranges else DEFAULT_STAGES)
     if 'cleanup' in stages and not cleanup_ranges:
-        sys.exit('cleanup stage unavailable: current CORE.SYS has no M phase')
+        sys.exit('cleanup stage unavailable: current SEED.SYS has no M phase')
     blocks = {s: generate_block(s, ctx) for s in stages}
 
     if args.update:

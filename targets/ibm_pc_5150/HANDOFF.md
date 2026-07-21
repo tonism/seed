@@ -12,7 +12,7 @@ depending on boot core internal variables.
 
 The address is above the interrupt vector table and BIOS data area. During
 project init the reserved loader temporarily occupies this address range; after
-the loader jumps to `CORE.SYS` at `0000:1000`, the runtime clears and publishes
+the loader jumps to `SEED.SYS` at `0000:1000`, the runtime clears and publishes
 the handoff block at `0000:0600`.
 
 ## Layout
@@ -190,6 +190,7 @@ re-verify the low scratch fits via `tools/check-layout.py`.
 11 selected TCP next hop was missing or did not resolve before the bounded wait ended
 12 no matching TCP SYN-ACK observed before the bounded wait ended
 13 TLS handshake proof failed
+14 no suitable NIC driver was present or loaded
 ```
 
 The block is filled through adapter-family resolution plus 3c501, 3c503,
@@ -206,7 +207,7 @@ After DHCPACK, it sends a bounded ARP request for the DHCP-provided DNS server
 and records the resolved MAC internally for the DNS packet step. It then resolves
 the selected agent host with a minimal DNS A query and records the returned IPv4
 address internally. (Build 11 removed the old standalone `example.com` port-80
-connectivity probe and its `NET.CFG` parse; the DNS and TCP path now targets the
+connectivity probe; the DNS and TCP path now targets the
 agent endpoint directly.) Seed selects the TCP next hop using the DHCP subnet mask
 and router, ARPs that next hop, opens a TCP connection to the agent endpoint, and
 sends the final ACK after receiving a matching SYN-ACK.
@@ -227,9 +228,9 @@ secure connection prep, switches to a normal `"o"` for local ECDHE/key
 material derivation, and switches to a bright `"o"` after the TLS
 proof succeeds. On MDA, dark and normal `"o"` both render non-bright. This phase
 covers the network readiness states for TCP payload send/receive and the
-TLS handshake proof. It parses up to five `AGENTS.CFG` `agent ` declarations and falls
+TLS handshake proof. It parses up to five `SEED/AGENTS.CFG` `agent ` declarations and falls
 back to built-in `openai`, `anthropic`, and `google` when that file is missing
-or bad. It validates a saved `USER.CFG` selected-agent choice when present, asks
+or bad. It validates a saved `SEED/USER.CFG` selected-agent choice when present, asks
 `agent?` when that choice is missing or invalid, asks `server?` and `key?` on
 one form when both selected-agent connection values are required, preserves
 saved model and reasoning values when present, resolves the selected agent

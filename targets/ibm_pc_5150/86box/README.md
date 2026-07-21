@@ -82,19 +82,22 @@ Expected first screen:
 
 ```text
 boot loader     no marker
-hardware setup  dim "." for CORE.SYS display baseline, hardware detection, and adapter initialization
+hardware setup  dim "." for SEED.SYS display baseline, hardware detection, and adapter initialization
 internet prep   dim "," for network configuration and plain reachability
 secure prep     dim "o" for selected endpoint setup and TLS protocol proof
 crypto prep     normal "o" on CGA/VGA, dim "o" on MDA, for ECDHE/key setup
 agent/env prep  bright "o" for API validation, model, reasoning, session, and environment setup
 no card         current marker turns red, low descending PC speaker tone, fast-typed no network card, then retry/restart
+no driver       current marker turns red, low descending PC speaker tone, fast-typed driver setup failed, then retry/restart
 question        phase-colored blinking marker, low PC speaker attention tone, bright fast-typed prompt ending with ?
-agent question  agent? with AGENTS.CFG entries or built-in big-three fallback when USER.CFG has no valid agent choice
+agent question  agent? with SEED/AGENTS.CFG entries or built-in big-three fallback when SEED/USER.CFG has no valid agent choice
 field question  server? and/or key? with cursor shown only while typing; Up/Down moves field focus
-success         dim "." -> dim "," -> dim "o" -> normal "o" -> bright "o" -> the seed build splash
+splash         seed build banner; red insecure warning on pre-286, hidden on 286+
+success         dim "." -> dim "," -> dim "o" -> normal "o" -> bright "o" -> Default Prompt Interface
 ```
 
-The splash is only the ready handoff animation. No setup work happens during
+The splash is a boot banner drawn after display and CPU-class setup. Driver
+loading, network negotiation, agent setup, and environment setup happen after
 the splash.
 
 Seed auto-detects the current 86Box shared-base adapters with
@@ -133,7 +136,7 @@ menu       selected white, inactive dark gray
 ```
 
 The floppy is a minimal FAT12 filesystem. The sector map (boot sector,
-reserved loader, FAT copies, root directory, and the `CORE.SYS`-first data
+reserved loader, FAT copies, root directory, and the `SEED.SYS`-first data
 area) is documented once in
 [../../../docs/architecture.md](../../../docs/architecture.md), "Boot Artifact".
 
@@ -185,8 +188,8 @@ prompt when needed, accepted their NE family, initialized packet hardware,
 checked the receive-ring read path, sent DHCPDISCOVER, and performed a bounded
 filtered DHCPOFFER wait. When an offer was available, Seed sent DHCPREQUEST and
 performed a bounded DHCPACK wait before sending ARP for the DHCP-provided DNS
-server, resolving the `NET.CFG` probe host, selecting and ARPing the TCP next
-hop, and receiving a TCP SYN-ACK from port 80. All three outbound-gated NE paths
+server, resolving DNS, selecting and ARPing the TCP next
+hop, and receiving a TCP SYN-ACK. All three outbound-gated NE paths
 advanced to `seed build 5`. `vm-net-3c501`, `vm-net-3c503`, `vm-net-wd8003e`,
 and `vm-net-wd8003eb` preserved the non-NE handoff path, read their MACs, and
 advanced to `seed build 5`.
@@ -240,7 +243,7 @@ moves focus between them. Text fields render plain typed characters and keep
 long values on one row by showing the visible tail inside the field area. With
 valid saved `USER.CFG`, `vm-net-ne2k8` was also tested on 27 April 2026 through
 selected-agent DNS resolution and TCP 443 SYN-ACK reachability before reaching
-`seed build 6`. If `AGENTS.CFG` is missing or invalid, the agent menu falls
+`seed build 6`. If `SEED/AGENTS.CFG` is missing or invalid, the agent menu falls
 back to built-in `openai`, `anthropic`, and `google`.
 
 On 29 April 2026, `vm-net-ne2k8` reached `seed build 6` after deriving the
@@ -248,5 +251,5 @@ TLS master secret and ChaCha20-Poly1305 client/server write keys and IVs from
 the ECDHE pre-master secret.
 
 On 28 April 2026, the boot layout was split into a reserved FAT12 loader plus
-root `CORE.SYS`. The no-card `vm` profile reached the red `"."` failure state,
+root runtime file. The no-card `vm` profile reached the red `"."` failure state,
 and `vm-net-3c501` reached `seed build 6` from the file-backed runtime.

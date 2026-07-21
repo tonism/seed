@@ -12,13 +12,14 @@ and every byte of headroom above 16 KiB belongs to the user, not to Seed.** A
 bigger machine does not get a bigger Seed; it gets a bigger conversation and a
 bigger arena to build in. That principle is the spine of everything below.
 
-> **Status.** This contract describes the Build 12 capability-tiered architecture
-> on `work/scaling`: lifetime-ordered low memory, one `CORE.SYS`, native function
-> tools, RAM scaling from the 16 KiB floor through EMS / 286 native extended /
-> 386 unreal mode, and CPU-tiered security beginning at the 286. Byte-level maps
-> for the 16 KiB floor and profile examples for larger tiers are in
-> [`memory.md`](memory.md). Measured numbers below are from the current tree and
-> the crypto spike (`tools/crypto-bench/results/FINDINGS.md`).
+> **Status.** This contract describes the Build 13 runtime/driver split on top of
+> the Build 12 capability-tiered architecture: lifetime-ordered low memory, one
+> `SEED.SYS` runtime, external NIC driver files, native function tools, RAM
+> scaling from the 16 KiB floor through EMS / 286 native extended / 386 unreal
+> mode, and CPU-tiered security beginning at the 286. Byte-level maps for the
+> 16 KiB floor and profile examples for larger tiers are in [`memory.md`](memory.md).
+> Measured numbers below are from the current tree and the crypto spike
+> (`tools/crypto-bench/results/FINDINGS.md`).
 
 ## Core Shape
 
@@ -105,16 +106,16 @@ RAM tiers        16 KiB (ROM BASIC sidecar entry), 32 KiB direct boot, far conve
 media            160 KiB headline FAT12 floppy image; 360 KiB profile image for 286 work
 video            BIOS text mode, CGA or MDA
 network          3c501, 3c503, NE1000/NE2000, Novell NE1000, WD8003 families
-runtime file     one visible CORE.SYS
+runtime file     one visible SEED.SYS plus optional external SEED/DRIVERS/*.DRV NIC files
 ```
 
 Current measured image (`tools/core-sys-info.py`, this tree):
 
 ```text
-CORE.SYS total bytes:        52224
-CORE.SYS total sectors:      102
-resident nucleus sectors:    4   (2048 B; 1495 nonzero B)
-phase count:                 28
+SEED.SYS total bytes:        51712
+SEED.SYS total sectors:      101
+resident nucleus sectors:    4   (2048 B; 1494 nonzero B)
+phase count:                 29
 provider-critical K window:  15 sectors / 7680 bytes (0x1800..0x3600)
 ```
 
@@ -124,7 +125,7 @@ phases and optional high-memory overlays, not a larger always-resident Seed.
 ## Boot Artifact
 
 The floppy is a small FAT12 image with a reserved boot loader and one normal,
-visible runtime file:
+visible runtime file plus runtime-owned subdirectories:
 
 ```text
 160 KiB FAT12 floppy
@@ -134,16 +135,21 @@ visible runtime file:
 | sectors 6-7    FAT copies
 | sectors 8-11   root directory
 | sector 12+     file data
-|                CORE.SYS is the first FAT data file
-|                AGENTS.CFG, optional USER.CFG, then IDENTITY + COMPACT + TOOLS follow
+|                SEED.SYS is the first FAT data file
+|                SEED/ holds AGENTS.CFG, optional USER.CFG, IDENTITY, COMPACT, TOOLS
+|                SEED/DRIVERS/ optionally holds one-sector NIC .DRV files
 ```
 
-`CORE.SYS` is one file-backed runtime. The build splits its source into NASM
-include files and cold phases, but the release artifact remains one visible
-`CORE.SYS`. **One artifact ships every tier** (see The One-Artifact Relocation
-Model). The only thing that would ever justify a second image is a fundamentally
-different ISA — an ARM/RISC port where binary reuse is literally impossible.
-Compile-time multi-build per tier is out.
+`SEED.SYS` is one file-backed runtime. The build splits its source into NASM
+include files and cold phases, but the release artifact remains one visible root
+runtime. **One runtime artifact ships every tier** (see The One-Artifact
+Relocation Model). NIC drivers are the scoped exception: per-family `.DRV` files
+live under `SEED/DRIVERS/` and are scanned after hardware detection. Seed loads
+one suitable driver into the active-driver slot, asks the user when multiple
+suitable drivers are present, and uses the normal retry/restart failure path
+when no suitable driver is available. The only thing that would ever justify a second image is a
+fundamentally different ISA — an ARM/RISC port where binary reuse is literally
+impossible. Compile-time multi-build per tier is out.
 
 `IDENTITY`, `COMPACT`, and `TOOLS` are static prompt/schema assets: the agent's
 identity, the compaction contract, and the native tool schema. They live on the
@@ -161,8 +167,8 @@ Seed has two entry paths into the same resident nucleus. Both end by jumping to
 ---------------------------------------
 BIOS loads boot sector at 0000:7c00
   -> stage 1 reads the reserved loader to 0000:0600
-  -> loader reads the CORE.SYS root entry and FAT chain
-  -> loader reads only the resident CORE.SYS sectors to 0000:1000
+  -> loader reads the SEED.SYS root entry and FAT chain
+  -> loader reads only the resident SEED.SYS sectors to 0000:1000
   -> loader detects RAM (int 0x12), passes RAM top + "SEED" magic + boot drive
   -> jump 0000:1000
 
@@ -171,19 +177,19 @@ BIOS loads boot sector at 0000:7c00
 machine enters ROM BASIC
   -> user pastes the generated SEED24A.BAS / SEED24B.BAS sidecar text
   -> BASIC pokes a tiny 8086 loader at 0000:3a00
-  -> helper reads the resident CORE.SYS sectors from the Seed floppy
+  -> helper reads the resident SEED.SYS sectors from the Seed floppy
   -> helper passes AX = RAM top, BX/CX = "SEED" magic, DL = boot drive
   -> jump 0000:1000
 ```
 
 The BASIC loader at `0x3a00` is entry-time only and is deliberately placed in
-memory that later becomes Seed critical scratch. Once it jumps to `CORE.SYS`,
+memory that later becomes Seed critical scratch. Once it jumps to `SEED.SYS`,
 the BASIC runtime and sidecar loader are abandoned. RAM top is the first input
 to the capability vector — it selects the 16 KiB or 32 KiB layout.
 
 ## The One-Artifact Relocation Model
 
-A single `CORE.SYS` runs every tier, and the capability vector selects what
+A single `SEED.SYS` runs every tier, and the capability vector selects what
 loads and where. The foundational question is *how* a tier's code is placed —
 and the answer is **hybrid: two build-time-fixed layouts inside one image,
 selected at boot, with the few tier-varying entry points reached through a small
@@ -228,7 +234,7 @@ solves a problem this contract does not have.
 **The seam for the >64 KiB tiers.** The vector table *is* the escape hatch.
 Most hot code still calls near pointers inside segment 0; far conventional, EMS,
 286 native extended, and 386 unreal mode sit behind memory-HAL helpers and the same
-native tool / context-streaming call sites. The 64-bit/no-BIOS runtime remains Build 13.
+native tool / context-streaming call sites. The 64-bit/no-BIOS runtime remains later work.
 
 ## Memory Shape: Lifetime-Ordered Bands
 
@@ -348,7 +354,7 @@ The tiers differ only in what they pin:
 ## Runtime Step Order
 
 The resident nucleus is a small scheduler plus shared hardware, UI, filesystem,
-network, and state primitives. It reloads cold phases from the same `CORE.SYS`
+network, and state primitives. It reloads cold phases from the same `SEED.SYS`
 file as needed.
 
 ```text
@@ -358,19 +364,20 @@ entry normalize
   -> record boot drive + RAM top in the handoff (capability vector seed)
 
 hardware phase "."
-  -> H: display, handoff, CPU/memory/media/NIC discovery (sets the capability vector)
-  -> 0: 286 HMA/native extended-memory layout probe when present
+  -> H: display, handoff, CPU/memory/media/NIC discovery (sets the capability vector;
+        conditionally runs 0 for 286 HMA/native extended-memory layout)
+  -> B: draw the seed build splash and CPU-class warning before driver/network setup
+  -> 2: scan SEED/DRIVERS/*.DRV and load a suitable detected-family NIC driver
   -> Z: 386 unreal setup when present
   -> I: packet I/O initialization
 
 internet phase (still ".")
   -> D: DHCP setup
   -> N: NTP/RTC setup for certificate validity checks
-  -> C: TCP connect to a generic probe path
 
 agent phase "o"
-  -> A: AGENTS.CFG load/parse or built-in fallback
-  -> U: USER.CFG load/parse
+  -> A: SEED/AGENTS.CFG load/parse or built-in fallback
+  -> U: SEED/USER.CFG load/parse
   -> Q: prompt for any missing agent/server/key/model/reasoning values
   -> E: selected-agent endpoint and DNS name preparation
   -> V: selected-agent cache setup
@@ -381,8 +388,7 @@ agent phase "o"
   -> C: TCP connect to the selected provider on port 443
   -> K: TLS server proof, key schedule, encrypted request, application receive
   -> T: parse the received application-data chunk for the returned answer
-  -> S: best-effort USER.CFG save if values changed
-  -> B: splash/result screen
+  -> S: best-effort SEED/USER.CFG save if values changed
 
 prompt loop "Default Prompt Interface"
   -> render the model greeting, then take prompts on the live (reused) TLS session
@@ -396,25 +402,26 @@ failure
   -> retry returns to the hardware "." phase without rereading resident sectors
 ```
 
-The same TCP connect phase serves the internet probe and the selected provider;
+The same TCP connect phase serves selected provider connections and reconnects;
 it is loaded into the network setup window each time it is needed.
 
 ## Phase Windows
 
-`CORE.SYS` starts with a resident nucleus and a phase table. The phase loader
-addresses phases by sector offset inside `CORE.SYS`, so keeping `CORE.SYS` first
+`SEED.SYS` starts with a resident nucleus and a phase table. The phase loader
+addresses phases by sector offset inside `SEED.SYS`, so keeping `SEED.SYS` first
 in the FAT data area is part of the boot contract. The phase table is build
 metadata (tools and the header read it); runtime dispatch is by sector offset,
 and *which* copy a phase runs from — demand-loaded low, or preloaded high on
 32 KiB — is the capability-vector decision routed through the dispatch table.
 
-Current 28-phase layout (regenerate with `make inspect` / `tools/core-sys-info.py`):
+Current 29-phase layout (regenerate with `make inspect` / `tools/core-sys-info.py`):
 
 ```text
 id  sectors  load addr  responsibility
 K   15       0x1800     provider-critical crypto: SHA-256, ChaCha20-Poly1305, TLS, API
 F   2        0x0700     failure action UI
 H   4        0x0700     hardware/display/NIC discovery
+2   2        0x0700     scan/load suitable NIC driver from SEED/DRIVERS/*.DRV
 0   1        0x3600     286 HMA/native extended-memory layout
 Z   1        0x0700     386 unreal-mode setup/refresh support
 I   1        0x0700     packet I/O initialization
@@ -423,8 +430,8 @@ N   2        0x0900     NTP/RTC setup for certificate validity
 C   3        0x0900     TCP connect
 L   2        0x0700     TLS ClientHello and low crypto constants
 E   1        0x0700     selected-agent endpoint setup
-A   2        0x0700     AGENTS.CFG provider config
-U   2        0x0700     USER.CFG persisted user values
+A   2        0x0700     SEED/AGENTS.CFG provider config
+U   2        0x0700     SEED/USER.CFG persisted user values
 Q   2        0x0700     agent selection and missing-value prompts
 G   1        0x0700     context mirror into the far canonical log
 J   1        0x0700     extended/windowed context read chunk
@@ -432,14 +439,14 @@ R   3        0x0900     API request construction
 V   1        0x0700     agent/endpoint cache
 X   3        0x0900     application-data stream (encrypted send/receive)
 T   2        0x0900     agent response parse and function_call capture
-B   1        0x0700     splash/result display
+B   1        0x0700     boot splash/banner display
 Y   1        0x0700     Default Prompt Interface chat loop
 M   3        0x0700     native tool calling: parse function_call and dispatch helper
 1   1        0x0700     previous function_call replay helper
 O   4        0x0700     memory tools: read_mem/write_mem/exec backends
-S   1        0x0700     best-effort USER.CFG save
+S   2        0x0700     best-effort SEED/USER.CFG save
 P   3        0x0700     restore ENV.DAT into conversation/arena/screen
-W   1        0x0900     save ENV.DAT prep/write helper
+W   2        0x0900     save ENV.DAT prep/write helper
 ```
 
 Phases that do network I/O — `D`, `N`, `C`, `R`, `X`, `T`, `W` — load at
@@ -526,7 +533,7 @@ CHAT / TOOL-CALL TURN  -  session reused, no handshake     (model-wait bound)
 
 That monitor remains valid for the 8086/8088 path. It is the
 encrypted-not-secure path: no real public-key work, no certificate
-authentication, and a dim `insecure` splash on pre-286 machines.
+authentication, and a red `insecure` splash on pre-286 machines.
 
 The 6 MHz 286 secure path spends roughly the same boot phases on the screen, but
 the CPU profile is different: the public-key work is real, and it is the
@@ -602,7 +609,7 @@ is **capability-tiered security**, covered in full in [security.md](security.md)
   skipped (a scalar-1 stub: the server's public X *is* the premaster, so no key agreement
   happens — anyone capturing the handshake derives every session key), and certificate
   authentication is skipped too (RSA/ECDSA verify is tens of seconds to minutes here). Real
-  entropy would not help on its own. A pre-286 machine shows a dim **"insecure"** on the
+  entropy would not help on its own. A pre-286 machine shows a red **"insecure"** on the
   splash to say so.
 - **Security begins at the 286 (Build 12).** The 286 runs a *real* authenticated handshake —
   real ECDHE key agreement (the optimised P-256, ~6.6 s/scalar-mult @6), a pinned-key
@@ -653,17 +660,21 @@ detects the family, loads the active driver, and fills the vtable; only the
 bounded **active-driver slot**. New families grow the floppy, not the resident
 footprint — one driver is ever live.
 
-> **Implemented (Build 12).** The NIC families are exactly this. Each family is a
-> floppy driver module — `ne` (ne1000/ne2000/Novell), `wd8003`, `3c503`, `3c501`;
-> the shared DP8390 ring is one macro source compiled into the three ring cards,
-> `3c501` is fully custom. The boot detects the family, loads *only* that module
-> (one sector) into the active-driver slot, and copies the module's 10-entry header
-> into the resident dispatch vector (`nic_vtable`); the resident TX/RX/enter/restore/
-> rx_fallback path then dispatches through it. Moving the per-family code off the
-> nucleus shrank the shared resident code from ~2000 B to ~1100 B (3 sectors); the
-> slot is the reclaimed 4th sector, so the crypto window and the 16K arena did not
-> move. A 3c501 machine carries ~350 B of driver, not all ~900 B of every family —
-> inactive drivers cost zero resident RAM. Validated 7/7 across the NIC matrix.
+> **Implemented (Build 13).** The NIC families are packaged as external driver
+> files — `NE.DRV` (ne1000/ne2000/Novell), `WD8003.DRV`, `3C503.DRV`, `3C501.DRV`
+> under `SEED/DRIVERS/` when included. The shared DP8390 ring is one macro source
+> compiled into the three ring cards; `3c501` is fully custom. The boot scans
+> `.DRV` files, validates the `SDRV` metadata, ABI version, one-sector size, and
+> family mask, then reads one suitable driver into the active-driver slot. One
+> match loads automatically; multiple matches show a `which driver?` chooser; no
+> match fails as `driver setup failed` through the normal retry/restart path. The
+> driver's 10-byte vtable header is copied into the resident dispatch vector
+> (`nic_vtable`); the resident TX/RX/enter/restore/rx_fallback path then dispatches
+> through it. Inactive or omitted drivers cost zero resident RAM and can be
+> replaced on the floppy without replacing `SEED.SYS` when the driver ABI is
+> unchanged. The Makefile includes all current drivers by default; set
+> `INCLUDE_NIC_DRIVERS=0` to omit all drivers, or set an
+> `INCLUDE_NIC_DRIVER_*` switch for a per-driver image.
 
 Wi-Fi is the stress test, and it decomposes cleanly into the existing bands:
 
@@ -826,7 +837,7 @@ the saved context cap at the far end of the current pool; surplus RAM lands in t
 arena.
 
 **Trust.** `ENV.DAT` is the agent's own non-secret state, on a medium that already
-holds the plaintext key in `USER.CFG`. So it uses a checksum for corruption plus the
+holds the plaintext key in `SEED/USER.CFG`. So it uses a checksum for corruption plus the
 version/magic gate against foreign files, and no cryptographic integrity (no key
 survives a read-only boot, and it is not a secret). One correctness guard: Seed
 neutralizes any line-start tool directive in the restored window so last session's
@@ -842,7 +853,7 @@ corrupts RAM, or leaves hardware in a bad state.
 Write-protected Seed media is a valid and desirable deployment mode — the floppy
 is read-only by policy (see Floppy Policy). Local configuration writes are
 convenience only; failed writes must not prevent boot or agent/API use. Faster
-boot from `USER.CFG` is useful when the medium is writable, but read-only media
+boot from `SEED/USER.CFG` is useful when the medium is writable, but read-only media
 remains the cleanest physical kill switch.
 
 ## Authority Model
@@ -885,7 +896,7 @@ environment.
 The memory map should have one authoritative source that generates the
 constants, the docs map, and the budget/lifetime checks. `layout.inc` is already
 the de-facto source — `tools/memory-map.py` parses its equates and
-`tools/core-sys-info.py` reads the `CORE.SYS` header. Build 12 closes the two
+`tools/core-sys-info.py` reads the `SEED.SYS` header. Build 12 closes the two
 real leaks: the Makefile constants duplicated by hand (the budget view can drift
 silently), and the per-phase `%error` caps scattered across `core.asm`. Both
 fold into one region/lifetime checker driven by `layout.inc`, so the owned
@@ -893,7 +904,7 @@ regions of the Memory Shape are checked at build time and nothing drifts.
 
 ## Larger Machines
 
-Seed keeps one floppy, one visible `CORE.SYS`, and one product contract across
+Seed keeps one floppy, one visible `SEED.SYS`, external NIC driver files, and one product contract across
 small and larger machines. Larger machines reuse the 32 KiB shape and grow the
 arena; they do not become alternate products.
 
@@ -907,4 +918,4 @@ later: more NIC families and link types, additively
 
 The >64 KiB Build 12 path is additive through the relocation seam (near→far dispatch
 vectors, above), not a rewrite. EMS bank-switching, 286 HMA/native extended memory, and
-386+ unreal mode are Build 12 tiers. The 64-bit, no-BIOS runtime is Build 13.
+386+ unreal mode are Build 12 tiers. TLS 1.3 and the 64-bit, no-BIOS runtime are later work.

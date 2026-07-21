@@ -1,6 +1,6 @@
 ; Boot sector for the crypto bench on a STANDARD 360 KB floppy (9 spt / 2 heads),
 ; with a real BPB so AT-class BIOSes boot it. Loads up to 28 sectors of the bench
-; CORE.SYS from sector 2 onward to 0000:1000 via a per-sector LBA->CHS loop (so it
+; SEED.SYS from sector 2 onward to 0000:1000 via a per-sector LBA->CHS loop (so it
 ; spans tracks/heads -- the P-256 ECDHE bench is >8 sectors). Then jumps to 1000.
 
 bits 16

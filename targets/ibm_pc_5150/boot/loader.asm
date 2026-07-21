@@ -36,7 +36,7 @@ core_header_magic_off equ 3
 core_header_version_off equ 11
 core_header_resident_sectors_off equ 15
 core_header_magic_len equ 8
-; Build 10: hand CORE.SYS a real RAM top via the same AX + BX/CX-magic contract the
+; Build 10: hand SEED.SYS a real RAM top via the same AX + BX/CX-magic contract the
 ; ROM BASIC sidecar uses (layout.inc basic_boot_magic_bx/cx), so the conversation
 ; window + user/agent arena scale to the machine instead of the old fixed 0x8000.
 basic_magic_bx equ 0x5345
@@ -60,7 +60,7 @@ start:
     jc load_failed
 
     ; Detect conventional memory (int 0x12 -> KB) and convert to a segment-0 byte
-    ; ceiling for CORE.SYS's stack/pool. KB<64 -> KB*1024 (<=0xFC00, no overflow);
+    ; ceiling for SEED.SYS's stack/pool. KB<64 -> KB*1024 (<=0xFC00, no overflow);
     ; KB>=64 -> cap at top of segment 0 (KB*1024 would overflow 16 bits). Direct boot
     ; only happens at >=32 KiB, so 32 KiB still yields 0x8000 exactly (no regression).
     int 0x12                    ; ax = KB conventional memory
@@ -72,7 +72,7 @@ start:
     mov cl, 10
     shl ax, cl                  ; KB * 1024
 .ram_ready:
-    mov bx, basic_magic_bx      ; signal "RAM top in AX" to CORE.SYS start (== BASIC path)
+    mov bx, basic_magic_bx      ; signal "RAM top in AX" to SEED.SYS start (== BASIC path)
     mov cx, basic_magic_cx
     mov dl, [boot_drive]
     jmp 0x0000:core_offset
@@ -317,9 +317,9 @@ sectors_per_track db floppy_sectors_per_track
 %if FLOPPY_HEADS > 1
 floppy_heads db FLOPPY_HEADS
 %endif
-core_name db 'CORE    SYS'
+core_name db 'SEED    SYS'
 core_header_magic db 'SEEDCORE'
-missing_core_text db 'core missing', 0
-load_failed_text db 'core load error', 0
+missing_core_text db 'seed missing', 0
+load_failed_text db 'seed load error', 0
 
 times (LOADER_SECTORS * 512) - ($ - $$) db 0

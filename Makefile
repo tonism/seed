@@ -32,8 +32,20 @@ CORE_INCLUDES := $(wildcard targets/$(TARGET)/boot/core/*.inc)
 CORE_PHASE_INCLUDES := $(wildcard targets/$(TARGET)/boot/phases/*.inc)
 BOOT_BIN := $(BUILD_DIR)/boot.bin
 LOADER_BIN := $(BUILD_DIR)/loader.bin
-CORE_SYS := $(BUILD_DIR)/CORE.SYS
+SEED_SYS := $(BUILD_DIR)/SEED.SYS
+SEED_SYS_LST := $(BUILD_DIR)/SEED.SYS.lst
 P256_MODULE_BIN := $(BUILD_DIR)/p256_module.bin
+DRIVER_BUILD_DIR := $(BUILD_DIR)/drivers
+NIC_DRIVER_BUILDER := tools/build-nic-driver.py
+NIC_DRIVER_NE := $(DRIVER_BUILD_DIR)/NE.DRV
+NIC_DRIVER_WD8003 := $(DRIVER_BUILD_DIR)/WD8003.DRV
+NIC_DRIVER_3C503 := $(DRIVER_BUILD_DIR)/3C503.DRV
+NIC_DRIVER_3C501 := $(DRIVER_BUILD_DIR)/3C501.DRV
+NIC_DRIVERS := $(NIC_DRIVER_NE) $(NIC_DRIVER_WD8003) $(NIC_DRIVER_3C503) $(NIC_DRIVER_3C501)
+NIC_DRIVER_NE_MASK := 0x0c
+NIC_DRIVER_WD8003_MASK := 0x20
+NIC_DRIVER_3C503_MASK := 0x02
+NIC_DRIVER_3C501_MASK := 0x10
 BASIC_BOOT_A_BIN := $(BUILD_DIR)/seed24a-loader.bin
 BASIC_BOOT_A_BAS := $(BUILD_DIR)/SEED24A.BAS
 BASIC_BOOT_B_BIN := $(BUILD_DIR)/seed24b-loader.bin
@@ -44,11 +56,16 @@ BOOT_360K_BIN := $(BUILD_DIR)/boot-360k.bin
 LOADER_360K_BIN := $(BUILD_DIR)/loader-360k.bin
 IMAGE_BUILDER := tools/build-fat12-image.py
 BASIC_BOOT_BUILDER := tools/build-basic-bootstrap.py
-CORE_SYS_INFO := tools/core-sys-info.py
+SEED_SYS_INFO := tools/core-sys-info.py
 LAYOUT_CHECK := tools/check-layout.py
 AGENT_CFG := $(wildcard config/AGENTS.CFG)
 USER_CFG := $(wildcard config/USER.CFG)
 INCLUDE_USER_CFG ?= 1
+INCLUDE_NIC_DRIVERS ?= 1
+INCLUDE_NIC_DRIVER_NE ?= $(INCLUDE_NIC_DRIVERS)
+INCLUDE_NIC_DRIVER_WD8003 ?= $(INCLUDE_NIC_DRIVERS)
+INCLUDE_NIC_DRIVER_3C503 ?= $(INCLUDE_NIC_DRIVERS)
+INCLUDE_NIC_DRIVER_3C501 ?= $(INCLUDE_NIC_DRIVERS)
 # Build 11 #4 real compaction: the static system prompts (identity + the compaction contract) live on
 # the floppy and are STREAMED into the request mid-chat (frees ~600-800 phase bytes + lifts the
 # in-phase prompt-length cap). Portable/hardware-agnostic content -> a top-level prompts/ dir, not the
@@ -64,29 +81,52 @@ COMPACT_PROMPT := prompts/compact.txt
 TOOLS_SCHEMA := prompts/tools.json
 NASM_FLAGS := -DLOADER_SECTORS=$(LOADER_SECTORS) -Itargets/$(TARGET)/boot/ -I$(BUILD_DIR)/
 # 360 KiB double-sided geometry (the 286 tier — the IBM AT's drive rejects the
-# single-sided 160K image). Same CORE.SYS + same FAT12 internal layout (data at
+# single-sided 160K image). Same SEED.SYS + same FAT12 internal layout (data at
 # LBA 11); only the physical geometry the AT requires differs. The .asm geometry
 # defines default to 160K, so the 160K artifacts stay byte-identical.
 NASM_FLAGS_360K := $(NASM_FLAGS) -DFLOPPY_TOTAL_SECTORS=720 -DFLOPPY_SPT=9 -DFLOPPY_HEADS=2 -DFLOPPY_MEDIA=0xfd
-FAT_FILES := --file $(CORE_SYS):CORE.SYS
+FAT_FILES := --file $(SEED_SYS):SEED.SYS
 
 ifneq ($(AGENT_CFG),)
-FAT_FILES += --file $(AGENT_CFG):AGENTS.CFG
+FAT_FILES += --file $(AGENT_CFG):SEED/AGENTS.CFG
 endif
 
 ifeq ($(INCLUDE_USER_CFG),1)
 ifneq ($(USER_CFG),)
-FAT_FILES += --file $(USER_CFG):USER.CFG
+FAT_FILES += --file $(USER_CFG):SEED/USER.CFG
 endif
 endif
 
-FAT_FILES += --file $(IDENTITY_PROMPT):IDENTITY --file $(COMPACT_PROMPT):COMPACT --file $(TOOLS_SCHEMA):TOOLS
+FAT_DRIVER_DEPS :=
 
-.PHONY: all clean inspect basic-bootstrap memory-map test
+FAT_FILES += --file $(IDENTITY_PROMPT):SEED/IDENTITY --file $(COMPACT_PROMPT):SEED/COMPACT --file $(TOOLS_SCHEMA):SEED/TOOLS
+ifeq ($(INCLUDE_NIC_DRIVER_NE),1)
+FAT_FILES += --file $(NIC_DRIVER_NE):SEED/DRIVERS/NE.DRV
+FAT_DRIVER_DEPS += $(NIC_DRIVER_NE)
+endif
+ifeq ($(INCLUDE_NIC_DRIVER_WD8003),1)
+FAT_FILES += --file $(NIC_DRIVER_WD8003):SEED/DRIVERS/WD8003.DRV
+FAT_DRIVER_DEPS += $(NIC_DRIVER_WD8003)
+endif
+ifeq ($(INCLUDE_NIC_DRIVER_3C503),1)
+FAT_FILES += --file $(NIC_DRIVER_3C503):SEED/DRIVERS/3C503.DRV
+FAT_DRIVER_DEPS += $(NIC_DRIVER_3C503)
+endif
+ifeq ($(INCLUDE_NIC_DRIVER_3C501),1)
+FAT_FILES += --file $(NIC_DRIVER_3C501):SEED/DRIVERS/3C501.DRV
+FAT_DRIVER_DEPS += $(NIC_DRIVER_3C501)
+endif
+
+.PHONY: all clean inspect basic-bootstrap memory-map test FORCE
 
 all: $(FLOPPY_IMG) $(FLOPPY_IMG_360K)
 
+FORCE:
+
 $(BUILD_DIR):
+	mkdir -p $@
+
+$(DRIVER_BUILD_DIR):
 	mkdir -p $@
 
 $(BOOT_BIN): $(BOOT_SRC) | $(BUILD_DIR)
@@ -96,18 +136,30 @@ $(LOADER_BIN): $(LOADER_SRC) | $(BUILD_DIR)
 	nasm $(NASM_FLAGS) -f bin -o $@ $<
 
 # Build 12 286 secure tier: the P-256 ECDHE module is assembled as its own flat binary at its run
-# address (so p256.inc's absolute self-references resolve), then incbin'd into CORE.SYS below. It
+# address (so p256.inc's absolute self-references resolve), then incbin'd into SEED.SYS below. It
 # depends on the same core includes (layout.inc / p256.inc / p256_data.inc all live in core/*.inc).
 $(P256_MODULE_BIN): $(P256_MODULE_SRC) $(CORE_INCLUDES) | $(BUILD_DIR)
 	nasm $(NASM_FLAGS) -f bin -o $@ $<
 
-$(CORE_SYS): $(CORE_SRC) $(CORE_INCLUDES) $(CORE_PHASE_INCLUDES) $(P256_MODULE_BIN) $(CORE_SYS_INFO) $(LAYOUT_CHECK) | $(BUILD_DIR)
-	nasm $(NASM_FLAGS) -f bin -o $@ $<
-	python3 $(CORE_SYS_INFO) --check $@
+$(SEED_SYS): $(CORE_SRC) $(CORE_INCLUDES) $(CORE_PHASE_INCLUDES) $(P256_MODULE_BIN) $(SEED_SYS_INFO) $(LAYOUT_CHECK) | $(BUILD_DIR)
+	nasm $(NASM_FLAGS) -f bin -l $(SEED_SYS_LST) -o $@ $<
+	python3 $(SEED_SYS_INFO) --check $@
 	python3 $(LAYOUT_CHECK) $@
 
-$(BASIC_BOOT_A_BIN): $(BASIC_BOOT_SRC) $(CORE_SYS) Makefile | $(BUILD_DIR)
-	core_sectors=$$(python3 $(CORE_SYS_INFO) --field resident-sectors $(CORE_SYS)); \
+$(NIC_DRIVER_NE): targets/$(TARGET)/boot/drivers/ne.inc $(SEED_SYS) $(SEED_SYS_LST) $(NIC_DRIVER_BUILDER) $(CORE_INCLUDES) | $(DRIVER_BUILD_DIR)
+	python3 $(NIC_DRIVER_BUILDER) --source $< --output $@ --listing $(SEED_SYS_LST) --build-dir $(DRIVER_BUILD_DIR) --family-mask $(NIC_DRIVER_NE_MASK)
+
+$(NIC_DRIVER_WD8003): targets/$(TARGET)/boot/drivers/wd8003.inc $(SEED_SYS) $(SEED_SYS_LST) $(NIC_DRIVER_BUILDER) $(CORE_INCLUDES) | $(DRIVER_BUILD_DIR)
+	python3 $(NIC_DRIVER_BUILDER) --source $< --output $@ --listing $(SEED_SYS_LST) --build-dir $(DRIVER_BUILD_DIR) --family-mask $(NIC_DRIVER_WD8003_MASK)
+
+$(NIC_DRIVER_3C503): targets/$(TARGET)/boot/drivers/el2_3c503.inc $(SEED_SYS) $(SEED_SYS_LST) $(NIC_DRIVER_BUILDER) $(CORE_INCLUDES) | $(DRIVER_BUILD_DIR)
+	python3 $(NIC_DRIVER_BUILDER) --source $< --output $@ --listing $(SEED_SYS_LST) --build-dir $(DRIVER_BUILD_DIR) --family-mask $(NIC_DRIVER_3C503_MASK)
+
+$(NIC_DRIVER_3C501): targets/$(TARGET)/boot/drivers/el1_3c501.inc $(SEED_SYS) $(SEED_SYS_LST) $(NIC_DRIVER_BUILDER) $(CORE_INCLUDES) | $(DRIVER_BUILD_DIR)
+	python3 $(NIC_DRIVER_BUILDER) --source $< --output $@ --listing $(SEED_SYS_LST) --build-dir $(DRIVER_BUILD_DIR) --family-mask $(NIC_DRIVER_3C501_MASK)
+
+$(BASIC_BOOT_A_BIN): $(BASIC_BOOT_SRC) $(SEED_SYS) Makefile | $(BUILD_DIR)
+	core_sectors=$$(python3 $(SEED_SYS_INFO) --field resident-sectors $(SEED_SYS)); \
 	nasm $(NASM_FLAGS) \
 		-DBASIC_BOOTSTRAP_ADDR=$(BASIC_BOOTSTRAP_ADDR) \
 		-DSEED_CORE_START_LBA=$(CORE_START_LBA) \
@@ -116,8 +168,8 @@ $(BASIC_BOOT_A_BIN): $(BASIC_BOOT_SRC) $(CORE_SYS) Makefile | $(BUILD_DIR)
 		-DSEED_BOOT_DRIVE=$(BASIC_BOOTSTRAP_A_DRIVE) \
 		-f bin -o $@ $<
 
-$(BASIC_BOOT_B_BIN): $(BASIC_BOOT_SRC) $(CORE_SYS) Makefile | $(BUILD_DIR)
-	core_sectors=$$(python3 $(CORE_SYS_INFO) --field resident-sectors $(CORE_SYS)); \
+$(BASIC_BOOT_B_BIN): $(BASIC_BOOT_SRC) $(SEED_SYS) Makefile | $(BUILD_DIR)
+	core_sectors=$$(python3 $(SEED_SYS_INFO) --field resident-sectors $(SEED_SYS)); \
 	nasm $(NASM_FLAGS) \
 		-DBASIC_BOOTSTRAP_ADDR=$(BASIC_BOOTSTRAP_ADDR) \
 		-DSEED_CORE_START_LBA=$(CORE_START_LBA) \
@@ -142,7 +194,7 @@ $(BASIC_BOOT_B_BAS): $(BASIC_BOOT_B_BIN) $(BASIC_BOOT_BUILDER) | $(BUILD_DIR)
 		--clear-top $(BASIC_BOOTSTRAP_CLEAR_TOP) \
 		--max-addr $(BASIC_BOOTSTRAP_MAX_ADDR)
 
-$(FLOPPY_IMG): $(BOOT_BIN) $(LOADER_BIN) $(CORE_SYS) $(AGENT_CFG) $(USER_CFG) $(IDENTITY_PROMPT) $(COMPACT_PROMPT) $(TOOLS_SCHEMA) $(IMAGE_BUILDER) | $(BUILD_DIR)
+$(FLOPPY_IMG): FORCE $(BOOT_BIN) $(LOADER_BIN) $(SEED_SYS) $(FAT_DRIVER_DEPS) $(AGENT_CFG) $(USER_CFG) $(IDENTITY_PROMPT) $(COMPACT_PROMPT) $(TOOLS_SCHEMA) $(IMAGE_BUILDER) | $(BUILD_DIR)
 	@LC_ALL=C grep -l '["\\]' $(IDENTITY_PROMPT) $(COMPACT_PROMPT) >/dev/null 2>&1 \
 		&& { echo "error: a streamed prompt contains a \" or \\ (breaks JSON / Content-Length)"; exit 1; } || true
 	@# A streamed TLS record must stay <= the ~440 B api_request_plain body so its TX frame fits the
@@ -168,7 +220,7 @@ $(BOOT_360K_BIN): $(BOOT_SRC) | $(BUILD_DIR)
 $(LOADER_360K_BIN): $(LOADER_SRC) | $(BUILD_DIR)
 	nasm $(NASM_FLAGS_360K) -f bin -o $@ $<
 
-$(FLOPPY_IMG_360K): $(BOOT_360K_BIN) $(LOADER_360K_BIN) $(CORE_SYS) $(AGENT_CFG) $(USER_CFG) $(IDENTITY_PROMPT) $(COMPACT_PROMPT) $(TOOLS_SCHEMA) $(IMAGE_BUILDER) | $(BUILD_DIR)
+$(FLOPPY_IMG_360K): FORCE $(BOOT_360K_BIN) $(LOADER_360K_BIN) $(SEED_SYS) $(FAT_DRIVER_DEPS) $(AGENT_CFG) $(USER_CFG) $(IDENTITY_PROMPT) $(COMPACT_PROMPT) $(TOOLS_SCHEMA) $(IMAGE_BUILDER) | $(BUILD_DIR)
 	@LC_ALL=C grep -l '["\\]' $(IDENTITY_PROMPT) $(COMPACT_PROMPT) >/dev/null 2>&1 \
 		&& { echo "error: a streamed prompt contains a \" or \\ (breaks JSON / Content-Length)"; exit 1; } || true
 	@test $$(wc -c < $(IDENTITY_PROMPT)) -le 512 \
@@ -187,8 +239,8 @@ $(FLOPPY_IMG_360K): $(BOOT_360K_BIN) $(LOADER_360K_BIN) $(CORE_SYS) $(AGENT_CFG)
 		$(FAT_FILES)
 
 inspect: $(FLOPPY_IMG) $(BASIC_BOOT_A_BAS) $(BASIC_BOOT_B_BAS)
-	ls -l $(FLOPPY_IMG) $(BOOT_BIN) $(LOADER_BIN) $(CORE_SYS) $(BASIC_BOOT_A_BAS) $(BASIC_BOOT_B_BAS)
-	python3 $(CORE_SYS_INFO) \
+	ls -l $(FLOPPY_IMG) $(BOOT_BIN) $(LOADER_BIN) $(SEED_SYS) $(BASIC_BOOT_A_BAS) $(BASIC_BOOT_B_BAS) $(FAT_DRIVER_DEPS)
+	python3 $(SEED_SYS_INFO) \
 		--load-addr $(CORE_LOAD_ADDR) \
 		--range high-crypto:$(HIGH_CRYPTO_SCRATCH_START):$(HIGH_CRYPTO_SCRATCH_LEN) \
 		--range critical:$(CRITICAL_SCRATCH_START):$(CRITICAL_SCRATCH_LEN) \
@@ -197,7 +249,7 @@ inspect: $(FLOPPY_IMG) $(BASIC_BOOT_A_BAS) $(BASIC_BOOT_B_BAS)
 		--packed-range critical:$(CRITICAL_SCRATCH_LEN) \
 		--budget 24k-basic:$(BASIC_BOOTSTRAP_24K_RAM_TOP):$(BASIC_BOOTSTRAP_24K_STACK_GUARD) \
 		--budget 16k-target:$(BASIC_BOOTSTRAP_16K_RAM_TOP):$(BASIC_BOOTSTRAP_16K_STACK_GUARD) \
-		$(CORE_SYS)
+		$(SEED_SYS)
 	xxd -g 1 -l 192 $(FLOPPY_IMG)
 	xxd -g 1 -s 512 -l 192 $(FLOPPY_IMG)
 	python3 $(IMAGE_BUILDER) list $(FLOPPY_IMG)
@@ -205,7 +257,7 @@ inspect: $(FLOPPY_IMG) $(BASIC_BOOT_A_BAS) $(BASIC_BOOT_B_BAS)
 basic-bootstrap: $(BASIC_BOOT_A_BAS) $(BASIC_BOOT_B_BAS)
 	ls -l $(BASIC_BOOT_A_BIN) $(BASIC_BOOT_A_BAS) $(BASIC_BOOT_B_BIN) $(BASIC_BOOT_B_BAS)
 
-memory-map: $(CORE_SYS)
+memory-map: $(SEED_SYS)
 	python3 tools/memory-map.py --update docs/memory.md
 
 test:

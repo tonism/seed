@@ -9,8 +9,12 @@
 
 agents_cfg_phase:
     mov byte [agent_count], 0
+    call agents_cfg_phase_find_seed_dir
+    jc .no_seed_dir
+    mov ax, [fs_file_cluster]
+    mov [fs_current_cluster], ax
     ; Build 11 #4 real compaction: cache the floppy-resident system prompts (identity + compaction
-    ; contract) here, while a root-dir scan buffer (fs_sector_buffer) is free - the stream phase
+    ; contract) here, while a directory scan buffer (fs_sector_buffer) is free - the stream phase
     ; later overlaps that buffer with its own code, so the find CANNOT run mid-chat. Caches each
     ; file's first cluster + size (size 0 if absent); the stream phase reads the sectors directly.
     call agents_cfg_phase_find_prompts
@@ -22,6 +26,10 @@ agents_cfg_phase:
     je .fallback
     clc
     ret
+.no_seed_dir:
+    mov word [prompt_id_size], 0
+    mov word [prompt_compact_size], 0
+    mov word [prompt_tools_size], 0
 .fallback:
     call agents_cfg_phase_load_builtin
     clc
@@ -47,7 +55,7 @@ agents_cfg_phase_load_builtin:
 
 agents_cfg_phase_find:
     mov di, low_scratch_start + (agents_cfg_phase_name - PHASE_BASE)
-    call agents_cfg_phase_find_root_file
+    call agents_cfg_phase_find_dir_file
     jc .not_found
     mov ax, [fs_file_cluster]
     mov [agents_cluster], ax
@@ -182,12 +190,12 @@ agents_cfg_phase_copy_id:
 
 ; Build 11 #4 real compaction: locate the two streamed prompts and cache (cluster, size) for each.
 ; A missing file -> size 0 (the stream phase then emits nothing for it - degraded but non-fatal).
-; Reuses agents_cfg_phase_find_root_file (di = 11-byte 8.3 name); the find leaves fs_file_cluster +
+; Reuses agents_cfg_phase_find_dir_file (di = 11-byte 8.3 name); the find leaves fs_file_cluster +
 ; fs_file_size_low set on success. The caches live in the reconnect_state block (data.inc): boot-
 ; written here, read every request, survives the session.
 agents_cfg_phase_find_prompts:
     mov di, low_scratch_start + (agents_cfg_phase_identity_name - PHASE_BASE)
-    call agents_cfg_phase_find_root_file
+    call agents_cfg_phase_find_dir_file
     jc .no_identity
     mov ax, [fs_file_cluster]
     mov [prompt_id_cluster], ax
@@ -198,7 +206,7 @@ agents_cfg_phase_find_prompts:
     mov word [prompt_id_size], 0
 .find_compact:
     mov di, low_scratch_start + (agents_cfg_phase_compact_name - PHASE_BASE)
-    call agents_cfg_phase_find_root_file
+    call agents_cfg_phase_find_dir_file
     jc .no_compact
     mov ax, [fs_file_cluster]
     mov [prompt_compact_cluster], ax
@@ -210,7 +218,7 @@ agents_cfg_phase_find_prompts:
 .find_tools:
     ; Build 12 native tool calling: cache the tools schema (cluster, size), same scheme as id/compact.
     mov di, low_scratch_start + (agents_cfg_phase_tools_name - PHASE_BASE)
-    call agents_cfg_phase_find_root_file
+    call agents_cfg_phase_find_dir_file
     jc .no_tools
     mov ax, [fs_file_cluster]
     mov [prompt_tools_cluster], ax
@@ -238,12 +246,13 @@ agents_cfg_phase_identity_name db 'IDENTITY   '
 agents_cfg_phase_compact_name db 'COMPACT    '
 agents_cfg_phase_tools_name db 'TOOLS      '
 agents_cfg_phase_name db 'AGENTS  CFG'
+agents_cfg_phase_seed_name db 'SEED       '
 ; Build 12: OpenAI-only. The other providers (litellm/openrouter/anthropic/google) were never wired
 ; end-to-end (agent_request builds only the openai-responses path) so they are removed until tested.
 agents_cfg_phase_builtin_ids db 'openai', 0
                             times agent_id_len - 7 db 0
 
-agents_cfg_phase_find_root_file:
+agents_cfg_phase_find_seed_dir:
     mov word [fs_lba], fat_root_start_lba
     mov word [fs_root_left], fat_root_sectors
 .next_sector:
@@ -263,11 +272,11 @@ agents_cfg_phase_find_root_file:
     jz .end_marker
     cmp al, 0xe5
     je .advance
-    test byte [si + 11], 0x18
-    jnz .advance
+    test byte [si + 11], 0x10
+    jz .advance
     push si
     push cx
-    push di
+    mov di, low_scratch_start + (agents_cfg_phase_seed_name - PHASE_BASE)
     mov cx, 11
 .compare:
     mov al, [si]
@@ -276,7 +285,6 @@ agents_cfg_phase_find_root_file:
     inc si
     inc di
     loop .compare
-    pop di
     pop cx
     pop si
     mov ax, [si + 26]
@@ -288,7 +296,6 @@ agents_cfg_phase_find_root_file:
     clc
     ret
 .mismatch:
-    pop di
     pop cx
     pop si
     jmp .advance
@@ -299,6 +306,60 @@ agents_cfg_phase_find_root_file:
     dec word [fs_root_left]
     jmp .next_sector
 .end_marker:
+.not_found:
+    stc
+    ret
+
+agents_cfg_phase_find_dir_file:
+    mov ax, [fs_current_cluster]
+    cmp ax, fat_first_data_cluster
+    jb .not_found
+    sub ax, fat_first_data_cluster
+    add ax, fat_data_start_lba
+    push ds
+    pop es
+    mov bx, fs_sector_buffer
+    phase_call_res read_abs_sector
+    jc .not_found
+    mov si, fs_sector_buffer
+    mov cx, fat_dir_entries_per_sector
+.dir_entry:
+    mov al, [si]
+    or al, al
+    jz .not_found
+    cmp al, 0xe5
+    je .dir_advance
+    test byte [si + 11], 0x18
+    jnz .dir_advance
+    push si
+    push cx
+    push di
+    mov cx, 11
+.dir_compare:
+    mov al, [si]
+    cmp al, [di]
+    jne .dir_mismatch
+    inc si
+    inc di
+    loop .dir_compare
+    pop di
+    pop cx
+    pop si
+    mov ax, [si + 26]
+    mov [fs_file_cluster], ax
+    mov ax, [si + 28]
+    mov [fs_file_size_low], ax
+    mov ax, [si + 30]
+    mov [fs_file_size_high], ax
+    clc
+    ret
+.dir_mismatch:
+    pop di
+    pop cx
+    pop si
+.dir_advance:
+    add si, fat_dir_entry_size
+    loop .dir_entry
 .not_found:
     stc
     ret

@@ -1,6 +1,6 @@
 ; Standalone crypto micro-benchmark for the IBM PC 5150 (4.77 MHz 8088).
 ;
-; Boots as a CORE.SYS via the real boot.bin/loader.bin/FAT12 chain (loaded to
+; Boots as a SEED.SYS via the real boot.bin/loader.bin/FAT12 chain (loaded to
 ; 0x0000:0x1000, the loader honors the SEEDCORE resident-sector count below).
 ; Deploys the SHA/TLS constants exactly like phases/tls_client_hello.inc, then
 ; times each crypto op with the BIOS tick counter (0040:006c, ~18.2065 Hz),

@@ -121,4 +121,4 @@ Then retry the handshake → back to the 1-verify fast path against the new `rsa
 - [ ] Validate: 286 @6 AND @8 steady-state (cached leaf) + simulated rotation (pin an old leaf,
       present the real WR1-signed one) → silent recertify → greets; a tampered leaf → reject; 8088/16K
       NIC-matrix regression (the path is 286-gated; the 8088 stays "encrypted, not secure").
-- [ ] Read the FULL build output + confirm a fresh CORE.SYS md5 before any `--no-build` run.
+- [ ] Read the FULL build output + confirm a fresh SEED.SYS md5 before any `--no-build` run.

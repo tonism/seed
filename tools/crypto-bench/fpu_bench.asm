@@ -7,7 +7,7 @@
 ; any P-256 multiply speedup (the modular reduction + carry accumulation get no
 ; FPU benefit, and SHA-256 none at all).
 ;
-; Boots as CORE.SYS; times N iterations of each op via the BIOS tick, emits
+; Boots as SEED.SYS; times N iterations of each op via the BIOS tick, emits
 ; "<tag> N=.. dt=.. ck=.." over COM1 + screen. ck = wordsum of the 64-bit product
 ; (must be 39FB for A=12345678 * B=9ABCDEF0, cross-checked on the host).
 ; 8086 + 8087 only.

@@ -9,8 +9,12 @@
 
 user_cfg_phase:
     call user_cfg_phase_clear_seed_values
+    call user_cfg_phase_find_seed_dir
+    jc .failed
+    mov ax, [fs_file_cluster]
+    mov [fs_current_cluster], ax
     mov di, low_scratch_start + (user_cfg_phase_name - PHASE_BASE)
-    call user_cfg_phase_find_root_file
+    call user_cfg_phase_find_dir_file
     jc .failed
     mov ax, [fs_file_cluster]
     mov [seed_cluster], ax
@@ -277,8 +281,9 @@ user_cfg_phase:
     ret
 
 user_cfg_phase_name db 'USER    CFG'
+user_cfg_phase_seed_name db 'SEED       '
 
-user_cfg_phase_find_root_file:
+user_cfg_phase_find_seed_dir:
     mov word [fs_lba], fat_root_start_lba
     mov word [fs_root_left], fat_root_sectors
 .next_sector:
@@ -298,11 +303,11 @@ user_cfg_phase_find_root_file:
     jz .end_marker
     cmp al, 0xe5
     je .advance
-    test byte [si + 11], 0x18
-    jnz .advance
+    test byte [si + 11], 0x10
+    jz .advance
     push si
     push cx
-    push di
+    mov di, low_scratch_start + (user_cfg_phase_seed_name - PHASE_BASE)
     mov cx, 11
 .compare:
     mov al, [si]
@@ -311,7 +316,6 @@ user_cfg_phase_find_root_file:
     inc si
     inc di
     loop .compare
-    pop di
     pop cx
     pop si
     mov ax, [si + 26]
@@ -323,7 +327,6 @@ user_cfg_phase_find_root_file:
     clc
     ret
 .mismatch:
-    pop di
     pop cx
     pop si
     jmp .advance
@@ -334,6 +337,60 @@ user_cfg_phase_find_root_file:
     dec word [fs_root_left]
     jmp .next_sector
 .end_marker:
+.not_found:
+    stc
+    ret
+
+user_cfg_phase_find_dir_file:
+    mov ax, [fs_current_cluster]
+    cmp ax, fat_first_data_cluster
+    jb .not_found
+    sub ax, fat_first_data_cluster
+    add ax, fat_data_start_lba
+    push ds
+    pop es
+    mov bx, fs_sector_buffer
+    phase_call_res read_abs_sector
+    jc .not_found
+    mov si, fs_sector_buffer
+    mov cx, fat_dir_entries_per_sector
+.dir_entry:
+    mov al, [si]
+    or al, al
+    jz .not_found
+    cmp al, 0xe5
+    je .dir_advance
+    test byte [si + 11], 0x18
+    jnz .dir_advance
+    push si
+    push cx
+    push di
+    mov cx, 11
+.dir_compare:
+    mov al, [si]
+    cmp al, [di]
+    jne .dir_mismatch
+    inc si
+    inc di
+    loop .dir_compare
+    pop di
+    pop cx
+    pop si
+    mov ax, [si + 26]
+    mov [fs_file_cluster], ax
+    mov ax, [si + 28]
+    mov [fs_file_size_low], ax
+    mov ax, [si + 30]
+    mov [fs_file_size_high], ax
+    clc
+    ret
+.dir_mismatch:
+    pop di
+    pop cx
+    pop si
+.dir_advance:
+    add si, fat_dir_entry_size
+    loop .dir_entry
 .not_found:
     stc
     ret

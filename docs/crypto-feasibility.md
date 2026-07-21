@@ -39,7 +39,7 @@ tens of variants could be filtered instantly and only the leaders spent a VM run
    **calibrated to 98.7%** against real hardware (predicted 735,461 vs measured
    745,420 cycles for one SHA-256 block) — accurate enough to *rank* variants before
    any VM run.
-3. **Ground truth — 86Box, serial.** A standalone `CORE.SYS` micro-benchmark boots
+3. **Ground truth — 86Box, serial.** A standalone `SEED.SYS` micro-benchmark boots
    through the real boot chain, times each operation with the BIOS tick counter
    (1 tick = 54.9254 ms), and reports over COM1 (`run86box.py`, one VM at a time).
    This confirms the leaders and re-calibrates the model.

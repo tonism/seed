@@ -35,7 +35,7 @@ the server closes the connection in ~15 s. Concretely:
   shipped standalone — that would be cosmetic.
 
 So the 8088 tier is **encrypted, not secure**, and the label is precise, not
-aspirational. A pre-286 machine shows a dim **"insecure"** on the splash to say so. The
+aspirational. A pre-286 machine shows a red **"insecure"** on the splash to say so. The
 full measured case for *why* this can't be optimised across — the ~2.7-minute combined
 handshake, ~11× over the window — is in [crypto-feasibility.md](crypto-feasibility.md).
 

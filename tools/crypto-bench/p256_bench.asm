@@ -1,4 +1,4 @@
-; Real P-256 ECDHE timing bench (boots as CORE.SYS on the 360K image). Times ONE
+; Real P-256 ECDHE timing bench (boots as SEED.SYS on the 360K image). Times ONE
 ; full ECDHE -- scalar mult (PEER_PRIVATE x G) + inv_mod + affine -> tls_shared_x_words
 ; -- via the BIOS tick, emits "ECDHE N=1 dt=<ticks> ck=<hex4>" over COM1 + screen.
 ; ck must be D51E (wordsum of PEER_PUBLIC[0]) = correct shared X. Override the P-256

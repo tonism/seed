@@ -22,10 +22,3 @@ tcp_receive_payload:
     jmp net_fail_al
 .done:
     ret
-
-; Build 12 NIC HAL: the resident rx_fallback default (CF=1 = "no usable second frame"). Every driver
-; header points its rx_fallback slot here EXCEPT 3c501, whose driver provides el1_second_frame (the
-; single-buffer card is the only one that needs a second-frame retry).
-nic_rx_fallback_none:
-    stc
-    ret

@@ -1,5 +1,5 @@
 ; Build 12 (2-image): the floppy geometry is adopted from the boot-sector BPB at startup
-; (detect_floppy_geometry) so ONE CORE.SYS works on a 160K single-sided OR a 360K
+; (detect_floppy_geometry) so ONE SEED.SYS works on a 160K single-sided OR a 360K
 ; double-sided image. read_abs_sector turns the LBA in AX into CHS with that geometry:
 ; LBA / spt -> track (rem = sector), track / heads -> cylinder (rem = head). For the 160K
 ; default (spt=8, heads=1) this is byte-for-byte the same CHS as the old hardcoded path.

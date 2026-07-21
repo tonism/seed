@@ -2,7 +2,7 @@
 %define LOADER_SECTORS 4
 %endif
 
-build_number equ 12
+build_number equ 13
 ; Build 10 (agentic loop): max consecutive auto-continue turns before handing back to the
 ; user, so a model that keeps emitting tool calls cannot loop forever.
 agent_loop_max equ 8
@@ -86,7 +86,7 @@ tools_cache_len equ tools_cache_sectors * 512
 tools_cache equ loop_cache_start - tools_cache_len
 tools_schema_max_len equ 384
 ; Build 12 286 secure tier: the handshake-only P-256 ECDHE module (core/p256_module.asm, incbin'd into
-; CORE.SYS). Loaded ONLY on the 286 secure path (handoff_flag_cpu_286plus) into a high overlay band
+; SEED.SYS). Loaded ONLY on the 286 secure path (handoff_flag_cpu_286plus) into a high overlay band
 ; that ALIASES the 32K loop cache — lifetime-disjoint: the module runs during the boot handshake; the
 ; loop cache is preloaded AFTER it (a reconnect reloads the module, then re-preloads the cache). The
 ; 286 secure tier is inherently 32K (it needs this high region), so the 16K floor never reaches here;
@@ -259,6 +259,11 @@ net_error_dns equ 10
 net_error_next_hop_arp equ 11
 net_error_tcp equ 12
 net_error_tls equ 13
+net_error_driver equ 14
+nic_driver_meta_magic_off equ nic_vt_slot_count * 2
+nic_driver_meta_version_off equ nic_driver_meta_magic_off + 4
+nic_driver_meta_family_mask_off equ nic_driver_meta_version_off + 1
+nic_driver_abi_version equ 1
 seed_attr_cga equ 0x0f
 build_attr_cga equ 0x08
 load_attr_cga equ 0x08
@@ -425,14 +430,10 @@ tcp_offset equ eth_header_len + ipv4_header_len
 tcp_payload_offset equ tcp_offset + 20
 tcp_payload_max_len equ 1460
 tcp_payload_read_len equ tcp_payload_offset + tcp_payload_max_len
-; Build 11 RX-buffer shrink: Seed advertises this MSS in its SYN (a 4-byte TCP option) so the
-; server caps every segment it sends us at this size. Post-FIFO-collapse the receive streams
-; per-segment (tls_rx_copy holds ONE segment, not a whole record - see tls.inc:911), so a small
-; advertised MSS lets tls_rx_copy shrink to match, freeing the critical scratch for the chat pool
-; and the never-blank reconnect loop. 592 keeps the buffer above its other floors (the DNS qname at
-; tls_rx_copy+512 and the ClientHello). TCP MSS is a transport option Cloudflare always honors
-; (unlike the TLS-layer max_fragment_length/record_size_limit it ignores on TLS 1.2).
-tcp_syn_mss equ 592
+; Build 13 3c501 receive safety: advertise an MSS whose complete Ethernet frame fits below the
+; response phase at 0x0900 even when a pure ACK is latched ahead of it in the single el1 buffer.
+; The TLS receive buffer stays at its 592-byte scratch floor below.
+tcp_syn_mss equ 384
 ; TLS record receive buffer. Post the Build 11 draining-FIFO collapse the receive STREAMS per
 ; segment (tls.inc:911 "removed the LAST whole-record receive path"): tls_rx_copy holds ONE TCP
 ; segment, never a whole record, so there is no record-size ceiling - a multi-KB TLS record arrives
@@ -442,7 +443,7 @@ tcp_syn_mss equ 592
 ; 512 + dns_qname_max_len(80) = 592 (asserted in data.inc via dns_qname), and the ClientHello + DPI
 ; input both fit. (Pre-collapse this buffer DID hold a whole record and 1460 was the hard floor -
 ; shrinking to 640 then failed a long essay; the collapse is what made this shrink safe.)
-tls_payload_buffer_len equ tcp_syn_mss
+tls_payload_buffer_len equ 592
 tls_pre_response_tail_len equ tls_app_record_buffer_len + (16 * 2) + (16 * 2) + tls_random_len + tls_master_secret_len + sha256_digest_len
 tls_stream_buffer_len equ tls_payload_buffer_len + tls_pre_response_tail_len
 critical_scratch_start equ 0x36c2

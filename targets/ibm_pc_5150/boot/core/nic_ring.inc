@@ -1,13 +1,14 @@
 ; Build 12 NIC HAL — driver-module ABI + the shared DP8390 ring.
 ;
 ; A NIC driver is a self-contained module on the floppy, loaded at boot into the resident
-; active-driver slot (nic_driver_slot) by hardware_setup, so only the DETECTED family's driver
+; active-driver slot (nic_driver_slot) by the driver-load phase, so only the selected driver
 ; costs resident RAM — every other family's driver stays on the floppy (0 resident RAM). A driver
 ; runs at the slot like a cold phase: internal calls/jumps are relative (position-independent),
-; resident shared routines (out_dx_word / net_fail_al / parse_tcp_payload) are reached via the
-; slot-aware drv_call_res / drv_jmp_res below (the established phase_call_res idiom, base =
-; nic_driver_slot). The driver's first 10 bytes are a header of the 5 nic_vt_* entries; the boot
-; loader copies them into the resident nic_vtable. DRIVER_BASE must name the module's start label.
+; resident shared routines (net_fail_al / parse_tcp_payload / c503_select_dp8390) are reached via
+; the slot-aware drv_call_res / drv_jmp_res below (the established phase_call_res idiom, base =
+; nic_driver_slot). The driver's first 10 bytes are a header of the 5 nic_vt_* entries, followed by
+; SDRV metadata (ABI version + supported-family mask); the driver-load phase validates metadata and
+; copies the vtable into the resident nic_vtable. DRIVER_BASE must name the module's start label.
 ;
 ; The DP8390 ring (ne2000/ne1000/3c503/wd8003) is identical across those three cards except for how
 ; bytes move in/out of the card's packet buffer, so it lives here as two macros parameterised by the
@@ -23,6 +24,19 @@
 %macro drv_jmp_res 1
     db 0xe9
     dw %1 - (nic_driver_slot + ($ - DRIVER_BASE) + 2)
+%endmacro
+
+%macro nic_out_dx_word 0
+    out dx, al
+    inc dx
+    mov al, ah
+    out dx, al
+%endmacro
+
+%macro nic_driver_metadata 0
+    db 'SDRV'
+    db nic_driver_abi_version
+    db DRIVER_FAMILY_MASK
 %endmacro
 
 ; DP8390 transmit. Contract (shared by every transmit impl): cx = frame length, si = frame at
@@ -42,7 +56,7 @@
     out dx, al
     lea dx, [bx + ne_tbcr0]
     mov ax, bp
-    drv_call_res out_dx_word
+    nic_out_dx_word
     lea dx, [bx + ne_cr]
     mov al, ne_cmd_transmit
     out dx, al

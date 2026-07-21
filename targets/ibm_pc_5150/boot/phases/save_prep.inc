@@ -10,6 +10,11 @@
     dw %1 - (PHASE_LOAD_ADDR + ($ - PHASE_BASE) + 2)
 %endmacro
 
+%macro phase_call_res 1
+    db 0xe8
+    dw %1 - (PHASE_LOAD_ADDR + ($ - PHASE_BASE) + 2)
+%endmacro
+
 ; Build 12 env save/load (design: docs/architecture.md, "Persistence"), SAVE part 1 of 2: SCAN + PLAN. The save
 ; writer (save_write) is at its 2-sector fs_sector_buffer ceiling, so the trim codec setup lives here
 ; in its own phase: compute region_len (full extent), region_stored (trailing-zero trim), the per-row
@@ -64,6 +69,7 @@ save_prep_phase:
     call save_prep_sum
     call save_prep_sum_cells         ; bx += sum of the kept screen cells (char+attr)
     mov [save_payload_ck], bx
+    call save_prep_find_dir_slot     ; sets save_dir_lba/off + save_old_cluster for SEED/ENV.DAT
 
     ; --- chain to save_write (loads at 0x0900 over us; returns to dpi via the resident loader) ---
     mov ax, (((core_save_write_phase_end - core_save_write_phase_start + 511) / 512) << 8) | \
@@ -164,4 +170,130 @@ save_prep_sum_cells:
     pop es
     ret
 
+; Find the SEED/ENV.DAT entry (reuse) or the first free SEED-dir slot. Sets save_dir_lba/off and
+; save_old_cluster (its first cluster, or 0 for a new file). save_write consumes these.
+save_prep_find_dir_slot:
+    mov word [save_old_cluster], 0
+    mov word [save_dir_lba], 0
+    call save_prep_find_seed_dir
+    jc .fd_done
+    mov ax, [fs_file_cluster]
+    cmp ax, fat_first_data_cluster
+    jb .fd_done
+    sub ax, fat_first_data_cluster
+    add ax, fat_data_start_lba
+    mov [fs_lba], ax
+    push ds
+    pop es
+    mov bx, fs_sector_buffer
+    mov ax, [fs_lba]
+    phase_call_res read_abs_sector
+    jc .fd_done
+    mov si, fs_sector_buffer
+    mov cx, fat_dir_entries_per_sector
+.fd_entry:
+    mov al, [si]
+    or al, al
+    je .fd_free
+    cmp al, 0xe5
+    je .fd_free
+    test byte [si + 11], 0x18
+    jnz .fd_advance
+    push si
+    push cx
+    mov di, PHASE_LOAD_ADDR + (save_prep_env_name - PHASE_BASE)
+    mov cx, 11
+.fd_cmp:
+    mov al, [si]
+    cmp al, [di]
+    jne .fd_nomatch
+    inc si
+    inc di
+    loop .fd_cmp
+    pop cx
+    pop si
+    mov ax, [si + 26]
+    mov [save_old_cluster], ax
+    call save_prep_record_slot
+    jmp .fd_done
+.fd_nomatch:
+    pop cx
+    pop si
+    jmp .fd_advance
+.fd_free:
+    cmp word [save_dir_lba], 0
+    jne .fd_advance
+    call save_prep_record_slot
+    cmp byte [si], 0
+    je .fd_done
+.fd_advance:
+    add si, fat_dir_entry_size
+    loop .fd_entry
+.fd_done:
+    ret
+
+save_prep_find_seed_dir:
+    mov word [fs_lba], fat_root_start_lba
+    mov word [fs_root_left], fat_root_sectors
+.sd_sector:
+    cmp word [fs_root_left], 0
+    je .sd_fail
+    push ds
+    pop es
+    mov bx, fs_sector_buffer
+    mov ax, [fs_lba]
+    phase_call_res read_abs_sector
+    jc .sd_fail
+    mov si, fs_sector_buffer
+    mov cx, fat_dir_entries_per_sector
+.sd_entry:
+    mov al, [si]
+    or al, al
+    jz .sd_fail
+    cmp al, 0xe5
+    je .sd_advance
+    test byte [si + 11], 0x10
+    jz .sd_advance
+    push si
+    push cx
+    mov di, PHASE_LOAD_ADDR + (save_prep_seed_name - PHASE_BASE)
+    mov cx, 11
+.sd_cmp:
+    mov al, [si]
+    cmp al, [di]
+    jne .sd_nomatch
+    inc si
+    inc di
+    loop .sd_cmp
+    pop cx
+    pop si
+    mov ax, [si + 26]
+    mov [fs_file_cluster], ax
+    clc
+    ret
+.sd_nomatch:
+    pop cx
+    pop si
+.sd_advance:
+    add si, fat_dir_entry_size
+    loop .sd_entry
+    inc word [fs_lba]
+    dec word [fs_root_left]
+    jmp .sd_sector
+.sd_fail:
+    stc
+    ret
+
+save_prep_record_slot:
+    mov ax, [fs_lba]
+    mov [save_dir_lba], ax
+    mov ax, si
+    sub ax, fs_sector_buffer
+    mov [save_dir_off], ax
+    ret
+
+save_prep_seed_name db 'SEED       '
+save_prep_env_name db 'ENV     DAT'
+
+%unmacro phase_call_res 1
 %unmacro phase_jmp_res 1

@@ -36,7 +36,7 @@ CORE = BOOT_INC / "core"
 BENCH = Path(__file__).resolve().parent
 
 MEM_SIZE = 0x20000          # 128 KiB flat; CS=DS=ES=SS=0
-CODE_ORG = 0x1000           # match the real CORE.SYS load address
+CODE_ORG = 0x1000           # match the real SEED.SYS load address
 STACK_TOP = 0xF000          # below the 64 KiB seg-0 wrap, well above crypto data/code
 
 

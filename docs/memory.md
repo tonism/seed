@@ -2,7 +2,7 @@
 
 This appendix records how Seed fits inside the 16 KiB IBM PC 5150 target at
 important points during boot and the stage-by-stage fill-in below. The diagrams are generated from the
-assembled `CORE.SYS` plus layout constants.
+assembled `SEED.SYS` plus layout constants.
 
 Refresh this file after memory-layout changes:
 
@@ -19,7 +19,7 @@ scratch/state detail you can skim on a first read.
 
 ```text
 █  BIOS-owned low memory
-▓  CORE.SYS resident nucleus
+▓  SEED.SYS resident nucleus
 ▒  K LINK window
 h  handoff block
 t  TLS / crypto state
@@ -63,7 +63,7 @@ stages — currently all free.
   │ 0x3000 │                              ||│
   └────────┴────────────────────────────────┘
 
-CORE.SYS resident nucleus is at 0x1000..0x1800. The phase
+SEED.SYS resident nucleus is at 0x1000..0x1800. The phase
 loader, NIC TX/RX, TCP send/receive, and UI primitives live
 here. main.inc has cleared the runtime scratch and stamped
 boot_drive + ram_top into the handoff (the tiny 'h' cell).
@@ -81,10 +81,11 @@ boot_drive + ram_top into the handoff (the tiny 'h' cell).
   │ 0x3000 │                              ||│
   └────────┴────────────────────────────────┘
 
-H (hardware_setup) + I (packet_io_init) have run. Handoff
-now carries video mode, NIC family/base/IRQ, MAC; NIC TX/RX
-page tracking lives in low_runtime_state; UI cursor/colour
-attrs sit in low_phase_state.
+H (hardware_setup) + 2 (driver_load) + I (packet_io_init) have
+run. Handoff now carries video mode, NIC family/base/IRQ, MAC;
+the selected NIC driver is resident in the active-driver slot;
+NIC TX/RX page tracking lives in low_runtime_state; UI cursor/
+colour attrs sit in low_phase_state.
 ```
 <!-- END MAP: stage-hal -->
 
@@ -99,7 +100,7 @@ attrs sit in low_phase_state.
   │ 0x3000 │                              ||│
   └────────┴────────────────────────────────┘
 
-D (dhcp_setup) + P (net_probe_cfg) + C (tcp_connect) have
+D (dhcp_setup) + C (tcp_connect) have
 run. Handoff also carries IP/router/DNS/subnet; the persistent
 block has arp_target_mac and tcp_target_ip/seq/ack. Visual is
 identical to the HAL stage — the new bytes populate the same
@@ -118,8 +119,8 @@ cells, just more densely inside them.
   │ 0x3000 │                  ttttaaaa    ||│
   └────────┴────────────────────────────────┘
 
-A + U + Q + E + R have run. seed_* loaded from AGENTS.CFG /
-USER.CFG, the HTTP POST built into api_request_plain. The K
+A + U + Q + E + R have run. seed_* loaded from SEED/AGENTS.CFG /
+SEED/USER.CFG, the HTTP POST built into api_request_plain. The K
 LINK window is still on the floppy — its 7.5 KiB slot at
 0x1800..0x3600 stands empty, the largest visible free band.
 ```

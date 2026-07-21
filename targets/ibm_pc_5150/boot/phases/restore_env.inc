@@ -21,11 +21,66 @@
 ; byte is copied into the window or video memory. Any failure returns CF=1 with the boot-empty window
 ; intact. (The fit MENU for bigger-machine/won't-fit is step 3c; here a misfit just returns CF=1.)
 restore_env_phase:
+    call .find_seed_dir
+    jc .fail
+    mov ax, [fs_file_cluster]
+    cmp ax, fat_first_data_cluster
+    jb .fail
+    sub ax, fat_first_data_cluster
+    add ax, fat_data_start_lba
+    mov [fs_lba], ax
+    jmp .scan_seed_dir
+
+.find_seed_dir:
     mov word [fs_lba], fat_root_start_lba
     mov word [fs_root_left], fat_root_sectors
-.scan_sector:
+.seed_sector:
     cmp word [fs_root_left], 0
     je .fail
+    push ds
+    pop es
+    mov bx, env_restore_stage
+    mov ax, [fs_lba]
+    phase_call_res read_abs_sector
+    jc .fail
+    mov si, env_restore_stage
+    mov cx, fat_dir_entries_per_sector
+.seed_entry:
+    mov al, [si]
+    or al, al
+    jz .fail                         ; 0x00 = end of root -> no SEED directory
+    cmp al, 0xe5
+    je .scan_advance                 ; deleted entry
+    test byte [si + 11], 0x10
+    jz .scan_advance
+    push si
+    push cx
+    mov di, low_scratch_start + (restore_seed_name - PHASE_BASE)
+    mov cx, 11
+.seed_cmp:
+    mov al, [si]
+    cmp al, [di]
+    jne .scan_mismatch
+    inc si
+    inc di
+    loop .seed_cmp
+    pop cx
+    pop si
+    mov ax, [si + 26]
+    mov [fs_file_cluster], ax
+    clc
+    ret
+.scan_mismatch:
+    pop cx
+    pop si
+.scan_advance:
+    add si, fat_dir_entry_size
+    loop .seed_entry
+    inc word [fs_lba]
+    dec word [fs_root_left]
+    jmp .seed_sector
+
+.scan_seed_dir:
     push ds
     pop es
     mov bx, env_restore_stage
@@ -39,9 +94,9 @@ restore_env_phase:
     or al, al
     jz .fail                         ; 0x00 = end of directory -> no ENV.DAT
     cmp al, 0xe5
-    je .scan_advance                 ; deleted entry
+    je .dir_advance                  ; deleted entry
     test byte [si + 11], 0x18        ; skip volume label / subdirectory
-    jnz .scan_advance
+    jnz .dir_advance
     push si
     push cx
     mov di, low_scratch_start + (restore_env_name - PHASE_BASE)
@@ -49,7 +104,7 @@ restore_env_phase:
 .scan_cmp:
     mov al, [si]
     cmp al, [di]
-    jne .scan_mismatch
+    jne .dir_mismatch
     inc si
     inc di
     loop .scan_cmp
@@ -62,15 +117,13 @@ restore_env_phase:
     mov ax, [si + 30]
     mov [fs_file_size_high], ax
     jmp .found
-.scan_mismatch:
+.dir_mismatch:
     pop cx
     pop si
-.scan_advance:
+.dir_advance:
     add si, fat_dir_entry_size
     loop .scan_entry
-    inc word [fs_lba]
-    dec word [fs_root_left]
-    jmp .scan_sector
+    jmp .fail
 
 .found:
     ; size sanity before any staging read: high word zero, low in [hdr_len .. max]
@@ -600,6 +653,7 @@ restore_env_paint_screen:
     int 0x10
     ret
 
+restore_seed_name db 'SEED       '
 restore_env_name db 'ENV     DAT'
 
 %unmacro phase_call_res 1

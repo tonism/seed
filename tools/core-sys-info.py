@@ -87,7 +87,7 @@ def read_core(path: Path) -> dict[str, int]:
     data = path.read_bytes()
     min_len = PHASE_COUNT_OFFSET + 2
     if len(data) < min_len:
-        raise SystemExit(f"{path}: too small for CORE.SYS header")
+        raise SystemExit(f"{path}: too small for SEED.SYS header")
     if data[MAGIC_OFFSET : MAGIC_OFFSET + len(MAGIC)] != MAGIC:
         raise SystemExit(f"{path}: missing SEEDCORE header")
 
@@ -115,9 +115,9 @@ def read_core(path: Path) -> dict[str, int]:
 
 def check_core(path: Path, info: dict[str, int]) -> None:
     if info["version"] != 1:
-        raise SystemExit(f"{path}: unsupported CORE.SYS header version {info['version']}")
+        raise SystemExit(f"{path}: unsupported SEED.SYS header version {info['version']}")
     if info["header-len"] < 23:
-        raise SystemExit(f"{path}: CORE.SYS header length is too small")
+        raise SystemExit(f"{path}: SEED.SYS header length is too small")
     if info["resident-sectors"] == 0:
         raise SystemExit(f"{path}: resident sector count is zero")
     if info["resident-sectors"] > info["total-sectors"]:
@@ -128,13 +128,13 @@ def check_core(path: Path, info: dict[str, int]) -> None:
             f"does not match file sectors {info['actual-total-sectors']}"
         )
     if info["resident-bytes"] < info["header-len"]:
-        raise SystemExit(f"{path}: resident area does not cover CORE.SYS header")
+        raise SystemExit(f"{path}: resident area does not cover SEED.SYS header")
     if info["phase-count"]:
         table_end = info["phase-table-off"] + info["phase-count"] * PHASE_ENTRY_SIZE
         if info["phase-table-off"] < info["header-len"]:
-            raise SystemExit(f"{path}: phase table overlaps CORE.SYS header")
+            raise SystemExit(f"{path}: phase table overlaps SEED.SYS header")
         if table_end > info["bytes"]:
-            raise SystemExit(f"{path}: phase table extends past CORE.SYS")
+            raise SystemExit(f"{path}: phase table extends past SEED.SYS")
 
 
 def read_phases(path: Path, info: dict[str, int]) -> list[dict[str, int | str]]:
@@ -290,7 +290,7 @@ def main() -> None:
         type=parse_packed_range,
         default=[],
         help=(
-            "print an ideal packed range after resident CORE.SYS as LABEL:LENGTH "
+            "print an ideal packed range after resident SEED.SYS as LABEL:LENGTH "
             "in each budget"
         ),
     )

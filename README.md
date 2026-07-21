@@ -1,7 +1,7 @@
 # Seed
 
 <p align="center">
-  <img src="docs/images/seed-demo-8088.gif" width="49%" alt="A cloud model on a 16 KiB 4.77 MHz 8088 IBM PC reads the BIOS clock and works out the time from the raw timer ticks; the boot splash shows a dim 'insecure' because the stock-8088 channel is encrypted but not secure. 86Box, sped up 8x.">
+  <img src="docs/images/seed-demo-8088.gif" width="49%" alt="A cloud model on a 16 KiB 4.77 MHz 8088 IBM PC reads the BIOS clock and works out the time from the raw timer ticks; the boot splash shows a red 'insecure' because the stock-8088 channel is encrypted but not secure. 86Box, sped up 8x.">
   <img src="docs/images/seed-demo-286.gif" width="49%" alt="The same prompt on a 512 KiB 6 MHz 286: a real secure handshake (no insecure splash) that also finishes the read-and-compute first. 86Box, sped up 8x.">
 </p>
 
@@ -36,9 +36,9 @@ Four things make Seed unusual:
   SHA-256 transcript, key schedule, ChaCha20-Poly1305 record crypto, HTTP/1.1, and
   SSE (server-sent events) streaming — fits a 16 KiB RAM budget. It works by *not*
   keeping it all resident: a 2 KiB nucleus and a 7 KiB crypto window stay in memory,
-  while 27 other **phases** (chunks of code) stream off the floppy on demand and
+  while 28 other **phases** (chunks of code) stream off the floppy on demand and
   time-share one small RAM **window**.
-- **One floppy scales past segment 0.** The same `CORE.SYS` starts at the 16 KiB
+- **One floppy scales past segment 0.** The same `SEED.SYS` starts at the 16 KiB
   floor, uses a cached loop at 32 KiB, grows context and arena through far
   conventional memory, drives EMS boards on 8088/V30-class machines, reaches 286
   HMA/native extended memory, and uses 386 unreal mode for BIOS-compatible flat
@@ -57,7 +57,7 @@ that channel is *secure* is CPU-tiered, and the product says so honestly:
   path substitutes a stub (the server's public value becomes the premaster) and a passive
   observer could derive the keys. The full P-256 is written and OpenSSL-checked, just
   compiled out; it *fits* the RAM (~3.4 KB), so the wall is CPU time, not space. A pre-286
-  machine shows a dim **"insecure"** on the splash to say so.
+  machine shows a red **"insecure"** on the splash to say so.
 - **On a 286 it is a real secure channel (shipped, Build 12).** The optimised
   constant-time P-256 does a genuine ephemeral ECDHE key agreement, and the server is
   authenticated by verifying its RSA-2048 signature against a **pinned `api.openai.com`
@@ -91,7 +91,7 @@ key sk-your-openai-key
 
 (`model` is whatever id your account can use.) Inject it with
 [mtools](https://www.gnu.org/software/mtools/):
-`mcopy -i seed-160k.img USER.CFG ::USER.CFG` — or rebuild from source with
+`mcopy -i seed-160k.img USER.CFG ::/SEED/USER.CFG` — or rebuild from source with
 `config/USER.CFG` in place.
 
 > ⚠️ **Use a throwaway, rate-limited key.** On a pre-286 machine seed's channel is
@@ -141,7 +141,7 @@ emulator  86Box profiles are provided for development and verification
 **Recommended — a 286, for a secure channel.** Confidentiality is CPU-tiered, and this
 is the one thing the 8088 floor cannot do. Below the 286 the key exchange is stubbed, so
 the connection is *encrypted but not secure* — anyone on the network path can recover the
-session keys, and a pre-286 machine says so with a dim **"insecure"** splash. A **286 or
+session keys, and a pre-286 machine says so with a red **"insecure"** splash. A **286 or
 faster** runs a real authenticated handshake — ephemeral ECDHE key agreement plus a
 pinned-key RSA-2048 certificate verify — inside the provider's handshake window: **8 MHz
 is comfortable, 6 MHz works on a knife-edge.**
@@ -186,8 +186,8 @@ On the IBM PC 5150 target, Seed can:
   `load_env` tools,
 - detect installed RAM and scale the conversation/context arena through far
   conventional memory, EMS, 286 HMA/native extended memory, and 386 unreal mode,
-- use shipped `AGENTS.CFG` / `NET.CFG` defaults and optional local `USER.CFG`
-  state when present.
+- use shipped `SEED/AGENTS.CFG` defaults and optional local `SEED/USER.CFG`
+  state when present, with prompts and NIC drivers under `SEED/`.
 
 ## Known Limitations
 
@@ -232,25 +232,31 @@ The generated boot image is `build/ibm_pc_5150/floppy-160k.img`. See
 [docs/testing.md](docs/testing.md) for boot modes, validation recipes, and the
 emulator gotchas.
 
+The build includes the current NIC driver files by default. To produce a boot
+floppy without them, use `make INCLUDE_NIC_DRIVERS=0`; per-driver
+`INCLUDE_NIC_DRIVER_NE`, `INCLUDE_NIC_DRIVER_WD8003`,
+`INCLUDE_NIC_DRIVER_3C503`, and `INCLUDE_NIC_DRIVER_3C501` switches can trim
+individual files.
+
 ## Repository Map
 
 ```text
 Makefile                       build the FAT12 160 KiB floppy image
-config/                        shipped AGENTS.CFG / NET.CFG defaults
+config/                        shipped AGENTS.CFG defaults and optional USER.CFG
 docs/architecture.md           how Seed works + the hardware/memory contract
 docs/memory.md                 16 KiB byte-level maps + larger memory-profile examples
 docs/builds.md                 milestone and scope history (the roadmap)
 docs/crypto-feasibility.md     why a secure handshake needs a 286 (the crypto research)
 docs/{config,networking,ui,testing}.md   config, transport, UI, and test reference
 notes/                         design notes and the dated implementation logs
-targets/ibm_pc_5150/           8088 boot sector, loader, and CORE.SYS core source
+targets/ibm_pc_5150/           8088 boot sector, loader, and SEED.SYS core source
 targets/ibm_pc_5150/86box/     86Box profiles and NIC inventory
 tools/run-86box.sh             build and launch an 86Box profile
 tools/run-basic-bootstrap-86box.py   launch 86Box and inject the BASIC sidecar
 ```
 
 Other `tools/*.py` are the image builder, the BASIC-sidecar builder, the
-`CORE.SYS` inspector, and dependency-free crypto checkers — see `AGENTS.md`.
+`SEED.SYS` inspector, and dependency-free crypto checkers — see `AGENTS.md`.
 
 ## Runtime Contract
 
@@ -265,6 +271,6 @@ boot floppy remains the recovery path.
 Stored user config is optional. Missing, unreadable, or invalid config means Seed
 asks the user; failed writes are ignored so read-only boot media stay usable.
 
-Future host loaders may enter `CORE.SYS` from an already-running system instead of
+Future host loaders may enter `SEED.SYS` from an already-running system instead of
 booting the floppy. Those loaders should behave as one-way chainloaders that
 abandon the host runtime, not as normal host applications.

@@ -1,14 +1,16 @@
 ; NE family driver — ne1000 / ne2000 / Novell NE1000 (DP8390, remote-DMA buffer access).
 ; Self-contained module loaded into nic_driver_slot at boot. DRIVER_BASE is %defined to this
-; module's start label by core.asm before %include. Header (10 B) = the 5 nic_vt_* entries; the
-; boot loader copies them into the resident nic_vtable. enter/restore are no-ops (no windowing);
+; module's start label by the driver wrapper before %include. Header (10 B) = the 5 nic_vt_* entries;
+; the driver-load phase copies them into the resident nic_vtable. Metadata after the header declares which
+; detected families this driver supports. enter/restore are no-ops (no windowing);
 ; rx_fallback is the resident default (no 3c501 second-frame). The DP8390 ring comes from
 ; core/nic_ring.inc; ne_buf_load / ne_buf_read are the remote-DMA leaves.
-    dw nic_noop
-    dw nic_noop
+    dw nic_driver_slot + (driver_noop - DRIVER_BASE)
+    dw nic_driver_slot + (driver_noop - DRIVER_BASE)
     dw nic_driver_slot + (ne_transmit - DRIVER_BASE)
     dw nic_driver_slot + (ne_receive - DRIVER_BASE)
-    dw nic_rx_fallback_none
+    dw nic_driver_slot + (driver_no_fallback - DRIVER_BASE)
+    nic_driver_metadata
 
 ne_transmit:
     nic_dp8390_transmit ne_buf_load
@@ -19,7 +21,7 @@ ne_receive:
 ne_buf_load:
     lea dx, [bx + ne_rbcr0]
     mov ax, bp
-    drv_call_res out_dx_word
+    nic_out_dx_word
     lea dx, [bx + ne_rsar0]
     xor al, al
     out dx, al
@@ -60,10 +62,10 @@ ne_buf_read:
     out dx, al
     lea dx, [bx + ne_rbcr0]
     mov ax, [ne_dma_count]
-    drv_call_res out_dx_word
+    nic_out_dx_word
     lea dx, [bx + ne_rsar0]
     mov ax, [ne_dma_addr]
-    drv_call_res out_dx_word
+    nic_out_dx_word
     lea dx, [bx + ne_cr]
     mov al, ne_cmd_remote_read
     out dx, al

@@ -19,7 +19,7 @@ Small status markers can appear immediately because they represent state, not
 message content:
 
 ```text
-none         boot sector, loader, CORE.SYS load
+none         boot sector, loader, SEED.SYS load
 "." dark     hardware, local machine setup, and internet prep/reachability
 "o" dark     TLS handshake setup
 "o" normal   local TLS crypto/key material setup
@@ -36,12 +36,21 @@ then fast-type a minimal `retry` / `restart` menu.
 `retry` reruns from the dark `"."` hardware phase without rereading floppy
 sectors. `restart` performs a warm machine restart through BIOS.
 
-The splash is only a short ready handoff animation. No loading, probing,
+The splash is a short boot banner drawn after the display and CPU class are
+known, before driver loading and network setup. Its pre-286 `insecure` warning
+is red on color adapters and hidden on 286+ machines. No driver validation,
 network negotiation, key setup, or environment setup happens during the splash.
 
 Menus use color to indicate selection. The selected item uses the active prompt
 color; inactive items use the dim prompt color. Do not add marker glyphs solely
 to show selection.
+
+Driver selection is a boot-time question only when more than one shipped driver
+metadata block suits the detected adapter family. It fast-types `which driver?`,
+lists the matching `.DRV` names, accepts a numeric choice, and otherwise repeats
+the question. If no suitable driver is present, the hardware phase fails as
+`driver setup failed` and follows the same retry/restart menu as other fatal
+hardware setup errors.
 
 Agent setup uses a drill-down panel stack under one bright topic prompt. The
 active panel keeps the selected row bright and inactive rows dim. When a

@@ -79,7 +79,7 @@ core_resident_end:
 ;  of this file — below all the phase definitions — where they are backward references the %if can see.)
 
 %if (core_resident_end - $$) > (runtime_stack_top - runtime_stack_guard_len - core_load_addr)
-%error "CORE.SYS exceeds 32KB runtime stack guard"
+%error "SEED.SYS exceeds 32KB runtime stack guard"
 %endif
 
 align 512, db 0
@@ -121,6 +121,18 @@ core_hardware_setup_phase_end:
 %endif
 
 align 512, db 0
+
+core_driver_load_phase_start:
+%define PHASE_BASE core_driver_load_phase_start
+%include "phases/driver_load.inc"
+%undef PHASE_BASE
+core_driver_load_phase_end:
+
+%if (core_driver_load_phase_end - core_driver_load_phase_start) > 1024
+%error "driver load phase exceeds two sectors"
+%endif
+
+times 1024 - (core_driver_load_phase_end - core_driver_load_phase_start) db 0
 
 core_ext_layout_phase_start:
 %include "phases/ext_layout.inc"
@@ -479,6 +491,11 @@ core_phase_table:
     dw (core_hardware_setup_phase_end - core_hardware_setup_phase_start + 511) / 512
     dw low_scratch_start
     dw 0
+    db '2', 0
+    dw (core_driver_load_phase_start - $$) / 512
+    dw (core_driver_load_phase_end - core_driver_load_phase_start + 511) / 512
+    dw low_scratch_start
+    dw 0
     db '0', 0
     dw (core_ext_layout_phase_start - $$) / 512
     dw (core_ext_layout_phase_end - core_ext_layout_phase_start + 511) / 512
@@ -610,50 +627,6 @@ core_phase_table_end:
 %error "save phase and metadata exceed metadata window"
 %endif
 
-; Build 12 NIC HAL: the four NIC driver modules. Each is a self-contained driver assembled at its
-; image position but run at nic_driver_slot; hardware_setup loads ONLY the detected family's module
-; (whole-sector) into the slot at boot, so inactive drivers cost zero resident RAM. Each must fit
-; the one-sector slot. DRIVER_BASE names the module start (for the slot-relative header + drv_call_res).
-align 512, db 0
-core_ne_driver_start:
-%define DRIVER_BASE core_ne_driver_start
-%include "drivers/ne.inc"
-%undef DRIVER_BASE
-core_ne_driver_end:
-%if (core_ne_driver_end - core_ne_driver_start) > nic_driver_slot_len
-%error "ne driver module exceeds the active-driver slot"
-%endif
-
-align 512, db 0
-core_wd8003_driver_start:
-%define DRIVER_BASE core_wd8003_driver_start
-%include "drivers/wd8003.inc"
-%undef DRIVER_BASE
-core_wd8003_driver_end:
-%if (core_wd8003_driver_end - core_wd8003_driver_start) > nic_driver_slot_len
-%error "wd8003 driver module exceeds the active-driver slot"
-%endif
-
-align 512, db 0
-core_el2_3c503_driver_start:
-%define DRIVER_BASE core_el2_3c503_driver_start
-%include "drivers/el2_3c503.inc"
-%undef DRIVER_BASE
-core_el2_3c503_driver_end:
-%if (core_el2_3c503_driver_end - core_el2_3c503_driver_start) > nic_driver_slot_len
-%error "3c503 driver module exceeds the active-driver slot"
-%endif
-
-align 512, db 0
-core_el1_3c501_driver_start:
-%define DRIVER_BASE core_el1_3c501_driver_start
-%include "drivers/el1_3c501.inc"
-%undef DRIVER_BASE
-core_el1_3c501_driver_end:
-%if (core_el1_3c501_driver_end - core_el1_3c501_driver_start) > nic_driver_slot_len
-%error "3c501 driver module exceeds the active-driver slot"
-%endif
-
 align 512, db 0
 
 ; Build 12 (32K cached loop): the preloaded chat-loop working set (loop_preload_list — dpi/Y +
@@ -674,7 +647,7 @@ align 512, db 0
 
 ; Build 12 286 secure tier: the handshake-only P-256 ECDHE module. Assembled separately at its run
 ; address (core/p256_module.asm -> p256_module.bin, org p256_module_load) and incbin'd here so it
-; lands as whole sectors at the END of CORE.SYS — every existing phase/driver sector offset is
+; lands as whole sectors at the END of SEED.SYS — every existing phase sector offset is
 ; unchanged. Loaded ONLY on the 286 secure path (prepare_secure_ecdhe in tls_client_hello), 286-gated;
 ; the 16K/8088 tier never loads it, so on those tiers it is inert weight on the floppy and 0 resident
 ; RAM. The module's own code+data size assert is inside p256_module.asm (vs p256_module_max_len).

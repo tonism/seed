@@ -7,13 +7,12 @@
     dw %1 - (low_scratch_start + ($ - PHASE_BASE) + 2)
 %endmacro
 
-; Build 12 UI unification: terminal-style failure handling. On a setup/connect failure the system reports
-; the error as a DIM "> "-prefixed system line (message + net code), then the agent asks "retry or
-; restart?" as a terminal numbered list -- answered exactly like the provider list: type a number OR the
-; full name, Enter; anything else -> dim "> incorrect option", re-prompt. Flows below (no centered menu /
-; absolute positioning). Keeps the two-tone failure beep.
+; Build 12 UI unification: terminal-style failure handling. The normal splash phase has already
+; drawn the banner, so this phase only appends the setup/connect failure UI below it. The system
+; reports the error as a DIM "> "-prefixed line (message + net code), then asks "retry or restart?"
+; as a terminal numbered list -- answered exactly like the provider list: type a number OR the full
+; name, Enter; anything else -> dim "> incorrect option", re-prompt. Keeps the two-tone failure beep.
 failure_action_phase:
-    call .draw_splash
     call failure_action_phase_notify_failure
     ; dim "> "-prefixed system error line (message + net code), drawn once
     call .newline
@@ -184,7 +183,12 @@ failure_action_phase:
     je .message_done
     mov si, low_scratch_start + (network_setup_error_text - PHASE_BASE)
     cmp byte [handoff_addr + handoff_status], handoff_status_network_failed
-    je .message_done
+    jne .not_network_setup
+    cmp byte [handoff_addr + handoff_net_error], net_error_driver
+    jne .message_done
+    mov si, low_scratch_start + (driver_setup_error_text - PHASE_BASE)
+    jmp .message_done
+.not_network_setup:
     mov si, low_scratch_start + (network_error_text - PHASE_BASE)
 .message_done:
     ret
@@ -254,41 +258,6 @@ failure_action_phase:
     int 0x10
     ret
 
-.draw_splash:
-    mov ax, 0x0600
-    mov bh, 0x07
-    xor cx, cx
-    mov dh, 24
-    mov dl, [screen_cols]
-    dec dl
-    int 0x10
-    xor ax, ax
-    mov [cursor_row], ax
-    call .newline
-    mov al, [seed_col]
-    mov [cursor_col], al
-    mov bl, [seed_attr]
-    mov si, low_scratch_start + (failure_seed_text - PHASE_BASE)
-    call .print_msg
-    mov al, ' '
-    mov bl, [build_attr]
-    phase_call_res print_char
-    mov si, low_scratch_start + (failure_build_text - PHASE_BASE)
-    call .print_msg
-    call .newline
-    test word [handoff_addr + handoff_flags], handoff_flag_cpu_286plus
-    jnz .secure_no_warning
-    mov al, [seed_col]
-    add al, insecure_warning_col_offset
-    mov [cursor_col], al
-    mov bl, [build_attr]
-    mov si, low_scratch_start + (failure_insecure_text - PHASE_BASE)
-    call .print_msg
-    call .newline
-.secure_no_warning:
-    call .newline
-    ret
-
 .newline:
     mov byte [cursor_col], 0
     mov al, [cursor_row]
@@ -304,15 +273,12 @@ failure_action_phase:
 
 network_error_text db 'no network card', 0
 network_setup_error_text db 'network setup failed', 0
+driver_setup_error_text db 'driver setup failed', 0
 agent_setup_error_text db 'agent setup failed', 0
 retry_question_text db 'retry or restart?', 0
 retry_text db 'retry', 0
 restart_text db 'restart', 0
 fail_incorrect_text db 'incorrect option', 0
-failure_seed_text db 'seed', 0
-failure_build_text db 'build ', '0' + (build_number / 10), '0' + (build_number % 10), 0
-failure_insecure_text db 'insecure', 0
-
 failure_action_phase_notify_failure:
     mov ax, 5424
     call failure_action_phase_speaker_tone

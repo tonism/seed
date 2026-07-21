@@ -42,13 +42,13 @@ These hold for every supported adapter:
   records (headers+model / instructions+ledger / conversation+prompt). When the
   conversation+prompt would overflow the send buffer, flush across further records rather
   than truncating — one HTTP request, more TLS records, transparent to the adapter.
-- **Receive-buffer floor (Build 11/12).** Seed advertises a 592-byte TCP MSS and the TLS
-  receive path streams one TCP segment at a time through `tls_rx_copy`; it no longer needs
-  a whole TLS record in RAM. Large application records are decrypted and MAC-checked
-  incrementally. The 592-byte floor is still real: it must hold one segment, a 512-byte
-  floppy/prompt staging sector, the DNS qname tail, ClientHello, and DPI input aliases.
-  Do not grow this buffer casually; it directly trades against the reconnect-safe context
-  pool on 16 KiB.
+- **Receive-buffer floor.** Seed advertises a 384-byte TCP MSS and the TLS receive
+  path streams one TCP segment at a time through `tls_rx_copy`; it no longer needs a
+  whole TLS record in RAM. Large application records are decrypted and MAC-checked
+  incrementally. The receive buffer itself stays at a 592-byte scratch floor because
+  it must also hold a 512-byte floppy/prompt staging sector, the DNS qname tail,
+  ClientHello, and DPI input aliases. Do not grow this buffer casually; it directly
+  trades against the reconnect-safe context pool on 16 KiB.
 
 ## Per-NIC contracts
 
@@ -61,6 +61,8 @@ a single-buffer card.
 - Keep the prebuilt application-frame path separate from the other adapters.
 - Prepare the receive latch around post-prompt sends (the stable path prepares the
   3c501 receive latch before and after the ready-tail application-data send).
+- Keep the single-card receive sample below the response phase and reject truncated
+  TCP payloads; never ACK bytes that were not fully retained in `ne_tx_frame`.
 - Use render-before-ACK during active chat once response text has started: the
   single-buffer card must not acknowledge a long text stream faster than the 8088
   renderer can consume it. Cold greeting, setup, and pre-text metadata still use

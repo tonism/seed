@@ -44,19 +44,20 @@ start:
     mov byte [handoff_addr + handoff_boot_drive], dl
     mov word [handoff_addr + handoff_ram_top], bp
     ; Build 12 (2-image): adopt the floppy geometry from the boot-sector BPB before the first
-    ; phase load, so one CORE.SYS works on a 160K single-sided or 360K double-sided image.
+    ; phase load, so one SEED.SYS works on a 160K single-sided or 360K double-sided image.
     call detect_floppy_geometry
 
 hal_start:
     call_core_phase core_hardware_setup_phase_start, core_hardware_setup_phase_end
-    jc network_error
-    call_core_phase core_unreal_setup_phase_start, core_unreal_setup_phase_end
-
-    ; Build 12 UI unification: draw the banner FIRST -- right after hardware_setup sets up video + clears
-    ; the screen, before any network/config. The splash phase clears + prints the top banner (newline
-    ; flow) and leaves the cursor below it, so all boot progress + config + chat flow beneath it. (The
-    ; boot load-glyph is retired; the resident bytes it freed pay for this call.)
+    pushf
+    ; Draw the banner once, after display + CPU-class setup and before driver/network setup.
+    ; The pre-286 "insecure" warning is therefore independent of later success/failure paths.
     call_core_phase core_splash_phase_start, core_splash_phase_end
+    popf
+    jc network_error
+    call_core_phase core_driver_load_phase_start, core_driver_load_phase_end
+    jc network_setup_error
+    call_core_phase core_unreal_setup_phase_start, core_unreal_setup_phase_end
 
     call_core_phase core_packet_io_init_phase_start, core_packet_io_init_phase_end
     jc network_setup_error

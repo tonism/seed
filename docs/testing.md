@@ -18,7 +18,7 @@ Seed boots two ways, and they exercise different memory sizes:
 
 - **16 KiB, ROM BASIC sidecar** (`--entry basic`, the default). The floppy sits
   in drive B:, the machine powers into ROM BASIC, and the harness types a BASIC
-  bootstrap that POKEs `CORE.SYS` into RAM and runs it. `ram_top` ends up
+  bootstrap that POKEs `SEED.SYS` into RAM and runs it. `ram_top` ends up
   `0x4000`; in the current Build 12 layout the reconnect-safe pool leaves a
   96 B conversation window and a 96 B arena. This is the
   compatibility gate.
@@ -94,6 +94,13 @@ never by source port.
   JSON-escaping of the (quoted) stored response.
 - **Reconnect survival**: `--post-dpi-idle 20` before a turn forces a keep-alive
   close + reconnect; the turn should still answer.
+- **Driver packaging**: `make inspect` should list `SEED/DRIVERS/*.DRV` in the
+  generated FAT image by default. `make INCLUDE_NIC_DRIVERS=0 inspect` should
+  build a valid image with no `SEED/DRIVERS/` directory; a NIC-present boot from
+  that image should fail as `driver setup failed` and offer retry/restart.
+  Individual-image trims use `INCLUDE_NIC_DRIVER_NE`,
+  `INCLUDE_NIC_DRIVER_WD8003`, `INCLUDE_NIC_DRIVER_3C503`, and
+  `INCLUDE_NIC_DRIVER_3C501`.
 
 ## Build 12 Memory Tiers
 
@@ -149,6 +156,9 @@ individual profiles when changing TLS timing or shared packet/NIC code.
 - `config/USER.CFG` holds the API key - never print or commit it.
 - A transient "agent setup failed" red screen is usually a network/TLS flake -
   re-run before investigating.
+- A NIC-present boot that shows `driver setup failed` means hardware detection
+  resolved an adapter family, but no included `.DRV` file matched that family
+  and ABI.
 - The test network can be intermittently spotty, and a network drop looks
   identical to a product bug. To tell them apart, run a background connectivity
   monitor during the test and correlate it against the failure point: `ping -i 2

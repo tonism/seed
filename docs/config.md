@@ -1,10 +1,10 @@
 # Agent And User Config
 
-Seed has two configuration files on the boot floppy:
+Seed has two configuration files under the boot floppy's `SEED/` directory:
 
 ```text
-AGENTS.CFG  optional shipped override for agent interface declarations
-USER.CFG    ignored, optional local user choices and secrets
+SEED/AGENTS.CFG  optional shipped override for agent interface declarations
+SEED/USER.CFG    ignored, optional local user choices and secrets
 ```
 
 `AGENTS.CFG` is not general OS configuration. It only describes five
@@ -78,17 +78,23 @@ and widely compatible with early PC tooling. The initial filesystem discipline
 is intentionally narrow:
 
 ```text
-root directory only
+root SEED.SYS runtime file
+SEED/ directory for runtime-owned config and prompt files
+optional SEED/DRIVERS/ directory for NIC driver files
 uppercase 8.3 filenames
-no subdirectories
+one-cluster subdirectories
 no long filenames
 no dependency on writes succeeding
 ```
 
+Driver files are not config, but they follow the same optional-media discipline:
+Seed scans whatever one-sector `.DRV` files are present under `SEED/DRIVERS/`.
+Missing or unsuitable drivers are a hardware setup error, not a config prompt.
+
 The current config path parses
-up to five `agent ` declarations from `AGENTS.CFG` when that file is available
+up to five `agent ` declarations from `SEED/AGENTS.CFG` when that file is available
 and valid; otherwise it uses the built-in direct-vendor fallback. It reads
-`USER.CFG` when present, accepts a saved `agent <id>` only if it matches the
+`SEED/USER.CFG` when present, accepts a saved `agent <id>` only if it matches the
 active agent list, asks `agent?` otherwise, then asks for any missing `server?`
 and `key?` values needed by the selected agent. When the selected agent needs
 both values, they are shown on one form panel with Up and Down moving between
@@ -98,7 +104,7 @@ belong after the selected agent endpoint can be reached and its capabilities
 can be fetched. Seed then proves selected-agent reachability and runs the full
 TLS 1.2 / application-data path (ClientHello through encrypted application data),
 documented once in [architecture.md](architecture.md), "Provider Timing Model".
-Seed writes validated values back on a best-effort basis:
+Seed writes validated values back to `SEED/USER.CFG` on a best-effort basis:
 
 ```text
 agent <id>

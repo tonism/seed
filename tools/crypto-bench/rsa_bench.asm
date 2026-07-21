@@ -1,4 +1,4 @@
-; RSA-2048 signature-verify timing bench (boots as CORE.SYS on the 360K image).
+; RSA-2048 signature-verify timing bench (boots as SEED.SYS on the 360K image).
 ; Times ONE full verify -- rsa_sig^65537 mod rsa_n (16 squarings + 1 multiply, CIOS
 ; Montgomery) -> rsa_result -- via the BIOS tick, emits "RSA N=1 dt=<ticks> ck=<hex4>"
 ; over COM1 + screen. ck must be 54F2 (wordsum of all 128 result limbs) = correct

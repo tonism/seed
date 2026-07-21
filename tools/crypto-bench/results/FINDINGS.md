@@ -32,7 +32,7 @@ of experiments. Instead, three tiers (cheapest first):
    single 8-bit bus as `max(EU+EA cycles, 4 × (insn_len + memory_bytes))`.
    **Calibrated 98.7%** against real 86Box (predicted 735,461 vs measured 745,420
    cycles for one SHA-256 block). Used to rank variants before any VM run.
-3. **Ground truth — 86Box, serial.** A standalone CORE.SYS micro-benchmark
+3. **Ground truth — 86Box, serial.** A standalone SEED.SYS micro-benchmark
    (`bench.asm`) boots via the real boot chain, times each op with the BIOS tick
    counter, and reports over COM1 (`run86box.py`). One VM at a time. Confirms the
    leaders and calibrates the model.

@@ -3,12 +3,13 @@
 ; drives TX/RX; the buffer leaves move bytes through the el2 gate array. c503_select_dp8390 (returning
 ; the gate array to DP8390 mode after each chip-memory burst) stays RESIDENT — it is a tiny helper
 ; the cold packet-IO init also calls — so the driver reaches it via drv_call_res. enter/restore are
-; no-ops; rx_fallback is the resident default.
-    dw nic_noop
-    dw nic_noop
+; no-ops; rx_fallback is this module's default no-frame stub.
+    dw nic_driver_slot + (driver_noop - DRIVER_BASE)
+    dw nic_driver_slot + (driver_noop - DRIVER_BASE)
     dw nic_driver_slot + (c503_transmit - DRIVER_BASE)
     dw nic_driver_slot + (c503_receive - DRIVER_BASE)
-    dw nic_rx_fallback_none
+    dw nic_driver_slot + (driver_no_fallback - DRIVER_BASE)
+    nic_driver_metadata
 
 c503_transmit:
     nic_dp8390_transmit c503_buf_load
@@ -88,5 +89,5 @@ c503_begin_dma_al:
     lea dx, [bx + el2_da_high]
     mov ax, [ne_dma_addr]
     xchg al, ah
-    drv_call_res out_dx_word
+    nic_out_dx_word
     ret

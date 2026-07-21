@@ -113,7 +113,7 @@ save_pending equ agent_loop_count + 1
 low_phase_state_end equ save_pending + 1
 
 ; Build 12 env save/load: the save phases' shared scratch (save_prep computes the geometry/header/
-; row-length table; save_write consumes them). Phase-INLINE vars assemble at the CORE.SYS image
+; row-length table; save_write consumes them). Phase-INLINE vars assemble at the SEED.SYS image
 ; address (~0x83xx, above the 32K RAM ceiling) and are accessed absolutely -> writes lost, reads
 ; 0xFFFF. So this lives at fixed low addresses, overlaying the boot-only file/config/network scratch
 ; (fs_file_* onward), all dead between turns when $s runs. (The save still uses fs_lba/fs_root_left

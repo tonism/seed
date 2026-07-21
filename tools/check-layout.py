@@ -5,7 +5,7 @@ memory layout (O4/O7).
 It does three things, all at build time:
 
 1. Resolves the layout from one source — ``layout.inc`` + ``data.inc`` equates
-   (addresses) plus the assembled ``CORE.SYS`` header (the nucleus + K-window
+   (addresses) plus the assembled ``SEED.SYS`` header (the nucleus + K-window
    extents that depend on assembly position). No constant is duplicated here.
 2. Prints a labeled band map — owner + lifetime for each region — the readable
    single source that ``docs/memory.md`` and the inspect budget derive from.
@@ -31,7 +31,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CORE = ROOT / "targets/ibm_pc_5150/boot/core"
 DEFAULT_LAYOUT = CORE / "layout.inc"
 DEFAULT_DATA = CORE / "data.inc"
-# Build 12 NIC HAL: the vtable slots are declared in data.inc; the driver modules carry the headers.
+# Build 13 NIC HAL: the vtable slots are declared in data.inc; external driver files carry the headers.
 HARDWARE_SETUP = ROOT / "targets/ibm_pc_5150/boot/phases/hardware_setup.inc"
 DRIVERS = ROOT / "targets/ibm_pc_5150/boot/drivers"
 
@@ -397,7 +397,7 @@ EMIT = {
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("core_sys", type=Path, nargs="?", help="assembled CORE.SYS (for nucleus + K-window extents)")
+    ap.add_argument("core_sys", type=Path, nargs="?", help="assembled SEED.SYS (for nucleus + K-window extents)")
     ap.add_argument("--layout", type=Path, default=DEFAULT_LAYOUT)
     ap.add_argument("--data", type=Path, default=DEFAULT_DATA)
     ap.add_argument("--emit", choices=sorted(EMIT), help="print one layout value (from layout.inc) and exit")

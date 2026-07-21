@@ -68,9 +68,7 @@ parse_tcp_payload:
     jbe .not_payload
     sub dx, bx
     cmp ax, dx
-    jbe .payload_len_ready
-    mov ax, dx
-.payload_len_ready:
+    ja .not_payload
     mov [tcp_rx_payload_len], ax
     mov ax, ne_tx_frame
     add ax, bx

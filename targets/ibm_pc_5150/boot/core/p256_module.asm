@@ -3,7 +3,7 @@
 ; Assembled as its OWN flat binary at its run address (org p256_module_load) so the ~5 KiB of
 ; p256.inc -- which is full of absolute self-references (mov si, p256_s0; call p256_mul_mod; ...) --
 ; resolves correctly without the per-label PHASE_BASE fixup that small phases use. The .bin is then
-; incbin'd into CORE.SYS (core.asm) and loaded -- ONLY on the 286 secure path -- into the high
+; incbin'd into SEED.SYS (core.asm) and loaded -- ONLY on the 286 secure path -- into the high
 ; overlay band that aliases the 32K loop cache (lifetime-disjoint: this runs during the boot
 ; handshake; the loop cache is preloaded after it). The 16K / 8088 tier never loads it, so inactive
 ; it costs 0 resident RAM.

@@ -26,7 +26,7 @@ org 0x7c00
 jmp short start
 nop
 
-db 'COREBOOT'
+db 'SEEDBOOT'
 dw 512
 db 1
 dw 1 + LOADER_SECTORS

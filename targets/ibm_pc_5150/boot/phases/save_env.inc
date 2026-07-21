@@ -13,9 +13,9 @@
 ; Build 12 env save/load (design: docs/architecture.md, "Persistence"), SAVE part 2 of 2: WRITE. save_prep has
 ; already filled the scratch (region_len/region_stored, screen_stored, file_size, payload checksum,
 ; the per-row screen row-length table). This phase does the FAT12 write to the boot drive: locate
-; ENV.DAT (reuse) or a free root slot, free any old chain, find a contiguous free run, set the chain,
-; write both FAT copies, EMIT the trimmed payload sequentially into the data sectors, then the root
-; entry. Loads at net_setup_phase_start (0x0900) and USES fs_sector_buffer (0xD0E) -- hence the 2-sector
+; SEED/ENV.DAT (reuse) or a free SEED-dir slot, free any old chain, find a contiguous free run, set the chain,
+; write both FAT copies, EMIT the trimmed payload sequentially into the data sectors, then the SEED
+; directory entry. Loads at net_setup_phase_start (0x0900) and USES fs_sector_buffer (0xD0E) -- hence the 2-sector
 ; ceiling. Best-effort: read-only / no room / disk error -> a dim status line, never a crash.
 ;
 ; The payload is emitted byte-stream style (save_emit_byte buffers into fs_sector_buffer, flushing a
@@ -37,7 +37,8 @@ save_write_phase:
     shr ax, cl
     mov [save_needed], ax
 
-    call save_find_dir_slot              ; sets save_dir_lba/off; save_old_cluster (0 = new file)
+    cmp word [save_dir_lba], 0           ; save_prep found SEED/ENV.DAT or a free SEED-dir slot
+    je .err
 
     push ds
     pop es
@@ -66,7 +67,7 @@ save_write_phase:
     call save_emit_data                  ; stream header + region + encoded screen into the data sectors
     jc .err
 
-    call save_write_dir                  ; create/update the root entry
+    call save_write_dir                  ; create/update the SEED/ directory entry
     jc .err
 
     mov si, save_msg_saved
@@ -135,75 +136,6 @@ save_video_seg_es:
     mov ax, 0xb000
 .vs_ok:
     mov es, ax
-    ret
-
-; --- find the ENV.DAT root entry (reuse) or the first free slot. sets save_dir_lba/off + ---
-; --- save_old_cluster (its first cluster, or 0 for a new file). ---
-save_find_dir_slot:
-    mov word [save_old_cluster], 0
-    mov word [save_dir_lba], 0
-    mov word [fs_lba], fat_root_start_lba
-    mov word [fs_root_left], fat_root_sectors
-.fd_sector:
-    cmp word [fs_root_left], 0
-    je .fd_done
-    push ds
-    pop es
-    mov bx, fs_sector_buffer
-    mov ax, [fs_lba]
-    phase_call_res read_abs_sector
-    jc .fd_done
-    mov si, fs_sector_buffer
-    mov cx, fat_dir_entries_per_sector
-.fd_entry:
-    mov al, [si]
-    or al, al
-    je .fd_free
-    cmp al, 0xe5
-    je .fd_free
-    test byte [si + 11], 0x18
-    jnz .fd_advance
-    push si
-    push cx
-    mov di, PHASE_LOAD_ADDR + (save_env_name - PHASE_BASE)
-    mov cx, 11
-.fd_cmp:
-    mov al, [si]
-    cmp al, [di]
-    jne .fd_nomatch
-    inc si
-    inc di
-    loop .fd_cmp
-    pop cx
-    pop si
-    mov ax, [si + 26]
-    mov [save_old_cluster], ax
-    call save_record_slot
-    jmp .fd_done
-.fd_nomatch:
-    pop cx
-    pop si
-    jmp .fd_advance
-.fd_free:
-    cmp word [save_dir_lba], 0
-    jne .fd_advance
-    call save_record_slot
-    cmp byte [si], 0
-    je .fd_done
-.fd_advance:
-    add si, fat_dir_entry_size
-    loop .fd_entry
-    inc word [fs_lba]
-    dec word [fs_root_left]
-    jmp .fd_sector
-.fd_done:
-    ret
-save_record_slot:
-    mov ax, [fs_lba]
-    mov [save_dir_lba], ax
-    mov ax, si
-    sub ax, fs_sector_buffer
-    mov [save_dir_off], ax
     ret
 
 ; --- free the old ENV.DAT cluster chain in the FAT buffer (walk first..EOF, set each to 0) ---
@@ -490,7 +422,7 @@ save_emit_flush:
     clc
     ret
 
-; --- create/update the root entry at save_dir_lba:save_dir_off ---
+; --- create/update the SEED/ directory entry at save_dir_lba:save_dir_off ---
 save_write_dir:
     cmp word [save_dir_lba], 0
     je .wdir_fail

@@ -37,19 +37,26 @@ targets/ibm_pc_5150/boot/core/
 ```
 
 This is source organization only. The build emits one flat file-backed
-`CORE.SYS` runtime; do not introduce additional runtime module loading unless
-explicitly scoped.
+`SEED.SYS` runtime plus one-sector NIC driver files under `SEED/DRIVERS/`.
+Do not introduce other runtime module loading unless explicitly scoped.
 
 That image is a 160 KiB FAT12 floppy image with a stage 1 boot sector, a small
 reserved-sector FAT12 loader, FAT copies, a root directory, and file data. The
-loader reads the visible root `CORE.SYS` file through its FAT12 cluster chain
-and jumps to it at `0000:1000`. The tracked `AGENTS.CFG` file is shipped in the
-root directory when present and overrides the built-in `openai`, `anthropic`, and
-`google` agent interfaces. Optional `USER.CFG` user-local state is ignored
-and included only when `config/USER.CFG` exists. The build may also generate
+loader reads the visible root `SEED.SYS` file through its FAT12 cluster chain
+and jumps to it at `0000:1000`. Runtime configuration and prompt files are
+shipped under the root `SEED/` directory. The tracked `AGENTS.CFG` file is
+shipped as `SEED/AGENTS.CFG` when present and overrides the built-in `openai`,
+`anthropic`, and `google` agent interfaces. Optional `USER.CFG` user-local
+state is ignored and included as `SEED/USER.CFG` only when `config/USER.CFG`
+exists. NIC driver files are shipped as `SEED/DRIVERS/*.DRV` by default; build
+with `INCLUDE_NIC_DRIVERS=0` or per-driver `INCLUDE_NIC_DRIVER_*` switches to
+produce a floppy without some or all drivers. Runtime driver loading must scan
+the shipped `.DRV` files, select a suitable driver by metadata, ask if multiple
+drivers suit the detected adapter, and fail through the normal retry/restart
+path when no suitable driver is present. The build may also generate
 ROM BASIC bootstrap sidecar text under `build/ibm_pc_5150/` for sub-32 KiB
 entry. Do not package those BASIC helpers into the release floppy FAT root
-unless explicitly scoped; keep `CORE.SYS` as the first FAT data file so both
+unless explicitly scoped; keep `SEED.SYS` as the first FAT data file so both
 the boot loader and the BASIC loader can find the same runtime image.
 
 ## Constraints
@@ -57,9 +64,9 @@ the boot loader and the BASIC loader can find the same runtime image.
 - Keep the stage 1 boot sector within 512 bytes, including the `55 aa`
   signature.
 - Keep the reserved loader within `LOADER_SECTORS` in `Makefile`. The current
-  four-sector loader occupies sectors 2-5 and loads `CORE.SYS` as a normal
+  four-sector loader occupies sectors 2-5 and loads `SEED.SYS` as a normal
   FAT12 root file. Stage 1 loads the reserved loader one sector at a time with
-  CHS rollover. Keep loader buffers outside the `CORE.SYS` load range; the
+  CHS rollover. Keep loader buffers outside the `SEED.SYS` load range; the
   loader currently keeps its FAT buffer at `0x0e00` and uses a `0x8000` stack
   top for 32 KiB machines.
 - For sub-32 KiB work, keep the normal boot path available for larger
@@ -181,8 +188,8 @@ returned `ok` on all seven 16 KiB NIC profiles: `vm-net-3c501`,
 `vm-net-wd8003e`, and `vm-net-wd8003eb`; the no-card CGA and MDA profiles
 failed cleanly with no NIC.
 Retest individual profiles when changing TLS timing/shared packet code.
-The current runtime provides FAT12 `AGENTS.CFG` parsing, built-in
-fallback agent interfaces, optional `USER.CFG` persistence for selected
+The current runtime provides FAT12 `SEED/AGENTS.CFG` parsing, built-in
+fallback agent interfaces, optional `SEED/USER.CFG` persistence for selected
 agent/model/reasoning/key/endpoint values, with `server?` shown for LiteLLM's
 stored endpoint value on the same form panel as `key?`, selected-agent DNS/TCP
 443 connection, the full TLS 1.2 / application-data path (ClientHello through
@@ -198,13 +205,13 @@ boot, filesystem, agent-prep code, or shared packet code.
 ```text
 vm                   red "." no network card, retry/restart menu
 vm-mda               red "." no network card, retry/restart menu
-vm-net-3c501         auto family, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, encrypted client Finished, server Finished verification, application data, Default Prompt Interface chat loop (model greeting, prompt input, streamed multi-turn responses), then splash
-vm-net-3c503         MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, encrypted client Finished, server Finished verification, application data, Default Prompt Interface chat loop (model greeting, prompt input, streamed multi-turn responses), then splash
-vm-net-ne1k          auto family, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, encrypted client Finished, server Finished verification, application data, Default Prompt Interface chat loop (model greeting, prompt input, streamed multi-turn responses), then splash
-vm-net-ne2k8         auto family, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, encrypted client Finished, server Finished verification, application data, Default Prompt Interface chat loop (model greeting, prompt input, streamed multi-turn responses), then splash
-vm-net-novell-ne1k   auto family, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, encrypted client Finished, server Finished verification, application data, Default Prompt Interface chat loop (model greeting, prompt input, streamed multi-turn responses), then splash
-vm-net-wd8003e       auto family, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, encrypted client Finished, server Finished verification, application data, Default Prompt Interface chat loop (model greeting, prompt input, streamed multi-turn responses), then splash
-vm-net-wd8003eb      auto family, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, encrypted client Finished, server Finished verification, application data, Default Prompt Interface chat loop (model greeting, prompt input, streamed multi-turn responses), then splash
+vm-net-3c501         auto family, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, encrypted client Finished, server Finished verification, application data, Default Prompt Interface chat loop below the existing splash (model greeting, prompt input, streamed multi-turn responses)
+vm-net-3c503         MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, encrypted client Finished, server Finished verification, application data, Default Prompt Interface chat loop below the existing splash (model greeting, prompt input, streamed multi-turn responses)
+vm-net-ne1k          auto family, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, encrypted client Finished, server Finished verification, application data, Default Prompt Interface chat loop below the existing splash (model greeting, prompt input, streamed multi-turn responses)
+vm-net-ne2k8         auto family, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, encrypted client Finished, server Finished verification, application data, Default Prompt Interface chat loop below the existing splash (model greeting, prompt input, streamed multi-turn responses)
+vm-net-novell-ne1k   auto family, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, encrypted client Finished, server Finished verification, application data, Default Prompt Interface chat loop below the existing splash (model greeting, prompt input, streamed multi-turn responses)
+vm-net-wd8003e       auto family, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, encrypted client Finished, server Finished verification, application data, Default Prompt Interface chat loop below the existing splash (model greeting, prompt input, streamed multi-turn responses)
+vm-net-wd8003eb      auto family, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, encrypted client Finished, server Finished verification, application data, Default Prompt Interface chat loop below the existing splash (model greeting, prompt input, streamed multi-turn responses)
 ```
 
 ## Commits
@@ -215,7 +222,7 @@ wait for the maintainer's go. Unprompted commits, however clean, are the failure
 exists to prevent.
 
 A commit must be a **working checkpoint** — never a broken or mid-refactor state. Working means the
-build is green (`make` succeeds, fresh `CORE.SYS`) **and** the change is validated for what it
+build is green (`make` succeeds, fresh `SEED.SYS`) **and** the change is validated for what it
 touches: the relevant target boots and greets, or its offline gate passes (a crypto eval,
 `tools/check-layout.py`, the X.509 tamper matrix). If you cannot show it works, it is not a
 checkpoint — keep iterating or stash, but do not commit it.

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Ground-truth 4.77 MHz timing for the crypto micro-benchmark via 86Box.
 
-Assembles bench.asm into a CORE.SYS, wraps it in the real boot.bin/loader.bin
+Assembles bench.asm into a SEED.SYS, wraps it in the real boot.bin/loader.bin
 FAT12 chain, boots it on an isolated 86Box profile (8088 @ 4.772728 MHz, no
 dynarec, CGA, COM1 passthrough), and reads the per-op result lines off COM1:
 
@@ -79,7 +79,7 @@ def build_image(core_bin: Path) -> None:
         "python3", str(ROOT / "tools" / "build-fat12-image.py"), "build",
         "--boot", str(BOOT_BIN), "--loader", str(LOADER_BIN),
         "--loader-sectors", "4", "--output", str(IMAGE),
-        "--file", f"{core_bin}:CORE.SYS",
+        "--file", f"{core_bin}:SEED.SYS",
     ], check=True, capture_output=True, text=True)
 
 

@@ -20,11 +20,14 @@ save_user_cfg_phase:
     ret
 
 .find_existing_user_cfg:
-    mov word [fs_lba], fat_root_start_lba
-    mov word [fs_root_left], fat_root_sectors
-.next_sector:
-    cmp word [fs_root_left], 0
-    je .find_failed
+    call .find_seed_dir
+    jc .find_failed
+    mov ax, [fs_file_cluster]
+    cmp ax, fat_first_data_cluster
+    jb .find_failed
+    sub ax, fat_first_data_cluster
+    add ax, fat_data_start_lba
+    mov [fs_lba], ax
     push ds
     pop es
     mov bx, fs_sector_buffer
@@ -69,12 +72,58 @@ save_user_cfg_phase:
 .advance:
     add si, fat_dir_entry_size
     loop .next_entry
-    inc word [fs_lba]
-    dec word [fs_root_left]
-    jmp .next_sector
 .find_failed:
     stc
     ret
+
+.find_seed_dir:
+    mov word [fs_lba], fat_root_start_lba
+    mov word [fs_root_left], fat_root_sectors
+.seed_sector:
+    cmp word [fs_root_left], 0
+    je .find_failed
+    push ds
+    pop es
+    mov bx, fs_sector_buffer
+    mov ax, [fs_lba]
+    phase_call_res read_abs_sector
+    jc .find_failed
+    mov si, fs_sector_buffer
+    mov cx, fat_dir_entries_per_sector
+.seed_entry:
+    mov al, [si]
+    or al, al
+    jz .find_failed
+    cmp al, 0xe5
+    je .seed_advance
+    test byte [si + 11], 0x10
+    jz .seed_advance
+    push si
+    push cx
+    mov di, low_scratch_start + (save_user_cfg_seed_name - PHASE_BASE)
+    mov cx, 11
+.seed_cmp:
+    mov al, [si]
+    cmp al, [di]
+    jne .seed_mismatch
+    inc si
+    inc di
+    loop .seed_cmp
+    pop cx
+    pop si
+    mov ax, [si + 26]
+    mov [fs_file_cluster], ax
+    clc
+    ret
+.seed_mismatch:
+    pop cx
+    pop si
+.seed_advance:
+    add si, fat_dir_entry_size
+    loop .seed_entry
+    inc word [fs_lba]
+    dec word [fs_root_left]
+    jmp .seed_sector
 
 .build_user_cfg_buffer:
     call .clear_fs_sector_buffer
@@ -178,12 +227,14 @@ save_user_cfg_phase:
 .write_abs_sector:
     push ax
     push cx
-    mov cl, 8
-    div cl
+    div byte [fs_sectors_per_track]
     mov ch, al
     mov cl, ah
     inc cl
-    xor dh, dh
+    mov ah, 0
+    div byte [fs_heads]
+    mov ch, al
+    mov dh, ah
     mov dl, [handoff_addr + handoff_boot_drive]
     mov ax, 0x0301
     int 0x13
@@ -192,6 +243,7 @@ save_user_cfg_phase:
     ret
 
 save_user_cfg_name db 'USER    CFG'
+save_user_cfg_seed_name db 'SEED       '
 agent_prefix_text db 'agent ', 0
 model_prefix_text db 'model ', 0
 reasoning_prefix_text db 'reasoning ', 0

@@ -27,13 +27,8 @@ hardware_setup_phase:
     call probe_network_card
     jc .failed
     call resolve_network_config
-    ; Build 12 M2b: populate the NIC vtable (driver load) BEFORE read_network_address. read_network_address
-    ; writes the MAC PROM into ne_prom, which physically overlaps this phase's own image; anything that runs
-    ; AFTER that write and happens to land at the ne_prom offset gets clobbered -> cold-boot freeze (the same
-    ; size-fragile hazard stage_ka_template is ordered around). populate only needs the NIC family (already
-    ; resolved), not the MAC, so running it first leaves read_network_address as the LAST step -- only its
-    ; own high-offset helpers execute after the clobber, and they sit past the ne_prom window.
-    call populate_nic_vtable
+    ; read_network_address writes the MAC PROM into ne_prom, which physically overlaps this phase's own
+    ; image. Keep it as the last hardware-setup step; the following driver load happens in a fresh phase.
     call read_network_address
     clc
     ret
@@ -451,48 +446,6 @@ store_auto_network_config:
     or word [handoff_addr + handoff_flags], handoff_flag_config_resolved
     mov cx, load_ticks
     phase_call_res wait_ticks
-    ret
-
-; Build 12 NIC HAL: fill the dispatch-vector for the detected NIC family, once at boot (the family is
-; final after resolve_network_config / the adapter-select menu). Default = the NE-family / no-op ops;
-; 3c501 (el1) is a full driver override (its own transmit, receive, and second-frame fallback);
-; wd8003 overrides only the DP8390-window enter/restore. This is the ONE remaining per-family `cmp`
-; for the hot path -- it runs once, off the hot path, and every resident TX/RX/packet-path call then
-; dispatches through the slots with no family branch. Each store writes a resident routine's address
-; (absolute) into a resident slot (absolute), so it runs correctly from this phase at low_scratch_start.
-; Build 12 NIC HAL: load the detected family's driver module into the active-driver slot, then copy
-; its 10-byte header (the 5 nic_vt_* entries) into the resident vtable. Runs once at boot, after
-; detection and BEFORE the network bring-up (the crypto race is much later), so the floppy read is in
-; a permitted window. Only this family's driver becomes resident in the slot; every other family's
-; driver stays on the floppy — 0 resident RAM for inactive cards. The driver's TX/RX/enter/restore/
-; rx_fallback entry points live in the slot; the resident hot path's `call [nic_vt_*]` dispatches into
-; them unchanged. (ne1000/ne2000/Novell-NE all share the ne driver; the page constants differ and are
-; set by packet_io_init, not the driver.)
-populate_nic_vtable:
-    mov al, [handoff_addr + handoff_nic_family]
-    cmp al, family_3c501
-    je .el1
-    cmp al, family_wd8003
-    je .wd
-    cmp al, family_3c503
-    je .c503
-    mov ax, (((core_ne_driver_end - core_ne_driver_start + 511) / 512) << 8) | ((core_ne_driver_start - $$) / 512)
-    jmp .load
-.el1:
-    mov ax, (((core_el1_3c501_driver_end - core_el1_3c501_driver_start + 511) / 512) << 8) | ((core_el1_3c501_driver_start - $$) / 512)
-    jmp .load
-.wd:
-    mov ax, (((core_wd8003_driver_end - core_wd8003_driver_start + 511) / 512) << 8) | ((core_wd8003_driver_start - $$) / 512)
-    jmp .load
-.c503:
-    mov ax, (((core_el2_3c503_driver_end - core_el2_3c503_driver_start + 511) / 512) << 8) | ((core_el2_3c503_driver_start - $$) / 512)
-.load:
-    mov bx, nic_driver_slot
-    phase_call_res load_core_sectors_at
-    mov si, nic_driver_slot
-    mov di, nic_vtable
-    mov cx, nic_vt_slot_count
-    rep movsw
     ret
 
 autodetect_io_280:

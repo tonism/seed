@@ -4,19 +4,21 @@ Status: latest tagged release is Build 11 (release hardening: draining-FIFO tran
 reconnect, real LLM compaction, ESC-to-interrupt, tool-directive rendering), `build-11`. Build 12 —
 the capability-tiered memory-layout redesign, native Responses tool calling, environment save/load,
 the full memory-scaling ladder through 386 unreal mode, and the 286 secure tier (real ECDHE +
-pinned-key RSA cert auth, with silent re-pinning on leaf rotation) — is built and validated on
-`work/scaling`, not yet tagged. See the build sections for shipped features and "Forward-looking
-ideas" for the backlog.
+pinned-key RSA cert auth, with silent re-pinning on leaf rotation) — is patched and validated on
+`work/compaction-fix`, not yet tagged. Build 13 starts by renaming the runtime to `SEED.SYS`,
+moving NIC drivers to external files under `SEED/DRIVERS/`, and making driver
+packaging optional. See the build sections for shipped
+features and "Forward-looking ideas" for the backlog.
 
-Seed's loading marker has four semantic states plus the final splash:
+Seed's loading marker has four semantic states plus the boot splash:
 
 ```text
-none         boot sector, loader, CORE.SYS load
-"." dark     hardware then internet: CORE.SYS entry, display baseline, hardware detection, adapter init, handoff, then IP configuration, DNS, and reachability proof
+none         boot sector, loader, SEED.SYS load
+"." dark     hardware then internet: SEED.SYS entry, display baseline, hardware detection, adapter init, handoff, then IP configuration, DNS, and reachability proof
 "o" dark     TLS handshake: selected endpoint setup and the TLS 1.2 handshake
 "o" normal   local crypto: TLS key schedule and key-material derivation
 "o" bright   agent/environment: API validation, model/session, and environment handoff
-splash       ready handoff animation; no loading work happens here
+splash       boot banner after display/CPU-class setup; no driver or network validation happens here
 ```
 
 `retry` returns to the dark `"."` hardware phase; it does not reread floppy sectors or rerun the
@@ -37,10 +39,13 @@ build 8   Default Prompt Interface chat loop
 build 9   minimal context management for agentic continuity
 build 10  minimal tool calling through controlled RAM access
 build 11  release hardening: FIFO budget, robust reconnect, real compaction, ESC, tool-directive rendering
-build 12  capability-tiered layout (one CORE.SYS, NIC HAL, 32K cached chat loop, 2-image),
+build 12  capability-tiered layout (one runtime file, NIC HAL, 32K cached chat loop, 2-image),
           native Responses tools, env save/load, 8088 far + EMS + 286 HMA/native extended +
           386 unreal memory scaling, and the 286 secure tier (real ECDHE + pinned RSA cert auth,
           auto-recertify)
+build 13  SEED.SYS runtime rename, SEED/ directory layout, optional external
+          SEED/DRIVERS/*.DRV NIC files with metadata-based selection, splash before
+          driver loading
 ```
 
 Builds 1–4 are the boot-presentation and hardware-setup milestones listed above; the substantive
@@ -57,7 +62,7 @@ families: 3c501, 3c503, NE1000/NE2000, Novell NE1000, WD8003.
 ## Build 6 — TLS handshake + minimal provider API
 
 Connects to a selected provider and completes a minimal request/response (the `"o"` phases). From
-the FAT12 floppy + CORE.SYS: agent config (AGENTS.CFG, built-in openai/anthropic/google, USER.CFG
+the FAT12 floppy + runtime file: agent config (AGENTS.CFG, built-in openai/anthropic/google, USER.CFG
 for secrets), DNS + TCP 443, a hand-rolled TLS 1.2 ClientHello (P-256 ECDHE / ChaCha20-Poly1305),
 the full handshake through ServerHelloDone, 8086 P-256 field/point/scalar primitives (OpenSSL-cross-
 checked), a SHA-256 transcript + TLS-PRF key schedule, ChaCha20-Poly1305 records, and a minimal
@@ -70,9 +75,9 @@ rotation); the stock-8088 floor stays this way.
 
 ## Build 7 — 16 KiB entry contract
 
-The same floppy supports two entry modes: ≥32 KiB BIOS-boots CORE.SYS directly; below 32 KiB the
-user types a generated ROM BASIC sidecar helper that loads the same CORE.SYS. One image, one visible
-`CORE.SYS`, one code path after entry. Implemented as a windowed nucleus — a tiny resident control
+The same floppy supports two entry modes: >=32 KiB BIOS-boots the runtime directly; below 32 KiB the
+user types a generated ROM BASIC sidecar helper that loads the same runtime. One image, one visible
+runtime file, one code path after entry. Implemented as a windowed nucleus — a tiny resident control
 plane plus reloadable cold/post-answer windows, with one no-floppy provider-critical window held
 from TLS start to the answer. Validated: all seven 16 KiB BASIC-sidecar NIC profiles returned `ok`;
 no-card CGA/MDA profiles fail cleanly. (Literal 24 KiB 86Box 5150 profiles stop in POST before ROM
@@ -141,8 +146,8 @@ record in `notes/old/build11-hardening-attempts.md`.
 
 ## Build 12 — scaling + capability tiers
 
-Build 12 is the current untagged `work/scaling` build. It turns Seed from a
-fixed 16 KiB survival exercise into one `CORE.SYS` that scales by detected
+Build 12 is the current untagged `work/compaction-fix` build. It turns Seed from a
+fixed 16 KiB survival exercise into one runtime file that scales by detected
 capability while keeping the 16 KiB ROM BASIC sidecar and 32 KiB direct boot
 green.
 
@@ -171,14 +176,31 @@ and working logs in `notes/old/build12-layout-redesign-attempts.md`,
 `notes/old/build12-memory-scaling-attempts.md`, and
 `notes/old/auto-recertify-attempts.md`.
 
-## Build 13 — future
+## Build 13 — runtime/drivers split
 
 ```text
-TLS 1.3 - a cleaner handshake (not a memory play; record-size caps are ignored on 1.2/1.3). Research-stage.
-64-bit host memory - long mode (one CORE.SYS, early-CPUID pivot) reaching terabytes; a native-driver
-  runtime because long mode loses BIOS. Build 13 is intentionally limited to TLS 1.3 plus this
-  64-bit/no-BIOS runtime; 286/HMA and 386 unreal stay in Build 12.
+SEED.SYS          visible root runtime file
+SEED/             runtime-owned directory for shipped config, prompts, and optional local state
+SEED/DRIVERS/     optional external one-sector NIC driver files scanned at boot
+driver ABI        vtable header, SDRV metadata, family mask, and shared helper addresses
+driver selection  one suitable driver autoloads; multiple suitables ask; none fails cleanly
+build switches    INCLUDE_NIC_DRIVERS=0 omits all drivers; INCLUDE_NIC_DRIVER_NE,
+                  INCLUDE_NIC_DRIVER_WD8003, INCLUDE_NIC_DRIVER_3C503, and
+                  INCLUDE_NIC_DRIVER_3C501 omit individual files
+FAT12 builder     nested 8.3 directory support for the scoped runtime layout
+splash order      draw the CPU-class splash before driver loading/failure handling
+3c501 receive     keep the single-buffer sample below the response phase, preserve ES,
+                  and ignore truncated TCP payloads instead of ACKing partial data
 ```
+
+This is the first Build 13 checkpoint. `SEED.SYS` remains the first FAT data file
+so the reserved loader and ROM BASIC sidecar still share the same runtime image.
+Driver additions or driver fixes can now replace `.DRV` files without replacing
+the monolithic runtime when the resident driver ABI is unchanged. A floppy can
+also intentionally ship without drivers; a NIC-present boot then reaches the
+same hardware phase and reports `driver setup failed` with retry/restart. New
+hardware detection, new shared helpers, or ABI changes still require a matching
+`SEED.SYS` update.
 
 ## Forward-looking ideas
 
@@ -203,6 +225,8 @@ receive-side loss tolerance - wait longer for server retransmits under heavy dow
   against slower failure on a genuinely dead link.
 render-rate optimization - improve very long replies without weakening ACK/render pacing.
 ECDSA contingency - scoped but unbuilt; only needed if the RSA leaf disappears from the 286 profile.
+TLS 1.3 - a cleaner handshake; research-stage.
+64-bit host memory - long mode / no-BIOS path reaching beyond 386-era memory tiers.
 ```
 
 Rich UI on top of DPI remains out of scope for the boot runtime. DPI is the
@@ -220,7 +244,8 @@ memory/tool gates match the advertised tier caps
 supported NIC matrix is documented or explicitly scoped
 security limits are stated honestly
 one write-protected 160 KiB FAT12 floppy image remains the recovery boundary
-one visible CORE.SYS remains the runtime artifact
+one visible SEED.SYS remains the root runtime artifact
+external NIC driver files remain under SEED/DRIVERS/
 ```
 
 Build 8-10 release-floor criteria remain the baseline for the public chat/tool
