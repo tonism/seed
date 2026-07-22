@@ -6,7 +6,7 @@ VM_PROFILE=${1:-vm}
 VM_PATH="$ROOT/targets/ibm_pc_5150/86box/$VM_PROFILE"
 IMAGE="$ROOT/build/ibm_pc_5150/floppy-160k.img"
 case "$VM_PROFILE" in
-    vm-net-286|vm-net-386|vm-net-ne2k|vm-net-novell-ne2k|vm-net-wd8013ebt|vm-net-ne2kpnp|vm-net-de220p|vm-net-pcnetisa|vm-net-pcnetracal|vm-net-pcnetisaplus)
+    vm-net-286|vm-net-386|vm-net-ne2k|vm-net-novell-ne2k|vm-net-wd8013ebt|vm-net-ne2kpnp|vm-net-de220p|vm-net-pcnetisa|vm-net-pcnetracal|vm-net-pcnetisaplus|vm-net-ne2kpci)
         IMAGE="$ROOT/build/ibm_pc_5150/floppy-360k.img"
         ;;
 esac

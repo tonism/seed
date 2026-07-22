@@ -923,9 +923,9 @@ def vm_machine_name(config: Path) -> str | None:
 
 
 def at_cmos(mem_kib: int, machine: str) -> bytes | None:
-    if machine not in {"ami286", "adi386sx"}:
+    if machine not in {"ami286", "adi386sx", "win486pci"}:
         return None
-    c = bytearray(128)
+    c = bytearray(256 if machine == "win486pci" else 128)
     c[0x0A] = 0x26
     c[0x0B] = 0x02
     c[0x0D] = 0x80
@@ -955,7 +955,7 @@ def at_cmos(mem_kib: int, machine: str) -> bytes | None:
 def at_min_ram_kib(machine: str) -> int | None:
     if machine == "ami286":
         return 512
-    if machine == "adi386sx":
+    if machine in {"adi386sx", "win486pci"}:
         return 640
     return None
 

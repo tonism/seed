@@ -129,6 +129,9 @@ tracked combinatorially.
   and `vm-net-pcnetisaplus` use the 386SX direct-boot shape with the 360K image.
   `vm-net-pcnetisaplus` first exercises ISA PnP activation, then uses
   `PCNET.DRV`.
+- **PCI NE/DP8390 cards**: `vm-net-ne2kpci` uses a PCI-capable 486 direct-boot
+  shape with the 360K image. It first exercises PCI BIOS discovery for the
+  RTL8029AS I/O BAR, then reuses `NE.DRV`.
 
 The harness handles 86Box's first-run "moved or copied" network-identity dialog
 itself during tests; no manual button press should be needed.
@@ -161,6 +164,10 @@ Additional AT/386 NIC coverage profiles:
 `vm-net-ne2k`, `vm-net-novell-ne2k`, `vm-net-ne2kpnp`, `vm-net-de220p`,
 `vm-net-wd8013ebt`, `vm-net-pcnetisa`, `vm-net-pcnetracal`, and
 `vm-net-pcnetisaplus`.
+
+Additional PCI coverage profiles:
+
+`vm-net-ne2kpci`.
 
 `vm` and `vm-mda` have no card (expect a clean red `.` failure). Retest
 individual profiles when changing TLS timing or shared packet/NIC code.

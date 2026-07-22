@@ -21,6 +21,8 @@ hardware_setup_phase:
     ; NE PROM bytes in hardware_ne_prom instead of ne_prom so the MAC read no
     ; longer overwrites the currently loaded phase.
     call hardware_setup_stage_ka_template
+    call detect_pci_nic_card
+    jnc .card_ready
     call probe_network_card
     jnc .card_ready
     call activate_pnp_nic_card
@@ -405,6 +407,17 @@ resolve_network_config:
     call autodetect_ne
     jnc store_auto_network_config
 .resolved:
+    ret
+
+detect_pci_nic_card:
+    test word [handoff_addr + handoff_flags], handoff_flag_cpu_386plus
+    jz .failed
+    mov ax, (((core_pci_detect_phase_end - core_pci_detect_phase_start + 511) / 512) << 8) | ((core_pci_detect_phase_start - $$) / 512)
+    mov bx, high_crypto_scratch_start
+    phase_call_res run_core_phase_at
+    ret
+.failed:
+    stc
     ret
 
 store_auto_network_config:

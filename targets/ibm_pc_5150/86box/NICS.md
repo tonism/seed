@@ -96,7 +96,7 @@ pcnetisaplus     AMD PCnet-ISA+                covered by vm-net-pcnetisaplus
 These should be tested on later x86 targets with PCI/modern buses:
 
 ```text
-ne2kpci              Realtek RTL8029AS
+ne2kpci              Realtek RTL8029AS             covered by vm-net-ne2kpci
 pcnetpci             AMD PCnet-PCI II
 pcnetfast            AMD PCnet-FAST III
 pcnetfast_onboard    AMD PCnet-FAST III on-board
@@ -151,7 +151,10 @@ On 21 July 2026, the Build 13 PCnet/LANCE expansion reached the Default Prompt
 Interface and returned `kiwi` on `vm-net-pcnetisa`, `vm-net-pcnetracal`, and
 `vm-net-pcnetisaplus`. The same checkpoint revalidated `vm-net-ne2kpnp` and
 the original-speed 16 KiB `vm-net-ne2k8` path after moving the NE PROM read
-buffer out of the hardware-setup phase image.
+buffer out of the hardware-setup phase image. The Build 13 PCI discovery
+checkpoint also reached the Default Prompt Interface and returned `kiwi` on
+`vm-net-ne2kpci`, with `vm-net-ne2kpnp` revalidated afterward to prove fallback
+from PCI discovery to ISA PnP stayed green.
 
 Also on 30 April 2026, the fixed shipped agent hosts were checked against
 Seed's single current TLS path: TLS 1.2, P-256,
@@ -168,6 +171,7 @@ vm-net-3c503         3Com EtherLink II; expected: MAC read, DHCPDISCOVER/OFFER, 
 vm-net-ne1k          NE1000-compatible; expected: auto family, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, encrypted client Finished, server Finished verification, OpenAI Responses request/response, returned ok below the existing splash
 vm-net-ne2k8         8-bit NE2000-compatible; expected: auto family, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, encrypted client Finished, server Finished verification, OpenAI Responses request/response, returned ok below the existing splash
 vm-net-ne2k          16-bit NE2000-compatible on 386SX; expected: auto family through NE.DRV, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ok
+vm-net-ne2kpci       Realtek RTL8029AS PCI on 486; expected: PCI BIOS discovery, auto family through NE.DRV, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ok
 vm-net-ne2kpnp       Realtek RTL8019AS ISA PnP on 386SX; expected: ISA PnP activation, auto family through NE.DRV, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ok
 vm-net-novell-ne1k   Novell NE1000; expected: auto family, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, encrypted client Finished, server Finished verification, OpenAI Responses request/response, returned ok below the existing splash
 vm-net-novell-ne2k   Novell NE2000 on 386SX; expected: auto family through NE.DRV, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ok

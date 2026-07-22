@@ -122,6 +122,20 @@ core_hardware_setup_phase_end:
 
 align 512, db 0
 
+core_pci_detect_phase_start:
+%define PHASE_BASE core_pci_detect_phase_start
+%define PHASE_LOAD_ADDR high_crypto_scratch_start
+%include "phases/pci_detect.inc"
+%undef PHASE_LOAD_ADDR
+%undef PHASE_BASE
+core_pci_detect_phase_end:
+
+%if (core_pci_detect_phase_end - core_pci_detect_phase_start) > 512
+%error "PCI detect phase exceeds one sector"
+%endif
+
+times 512 - (core_pci_detect_phase_end - core_pci_detect_phase_start) db 0
+
 core_pnp_activate_phase_start:
 %define PHASE_BASE core_pnp_activate_phase_start
 %define PHASE_LOAD_ADDR high_crypto_scratch_start

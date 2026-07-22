@@ -313,6 +313,12 @@ family_3c501 equ 4
 family_wd8003 equ 5
 family_wd8013 equ 6
 family_pcnet equ 7
+pci_bios_install equ 0xb101
+pci_bios_find_device equ 0xb102
+pci_bios_read_config_word equ 0xb109
+pci_config_bar0 equ 0x10
+pci_realtek_vendor equ 0x10ec
+pci_rtl8029_device equ 0x8029
 el1_dataptr equ 0x08
 el1_rx_cmd equ 0x06
 el1_tx_cmd equ 0x07

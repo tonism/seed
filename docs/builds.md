@@ -195,6 +195,7 @@ leaf DER          ship SEED/LEAF.DER as the fast-path leaf file; verify it again
                   WR1 before pre-socket adoption, refresh it after verified re-pin
 NE.DRV            shared NE/DP8390 driver validated on 16-bit NE2000 and Novell NE2000
 NE PnP            RTL8019AS and DE-220P ISA PnP activation, then shared NE.DRV
+NE PCI            RTL8029AS PCI BIOS discovery, then shared NE.DRV
 WD80X3.DRV        shared WD80x3 driver covers WD8003E/EB and WD8013EBT
 PCNET.DRV         shared PCnet/LANCE driver covers AMD PCnet-ISA, Racal
                   EtherBlaster, and AMD PCnet-ISA+; ISA+ uses ISA PnP first
