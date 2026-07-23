@@ -12,9 +12,8 @@ tcp_receive_payload:
     call [nic_vt_rx_fallback]
     jnc .done
 .wait:
-    mov cx, 0x0800
-.delay:
-    loop .delay
+    mov cx, 1
+    call wait_ticks
     dec word [dhcp_wait_count]
     jnz .poll
 .failed:

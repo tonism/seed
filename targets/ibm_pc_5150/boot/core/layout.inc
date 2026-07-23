@@ -496,7 +496,9 @@ tcp_port_http_word equ 0x5000
 tcp_port_https_word equ 0xbb01
 tcp_wait_count equ 4
 tcp_wait_count_3c501 equ 128
-tcp_payload_wait_count equ 8192
+; Payload waits are BIOS-tick based, not CPU-spin based, so fast 486/Pentium
+; profiles get the same server-response window as slow XT/AT profiles.
+tcp_payload_wait_count equ 512
 ; Build 11 slice 2 (SYN retransmit): how many times the connect (re)sends the SYN, waiting
 ; tcp_wait_count for a SYN-ACK each time, before giving up. A lost SYN or SYN-ACK is then a fast
 ; in-place resend (the server dedups the duplicate SYN) instead of failing the whole connect. 3

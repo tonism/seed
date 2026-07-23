@@ -798,7 +798,13 @@ def rewrite_vm_config(
     wrote_fdd2_fn = False
     wrote_fdd2_type = False
     wrote_video_filter = False
-    direct_fdd_type = "525_2hd" if floppy.stat().st_size > 184320 else "525_1dd"
+    floppy_size = floppy.stat().st_size
+    if floppy_size == 1474560:
+        direct_fdd_type = "35_2hd"
+    elif floppy_size > 184320:
+        direct_fdd_type = "525_2hd"
+    else:
+        direct_fdd_type = "525_1dd"
 
     def flush_general_tail():
         # All VM profiles render with nearest-neighbour scaling (crisp CGA pixels). Forced here so it

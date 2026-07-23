@@ -221,6 +221,7 @@ vm-net-pcnetfast     PCI BIOS discovery, auto family through PCNET.DRV, MAC read
 vm-net-pcnetisa      auto family through PCNET.DRV, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, Default Prompt Interface chat loop below the existing splash (model greeting, prompt input, streamed response)
 vm-net-pcnetracal    auto family through PCNET.DRV, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, Default Prompt Interface chat loop below the existing splash (model greeting, prompt input, streamed response)
 vm-net-pcnetisaplus  ISA PnP activation, auto family through PCNET.DRV, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, Default Prompt Interface chat loop below the existing splash (model greeting, prompt input, streamed response)
+vm-net-pcnetfast-onboard Gateway/Tomahawk onboard PCnet-FAST III through PCNET.DRV, 1.44M floppy image, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, Default Prompt Interface chat loop below the existing splash (model greeting, prompt input, streamed response)
 ```
 
 ## Commits

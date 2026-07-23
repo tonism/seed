@@ -9,6 +9,9 @@ case "$VM_PROFILE" in
     vm-net-286|vm-net-386|vm-net-ne2k|vm-net-novell-ne2k|vm-net-wd8013ebt|vm-net-ne2kpnp|vm-net-de220p|vm-net-pcnetisa|vm-net-pcnetracal|vm-net-pcnetisaplus|vm-net-ne2kpci|vm-net-pcnetpci|vm-net-pcnetfast)
         IMAGE="$ROOT/build/ibm_pc_5150/floppy-360k.img"
         ;;
+    vm-net-pcnetfast-onboard)
+        IMAGE="$ROOT/build/ibm_pc_5150/floppy-1440k.img"
+        ;;
 esac
 
 if command -v 86Box >/dev/null 2>&1; then

@@ -54,8 +54,11 @@ BASIC_BOOT_B_BIN := $(BUILD_DIR)/seed24b-loader.bin
 BASIC_BOOT_B_BAS := $(BUILD_DIR)/SEED24B.BAS
 FLOPPY_IMG := $(BUILD_DIR)/floppy-160k.img
 FLOPPY_IMG_360K := $(BUILD_DIR)/floppy-360k.img
+FLOPPY_IMG_1440K := $(BUILD_DIR)/floppy-1440k.img
 BOOT_360K_BIN := $(BUILD_DIR)/boot-360k.bin
 LOADER_360K_BIN := $(BUILD_DIR)/loader-360k.bin
+BOOT_1440K_BIN := $(BUILD_DIR)/boot-1440k.bin
+LOADER_1440K_BIN := $(BUILD_DIR)/loader-1440k.bin
 IMAGE_BUILDER := tools/build-fat12-image.py
 BASIC_BOOT_BUILDER := tools/build-basic-bootstrap.py
 SEED_SYS_INFO := tools/core-sys-info.py
@@ -90,6 +93,8 @@ NASM_FLAGS := -DLOADER_SECTORS=$(LOADER_SECTORS) -Itargets/$(TARGET)/boot/ -I$(B
 # LBA 11); only the physical geometry the AT requires differs. The .asm geometry
 # defines default to 160K, so the 160K artifacts stay byte-identical.
 NASM_FLAGS_360K := $(NASM_FLAGS) -DFLOPPY_TOTAL_SECTORS=720 -DFLOPPY_SPT=9 -DFLOPPY_HEADS=2 -DFLOPPY_MEDIA=0xfd
+# 1.44 MiB 3.5" geometry for later BIOSes that refuse the 5.25" images.
+NASM_FLAGS_1440K := $(NASM_FLAGS) -DFLOPPY_TOTAL_SECTORS=2880 -DFLOPPY_SPT=18 -DFLOPPY_HEADS=2 -DFLOPPY_MEDIA=0xf0
 FAT_FILES := --file $(SEED_SYS):SEED.SYS --file $(LEAF_DER):SEED/LEAF.DER
 
 ifneq ($(AGENT_CFG),)
@@ -128,7 +133,7 @@ endif
 
 .PHONY: all clean inspect basic-bootstrap memory-map test FORCE
 
-all: $(FLOPPY_IMG) $(FLOPPY_IMG_360K)
+all: $(FLOPPY_IMG) $(FLOPPY_IMG_360K) $(FLOPPY_IMG_1440K)
 
 FORCE:
 
@@ -234,6 +239,12 @@ $(BOOT_360K_BIN): $(BOOT_SRC) | $(BUILD_DIR)
 $(LOADER_360K_BIN): $(LOADER_SRC) | $(BUILD_DIR)
 	nasm $(NASM_FLAGS_360K) -f bin -o $@ $<
 
+$(BOOT_1440K_BIN): $(BOOT_SRC) | $(BUILD_DIR)
+	nasm $(NASM_FLAGS_1440K) -f bin -o $@ $<
+
+$(LOADER_1440K_BIN): $(LOADER_SRC) | $(BUILD_DIR)
+	nasm $(NASM_FLAGS_1440K) -f bin -o $@ $<
+
 $(FLOPPY_IMG_360K): FORCE $(BOOT_360K_BIN) $(LOADER_360K_BIN) $(SEED_SYS) $(FAT_DRIVER_DEPS) $(AGENT_CFG) $(USER_CFG) $(LEAF_DER) $(IDENTITY_PROMPT) $(COMPACT_PROMPT) $(TOOLS_SCHEMA) $(IMAGE_BUILDER) | $(BUILD_DIR)
 	@LC_ALL=C grep -l '["\\]' $(IDENTITY_PROMPT) $(COMPACT_PROMPT) >/dev/null 2>&1 \
 		&& { echo "error: a streamed prompt contains a \" or \\ (breaks JSON / Content-Length)"; exit 1; } || true
@@ -251,6 +262,26 @@ $(FLOPPY_IMG_360K): FORCE $(BOOT_360K_BIN) $(LOADER_360K_BIN) $(SEED_SYS) $(FAT_
 		--loader-sectors $(LOADER_SECTORS) \
 		--total-sectors 720 \
 		--media 0xFD \
+		--output $@ \
+		$(FAT_FILES)
+
+$(FLOPPY_IMG_1440K): FORCE $(BOOT_1440K_BIN) $(LOADER_1440K_BIN) $(SEED_SYS) $(FAT_DRIVER_DEPS) $(AGENT_CFG) $(USER_CFG) $(LEAF_DER) $(IDENTITY_PROMPT) $(COMPACT_PROMPT) $(TOOLS_SCHEMA) $(IMAGE_BUILDER) | $(BUILD_DIR)
+	@LC_ALL=C grep -l '["\\]' $(IDENTITY_PROMPT) $(COMPACT_PROMPT) >/dev/null 2>&1 \
+		&& { echo "error: a streamed prompt contains a \" or \\ (breaks JSON / Content-Length)"; exit 1; } || true
+	@test $$(wc -c < $(IDENTITY_PROMPT)) -le 512 \
+		|| { echo "error: $(IDENTITY_PROMPT) > 512 B (must fit one sector, streamed as <=440 B records)"; exit 1; }
+	@test $$(wc -c < $(COMPACT_PROMPT)) -le 512 \
+		|| { echo "error: $(COMPACT_PROMPT) > 512 B (contract staging reads one sector into tls_rx_copy)"; exit 1; }
+	@test $$(wc -c < $(TOOLS_SCHEMA)) -le 384 \
+		|| { echo "error: $(TOOLS_SCHEMA) > 384 B (tools-cache tail stores native tool replay history)"; exit 1; }
+	@test $$(wc -c < $(LEAF_DER)) -le $(LEAF_DER_MAX) \
+		|| { echo "error: $(LEAF_DER) > $(LEAF_DER_MAX) B (must fit the 286 leaf capture/cache buffer)"; exit 1; }
+	python3 $(IMAGE_BUILDER) build \
+		--boot $(BOOT_1440K_BIN) \
+		--loader $(LOADER_1440K_BIN) \
+		--loader-sectors $(LOADER_SECTORS) \
+		--total-sectors 2880 \
+		--media 0xF0 \
 		--output $@ \
 		$(FAT_FILES)
 
