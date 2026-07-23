@@ -47,6 +47,8 @@ targets/ibm_pc_5150/86box/vm-net-pcnetisa/86box.cfg   386SX, AMD PCnet-ISA
 targets/ibm_pc_5150/86box/vm-net-pcnetracal/86box.cfg 386SX, Racal EtherBlaster
 targets/ibm_pc_5150/86box/vm-net-pcnetisaplus/86box.cfg 386SX, AMD PCnet-ISA+ ISA PnP
 targets/ibm_pc_5150/86box/vm-net-ne2kpci/86box.cfg    486 PCI, Realtek RTL8029AS
+targets/ibm_pc_5150/86box/vm-net-pcnetpci/86box.cfg   486 PCI, AMD PCnet-PCI II
+targets/ibm_pc_5150/86box/vm-net-pcnetfast/86box.cfg  486 PCI, AMD PCnet-FAST III
 ```
 
 `vm-net-286` uses the AMI 286 AT-compatible BIOS shape with 2048 KiB RAM and an
@@ -57,10 +59,12 @@ the same 386SX machine shape. `vm-net-ne2kpnp` and `vm-net-de220p` cover ISA
 PnP activation for NE-compatible cards before the same `NE.DRV` path.
 `vm-net-wd8013ebt` covers the 16-bit Western Digital shared-memory path on that
 same shape. `vm-net-pcnetisa`, `vm-net-pcnetracal`, and
-`vm-net-pcnetisaplus` cover the PCnet/LANCE path through `PCNET.DRV`, with
+`vm-net-pcnetisaplus` cover the ISA PCnet/LANCE path through `PCNET.DRV`, with
 `vm-net-pcnetisaplus` also exercising ISA PnP activation. `vm-net-ne2kpci`
 covers PCI BIOS discovery for a Realtek RTL8029AS before the same `NE.DRV`
-path. AT-class and PCI profiles use the 360K floppy image;
+path. `vm-net-pcnetpci` and `vm-net-pcnetfast` cover PCI BIOS discovery for AMD
+PCnet/LANCE add-in cards before the same `PCNET.DRV` path. AT-class and PCI
+profiles use the 360K floppy image;
 `tools/run-86box.sh vm-net-286`, `tools/run-86box.sh vm-net-386`, and the
 card-specific 386/486 profiles select it automatically.
 

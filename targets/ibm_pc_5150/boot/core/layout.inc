@@ -317,6 +317,8 @@ pci_bios_install equ 0xb101
 pci_bios_find_device equ 0xb102
 pci_bios_read_config_word equ 0xb109
 pci_config_bar0 equ 0x10
+pci_amd_vendor equ 0x1022
+pci_pcnet_device equ 0x2000
 pci_realtek_vendor equ 0x10ec
 pci_rtl8029_device equ 0x8029
 el1_dataptr equ 0x08

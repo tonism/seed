@@ -132,6 +132,9 @@ tracked combinatorially.
 - **PCI NE/DP8390 cards**: `vm-net-ne2kpci` uses a PCI-capable 486 direct-boot
   shape with the 360K image. It first exercises PCI BIOS discovery for the
   RTL8029AS I/O BAR, then reuses `NE.DRV`.
+- **PCI PCnet/LANCE cards**: `vm-net-pcnetpci` and `vm-net-pcnetfast` use the
+  same PCI-capable 486 direct-boot shape with the 360K image. PCI BIOS
+  discovery resolves the AMD PCnet I/O BAR, then reuses `PCNET.DRV`.
 
 The harness handles 86Box's first-run "moved or copied" network-identity dialog
 itself during tests; no manual button press should be needed.
@@ -167,7 +170,7 @@ Additional AT/386 NIC coverage profiles:
 
 Additional PCI coverage profiles:
 
-`vm-net-ne2kpci`.
+`vm-net-ne2kpci`, `vm-net-pcnetpci`, and `vm-net-pcnetfast`.
 
 `vm` and `vm-mda` have no card (expect a clean red `.` failure). Retest
 individual profiles when changing TLS timing or shared packet/NIC code.

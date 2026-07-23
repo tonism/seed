@@ -199,6 +199,8 @@ NE PCI            RTL8029AS PCI BIOS discovery, then shared NE.DRV
 WD80X3.DRV        shared WD80x3 driver covers WD8003E/EB and WD8013EBT
 PCNET.DRV         shared PCnet/LANCE driver covers AMD PCnet-ISA, Racal
                   EtherBlaster, and AMD PCnet-ISA+; ISA+ uses ISA PnP first
+PCNET PCI         AMD PCnet-PCI II and PCnet-FAST III PCI BIOS discovery, then
+                  shared PCNET.DRV
 3c501 receive     keep the single-buffer sample below the response phase, preserve ES,
                   and ignore truncated TCP payloads instead of ACKing partial data
 ```

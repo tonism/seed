@@ -97,9 +97,9 @@ These should be tested on later x86 targets with PCI/modern buses:
 
 ```text
 ne2kpci              Realtek RTL8029AS             covered by vm-net-ne2kpci
-pcnetpci             AMD PCnet-PCI II
-pcnetfast            AMD PCnet-FAST III
-pcnetfast_onboard    AMD PCnet-FAST III on-board
+pcnetpci             AMD PCnet-PCI II              covered by vm-net-pcnetpci
+pcnetfast            AMD PCnet-FAST III            covered by vm-net-pcnetfast
+pcnetfast_onboard    AMD PCnet-FAST III on-board   needs a machine-integrated profile
 dec_21040_tulip      DEC DE-435 EtherWorks Turbo
 dec_21140_tulip      DEC 21140 Fast Ethernet
 dec_21143_tulip      DEC DE-500A Fast Ethernet
@@ -156,6 +156,15 @@ checkpoint also reached the Default Prompt Interface and returned `kiwi` on
 `vm-net-ne2kpci`, with `vm-net-ne2kpnp` revalidated afterward to prove fallback
 from PCI discovery to ISA PnP stayed green.
 
+On 23 July 2026, the PCI PCnet/LANCE add-in expansion reached the Default
+Prompt Interface and returned `kiwi` on `vm-net-pcnetpci` and
+`vm-net-pcnetfast`. The same checkpoint revalidated `vm-net-ne2kpci` to prove
+the Realtek PCI path still wins when present, and `vm-net-pcnetisa` to prove
+PCI discovery still falls through cleanly to ISA PCnet discovery. The
+`pcnetfast_onboard` device remains unrepresented by these add-in profiles; 86Box
+exposes it as a machine-integrated NIC and it needs a separate machine-profile
+checkpoint.
+
 Also on 30 April 2026, the fixed shipped agent hosts were checked against
 Seed's single current TLS path: TLS 1.2, P-256,
 ECDHE-ECDSA-CHACHA20-POLY1305 without extended master secret. `api.openai.com`,
@@ -173,6 +182,8 @@ vm-net-ne2k8         8-bit NE2000-compatible; expected: auto family, MAC read, R
 vm-net-ne2k          16-bit NE2000-compatible on 386SX; expected: auto family through NE.DRV, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ok
 vm-net-ne2kpci       Realtek RTL8029AS PCI on 486; expected: PCI BIOS discovery, auto family through NE.DRV, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ok
 vm-net-ne2kpnp       Realtek RTL8019AS ISA PnP on 386SX; expected: ISA PnP activation, auto family through NE.DRV, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ok
+vm-net-pcnetpci      AMD PCnet-PCI II on 486; expected: PCI BIOS discovery, auto family through PCNET.DRV, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ok
+vm-net-pcnetfast     AMD PCnet-FAST III on 486; expected: PCI BIOS discovery, auto family through PCNET.DRV, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ok
 vm-net-novell-ne1k   Novell NE1000; expected: auto family, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, encrypted client Finished, server Finished verification, OpenAI Responses request/response, returned ok below the existing splash
 vm-net-novell-ne2k   Novell NE2000 on 386SX; expected: auto family through NE.DRV, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ok
 vm-net-de220p        D-Link DE-220P ISA PnP on 386SX; expected: ISA PnP activation, auto family through NE.DRV, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ok
