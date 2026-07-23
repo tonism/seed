@@ -78,8 +78,8 @@ driver ABI is unchanged.
 The build includes all current NIC drivers by default, but `INCLUDE_NIC_DRIVERS=0`
 or per-driver `INCLUDE_NIC_DRIVER_NE`, `INCLUDE_NIC_DRIVER_WD80X3`,
 `INCLUDE_NIC_DRIVER_3C503`, `INCLUDE_NIC_DRIVER_3C501`, and
-`INCLUDE_NIC_DRIVER_PCNET` switches can intentionally produce a floppy without
-some or all drivers.
+`INCLUDE_NIC_DRIVER_PCNET`, and `INCLUDE_NIC_DRIVER_TULIP` switches can
+intentionally produce a floppy without some or all drivers.
 
 The reserved loader keeps its FAT buffer below the `SEED.SYS` load address and
 uses a `0x8000` stack top for 32 KiB machines so core builds can be read

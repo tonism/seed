@@ -26,6 +26,24 @@ pci_detect_phase:
     mov cx, pci_pcnet_device
     mov dx, pci_amd_vendor
     call .try_io_bar0_device
+    jnc .done
+
+    mov ax, (0x80 << 8) | family_tulip
+    mov cx, pci_dec_21040_device
+    mov dx, pci_dec_vendor
+    call .try_io_bar0_device
+    jnc .done
+
+    mov ax, (0x80 << 8) | family_tulip
+    mov cx, pci_dec_21140_device
+    mov dx, pci_dec_vendor
+    call .try_io_bar0_device
+    jnc .done
+
+    mov ax, (0x80 << 8) | family_tulip
+    mov cx, pci_dec_21143_device
+    mov dx, pci_dec_vendor
+    call .try_io_bar0_device
     jc .failed
 
 .done:

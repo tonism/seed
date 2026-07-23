@@ -457,6 +457,8 @@ autodetect_ne:
 
 read_network_address:
     mov al, [handoff_addr + handoff_nic_family]
+    cmp al, family_tulip
+    je read_tulip_mac
     cmp al, family_3c501
     je read_3c501_mac
     cmp al, family_3c503
@@ -629,6 +631,11 @@ read_pcnet_mac_raw:
     stosb
     inc dx
     loop .read
+    ret
+
+read_tulip_mac:
+    and word [handoff_addr + handoff_flags], 0xfff7
+    call clear_handoff_mac
     ret
 
 read_ne_prom_mac:

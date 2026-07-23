@@ -100,7 +100,8 @@ never by source port.
   that image should fail as `driver setup failed` and offer retry/restart.
   Individual-image trims use `INCLUDE_NIC_DRIVER_NE`,
   `INCLUDE_NIC_DRIVER_WD80X3`, `INCLUDE_NIC_DRIVER_3C503`,
-  `INCLUDE_NIC_DRIVER_3C501`, and `INCLUDE_NIC_DRIVER_PCNET`.
+  `INCLUDE_NIC_DRIVER_3C501`, `INCLUDE_NIC_DRIVER_PCNET`, and
+  `INCLUDE_NIC_DRIVER_TULIP`.
 
 ## Representative Profiles
 

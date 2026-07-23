@@ -100,10 +100,10 @@ ne2kpci              Realtek RTL8029AS             covered by vm-net-ne2kpci
 pcnetpci             AMD PCnet-PCI II              covered by vm-net-pcnetpci
 pcnetfast            AMD PCnet-FAST III            covered by vm-net-pcnetfast
 pcnetfast_onboard    AMD PCnet-FAST III on-board   covered by vm-net-pcnetfast-onboard
-dec_21040_tulip      DEC DE-435 EtherWorks Turbo
-dec_21140_tulip      DEC 21140 Fast Ethernet
-dec_21143_tulip      DEC DE-500A Fast Ethernet
-dec_21140_tulip_vpc  Microsoft Virtual PC Network
+dec_21040_tulip      DEC DE-435 EtherWorks Turbo   covered by vm-net-dec21040
+dec_21140_tulip      DEC 21140 Fast Ethernet       covered by vm-net-dec21140
+dec_21143_tulip      DEC DE-500A Fast Ethernet     covered by vm-net-dec21143
+dec_21140_tulip_vpc  Microsoft Virtual PC Network  covered by vm-net-dec21140vpc
 rtl8139c+            Realtek RTL8139C+
 ```
 
@@ -166,6 +166,13 @@ the Default Prompt Interface and returned `ok` through the same `PCNET.DRV`
 path after the TCP application-payload wait moved from CPU-spin timing to BIOS
 ticks.
 
+The same day, one `TULIP.DRV` bus-master driver covered the DEC 21040, DEC
+21140, Microsoft Virtual PC 21140, and DEC 21143 Tulip profiles
+(`vm-net-dec21040`, `vm-net-dec21140`, `vm-net-dec21140vpc`, and
+`vm-net-dec21143`). Each reached the Default Prompt Interface and returned
+`ready`. Seed reads the 21040 direct ROM MAC through CSR9 byte reads and the
+21140/21143 SROM MAC through CSR9 93C46 serial EEPROM reads.
+
 Also on 30 April 2026, the fixed shipped agent hosts were checked against
 Seed's single current TLS path: TLS 1.2, P-256,
 ECDHE-ECDSA-CHACHA20-POLY1305 without extended master secret. `api.openai.com`,
@@ -186,6 +193,10 @@ vm-net-ne2kpnp       Realtek RTL8019AS ISA PnP on 386SX; expected: ISA PnP activ
 vm-net-pcnetpci      AMD PCnet-PCI II on 486; expected: PCI BIOS discovery, auto family through PCNET.DRV, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ok
 vm-net-pcnetfast     AMD PCnet-FAST III on 486; expected: PCI BIOS discovery, auto family through PCNET.DRV, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ok
 vm-net-pcnetfast-onboard Gateway E-1000/Tomahawk onboard AMD PCnet-FAST III on Pentium; expected: PCI BIOS discovery, auto family through PCNET.DRV, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ok
+vm-net-dec21040      DEC 21040 Tulip on 486; expected: PCI BIOS discovery, auto family through TULIP.DRV, ROM MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ready
+vm-net-dec21140      DEC 21140 Tulip on 486; expected: PCI BIOS discovery, auto family through TULIP.DRV, SROM MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ready
+vm-net-dec21140vpc   Microsoft Virtual PC DEC 21140 on 486; expected: PCI BIOS discovery, auto family through TULIP.DRV, SROM MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ready
+vm-net-dec21143      DEC 21143 Tulip on 486; expected: PCI BIOS discovery, auto family through TULIP.DRV, SROM MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ready
 vm-net-novell-ne1k   Novell NE1000; expected: auto family, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, encrypted client Finished, server Finished verification, OpenAI Responses request/response, returned ok below the existing splash
 vm-net-novell-ne2k   Novell NE2000 on 386SX; expected: auto family through NE.DRV, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ok
 vm-net-de220p        D-Link DE-220P ISA PnP on 386SX; expected: ISA PnP activation, auto family through NE.DRV, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ok

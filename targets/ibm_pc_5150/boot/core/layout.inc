@@ -306,6 +306,7 @@ seed_value_total_len equ agent_id_len + seed_model_len + seed_key_len + seed_end
 config_auto equ 1
 config_user equ 2
 profile_irq equ 3
+family_tulip equ 0
 family_3c503 equ 1
 family_ne2000 equ 2
 family_ne1000 equ 3
@@ -317,6 +318,10 @@ pci_bios_install equ 0xb101
 pci_bios_find_device equ 0xb102
 pci_bios_read_config_word equ 0xb109
 pci_config_bar0 equ 0x10
+pci_dec_vendor equ 0x1011
+pci_dec_21040_device equ 0x0002
+pci_dec_21140_device equ 0x0009
+pci_dec_21143_device equ 0x0019
 pci_amd_vendor equ 0x1022
 pci_pcnet_device equ 0x2000
 pci_realtek_vendor equ 0x10ec
@@ -411,6 +416,19 @@ pcnet_tx_buf equ pcnet_rx_buf + pcnet_rx_buf_len
 pcnet_dma_end equ pcnet_tx_buf + net_frame_buffer_len
 %if pcnet_dma_end > 0x10000
 %error "PCnet DMA workspace must stay below the 64KB real-mode segment ceiling"
+%endif
+; DEC Tulip PCI bus-master buffers. Tulip is PCI-only and therefore valid only
+; on 386+ later-machine profiles; keep the DMA area under 64 KiB so 16-bit
+; register writes can program the low physical address with an implicit zero
+; high word in 86Box.
+tulip_dma_base equ pcnet_dma_base
+tulip_rx_desc equ tulip_dma_base
+tulip_tx_desc equ tulip_dma_base + 0x10
+tulip_rx_buf equ tulip_dma_base + 0x100
+tulip_tx_buf equ tulip_rx_buf + pcnet_rx_buf_len
+tulip_dma_end equ tulip_tx_buf + net_frame_buffer_len
+%if tulip_dma_end > 0x10000
+%error "Tulip DMA workspace must stay below the 64KB real-mode segment ceiling"
 %endif
 dhcp_rx_frame_len equ 384
 ne_rcr_broadcast equ 0x04

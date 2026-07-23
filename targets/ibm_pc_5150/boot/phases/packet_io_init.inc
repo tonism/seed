@@ -13,7 +13,10 @@ packet_io_init_phase:
     pop es
     call packet_io_init_phase_enable_wd_ram
     cmp byte [handoff_addr + handoff_nic_family], family_pcnet
+    je .driver_init_only
+    cmp byte [handoff_addr + handoff_nic_family], family_tulip
     jne .init_resident_family
+.driver_init_only:
     call [nic_vt_enter]
     jc .done
     jmp .init_done

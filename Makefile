@@ -42,7 +42,9 @@ NIC_DRIVER_WD80X3 := $(DRIVER_BUILD_DIR)/WD80X3.DRV
 NIC_DRIVER_3C503 := $(DRIVER_BUILD_DIR)/3C503.DRV
 NIC_DRIVER_3C501 := $(DRIVER_BUILD_DIR)/3C501.DRV
 NIC_DRIVER_PCNET := $(DRIVER_BUILD_DIR)/PCNET.DRV
-NIC_DRIVERS := $(NIC_DRIVER_NE) $(NIC_DRIVER_WD80X3) $(NIC_DRIVER_3C503) $(NIC_DRIVER_3C501) $(NIC_DRIVER_PCNET)
+NIC_DRIVER_TULIP := $(DRIVER_BUILD_DIR)/TULIP.DRV
+NIC_DRIVERS := $(NIC_DRIVER_NE) $(NIC_DRIVER_WD80X3) $(NIC_DRIVER_3C503) $(NIC_DRIVER_3C501) $(NIC_DRIVER_PCNET) $(NIC_DRIVER_TULIP)
+NIC_DRIVER_TULIP_MASK := 0x01
 NIC_DRIVER_NE_MASK := 0x0c
 NIC_DRIVER_WD80X3_MASK := 0x60
 NIC_DRIVER_3C503_MASK := 0x02
@@ -74,6 +76,7 @@ INCLUDE_NIC_DRIVER_WD80X3 ?= $(INCLUDE_NIC_DRIVERS)
 INCLUDE_NIC_DRIVER_3C503 ?= $(INCLUDE_NIC_DRIVERS)
 INCLUDE_NIC_DRIVER_3C501 ?= $(INCLUDE_NIC_DRIVERS)
 INCLUDE_NIC_DRIVER_PCNET ?= $(INCLUDE_NIC_DRIVERS)
+INCLUDE_NIC_DRIVER_TULIP ?= $(INCLUDE_NIC_DRIVERS)
 # Build 11 #4 real compaction: the static system prompts (identity + the compaction contract) live on
 # the floppy and are STREAMED into the request mid-chat (frees ~600-800 phase bytes + lifts the
 # in-phase prompt-length cap). Portable/hardware-agnostic content -> a top-level prompts/ dir, not the
@@ -130,6 +133,10 @@ ifeq ($(INCLUDE_NIC_DRIVER_PCNET),1)
 FAT_FILES += --file $(NIC_DRIVER_PCNET):SEED/DRIVERS/PCNET.DRV
 FAT_DRIVER_DEPS += $(NIC_DRIVER_PCNET)
 endif
+ifeq ($(INCLUDE_NIC_DRIVER_TULIP),1)
+FAT_FILES += --file $(NIC_DRIVER_TULIP):SEED/DRIVERS/TULIP.DRV
+FAT_DRIVER_DEPS += $(NIC_DRIVER_TULIP)
+endif
 
 .PHONY: all clean inspect basic-bootstrap memory-map test FORCE
 
@@ -174,6 +181,9 @@ $(NIC_DRIVER_3C501): targets/$(TARGET)/boot/drivers/el1_3c501.inc $(SEED_SYS) $(
 
 $(NIC_DRIVER_PCNET): targets/$(TARGET)/boot/drivers/pcnet.inc $(SEED_SYS) $(SEED_SYS_LST) $(NIC_DRIVER_BUILDER) $(CORE_INCLUDES) | $(DRIVER_BUILD_DIR)
 	python3 $(NIC_DRIVER_BUILDER) --source $< --output $@ --listing $(SEED_SYS_LST) --build-dir $(DRIVER_BUILD_DIR) --family-mask $(NIC_DRIVER_PCNET_MASK)
+
+$(NIC_DRIVER_TULIP): targets/$(TARGET)/boot/drivers/tulip.inc $(SEED_SYS) $(SEED_SYS_LST) $(NIC_DRIVER_BUILDER) $(CORE_INCLUDES) | $(DRIVER_BUILD_DIR)
+	python3 $(NIC_DRIVER_BUILDER) --source $< --output $@ --listing $(SEED_SYS_LST) --build-dir $(DRIVER_BUILD_DIR) --family-mask $(NIC_DRIVER_TULIP_MASK)
 
 $(BASIC_BOOT_A_BIN): $(BASIC_BOOT_SRC) $(SEED_SYS) Makefile | $(BUILD_DIR)
 	core_sectors=$$(python3 $(SEED_SYS_INFO) --field resident-sectors $(SEED_SYS)); \
