@@ -187,8 +187,8 @@ driver selection  one suitable driver autoloads; multiple suitables ask; none fa
 build switches    INCLUDE_NIC_DRIVERS=0 omits all drivers; INCLUDE_NIC_DRIVER_NE,
                   INCLUDE_NIC_DRIVER_WD80X3, INCLUDE_NIC_DRIVER_3C503,
                   INCLUDE_NIC_DRIVER_3C501, INCLUDE_NIC_DRIVER_PCNET,
-                  INCLUDE_NIC_DRIVER_TULIP, and INCLUDE_NIC_DRIVER_RTL8139
-                  omit individual files
+                  INCLUDE_NIC_DRIVER_TULIP, INCLUDE_NIC_DRIVER_RTL8139, and
+                  INCLUDE_NIC_DRIVER_EPIC100 omit individual files
 FAT12 builder     nested 8.3 directory support for the scoped runtime layout
 splash order      draw the CPU-class splash before driver loading/failure handling
 floppy policy     startup reads only; user save/config writes only when requested
@@ -207,6 +207,8 @@ PCNET VLB         AMD PCnet-32 fixed-base VLB discovery, then shared PCNET.DRV
                   on the CS4031 VLB profile with checked-in AMI setup NVR
 PCNET PCI         AMD PCnet-PCI II and PCnet-FAST III PCI BIOS discovery, then
                   shared PCNET.DRV
+EPIC100.DRV       SMC EtherPower II EPIC/100 PCI BIOS discovery, then direct
+                  bus-master descriptor TX/RX
 3c501 receive     keep the single-buffer sample below the response phase, preserve ES,
                   and ignore truncated TCP payloads instead of ACKing partial data
 ```

@@ -101,7 +101,8 @@ never by source port.
   Individual-image trims use `INCLUDE_NIC_DRIVER_NE`,
   `INCLUDE_NIC_DRIVER_WD80X3`, `INCLUDE_NIC_DRIVER_3C503`,
   `INCLUDE_NIC_DRIVER_3C501`, `INCLUDE_NIC_DRIVER_PCNET`, and
-  `INCLUDE_NIC_DRIVER_TULIP`, and `INCLUDE_NIC_DRIVER_RTL8139`.
+  `INCLUDE_NIC_DRIVER_TULIP`, `INCLUDE_NIC_DRIVER_RTL8139`, and
+  `INCLUDE_NIC_DRIVER_EPIC100`.
 
 ## Representative Profiles
 
@@ -136,6 +137,12 @@ tracked combinatorially.
 - **PCI PCnet/LANCE cards**: `vm-net-pcnetpci` and `vm-net-pcnetfast` use the
   same PCI-capable 486 direct-boot shape with the 360K image. PCI BIOS
   discovery resolves the AMD PCnet I/O BAR, then reuses `PCNET.DRV`.
+- **PCI Tulip cards**: `vm-net-dec21040`, `vm-net-dec21140`,
+  `vm-net-dec21140vpc`, and `vm-net-dec21143` use the same PCI-capable 486
+  direct-boot shape with the 360K image and the shared `TULIP.DRV` path.
+- **Other PCI bus-master cards**: `vm-net-rtl8139` and `vm-net-epic100` use
+  the same PCI-capable 486 direct-boot shape with the 360K image and dedicated
+  `RTL8139.DRV` / `EPIC100.DRV` paths.
 - **VLB PCnet/LANCE cards**: `vm-net-pcnetvlb` uses the CS4031 VLB direct-boot
   shape with the 360K image. Fixed-base I/O discovery finds the AMD PCnet-32,
   then reuses `PCNET.DRV`. The profile includes checked-in AMI setup NVR so
@@ -180,7 +187,9 @@ Additional AT/386 NIC coverage profiles:
 
 Additional PCI coverage profiles:
 
-`vm-net-ne2kpci`, `vm-net-pcnetpci`, and `vm-net-pcnetfast`.
+`vm-net-ne2kpci`, `vm-net-pcnetpci`, `vm-net-pcnetfast`,
+`vm-net-dec21040`, `vm-net-dec21140`, `vm-net-dec21140vpc`,
+`vm-net-dec21143`, `vm-net-rtl8139`, and `vm-net-epic100`.
 
 Additional VLB coverage profiles:
 

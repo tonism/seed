@@ -316,6 +316,7 @@ family_wd8003 equ 5
 family_wd8013 equ 6
 family_pcnet equ 7
 family_rtl8139 equ 8
+family_epic100 equ 9
 pci_bios_install equ 0xb101
 pci_bios_find_device equ 0xb102
 pci_bios_read_config_word equ 0xb109
@@ -329,6 +330,8 @@ pci_pcnet_device equ 0x2000
 pci_realtek_vendor equ 0x10ec
 pci_rtl8029_device equ 0x8029
 pci_rtl8139_device equ 0x8139
+pci_smc_vendor equ 0x10b8
+pci_epic100_device equ 0x0005
 el1_dataptr equ 0x08
 el1_rx_cmd equ 0x06
 el1_tx_cmd equ 0x07
@@ -444,6 +447,17 @@ rtl8139_tx_buf equ rtl8139_rx_buf + rtl8139_rx_ring_len
 rtl8139_dma_end equ rtl8139_tx_buf + net_frame_buffer_len
 %if rtl8139_dma_end > 0x10000
 %error "RTL8139 DMA workspace must stay below the 64KB real-mode segment ceiling"
+%endif
+; SMC EPIC/100 PCI bus-master buffers. The descriptor model is close to
+; Tulip's direct-buffer mode, so it reuses the same below-64K DMA band.
+epic100_dma_base equ pcnet_dma_base
+epic100_rx_desc equ epic100_dma_base
+epic100_tx_desc equ epic100_dma_base + 0x10
+epic100_rx_buf equ epic100_dma_base + 0x100
+epic100_tx_buf equ epic100_rx_buf + pcnet_rx_buf_len
+epic100_dma_end equ epic100_tx_buf + net_frame_buffer_len
+%if epic100_dma_end > 0x10000
+%error "EPIC/100 DMA workspace must stay below the 64KB real-mode segment ceiling"
 %endif
 dhcp_rx_frame_len equ 384
 ne_rcr_broadcast equ 0x04

@@ -118,6 +118,7 @@ dec_21140_tulip      DEC 21140 Fast Ethernet       covered by vm-net-dec21140
 dec_21143_tulip      DEC DE-500A Fast Ethernet     covered by vm-net-dec21143
 dec_21140_tulip_vpc  Microsoft Virtual PC Network  covered by vm-net-dec21140vpc
 rtl8139c+            Realtek RTL8139C+             covered by vm-net-rtl8139
+smc_epic100          SMC EtherPower II 9432        covered by vm-net-epic100
 ```
 
 ## Current 5150 Test Profiles
@@ -194,6 +195,11 @@ The same day, one `TULIP.DRV` bus-master driver covered the DEC 21040, DEC
 The Realtek RTL8139C+ profile (`vm-net-rtl8139`) uses `RTL8139.DRV`, which
 drives the card through the legacy 8139 RX ring and TX slot registers.
 
+The SMC EtherPower II EPIC/100 profile (`vm-net-epic100`) uses
+`EPIC100.DRV`, which drives the card through its direct bus-master descriptor
+format. On 24 July 2026 it reached the Default Prompt Interface and returned
+`ok`.
+
 On 24 July 2026, MCA detection/configuration was validated on the PS/2 Model
 55SX 1.44M profiles. `vm-net-wd8003eta`, `vm-net-wd8003ea`, and
 `vm-net-wd8013epa` reached the Default Prompt Interface and returned `ready`
@@ -226,6 +232,7 @@ vm-net-dec21140      DEC 21140 Tulip on 486; expected: PCI BIOS discovery, auto 
 vm-net-dec21140vpc   Microsoft Virtual PC DEC 21140 on 486; expected: PCI BIOS discovery, auto family through TULIP.DRV, SROM MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ready
 vm-net-dec21143      DEC 21143 Tulip on 486; expected: PCI BIOS discovery, auto family through TULIP.DRV, SROM MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ready
 vm-net-rtl8139       Realtek RTL8139C+ on 486; expected: PCI BIOS discovery, auto family through RTL8139.DRV, MAC register read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ready
+vm-net-epic100       SMC EtherPower II EPIC/100 on 486; expected: PCI BIOS discovery, auto family through EPIC100.DRV, MAC register read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ok
 vm-net-ethernextmc   NetWorth EtherNext/MC on PS/2 Model 55SX; expected: MCA POS discovery, auto family through NE.DRV, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ok/A:ok
 vm-net-wd8003eta     Western Digital WD8003ET/A on PS/2 Model 55SX; expected: MCA POS discovery, DC000 shared RAM through WD80X3.DRV, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ready
 vm-net-wd8003ea      Western Digital WD8003E/A on PS/2 Model 55SX; expected: MCA POS discovery, DC000 shared RAM through WD80X3.DRV, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ready

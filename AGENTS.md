@@ -227,6 +227,7 @@ vm-net-dec21140      PCI BIOS discovery, auto family through TULIP.DRV, SROM MAC
 vm-net-dec21140vpc   PCI BIOS discovery, auto family through TULIP.DRV, SROM MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, Default Prompt Interface chat loop below the existing splash (model greeting, prompt input, streamed response)
 vm-net-dec21143      PCI BIOS discovery, auto family through TULIP.DRV, SROM MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, Default Prompt Interface chat loop below the existing splash (model greeting, prompt input, streamed response)
 vm-net-rtl8139       PCI BIOS discovery, auto family through RTL8139.DRV, MAC register read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, Default Prompt Interface chat loop below the existing splash (model greeting, prompt input, streamed response)
+vm-net-epic100       PCI BIOS discovery, auto family through EPIC100.DRV, MAC register read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, Default Prompt Interface chat loop below the existing splash (model greeting, prompt input, streamed response)
 ```
 
 ## Commits

@@ -56,6 +56,7 @@ targets/ibm_pc_5150/86box/vm-net-dec21140/86box.cfg   486 PCI, DEC 21140 Tulip
 targets/ibm_pc_5150/86box/vm-net-dec21140vpc/86box.cfg 486 PCI, Microsoft Virtual PC DEC 21140
 targets/ibm_pc_5150/86box/vm-net-dec21143/86box.cfg   486 PCI, DEC 21143 Tulip
 targets/ibm_pc_5150/86box/vm-net-rtl8139/86box.cfg    486 PCI, Realtek RTL8139C+
+targets/ibm_pc_5150/86box/vm-net-epic100/86box.cfg    486 PCI, SMC EtherPower II EPIC/100
 targets/ibm_pc_5150/86box/vm-net-ethernextmc/86box.cfg PS/2 Model 55SX MCA, NetWorth EtherNext/MC
 targets/ibm_pc_5150/86box/vm-net-wd8003eta/86box.cfg  PS/2 Model 55SX MCA, Western Digital WD8003ET/A
 targets/ibm_pc_5150/86box/vm-net-wd8003ea/86box.cfg   PS/2 Model 55SX MCA, Western Digital WD8003E/A
@@ -82,6 +83,8 @@ PCnet-FAST III through the same `PCNET.DRV` path. `vm-net-dec21040`,
 `vm-net-dec21140`, `vm-net-dec21140vpc`, and `vm-net-dec21143` cover the DEC
 Tulip PCI bus-master path through `TULIP.DRV`. `vm-net-rtl8139` covers the
 Realtek RTL8139C+ PCI legacy RX-ring/TX-slot path through `RTL8139.DRV`.
+`vm-net-epic100` covers the SMC EtherPower II EPIC/100 PCI direct-descriptor
+path through `EPIC100.DRV`.
 `vm-net-ethernextmc` covers MCA NE/DP8390 through `NE.DRV`.
 `vm-net-wd8003eta`, `vm-net-wd8003ea`, and `vm-net-wd8013epa` cover MCA
 Western Digital shared-memory cards through `WD80X3.DRV`; those profiles use
