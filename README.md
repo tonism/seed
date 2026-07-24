@@ -237,8 +237,9 @@ emulator gotchas.
 The build includes the current NIC driver files by default. To produce a boot
 floppy without them, use `make INCLUDE_NIC_DRIVERS=0`; per-driver
 `INCLUDE_NIC_DRIVER_NE`, `INCLUDE_NIC_DRIVER_WD80X3`,
-`INCLUDE_NIC_DRIVER_3C503`, and `INCLUDE_NIC_DRIVER_3C501` switches can trim
-individual files.
+`INCLUDE_NIC_DRIVER_3C503`, `INCLUDE_NIC_DRIVER_3C501`,
+`INCLUDE_NIC_DRIVER_PCNET`, `INCLUDE_NIC_DRIVER_TULIP`, and
+`INCLUDE_NIC_DRIVER_RTL8139` switches can trim individual files.
 
 ## Repository Map
 

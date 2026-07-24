@@ -23,6 +23,8 @@ hardware_setup_phase:
     call hardware_setup_stage_ka_template
     call detect_pci_nic_card
     jnc .card_ready
+    call detect_mca_nic_card
+    jnc .card_ready
     call probe_network_card
     jnc .card_ready
     call activate_pnp_nic_card
@@ -420,6 +422,17 @@ detect_pci_nic_card:
     stc
     ret
 
+detect_mca_nic_card:
+    test word [handoff_addr + handoff_flags], handoff_flag_cpu_286plus
+    jz .failed
+    mov ax, (((core_mca_detect_phase_end - core_mca_detect_phase_start + 511) / 512) << 8) | ((core_mca_detect_phase_start - $$) / 512)
+    mov bx, high_crypto_scratch_start
+    phase_call_res run_core_phase_at
+    ret
+.failed:
+    stc
+    ret
+
 store_auto_network_config:
     mov [handoff_addr + handoff_nic_family], al
     mov byte [handoff_addr + handoff_config_source], config_auto
@@ -571,11 +584,16 @@ detect_wd_family:
     mov dx, [handoff_addr + handoff_nic_base]
     add dx, wd_saprom + 6
     in al, dx
-    and al, 0xff ^ wd_id_extra_ram
+    and al, 0xff ^ (wd_id_extra_ram | wd_id_bus_mca)
     cmp al, wd_type_wd8013ebt
-    mov al, family_wd8003
-    jne .done
+    je .wd8013
+    cmp al, wd_type_wd8013ep
+    jne .not_wd8013
+.wd8013:
     mov al, family_wd8013
+    jmp .done
+.not_wd8013:
+    mov al, family_wd8003
 .done:
     ret
 

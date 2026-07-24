@@ -71,11 +71,16 @@ detect_wd_family:
     mov dx, [handoff_addr + handoff_nic_base]
     add dx, wd_saprom + 6
     in al, dx
-    and al, 0xff ^ wd_id_extra_ram
+    and al, 0xff ^ (wd_id_extra_ram | wd_id_bus_mca)
     cmp al, wd_type_wd8013ebt
-    mov al, family_wd8003
-    jne .done
+    je .wd8013
+    cmp al, wd_type_wd8013ep
+    jne .not_wd8013
+.wd8013:
     mov al, family_wd8013
+    jmp .done
+.not_wd8013:
+    mov al, family_wd8003
 .done:
     ret
 

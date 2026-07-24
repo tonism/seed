@@ -961,7 +961,7 @@ def at_cmos(mem_kib: int, machine: str) -> bytes | None:
 def at_min_ram_kib(machine: str) -> int | None:
     if machine == "ami286":
         return 512
-    if machine in {"adi386sx", "win486pci"}:
+    if machine in {"adi386sx", "ibmps2_m55sx", "win486pci"}:
         return 640
     return None
 

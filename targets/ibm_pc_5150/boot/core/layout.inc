@@ -198,6 +198,7 @@ handoff_flag_writable_media equ 0x0040
 handoff_flag_cpu_386plus equ 0x0080
 handoff_flag_hma equ 0x0100
 handoff_flag_unreal equ 0x0200
+handoff_flag_wd_ram_dc00 equ 0x0400
 handoff_status_booting equ 1
 handoff_status_no_nic equ 2
 handoff_status_ready equ 3
@@ -456,8 +457,11 @@ ne_rx_stop_2k equ 0x80
 wd_dp8390_offset equ 0x10
 wd_msr_enable_ram equ 0x40
 wd_id_extra_ram equ 0x40
+wd_id_bus_mca equ 0x80
 wd_type_wd8013ebt equ 0x05
+wd_type_wd8013ep equ 0x27
 wd_ram_segment equ 0xd000
+wd_ram_segment_dc00 equ 0xdc00
 wd_tx_start equ 0x00
 wd_rx_start equ 0x06
 wd_rx_stop equ 0x20

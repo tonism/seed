@@ -136,6 +136,11 @@ tracked combinatorially.
 - **PCI PCnet/LANCE cards**: `vm-net-pcnetpci` and `vm-net-pcnetfast` use the
   same PCI-capable 486 direct-boot shape with the 360K image. PCI BIOS
   discovery resolves the AMD PCnet I/O BAR, then reuses `PCNET.DRV`.
+- **MCA cards**: `vm-net-ethernextmc`, `vm-net-wd8003eta`,
+  `vm-net-wd8003ea`, and `vm-net-wd8013epa` use an IBM PS/2 Model 55SX direct
+  boot shape with the 1.44M image. The profiles include configured PS/2 NVR so
+  BIOS POST does not stop for 162/163 setup errors. Seed scans MCA POS IDs,
+  configures the selected NIC, then loads `NE.DRV` or `WD80X3.DRV`.
 
 The harness handles 86Box's first-run "moved or copied" network-identity dialog
 itself during tests; no manual button press should be needed.
@@ -173,6 +178,11 @@ Additional PCI coverage profiles:
 
 `vm-net-ne2kpci`, `vm-net-pcnetpci`, and `vm-net-pcnetfast`.
 
+Additional MCA coverage profiles:
+
+`vm-net-ethernextmc`, `vm-net-wd8003eta`, `vm-net-wd8003ea`, and
+`vm-net-wd8013epa`.
+
 `vm` and `vm-mda` have no card (expect a clean red `.` failure). Retest
 individual profiles when changing TLS timing or shared packet/NIC code.
 
@@ -186,6 +196,9 @@ individual profiles when changing TLS timing or shared packet/NIC code.
 - A NIC-present boot that shows `driver setup failed` means hardware detection
   resolved an adapter family, but no included `.DRV` file matched that family
   and ABI.
+- IBM PS/2 MCA profiles require configured NVR. A graphical `162`/`163`
+  `OK -> IBM` screen means the profile needs reference-disk autoconfiguration
+  before Seed can boot; the checked-in MCA profiles already include that NVR.
 - The test network can be intermittently spotty, and a network drop looks
   identical to a product bug. To tell them apart, run a background connectivity
   monitor during the test and correlate it against the failure point: `ping -i 2

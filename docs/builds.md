@@ -186,8 +186,9 @@ driver ABI        vtable header, SDRV metadata, family mask, and shared helper a
 driver selection  one suitable driver autoloads; multiple suitables ask; none fails cleanly
 build switches    INCLUDE_NIC_DRIVERS=0 omits all drivers; INCLUDE_NIC_DRIVER_NE,
                   INCLUDE_NIC_DRIVER_WD80X3, INCLUDE_NIC_DRIVER_3C503,
-                  INCLUDE_NIC_DRIVER_3C501, and INCLUDE_NIC_DRIVER_PCNET omit
-                  individual files
+                  INCLUDE_NIC_DRIVER_3C501, INCLUDE_NIC_DRIVER_PCNET,
+                  INCLUDE_NIC_DRIVER_TULIP, and INCLUDE_NIC_DRIVER_RTL8139
+                  omit individual files
 FAT12 builder     nested 8.3 directory support for the scoped runtime layout
 splash order      draw the CPU-class splash before driver loading/failure handling
 floppy policy     startup reads only; user save/config writes only when requested
@@ -197,6 +198,9 @@ NE.DRV            shared NE/DP8390 driver validated on 16-bit NE2000 and Novell 
 NE PnP            RTL8019AS and DE-220P ISA PnP activation, then shared NE.DRV
 NE PCI            RTL8029AS PCI BIOS discovery, then shared NE.DRV
 WD80X3.DRV        shared WD80x3 driver covers WD8003E/EB and WD8013EBT
+MCA               PS/2 Model 55SX POS discovery covers NetWorth EtherNext/MC
+                  through NE.DRV and WD8003ET/A, WD8003E/A, and WD8013EP/A
+                  through WD80X3.DRV; WD MCA uses DC000 shared RAM
 PCNET.DRV         shared PCnet/LANCE driver covers AMD PCnet-ISA, Racal
                   EtherBlaster, and AMD PCnet-ISA+; ISA+ uses ISA PnP first
 PCNET PCI         AMD PCnet-PCI II and PCnet-FAST III PCI BIOS discovery, then

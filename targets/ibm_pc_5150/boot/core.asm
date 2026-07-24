@@ -136,6 +136,20 @@ core_pci_detect_phase_end:
 
 times 512 - (core_pci_detect_phase_end - core_pci_detect_phase_start) db 0
 
+core_mca_detect_phase_start:
+%define PHASE_BASE core_mca_detect_phase_start
+%define PHASE_LOAD_ADDR high_crypto_scratch_start
+%include "phases/mca_detect.inc"
+%undef PHASE_LOAD_ADDR
+%undef PHASE_BASE
+core_mca_detect_phase_end:
+
+%if (core_mca_detect_phase_end - core_mca_detect_phase_start) > 512
+%error "MCA detect phase exceeds one sector"
+%endif
+
+times 512 - (core_mca_detect_phase_end - core_mca_detect_phase_start) db 0
+
 core_pnp_activate_phase_start:
 %define PHASE_BASE core_pnp_activate_phase_start
 %define PHASE_LOAD_ADDR high_crypto_scratch_start

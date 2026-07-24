@@ -57,15 +57,17 @@ wd8003eb     Western Digital WD8003EB
 
 ## MCA Candidates
 
-These are available in 86Box, but they are not valid IBM PC 5150 cards. The
-`/A` Western Digital profiles were checked on the 5150 and did not respond
-there; they should move to an MCA-capable target.
+These are available in 86Box, but they are not valid IBM PC 5150 cards. Build
+13 covers them through checked-in PS/2 Model 55SX profiles with configured NVR.
+The NetWorth card reuses `NE.DRV`; the Western Digital cards reuse
+`WD80X3.DRV`. The WD MCA profiles use the PS/2 reference utility's `DC000`
+shared-RAM window instead of the original ISA WD `D0000` default.
 
 ```text
-ethernextmc  NetWorth EtherNext/MC
-wd8003eta    Western Digital WD8003ET/A
-wd8003ea     Western Digital WD8003E/A
-wd8013epa    Western Digital WD8013EP/A
+ethernextmc  NetWorth EtherNext/MC         covered by vm-net-ethernextmc
+wd8003eta    Western Digital WD8003ET/A    covered by vm-net-wd8003eta
+wd8003ea     Western Digital WD8003E/A     covered by vm-net-wd8003ea
+wd8013epa    Western Digital WD8013EP/A    covered by vm-net-wd8013epa
 ```
 
 ## Later ISA Candidates
@@ -176,6 +178,12 @@ The same day, one `TULIP.DRV` bus-master driver covered the DEC 21040, DEC
 The Realtek RTL8139C+ profile (`vm-net-rtl8139`) uses `RTL8139.DRV`, which
 drives the card through the legacy 8139 RX ring and TX slot registers.
 
+On 24 July 2026, MCA detection/configuration was validated on the PS/2 Model
+55SX 1.44M profiles. `vm-net-wd8003eta`, `vm-net-wd8003ea`, and
+`vm-net-wd8013epa` reached the Default Prompt Interface and returned `ready`
+through `WD80X3.DRV`; `vm-net-ethernextmc` reached the same prompt and returned
+`A:ok` through `NE.DRV`.
+
 Also on 30 April 2026, the fixed shipped agent hosts were checked against
 Seed's single current TLS path: TLS 1.2, P-256,
 ECDHE-ECDSA-CHACHA20-POLY1305 without extended master secret. `api.openai.com`,
@@ -201,6 +209,10 @@ vm-net-dec21140      DEC 21140 Tulip on 486; expected: PCI BIOS discovery, auto 
 vm-net-dec21140vpc   Microsoft Virtual PC DEC 21140 on 486; expected: PCI BIOS discovery, auto family through TULIP.DRV, SROM MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ready
 vm-net-dec21143      DEC 21143 Tulip on 486; expected: PCI BIOS discovery, auto family through TULIP.DRV, SROM MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ready
 vm-net-rtl8139       Realtek RTL8139C+ on 486; expected: PCI BIOS discovery, auto family through RTL8139.DRV, MAC register read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ready
+vm-net-ethernextmc   NetWorth EtherNext/MC on PS/2 Model 55SX; expected: MCA POS discovery, auto family through NE.DRV, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ok/A:ok
+vm-net-wd8003eta     Western Digital WD8003ET/A on PS/2 Model 55SX; expected: MCA POS discovery, DC000 shared RAM through WD80X3.DRV, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ready
+vm-net-wd8003ea      Western Digital WD8003E/A on PS/2 Model 55SX; expected: MCA POS discovery, DC000 shared RAM through WD80X3.DRV, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ready
+vm-net-wd8013epa     Western Digital WD8013EP/A on PS/2 Model 55SX; expected: MCA POS discovery, DC000 shared RAM through WD80X3.DRV, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ready
 vm-net-novell-ne1k   Novell NE1000; expected: auto family, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, encrypted client Finished, server Finished verification, OpenAI Responses request/response, returned ok below the existing splash
 vm-net-novell-ne2k   Novell NE2000 on 386SX; expected: auto family through NE.DRV, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ok
 vm-net-de220p        D-Link DE-220P ISA PnP on 386SX; expected: ISA PnP activation, auto family through NE.DRV, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ok
@@ -219,6 +231,10 @@ size:
 ram_addr = D0000
 ram_size = 8192
 ```
+
+The MCA WD profiles instead use checked-in PS/2 NVR configured by the IBM
+reference utility, and Seed reasserts their shared RAM at `DC000` during MCA POS
+setup.
 
 Run a profile with:
 

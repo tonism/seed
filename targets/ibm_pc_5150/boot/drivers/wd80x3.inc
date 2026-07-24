@@ -32,7 +32,7 @@ wd_buf_load:
     mov bh, [ne_tx_start]
     mov cx, bp
     push es
-    mov ax, wd_ram_segment
+    call wd_ram_segment_ax
     mov es, ax
     mov di, bx
     rep movsb
@@ -46,7 +46,7 @@ wd_buf_read:
     mov dh, [ne_rx_start]
     mov dl, [ne_rx_stop]
     push ds
-    mov ax, wd_ram_segment
+    call wd_ram_segment_ax
     mov ds, ax
     mov si, bx
 .read:
@@ -64,4 +64,12 @@ wd_buf_read:
     loop .read
     pop ds
     clc
+    ret
+
+wd_ram_segment_ax:
+    mov ax, wd_ram_segment
+    test word [handoff_addr + handoff_flags], handoff_flag_wd_ram_dc00
+    jz .done
+    mov ax, wd_ram_segment_dc00
+.done:
     ret

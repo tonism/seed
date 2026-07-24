@@ -98,6 +98,7 @@ re-verify the low scratch fits via `tools/check-layout.py`.
 0x0080  CPU is 386 or better (handoff_flag_cpu_386plus) — gates unreal setup
 0x0100  HMA available (handoff_flag_hma)
 0x0200  unreal mode available (handoff_flag_unreal)
+0x0400  WD80x3 shared RAM window is DC000 instead of D0000
 ```
 
 ## NIC Families
