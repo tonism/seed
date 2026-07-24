@@ -7,7 +7,7 @@
 ; resident shared routines (net_fail_al / parse_tcp_payload / c503_select_dp8390) are reached via
 ; the slot-aware drv_call_res / drv_jmp_res below (the established phase_call_res idiom, base =
 ; nic_driver_slot). The driver's first 10 bytes are a header of the 5 nic_vt_* entries, followed by
-; SDRV metadata (ABI version + supported-family mask); the driver-load phase validates metadata and
+; SDRV metadata (ABI version + 16-bit supported-family mask); the driver-load phase validates metadata and
 ; copies the vtable into the resident nic_vtable. DRIVER_BASE must name the module's start label.
 ;
 ; The DP8390 ring (ne2000/ne1000/3c503/wd8003) is identical across those three cards except for how
@@ -36,7 +36,7 @@
 %macro nic_driver_metadata 0
     db 'SDRV'
     db nic_driver_abi_version
-    db DRIVER_FAMILY_MASK
+    dw DRIVER_FAMILY_MASK
 %endmacro
 
 ; DP8390 transmit. Contract (shared by every transmit impl): cx = frame length, si = frame at

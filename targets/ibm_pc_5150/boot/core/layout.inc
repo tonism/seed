@@ -262,7 +262,7 @@ net_error_driver equ 14
 nic_driver_meta_magic_off equ nic_vt_slot_count * 2
 nic_driver_meta_version_off equ nic_driver_meta_magic_off + 4
 nic_driver_meta_family_mask_off equ nic_driver_meta_version_off + 1
-nic_driver_abi_version equ 1
+nic_driver_abi_version equ 2
 seed_attr_cga equ 0x0f
 build_attr_cga equ 0x08
 load_attr_cga equ 0x08
@@ -314,6 +314,7 @@ family_3c501 equ 4
 family_wd8003 equ 5
 family_wd8013 equ 6
 family_pcnet equ 7
+family_rtl8139 equ 8
 pci_bios_install equ 0xb101
 pci_bios_find_device equ 0xb102
 pci_bios_read_config_word equ 0xb109
@@ -326,6 +327,7 @@ pci_amd_vendor equ 0x1022
 pci_pcnet_device equ 0x2000
 pci_realtek_vendor equ 0x10ec
 pci_rtl8029_device equ 0x8029
+pci_rtl8139_device equ 0x8139
 el1_dataptr equ 0x08
 el1_rx_cmd equ 0x06
 el1_tx_cmd equ 0x07
@@ -429,6 +431,17 @@ tulip_tx_buf equ tulip_rx_buf + pcnet_rx_buf_len
 tulip_dma_end equ tulip_tx_buf + net_frame_buffer_len
 %if tulip_dma_end > 0x10000
 %error "Tulip DMA workspace must stay below the 64KB real-mode segment ceiling"
+%endif
+; Realtek RTL8139C+ legacy-mode DMA buffers. RTL8139 is PCI-only and uses
+; 32-bit I/O registers; the driver emits raw operand-size prefixes for those
+; writes while the detection path keeps execution on 386+ PCI machines.
+rtl8139_dma_base equ pcnet_dma_base
+rtl8139_rx_ring_len equ 8192
+rtl8139_rx_buf equ rtl8139_dma_base
+rtl8139_tx_buf equ rtl8139_rx_buf + rtl8139_rx_ring_len
+rtl8139_dma_end equ rtl8139_tx_buf + net_frame_buffer_len
+%if rtl8139_dma_end > 0x10000
+%error "RTL8139 DMA workspace must stay below the 64KB real-mode segment ceiling"
 %endif
 dhcp_rx_frame_len equ 384
 ne_rcr_broadcast equ 0x04

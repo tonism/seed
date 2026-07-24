@@ -22,6 +22,12 @@ pci_detect_phase:
     call .try_io_bar0_device
     jnc .done
 
+    mov ax, (0x00 << 8) | family_rtl8139
+    mov cx, pci_rtl8139_device
+    mov dx, pci_realtek_vendor
+    call .try_io_bar0_device
+    jnc .done
+
     mov ax, (0xe0 << 8) | family_pcnet
     mov cx, pci_pcnet_device
     mov dx, pci_amd_vendor

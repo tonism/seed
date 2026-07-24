@@ -104,7 +104,7 @@ dec_21040_tulip      DEC DE-435 EtherWorks Turbo   covered by vm-net-dec21040
 dec_21140_tulip      DEC 21140 Fast Ethernet       covered by vm-net-dec21140
 dec_21143_tulip      DEC DE-500A Fast Ethernet     covered by vm-net-dec21143
 dec_21140_tulip_vpc  Microsoft Virtual PC Network  covered by vm-net-dec21140vpc
-rtl8139c+            Realtek RTL8139C+
+rtl8139c+            Realtek RTL8139C+             covered by vm-net-rtl8139
 ```
 
 ## Current 5150 Test Profiles
@@ -173,6 +173,9 @@ The same day, one `TULIP.DRV` bus-master driver covered the DEC 21040, DEC
 `ready`. Seed reads the 21040 direct ROM MAC through CSR9 byte reads and the
 21140/21143 SROM MAC through CSR9 93C46 serial EEPROM reads.
 
+The Realtek RTL8139C+ profile (`vm-net-rtl8139`) uses `RTL8139.DRV`, which
+drives the card through the legacy 8139 RX ring and TX slot registers.
+
 Also on 30 April 2026, the fixed shipped agent hosts were checked against
 Seed's single current TLS path: TLS 1.2, P-256,
 ECDHE-ECDSA-CHACHA20-POLY1305 without extended master secret. `api.openai.com`,
@@ -197,6 +200,7 @@ vm-net-dec21040      DEC 21040 Tulip on 486; expected: PCI BIOS discovery, auto 
 vm-net-dec21140      DEC 21140 Tulip on 486; expected: PCI BIOS discovery, auto family through TULIP.DRV, SROM MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ready
 vm-net-dec21140vpc   Microsoft Virtual PC DEC 21140 on 486; expected: PCI BIOS discovery, auto family through TULIP.DRV, SROM MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ready
 vm-net-dec21143      DEC 21143 Tulip on 486; expected: PCI BIOS discovery, auto family through TULIP.DRV, SROM MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ready
+vm-net-rtl8139       Realtek RTL8139C+ on 486; expected: PCI BIOS discovery, auto family through RTL8139.DRV, MAC register read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ready
 vm-net-novell-ne1k   Novell NE1000; expected: auto family, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, encrypted client Finished, server Finished verification, OpenAI Responses request/response, returned ok below the existing splash
 vm-net-novell-ne2k   Novell NE2000 on 386SX; expected: auto family through NE.DRV, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ok
 vm-net-de220p        D-Link DE-220P ISA PnP on 386SX; expected: ISA PnP activation, auto family through NE.DRV, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ok

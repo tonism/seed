@@ -25,12 +25,16 @@
 %endif
 
 tcp_connect_phase:
-    ; ESC-panic NIC safety (Build 11): a Ctrl+ESC longjmp can fire mid-NIC-access during the receive,
-    ; leaving the dp8390 command register on page 1 or a remote-DMA stalled; the reconnect then reuses
-    ; that dirty state and the SYN never reaches the wire (pcap-confirmed: zero SYNs leave after a
-    ; panic). ne_cmd_start_nodma (0x22 = page 0 + abort remote DMA + running) forces a clean state
-    ; before the flush/SYN below. dp8390 only -- the 3c501 has no DMA/page and re-inits its CR per TX.
-    cmp byte [handoff_addr + handoff_nic_family], family_3c501
+    ; ESC-panic NIC safety (Build 11): a Ctrl+ESC longjmp can fire mid-DP8390 receive, leaving
+    ; the command register on page 1 or remote-DMA stalled. ne_cmd_start_nodma forces a clean
+    ; DP8390 state before the flush/SYN below. Do not apply this to non-DP8390 drivers: RTL8139
+    ; register 0 is MAC0, so the old broad write corrupted the card's unicast filter.
+    mov al, [handoff_addr + handoff_nic_family]
+    cmp al, family_wd8013
+    ja .nic_clean
+    cmp al, family_tulip
+    je .nic_clean
+    cmp al, family_3c501
     je .nic_clean
     mov bx, [handoff_addr + handoff_nic_base]
     lea dx, [bx + ne_cr]
@@ -39,14 +43,8 @@ tcp_connect_phase:
 .nic_clean:
     cmp byte [handoff_addr + handoff_status], handoff_status_ready
     je tcp_reopen_cached_target
-    ; COLD path (no live session). On a RECONNECT (reconnect_retries<3 -- e.g. recertify's retry) the RX
-    ; ring still holds the prior attempt's handshake frames; the FIRST cold connect's ring is clean from
-    ; boot, but a reconnect's is not, so the re-ARP's reply lands behind stale frames and is missed
-    ; (net_error_arp / arp_request_sent). Flush first, as the warm reconnect (tcp_reopen_cached_target)
-    ; already does. Never hit before recertify: a cold attempt-1 failure went straight to the fatal
-    ; screen, so the cold-reconnect path was never exercised.
-    cmp byte [reconnect_retries], 3
-    jae .cold_connect
+    ; COLD path (no live session). NTP and recertify retries can both leave stale
+    ; frames ahead of the first endpoint ARP reply, so flush before resolving.
     call ne_flush_receive_frames
 .cold_connect:
     call tcp_connect_target

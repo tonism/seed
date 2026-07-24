@@ -132,9 +132,9 @@ driver_load_phase:
     cmp byte [nic_driver_slot + nic_driver_meta_version_off], nic_driver_abi_version
     jne .suit_failed
     mov cl, [handoff_addr + handoff_nic_family]
-    mov al, 1
-    shl al, cl
-    test [nic_driver_slot + nic_driver_meta_family_mask_off], al
+    mov ax, 1
+    shl ax, cl
+    test [nic_driver_slot + nic_driver_meta_family_mask_off], ax
     jz .suit_failed
     clc
     ret

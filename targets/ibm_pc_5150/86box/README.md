@@ -54,6 +54,7 @@ targets/ibm_pc_5150/86box/vm-net-dec21040/86box.cfg   486 PCI, DEC 21040 Tulip
 targets/ibm_pc_5150/86box/vm-net-dec21140/86box.cfg   486 PCI, DEC 21140 Tulip
 targets/ibm_pc_5150/86box/vm-net-dec21140vpc/86box.cfg 486 PCI, Microsoft Virtual PC DEC 21140
 targets/ibm_pc_5150/86box/vm-net-dec21143/86box.cfg   486 PCI, DEC 21143 Tulip
+targets/ibm_pc_5150/86box/vm-net-rtl8139/86box.cfg    486 PCI, Realtek RTL8139C+
 ```
 
 `vm-net-286` uses the AMI 286 AT-compatible BIOS shape with 2048 KiB RAM and an
@@ -72,9 +73,11 @@ PCnet/LANCE add-in cards before the same `PCNET.DRV` path.
 `vm-net-pcnetfast-onboard` covers the Gateway/Tomahawk machine-integrated AMD
 PCnet-FAST III through the same `PCNET.DRV` path. `vm-net-dec21040`,
 `vm-net-dec21140`, `vm-net-dec21140vpc`, and `vm-net-dec21143` cover the DEC
-Tulip PCI bus-master path through `TULIP.DRV`. AT-class and PCI add-in profiles
-use the 360K floppy image; the Gateway/Tomahawk onboard profile uses the 1.44M
-floppy image because its BIOS rejects the 5.25" geometries.
+Tulip PCI bus-master path through `TULIP.DRV`. `vm-net-rtl8139` covers the
+Realtek RTL8139C+ PCI legacy RX-ring/TX-slot path through `RTL8139.DRV`.
+AT-class and PCI add-in profiles use the 360K floppy image; the
+Gateway/Tomahawk onboard profile uses the 1.44M floppy image because its BIOS
+rejects the 5.25" geometries.
 `tools/run-86box.sh vm-net-286`, `tools/run-86box.sh vm-net-386`, and the
 card-specific later-machine profiles select the right image automatically.
 
