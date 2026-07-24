@@ -45,7 +45,8 @@ build 12  capability-tiered layout (one runtime file, NIC HAL, 32K cached chat l
           auto-recertify)
 build 13  SEED.SYS runtime rename, SEED/ directory layout, optional external
           SEED/DRIVERS/*.DRV NIC files with metadata-based selection, splash before
-          driver loading
+          driver loading, external LEAF.DER refresh, and full current 86Box Ethernet
+          adapter coverage except modem/PLIP
 ```
 
 Builds 1–4 are the boot-presentation and hardware-setup milestones listed above; the substantive
@@ -207,20 +208,35 @@ PCNET VLB         AMD PCnet-32 fixed-base VLB discovery, then shared PCNET.DRV
                   on the CS4031 VLB profile with checked-in AMI setup NVR
 PCNET PCI         AMD PCnet-PCI II and PCnet-FAST III PCI BIOS discovery, then
                   shared PCNET.DRV
+TULIP.DRV        shared DEC Tulip driver covers DEC 21040 ROM MAC reads and
+                  21140/21143 SROM MAC reads, including the Virtual PC 21140
+                  variant
+RTL8139.DRV      Realtek RTL8139C+ PCI BIOS discovery, then legacy RX-ring/TX-slot
+                  TX/RX
 EPIC100.DRV       SMC EtherPower II EPIC/100 PCI BIOS discovery, then direct
                   bus-master descriptor TX/RX
 3c501 receive     keep the single-buffer sample below the response phase, preserve ES,
                   and ignore truncated TCP payloads instead of ACKing partial data
+coverage audit    current 86Box net_cards has 28 Ethernet entries; Seed covers all
+                  28, plus the Gateway/Tomahawk onboard PCnet profile; modem and
+                  PLIP are intentionally out of scope
 ```
 
-This is the first Build 13 checkpoint. `SEED.SYS` remains the first FAT data file
-so the reserved loader and ROM BASIC sidecar still share the same runtime image.
-Driver additions or driver fixes can now replace `.DRV` files without replacing
-the monolithic runtime when the resident driver ABI is unchanged. A floppy can
-also intentionally ship without drivers; a NIC-present boot then reaches the
-same hardware phase and reports `driver setup failed` with retry/restart. New
-hardware detection, new shared helpers, or ABI changes still require a matching
-`SEED.SYS` update.
+`SEED.SYS` remains the first FAT data file so the reserved loader and ROM BASIC
+sidecar still share the same runtime image. Driver additions or driver fixes can
+now replace `.DRV` files without replacing the monolithic runtime when the
+resident driver ABI is unchanged. A floppy can also intentionally ship without
+drivers; a NIC-present boot then reaches the same hardware phase and reports
+`driver setup failed` with retry/restart. New hardware detection, new shared
+helpers, or ABI changes still require a matching `SEED.SYS` update.
+
+Validation summary: `make inspect` is green with all eight driver files in
+`SEED/DRIVERS/`; `INCLUDE_NIC_DRIVERS=0 inspect` produces a valid no-driver
+image; no-card and no-driver boots fail cleanly with retry/restart; 16 KiB
+ROM BASIC and 32 KiB direct `vm-net-ne2k8` reached DPI and returned `ok`; and
+representative driver-family coverage reached DPI and returned `ok` across
+3c501, 3c503, NE ISA PnP/PCI, WD8013EBT, PCnet ISA/ISA+/Racal/VLB/onboard,
+DEC 21040/21143 Tulip, RTL8139C+, EPIC/100, and MCA NE/WD profiles.
 
 ## Forward-looking ideas
 
