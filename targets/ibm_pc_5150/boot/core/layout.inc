@@ -396,6 +396,7 @@ pcnet_reset equ 0x14
 pcnet_bdp equ 0x16
 pcnet_aprom_hw_isa equ 0x00
 pcnet_aprom_hw_pnp equ 0x01
+pcnet_aprom_hw_vlb equ 0x10
 pcnet_aprom_sig_amd equ 0x5757
 pcnet_aprom_sig_racal equ 0x4452
 pcnet_csr_init equ 0x0001

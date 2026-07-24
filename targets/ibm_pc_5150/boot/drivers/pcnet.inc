@@ -1,4 +1,4 @@
-; AMD PCnet/LANCE driver — ISA, PCI, and compatible Racal variants.
+; AMD PCnet/LANCE driver — ISA, VLB, PCI, and compatible Racal variants.
 ; Uses the controller's reset-default 16-bit descriptor style with one RX and
 ; one TX descriptor in a fixed below-64K DMA workspace.
     dw nic_driver_slot + (pcnet_enter - DRIVER_BASE)

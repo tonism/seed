@@ -621,9 +621,9 @@ probe_pcnet_mac:
     mov dx, [handoff_addr + handoff_nic_base]
     add dx, 9
     in al, dx
-    cmp al, pcnet_aprom_hw_isa
-    je .check_signature
     cmp al, pcnet_aprom_hw_pnp
+    jbe .check_signature
+    cmp al, pcnet_aprom_hw_vlb
     jne .failed
 .check_signature:
     mov dx, [handoff_addr + handoff_nic_base]

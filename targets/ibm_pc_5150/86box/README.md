@@ -49,6 +49,7 @@ targets/ibm_pc_5150/86box/vm-net-pcnetisaplus/86box.cfg 386SX, AMD PCnet-ISA+ IS
 targets/ibm_pc_5150/86box/vm-net-ne2kpci/86box.cfg    486 PCI, Realtek RTL8029AS
 targets/ibm_pc_5150/86box/vm-net-pcnetpci/86box.cfg   486 PCI, AMD PCnet-PCI II
 targets/ibm_pc_5150/86box/vm-net-pcnetfast/86box.cfg  486 PCI, AMD PCnet-FAST III
+targets/ibm_pc_5150/86box/vm-net-pcnetvlb/86box.cfg   486 VLB CS4031, AMD PCnet-32
 targets/ibm_pc_5150/86box/vm-net-pcnetfast-onboard/86box.cfg Gateway E-1000/Tomahawk, onboard AMD PCnet-FAST III
 targets/ibm_pc_5150/86box/vm-net-dec21040/86box.cfg   486 PCI, DEC 21040 Tulip
 targets/ibm_pc_5150/86box/vm-net-dec21140/86box.cfg   486 PCI, DEC 21140 Tulip
@@ -74,6 +75,8 @@ same shape. `vm-net-pcnetisa`, `vm-net-pcnetracal`, and
 covers PCI BIOS discovery for a Realtek RTL8029AS before the same `NE.DRV`
 path. `vm-net-pcnetpci` and `vm-net-pcnetfast` cover PCI BIOS discovery for AMD
 PCnet/LANCE add-in cards before the same `PCNET.DRV` path.
+`vm-net-pcnetvlb` covers fixed-base VLB AMD PCnet-32 discovery on the CS4031
+machine before the same `PCNET.DRV` path.
 `vm-net-pcnetfast-onboard` covers the Gateway/Tomahawk machine-integrated AMD
 PCnet-FAST III through the same `PCNET.DRV` path. `vm-net-dec21040`,
 `vm-net-dec21140`, `vm-net-dec21140vpc`, and `vm-net-dec21143` cover the DEC
@@ -83,7 +86,8 @@ Realtek RTL8139C+ PCI legacy RX-ring/TX-slot path through `RTL8139.DRV`.
 `vm-net-wd8003eta`, `vm-net-wd8003ea`, and `vm-net-wd8013epa` cover MCA
 Western Digital shared-memory cards through `WD80X3.DRV`; those profiles use
 checked-in PS/2 NVR and Seed reasserts their shared RAM at `DC000`. AT-class
-and PCI add-in profiles use the 360K floppy image; the Gateway/Tomahawk
+VLB, and PCI add-in profiles use the 360K floppy image; the CS4031 VLB profile
+uses checked-in AMI setup NVR so POST does not stop for CMOS setup. The Gateway/Tomahawk
 onboard and PS/2 MCA profiles use the 1.44M floppy image because their BIOSes
 reject the 5.25" geometries.
 `tools/run-86box.sh vm-net-286`, `tools/run-86box.sh vm-net-386`, and the

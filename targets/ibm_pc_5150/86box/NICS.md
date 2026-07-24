@@ -93,6 +93,17 @@ pcnetracal       Racal Interlan EtherBlaster   covered by vm-net-pcnetracal
 pcnetisaplus     AMD PCnet-ISA+                covered by vm-net-pcnetisaplus
 ```
 
+## VLB Candidates
+
+The AMD PCnet-32 VLB card exposes the same LANCE-style I/O register window as
+the ISA and PCI PCnet cards. Seed finds it through the fixed-base I/O probe and
+loads the shared `PCNET.DRV`. The checked-in representative uses the CS4031
+VLB machine with saved AMI setup NVR.
+
+```text
+pcnetvlb         AMD PCnet-32                  covered by vm-net-pcnetvlb
+```
+
 ## PCI And Newer Targets
 
 These should be tested on later x86 targets with PCI/modern buses:
@@ -168,6 +179,11 @@ the Default Prompt Interface and returned `ok` through the same `PCNET.DRV`
 path after the TCP application-payload wait moved from CPU-spin timing to BIOS
 ticks.
 
+The AMD PCnet-32 VLB profile (`vm-net-pcnetvlb`) uses fixed-base I/O discovery
+on the CS4031 VLB machine, then the same `PCNET.DRV` path as the ISA and PCI
+PCnet/LANCE cards. On 24 July 2026 it reached the Default Prompt Interface and
+responded to a `ready` prompt.
+
 The same day, one `TULIP.DRV` bus-master driver covered the DEC 21040, DEC
 21140, Microsoft Virtual PC 21140, and DEC 21143 Tulip profiles
 (`vm-net-dec21040`, `vm-net-dec21140`, `vm-net-dec21140vpc`, and
@@ -203,6 +219,7 @@ vm-net-ne2kpci       Realtek RTL8029AS PCI on 486; expected: PCI BIOS discovery,
 vm-net-ne2kpnp       Realtek RTL8019AS ISA PnP on 386SX; expected: ISA PnP activation, auto family through NE.DRV, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ok
 vm-net-pcnetpci      AMD PCnet-PCI II on 486; expected: PCI BIOS discovery, auto family through PCNET.DRV, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ok
 vm-net-pcnetfast     AMD PCnet-FAST III on 486; expected: PCI BIOS discovery, auto family through PCNET.DRV, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ok
+vm-net-pcnetvlb      AMD PCnet-32 VLB on 486; expected: fixed-base I/O discovery, auto family through PCNET.DRV, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, response to ready prompt
 vm-net-pcnetfast-onboard Gateway E-1000/Tomahawk onboard AMD PCnet-FAST III on Pentium; expected: PCI BIOS discovery, auto family through PCNET.DRV, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ok
 vm-net-dec21040      DEC 21040 Tulip on 486; expected: PCI BIOS discovery, auto family through TULIP.DRV, ROM MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ready
 vm-net-dec21140      DEC 21140 Tulip on 486; expected: PCI BIOS discovery, auto family through TULIP.DRV, SROM MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ready

@@ -136,6 +136,10 @@ tracked combinatorially.
 - **PCI PCnet/LANCE cards**: `vm-net-pcnetpci` and `vm-net-pcnetfast` use the
   same PCI-capable 486 direct-boot shape with the 360K image. PCI BIOS
   discovery resolves the AMD PCnet I/O BAR, then reuses `PCNET.DRV`.
+- **VLB PCnet/LANCE cards**: `vm-net-pcnetvlb` uses the CS4031 VLB direct-boot
+  shape with the 360K image. Fixed-base I/O discovery finds the AMD PCnet-32,
+  then reuses `PCNET.DRV`. The profile includes checked-in AMI setup NVR so
+  BIOS POST does not stop for CMOS setup.
 - **MCA cards**: `vm-net-ethernextmc`, `vm-net-wd8003eta`,
   `vm-net-wd8003ea`, and `vm-net-wd8013epa` use an IBM PS/2 Model 55SX direct
   boot shape with the 1.44M image. The profiles include configured PS/2 NVR so
@@ -177,6 +181,10 @@ Additional AT/386 NIC coverage profiles:
 Additional PCI coverage profiles:
 
 `vm-net-ne2kpci`, `vm-net-pcnetpci`, and `vm-net-pcnetfast`.
+
+Additional VLB coverage profiles:
+
+`vm-net-pcnetvlb`.
 
 Additional MCA coverage profiles:
 

@@ -203,6 +203,8 @@ MCA               PS/2 Model 55SX POS discovery covers NetWorth EtherNext/MC
                   through WD80X3.DRV; WD MCA uses DC000 shared RAM
 PCNET.DRV         shared PCnet/LANCE driver covers AMD PCnet-ISA, Racal
                   EtherBlaster, and AMD PCnet-ISA+; ISA+ uses ISA PnP first
+PCNET VLB         AMD PCnet-32 fixed-base VLB discovery, then shared PCNET.DRV
+                  on the CS4031 VLB profile with checked-in AMI setup NVR
 PCNET PCI         AMD PCnet-PCI II and PCnet-FAST III PCI BIOS discovery, then
                   shared PCNET.DRV
 3c501 receive     keep the single-buffer sample below the response phase, preserve ES,
