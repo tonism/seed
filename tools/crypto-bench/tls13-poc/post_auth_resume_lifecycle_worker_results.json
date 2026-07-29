@@ -1,0 +1,55 @@
+{
+  "lifecycle_worker": {
+    "bridge_load_fault_cases": 6,
+    "bytes": 945,
+    "clock_cases": 4,
+    "direct_operations": [
+      1,
+      9,
+      10,
+      11
+    ],
+    "hash_bridge_limit": 272,
+    "hash_bridge_origin": 13312,
+    "hash_bridge_stage": 9216,
+    "k14_bounds_source_derived": true,
+    "k14_mutable_poison_range": [
+      12288,
+      13304
+    ],
+    "k14_record_aead_subspan": [
+      12975,
+      13304
+    ],
+    "limit": 1024,
+    "native_ticket_tamper_cases": 269,
+    "no_reimport_after_restored": true,
+    "ntr_page_tamper_cases": 525,
+    "receipt_hash_bridge_bytes": 101,
+    "restored_before_scrub": true,
+    "scrub_fault_cases": 14,
+    "scrub_pages_each_attempt": 13,
+    "sector_padded_loads_modeled": true,
+    "vault_byte_tamper_cases": 512,
+    "vault_hash_bridge_bytes": 110
+  },
+  "post_controller": {
+    "commit_entry": 3217,
+    "hooked_bytes": 1024,
+    "legacy_byte_stable": true,
+    "legacy_bytes": 1012,
+    "receipt_edge": 3259
+  },
+  "receipt_worker": {
+    "bytes": 251,
+    "fault_cases": 6,
+    "lifecycle_initialization_owner": "post-auth entry after exact-pin P-256 and LP1 publication",
+    "limit": 272,
+    "pre_auth_lifecycle_span": "0x3c76..0x3c9a",
+    "pre_auth_lifecycle_span_preserved": true,
+    "readbacks": 2,
+    "status_last": true,
+    "tx_restored": true,
+    "writes": 2
+  }
+}

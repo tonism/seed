@@ -1,0 +1,99 @@
+{
+  "date": "2026-07-25",
+  "timing_environment": {
+    "emulator": "86Box v9001",
+    "machine": "IBM AT",
+    "cpu": "80286",
+    "dynarec": false,
+    "bios_tick_ms": 54.9254
+  },
+  "profile": {
+    "protocol": "TLSv1.3",
+    "cipher_suite": "TLS_CHACHA20_POLY1305_SHA256",
+    "group": "P-256",
+    "signature_algorithm": "rsa_pss_rsae_sha256",
+    "server_flight_payload_bytes": 4327
+  },
+  "measurements": {
+    "6_mhz": {
+      "p256_ecdhe": {
+        "ticks": 120,
+        "seconds": 6.591
+      },
+      "optimized_rsa_2048_current_verify": {
+        "ticks": 94,
+        "seconds": 5.163
+      },
+      "encrypted_flight": {
+        "ticks": 70,
+        "seconds": 3.8448
+      },
+      "baked_hot_hkdf": {
+        "ticks": 11,
+        "seconds": 0.6042
+      },
+      "certificate_verify_post_rsa_pss": {
+        "ticks_for_four_iterations": 9,
+        "seconds_per_iteration": 0.1236
+      },
+      "serial_measured_subtotal_seconds": 16.3266,
+      "margin_before_observed_close_seconds": -1.3266
+    },
+    "8_mhz": {
+      "p256_ecdhe": {
+        "ticks": 90,
+        "seconds": 4.9433
+      },
+      "optimized_rsa_2048_current_verify": {
+        "ticks": 70,
+        "seconds": 3.8448
+      },
+      "encrypted_flight": {
+        "ticks": 52,
+        "seconds": 2.8561
+      },
+      "baked_hot_hkdf": {
+        "ticks": 8,
+        "seconds": 0.4394
+      },
+      "certificate_verify_post_rsa_pss": {
+        "ticks_for_four_iterations": 7,
+        "seconds_per_iteration": 0.0961
+      },
+      "serial_measured_subtotal_seconds": 12.1797,
+      "margin_before_observed_close_seconds": 2.8203
+    }
+  },
+  "compact_ecdsa_flight_comparison": {
+    "6_mhz": {
+      "ticks": 43,
+      "seconds": 2.3618,
+      "rsa_flight_savings_seconds": 1.483
+    },
+    "8_mhz": {
+      "ticks": 32,
+      "seconds": 1.7576,
+      "rsa_flight_savings_seconds": 1.0985
+    },
+    "conclusion": "wire/symmetric savings do not by themselves justify secure ECDSA; authentication requires a different verifier, leaf, and anchor and was previously measured slower than RSA on this CPU"
+  },
+  "scope": {
+    "included": [
+      "optimized shipped P-256 ECDHE primitive",
+      "optimized shipped RSA-2048 current-verify primitive (same modular exponentiation required by the proposed recover ABI)",
+      "complete observed encrypted-flight symmetric and transcript work",
+      "selected hot TLS 1.3 key schedule",
+      "TLS 1.3 CertificateVerify signed-content hash and PSS decoding"
+    ],
+    "excluded": [
+      "live TCP receive timing",
+      "production parser and state-transition overhead",
+      "entropy and ClientHello construction performed before the measured span",
+      "full integrated runtime handshake"
+    ]
+  },
+  "conclusion": {
+    "6_mhz": "no-go for the measured serial profile before parser/network overhead",
+    "8_mhz": "candidate secure floor; requires repeated integrated live validation"
+  }
+}

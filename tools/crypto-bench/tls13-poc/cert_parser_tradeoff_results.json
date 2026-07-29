@@ -1,0 +1,160 @@
+{
+  "artifacts": {
+    "cert_parser_results": "tools/crypto-bench/tls13-poc/cert_parser_results.json",
+    "cert_parser_results_sha256": "2ac4c48b13861316e90b7df3eefff9d75bba5194c766c62778bc496df4c75ff8",
+    "checker": "cert_parser_tradeoff_check.py",
+    "checker_sha256": "19acdfa0d39ad710646f5766ab7a24985fe067a44cf85d1ed20c811dd7d0a033",
+    "flight_results": "tools/crypto-bench/tls13-spike/flight_8088_results.json",
+    "flight_results_sha256": "bbe22c435e3ad7f96fb4cf0e947975a49a519628e2154da05c29a32e210346b2",
+    "mlkem_results": "tools/crypto-bench/tls13-spike/mlkem768_integrated_results.json",
+    "mlkem_results_sha256": "a66015c5fb8370f220184145d061456b68522d81440fa9e40714846646315001"
+  },
+  "brotli_reencode": {
+    "forced_windows_q6": {
+      "10": {
+        "compressed_bytes": 1801,
+        "declared_max_backward_distance": 1008,
+        "encoded_window_bits": 10,
+        "sha256": "72910099e9836692cddf7471ba676c6c69828ba7c5a4029098e76ae9a4d47971"
+      },
+      "11": {
+        "compressed_bytes": 1787,
+        "declared_max_backward_distance": 2032,
+        "encoded_window_bits": 11,
+        "sha256": "d54d24c67e8b6561ed5b3ad8c68b0b0ca98ffbbf1b960ea42c31ad8a75219733"
+      },
+      "12": {
+        "compressed_bytes": 1787,
+        "declared_max_backward_distance": 4080,
+        "encoded_window_bits": 12,
+        "sha256": "0496000b2e07308b9a8dc82d3bc079a338c2c3d5ffd0c93c69adc7a058d50813"
+      }
+    },
+    "q6_default": {
+      "bytes": 1787,
+      "declared_max_backward_distance": 4080,
+      "encoded_window_bits": 12,
+      "sha256": "0496000b2e07308b9a8dc82d3bc079a338c2c3d5ffd0c93c69adc7a058d50813"
+    },
+    "quality_sizes": {
+      "0": 2003,
+      "1": 1922,
+      "11": 1824,
+      "4": 1834,
+      "6": 1787,
+      "9": 1750
+    }
+  },
+  "decision": {
+    "k14_callback_coexistence": {
+      "coexistence_proven": false,
+      "current_symmetric_image_bytes": 6142,
+      "current_symmetric_mutable_k_work": {
+        "bytes": 1016,
+        "end": "0x33f8",
+        "start": "0x3000"
+      },
+      "free_after_symmetric_mutable_k_work_bytes": 8,
+      "low_relocation_conflict": "The former 0x0d00..0x0fec candidate conflicts with the live protected-flight scatter at 0x0d00..0x0eff and its adjacent loader schedule beginning at 0x0f00.",
+      "naive_link_overflow_past_0x3400_bytes": 744,
+      "standalone_capture_callback_bytes": 748
+    },
+    "reason": "RFC 8879 negotiates only the compression algorithm, not a window or restricted command profile. Safe arbitrary Brotli needs the meta-block, block-switch, canonical Huffman, context-map, insert/copy/distance, history-window, and static-dictionary paths. The observed restricted stream is too weak a compatibility contract.",
+    "recommended_poc_path": "Omit certificate compression and use the checked streaming uncompressed parser as the parser/profile direction. This is not yet a K14 integration path: the 748-byte live callback cannot coexist below 0x3400 with the current 6,142-byte symmetric image and its 1,016-byte mutable K work at 0x3000..0x33f8. Only 8 bytes remain, and the naive aligned link overflows by 744 bytes. The former 0x0d00..0x0fec relocation conflicts with the live scatter/loader schedule. Treat a restricted Brotli decoder as a later optional optimization only after raw provider streams and target timing/code/workspace are gated.",
+    "target_brotli_decoder_implemented": false
+  },
+  "fixture": {
+    "brotli_cli": "brotli 1.2.0",
+    "certificate_body_bytes": 2491,
+    "certificate_body_sha256": "20f283d58de0351f0b652c14fb929e3b068ce416d1801be0226389d89372e982",
+    "raw_live_compressed_payload_retained": false,
+    "reencode_caveat": "The exact current decoded body was re-encoded with Brotli 1.2.0; the q6 length matches the live 1787-byte payload, but byte identity to that unretained live payload is not claimed."
+  },
+  "instrumented_q6_reencode_observation": {
+    "commands": 80,
+    "declared_max_backward_distance": 4080,
+    "encoded_window_bits": 12,
+    "homebrew_arm64_static_archive_reference": {
+      "comparability_caveat": "These are host compiler/archive sections, not an 8086 target-size estimate; they only expose the breadth of the general decoder and dictionary implementation.",
+      "libbrotlicommon_text_bytes_including_static_dictionary": 126985,
+      "libbrotlidec_text_bytes": 32292
+    },
+    "instrumented_stream_sha256": "0496000b2e07308b9a8dc82d3bc079a338c2c3d5ffd0c93c69adc7a058d50813",
+    "max_copy_length": 74,
+    "observed_max_backward_distance": 1705,
+    "official_decoder_allocations_bytes": [
+      5744,
+      1408,
+      12336,
+      1,
+      64,
+      4,
+      2536,
+      4328,
+      1768,
+      4638
+    ],
+    "official_decoder_peak_dynamic_bytes_arm64": 32827,
+    "official_decoder_ring_bytes": 4096,
+    "official_decoder_state_bytes_arm64": 5744,
+    "official_decoder_write_ahead_slack_bytes": 542,
+    "provenance": "One-off instrumentation of official google/brotli v1.2.0 source tarball SHA-256 816c96e8e8f193b40151dad7e8ff37b1221d019dbcb9c35cd3fadbfe6477dfec",
+    "restricted_stream_ring_conclusion": "A bytewise custom decoder with an explicit actual-distance cap would need a 2048-byte circular history for this re-encoded command stream. This is not a bound for a future server stream: the default stream advertises WBITS=12 and legally permits 4080.",
+    "static_dictionary_references": 0
+  },
+  "literal_8088_critical_delta": {
+    "component_delta": {
+      "CHAXOR": {
+        "seconds": 0.714,
+        "ticks": 13
+      },
+      "FLIGHT": {
+        "seconds": 2.4167,
+        "ticks": 44
+      },
+      "POLY": {
+        "seconds": 1.2633,
+        "ticks": 23
+      },
+      "SHAFLT": {
+        "seconds": 0.4394,
+        "ticks": 8
+      }
+    },
+    "compressed_fixed_plus_critical_hkdf_seconds": 8.3487,
+    "compressed_plus_candidate_seconds": 10.2491,
+    "extra_fixed_work_seconds": 2.4167,
+    "extra_fixed_work_ticks": 44,
+    "omitted_from_margin": [
+      "hybrid ServerHello transcript hashing",
+      "ML-KEM-768 decapsulation",
+      "TLS parsing and TCP work",
+      "client Finished record AEAD and transmit",
+      "Brotli decoding and certificate validation"
+    ],
+    "operation_delta": {
+      "chacha_blocks_including_otk": 10,
+      "poly1305_blocks": 43,
+      "sha256_blocks": 11
+    },
+    "provisional_mlkem_candidate_seconds": 1.9004,
+    "uncompressed_fixed_plus_critical_hkdf_seconds": 10.7654,
+    "uncompressed_margin_to_15s_before_other_omissions": 2.3342,
+    "uncompressed_plus_candidate_seconds": 12.6658
+  },
+  "schema": "seed-tls13-cert-parser-tradeoff-v1",
+  "scope": "host reconstruction plus existing literal 4.77 MHz 8088 timing; no VM run",
+  "status": "pass",
+  "wire": {
+    "client_hello_saving_bytes": 7,
+    "compressed_certificate_handshake_bytes": 1799,
+    "fixed_seed_client_hello_with_compression_bytes": 1376,
+    "fixed_seed_client_hello_without_compression_bytes": 1369,
+    "mss_384_chunks_compressed": 6,
+    "mss_384_chunks_uncompressed": 7,
+    "protected_record_delta_bytes": 696,
+    "protected_record_wire_bytes_compressed": 1945,
+    "protected_record_wire_bytes_uncompressed_projected": 2641,
+    "uncompressed_certificate_handshake_bytes": 2495
+  }
+}

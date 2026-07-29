@@ -1,0 +1,111 @@
+{
+  "coverage": {
+    "application_schedule": true,
+    "arbitrary_mss_chunk_stream_open": true,
+    "bad_tag_rejected": true,
+    "bounded_ticket_192": true,
+    "certificate_free_resumed_finished_flight": true,
+    "client_finished": true,
+    "client_finished_transcript_deferred_until_entry17": true,
+    "client_sequence_exhaustion_rejected_without_wrap": true,
+    "credential_free_head": true,
+    "critical_schedule": true,
+    "deferred_server_read_and_resumption_schedule": true,
+    "duplicate_ticket_validated_and_drained": true,
+    "entry17_before_entry9_and_duplicate_rejected": true,
+    "exact_k14_write_set_and_phase_space_sentinels": true,
+    "exact_return_ip_and_post_ret_sp": true,
+    "failed_resumed_import_preserves_finished_state": true,
+    "fresh_64_byte_hybrid_extract_on_resume": true,
+    "hello_handoff_consume_once": true,
+    "hello_handoff_replay_eliminated": true,
+    "hello_sha256_context_import": true,
+    "hkdf_block_descriptor_chacha_state_lifetime_alias": true,
+    "hostile_hello_handoff_no_partial_consume": true,
+    "nst_early_data_only_accepted": true,
+    "nst_empty_extensions_accepted": true,
+    "nst_live_early_data_then_zero_length_unknown_accepted": true,
+    "nst_malformed_extension_vectors_rejected": [
+      "bad second extension length",
+      "duplicate early_data extension",
+      "extra extension byte",
+      "truncated second extension",
+      "wrong early_data length",
+      "wrong early_data type"
+    ],
+    "overlong_ticket_lifetime_rejected": true,
+    "oversized_ticket_rejected": true,
+    "prepared_handshake_hmac_cache_restored_then_overwritten": true,
+    "psk_dhe_resumption_binder": true,
+    "raw_hmac_pad_prepared_state_hkdf_lifetime_alias": true,
+    "runtime_integration": false,
+    "rx_and_raw_mlkem_low_bands_preserved": true,
+    "server_finished": true,
+    "server_sequence_exhaustion_rejected_without_wrap": true,
+    "split_client_write_schedule": true,
+    "split_production_order_entry16_head_entry17": true,
+    "ticket_psk": true
+  },
+  "fixture": {
+    "client_hello_bytes": 1376,
+    "hello_handoff_bytes": 171,
+    "nst_live_extensions_hex": "002a0004000038003a3a0000",
+    "nst_message_bytes": 229,
+    "resumed_client_hello_bytes": 1621,
+    "resumed_flight_content_bytes": 42,
+    "resumed_server_hello_bytes": 1216,
+    "server_flight_content_bytes": 1925,
+    "server_flight_record_bytes": 1947,
+    "server_hello_bytes": 1210
+  },
+  "image_sha256": "3ba29e3246f69e56d53da8b389a22d9f3dc125ffef33c395ccb7e403720d1ff0",
+  "kind": "deterministic_unicorn_tls13_symmetric_overlay_gate",
+  "overlay": {
+    "bytes": 6142,
+    "free_after_mutable_work_bytes": 8,
+    "k_window_bytes": 7168,
+    "load_address": 6144,
+    "rounded_sectors": 12,
+    "shared_secret_bytes": 64,
+    "static_tail_bytes": 1026,
+    "variant": "K14"
+  },
+  "parameterized_32_byte_compatibility": {
+    "bytes": 6131,
+    "image_sha256": "26179120063637adaa7853aa34e25e431ff10ef7ccfdbe642b62bad92d2bc6ec",
+    "shared_secret_bytes": 32,
+    "status": "pass"
+  },
+  "return_contract": {
+    "calls_checked": 57,
+    "expected_post_ret_sp": 16368,
+    "expected_return_ip": 1280,
+    "public_entries_exercised": 19,
+    "public_entries_total": 19
+  },
+  "status": "pass",
+  "writable": {
+    "arena_slack_bytes": 530,
+    "high_end": 15406,
+    "high_span_bytes": 1582,
+    "high_start": 13824,
+    "k_work_bytes": 1016,
+    "k_work_end": 13304,
+    "k_work_start": 12288,
+    "phase_owned_reclaimed_space": {
+      "bytes": 512,
+      "controller_bytes": 272,
+      "end": 13824,
+      "free_tail_bytes": 163,
+      "reconnect_safe": false,
+      "runtime_bytes": 77,
+      "start": 13312,
+      "user_arena": false
+    },
+    "runtime_tail": {
+      "bytes": 77,
+      "end": 13661,
+      "start": 13584
+    }
+  }
+}

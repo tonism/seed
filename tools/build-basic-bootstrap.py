@@ -36,14 +36,21 @@ def hex_pair_lines(
         for offset in range(0, len(data), chunk_size)
     ]
     lines = [
-        f"10 CLEAR ,{clear_top}:DEF SEG=0:P={load_addr}",
-        f"20 FOR K=0 TO {len(chunks) - 1}:READ A$,N",
-        "30 FOR I=0 TO N-1:J=I*2+1",
-        '40 POKE P+I,VAL("&H"+MID$(A$,J,2))',
-        "50 NEXT I:P=P+N:NEXT K",
-        f"60 DEF USR0={load_addr}:A=USR0(0)",
+        f"10 CLEAR ,{clear_top}",
+        "20 DEF SEG=0",
+        f"30 P={load_addr}",
+        f"40 FOR K=0 TO {len(chunks) - 1}",
+        "50 READ A$,N",
+        "60 FOR I=0 TO N-1",
+        "70 J=I*2+1",
+        '80 POKE P+I,VAL("&H"+MID$(A$,J,2))',
+        "90 NEXT I",
+        "100 P=P+N",
+        "110 NEXT K",
+        f"120 DEF USR0={load_addr}",
+        "130 A=USR0(0)",
     ]
-    line_no = data_start_line
+    line_no = max(data_start_line, 200)
     for chunk in chunks:
         lines.append(f"{line_no} DATA {hex_pairs(chunk)},{len(chunk)}")
         line_no += 10
@@ -71,13 +78,19 @@ def build_basic(args: argparse.Namespace) -> None:
         )
     else:
         lines = [
+            f"10 CLEAR ,{args.clear_top}",
+            "20 DEF SEG=0",
             (
-                f"10 CLEAR ,{args.clear_top}:DEF SEG=0:"
-                f"FOR A={args.load_addr} TO {args.load_addr + len(data) - 1}:"
-                f"READ B:POKE A,B:NEXT:DEF USR0={args.load_addr}:A=USR0(0)"
-            )
+                f"30 FOR A={args.load_addr} "
+                f"TO {args.load_addr + len(data) - 1}"
+            ),
+            "40 READ B",
+            "50 POKE A,B",
+            "60 NEXT A",
+            f"70 DEF USR0={args.load_addr}",
+            "80 A=USR0(0)",
         ]
-        lines.extend(data_lines(data, 20, args.bytes_per_line))
+        lines.extend(data_lines(data, 100, args.bytes_per_line))
     args.output.write_bytes(("\r\n".join(lines) + "\r\n").encode("ascii"))
 
 

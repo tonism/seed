@@ -1,0 +1,1062 @@
+{
+  "schema": "seed-tls13-poc-k-window-repack-v2",
+  "scope": "mechanical address feasibility only; current sources are assembled but proposed addresses are not linked into the runtime",
+  "result": {
+    "K14": "feasible",
+    "K13": "infeasible-current-symmetric-split",
+    "recommended_first_target": "K14"
+  },
+  "fixed_product_bands": {
+    "low": "0x0700..0x1000",
+    "resident": "0x1000..0x1600",
+    "driver": "0x1600..0x1800",
+    "high_security": "0x3600..0x3c9c",
+    "reconnect": "0x3c9c..0x3de6",
+    "esc": "0x3de6..0x3e40",
+    "arena_context": "0x3e40..0x3f00",
+    "stack": "0x3f00..0x4000"
+  },
+  "assembled_snapshots": {
+    "keygen": {
+      "source": "tools/crypto-bench/tls13-poc/keygen_overlay.asm",
+      "source_sha256": "5b9b9c0cb40a1199886b5f81485fa179e4a85556da39c2bf5c83ac83986f566b",
+      "image_bytes": 2871,
+      "image_sha256": "fff0f837dd82881f1e398b3a871b862550594d6d75f49fc27e93ff0fdd2f67a4",
+      "image_start": "0x1800",
+      "image_end": "0x2337",
+      "sector_count": 6,
+      "symbols": {
+        "mlkem_keygen_overlay": "0x1800",
+        "image_end": "0x2337",
+        "poly_s": "0x3200",
+        "poly_acc": "0x3400",
+        "keygen_ek": "0x08c0",
+        "keygen_s_hat0": "0x3600",
+        "keygen_s_hat2": "0x3980",
+        "keygen_input": "0x3b9c",
+        "poc_hello_handoff_end": "0x0dab",
+        "poc_low_scratch_start": "0x0700",
+        "poc_low_scratch_end": "0x1000",
+        "poc_resident_start": "0x1000",
+        "poc_nic_driver_slot": "0x1600",
+        "poc_k_start": "0x1800",
+        "poc_k_end": "0x3600",
+        "poc_high_start": "0x3600",
+        "poc_high_end": "0x3b9c",
+        "poc_attempt_cache_start": "0x3b9c",
+        "poc_attempt_cache_end": "0x3c9c",
+        "poc_reconnect_state_start": "0x3c9c",
+        "poc_esc_handler_start": "0x3de6",
+        "poc_product_pool_start": "0x3e40",
+        "poc_arena_start": "0x3e40",
+        "poc_context_start": "0x3ea0",
+        "poc_stack_guard_start": "0x3f00",
+        "poc_ram_end": "0x4000"
+      }
+    },
+    "hello": {
+      "source": "tools/crypto-bench/tls13-poc/hello_overlay.asm",
+      "source_sha256": "107dd7aeb88c0b03aeed8a4a7f9b444b7f72a412fd9125eaa2cbb6b371d381ac",
+      "image_bytes": 4132,
+      "image_sha256": "dd83fa8212c5358f4e252bb1a03a1477ed810f23af633c461d0d7abf89080f1d",
+      "image_start": "0x1800",
+      "image_end": "0x2824",
+      "sector_count": 9,
+      "symbols": {
+        "hello_overlay_header": "0x1800",
+        "hello_image_end": "0x2824",
+        "hello_state_base": "0x3000",
+        "hello_state_end": "0x313d",
+        "poc_ticket_identity": "0x3200",
+        "poc_ticket_identity_end": "0x32c0",
+        "hello_sha_work_start": "0x32c0",
+        "hello_sha_work_end": "0x35b8",
+        "poc_hello_handoff_start": "0x0d00",
+        "poc_hello_handoff_end": "0x0dab",
+        "hello_attempt_used_end": "0x3c02"
+      }
+    },
+    "candidate": {
+      "source": "tools/crypto-bench/tls13-poc/mlkem_candidate_kernel.asm",
+      "source_sha256": "88f1e471c5cd5d4f3f08e49be71c2465de1f863ef0d8547d796a8b6a39c54f4f",
+      "image_bytes": 2113,
+      "image_sha256": "50abcc20442c3a601a6c2f5ad87d9cad1466efdf8eb2ac9718e94a4f76d23cd9",
+      "image_start": "0x1800",
+      "image_end": "0x2041",
+      "sector_count": 5,
+      "symbols": {
+        "mlkem_overlay_start": "0x1800",
+        "mlkem_overlay_end": "0x2041",
+        "mlkem_poly_u": "0x3200",
+        "mlkem_poly_acc": "0x3400",
+        "mlkem_keccak_state": "0x3600",
+        "mlkem_keccak_work_end": "0x37e8",
+        "mlkem_message": "0x3a40",
+        "mlkem_candidate_g": "0x3b9c",
+        "mlkem_candidate_z": "0x3bdc"
+      }
+    },
+    "symmetric": {
+      "source": "tools/crypto-bench/tls13-poc/tls13_sym_overlay.asm",
+      "source_sha256": "2593b0fd3d0395d42db88be22b79e4903666b422b4b9f67787a9d583663a2d6a",
+      "image_bytes": 6142,
+      "image_sha256": "57b47596fa914bfa7549f16a458a28354eebc8e79b8b02b052f3f2828069b4c7",
+      "image_start": "0x1800",
+      "image_end": "0x2ffe",
+      "sector_count": 12,
+      "symbols": {
+        "sym_overlay_header": "0x1800",
+        "sym_overlay_end": "0x2ffe",
+        "sym_k_work_base": "0x3000",
+        "sym_k_work_end": "0x33f8",
+        "hmac_prepared_inner_state": "0x3238",
+        "sym_low_runtime_clear_start": "0x33f8",
+        "sym_low_runtime_clear_end": "0x3445",
+        "sym_hello_context_end": "0x0dab",
+        "sym_high_state_base": "0x3600",
+        "sym_high_state_end": "0x3c2e"
+      }
+    },
+    "fo_tail": {
+      "source": "tools/crypto-bench/tls13-poc/fo_tail_kernel.asm",
+      "source_sha256": "5e4e3d1b457526d94c4fce05b8f744cbf4cf345b582a849c700138e8938d41f2",
+      "image_bytes": 2829,
+      "image_sha256": "f5a1d4b4db475bbae2ebb396d7ea75ab94d463f6258af6a29066eaf9f940f0f9",
+      "image_start": "0x1800",
+      "image_end": "0x230d",
+      "sector_count": 6,
+      "symbols": {
+        "fo_overlay_start": "0x1800",
+        "fo_overlay_end": "0x230d",
+        "fo_keccak_state": "0x3000",
+        "fo_keccak_work_end": "0x31e8",
+        "fo_poly_acc": "0x3400",
+        "fo_low_work_end": "0x0fd0",
+        "fo_message": "0x3a40",
+        "fo_candidate_k": "0x3b9c",
+        "fo_z": "0x3bdc"
+      }
+    },
+    "auth": {
+      "source": "tools/crypto-bench/tls13-poc/auth_p256_overlay.asm",
+      "source_sha256": "c2f3d6f39c4b0228923535508ee7bd36b538f9e42b96e846b7ee9fb2faca126b",
+      "image_bytes": 6632,
+      "image_sha256": "d5cc0fd75de871055cb3ccd378f5a58bd1443dfd7df6a93113b890926814f8bc",
+      "image_start": "0x1800",
+      "image_end": "0x31e8",
+      "sector_count": 13,
+      "symbols": {
+        "auth_overlay_table": "0x1800",
+        "auth_overlay_image_end": "0x31e8",
+        "auth_work_start": "0x0700",
+        "auth_work_end": "0x0fb6",
+        "auth_input_guard_lo": "0x3b9c",
+        "auth_input_end": "0x3c4f",
+        "auth_input_guard_hi": "0x3c94"
+      }
+    },
+    "entropy": {
+      "source": "tools/crypto-bench/tls13-poc/entropy_ratchet_overlay.asm",
+      "source_sha256": "81d30ef8ea380fc13fa61c8285eebb35557dd68503f081ce7a6e0dd29446f72f",
+      "image_bytes": 2076,
+      "image_sha256": "bfe13ec98e7e732bd2c8dece13ffdd4044f8b46a8d0916195bc75b9575de9d1a",
+      "image_start": "0x1800",
+      "image_end": "0x201c",
+      "sector_count": 5,
+      "symbols": {
+        "entropy_header": "0x1800",
+        "entropy_overlay_end": "0x201c",
+        "entropy_slot0": "0x0700",
+        "entropy_slot1": "0x0900",
+        "entropy_supplement": "0x0b00",
+        "entropy_timing_sample": "0x0b80",
+        "entropy_write_record": "0x0c00",
+        "entropy_readback": "0x0e00",
+        "entropy_high_start": "0x3600",
+        "entropy_high_end": "0x394c"
+      }
+    }
+  },
+  "windows": {
+    "K14": {
+      "feasible": true,
+      "range": "0x1800..0x3400",
+      "capacity_bytes": 7168,
+      "blockers": [],
+      "unmodified_overflow_bytes": {
+        "keygen": 512,
+        "hello": 440,
+        "candidate": 512,
+        "symmetric": 69,
+        "fo_tail": 512,
+        "auth": 0,
+        "entropy": 0
+      },
+      "phases": {
+        "keygen": {
+          "image_bytes": 2871,
+          "image_sectors": 6,
+          "k_used_bytes": 3895,
+          "k_free_total_bytes": 3273,
+          "k_top_margin_bytes": 0,
+          "low_top_margin_bytes": 672,
+          "regions": [
+            {
+              "name": "image",
+              "space": "K",
+              "start": "0x1800",
+              "end": "0x2337",
+              "bytes": 2871
+            },
+            {
+              "name": "poly_s",
+              "space": "K",
+              "start": "0x3000",
+              "end": "0x3200",
+              "bytes": 512,
+              "move": {
+                "from": "0x3200..0x3400",
+                "to": "0x3000..0x3200",
+                "delta": -512
+              }
+            },
+            {
+              "name": "poly_acc",
+              "space": "K",
+              "start": "0x3200",
+              "end": "0x3400",
+              "bytes": 512,
+              "move": {
+                "from": "0x3400..0x3600",
+                "to": "0x3200..0x3400",
+                "delta": -512
+              }
+            },
+            {
+              "name": "public_ek",
+              "space": "LOW",
+              "start": "0x08c0",
+              "end": "0x0d60",
+              "bytes": 1184
+            },
+            {
+              "name": "split_secret_output",
+              "space": "HIGH",
+              "start": "0x3600",
+              "end": "0x3b00",
+              "bytes": 1280
+            },
+            {
+              "name": "attempt_seed",
+              "space": "HIGH",
+              "start": "0x3b9c",
+              "end": "0x3bdc",
+              "bytes": 64
+            }
+          ]
+        },
+        "hello": {
+          "image_bytes": 4132,
+          "image_sectors": 9,
+          "k_used_bytes": 5084,
+          "k_free_total_bytes": 2084,
+          "k_top_margin_bytes": 72,
+          "low_top_margin_bytes": 259,
+          "regions": [
+            {
+              "name": "image",
+              "space": "K",
+              "start": "0x1800",
+              "end": "0x2824",
+              "bytes": 4132
+            },
+            {
+              "name": "state",
+              "space": "LOW",
+              "start": "0x0dc0",
+              "end": "0x0efd",
+              "bytes": 317,
+              "move": {
+                "from": "0x3000..0x313d",
+                "to": "0x0dc0..0x0efd",
+                "delta": -8768
+              }
+            },
+            {
+              "name": "ticket_identity",
+              "space": "K",
+              "start": "0x3000",
+              "end": "0x30c0",
+              "bytes": 192,
+              "move": {
+                "from": "0x3200..0x32c0",
+                "to": "0x3000..0x30c0",
+                "delta": -512
+              }
+            },
+            {
+              "name": "sha_hmac_work",
+              "space": "K",
+              "start": "0x30c0",
+              "end": "0x33b8",
+              "bytes": 760,
+              "move": {
+                "from": "0x32c0..0x35b8",
+                "to": "0x30c0..0x33b8",
+                "delta": -512
+              }
+            },
+            {
+              "name": "preserved_network_and_public_object",
+              "space": "LOW",
+              "start": "0x0700",
+              "end": "0x0d00",
+              "bytes": 1536
+            },
+            {
+              "name": "preserved_hello_handoff",
+              "space": "LOW",
+              "start": "0x0d00",
+              "end": "0x0dab",
+              "bytes": 171
+            },
+            {
+              "name": "attempt_inputs",
+              "space": "HIGH",
+              "start": "0x3b9c",
+              "end": "0x3c02",
+              "bytes": 102
+            }
+          ]
+        },
+        "candidate": {
+          "image_bytes": 2113,
+          "image_sectors": 5,
+          "k_used_bytes": 3137,
+          "k_free_total_bytes": 4031,
+          "k_top_margin_bytes": 0,
+          "low_top_margin_bytes": 768,
+          "regions": [
+            {
+              "name": "image",
+              "space": "K",
+              "start": "0x1800",
+              "end": "0x2041",
+              "bytes": 2113
+            },
+            {
+              "name": "decoded_u",
+              "space": "K",
+              "start": "0x3000",
+              "end": "0x3200",
+              "bytes": 512,
+              "move": {
+                "from": "0x3200..0x3400",
+                "to": "0x3000..0x3200",
+                "delta": -512
+              }
+            },
+            {
+              "name": "accumulator",
+              "space": "K",
+              "start": "0x3200",
+              "end": "0x3400",
+              "bytes": 512,
+              "move": {
+                "from": "0x3400..0x3600",
+                "to": "0x3200..0x3400",
+                "delta": -512
+              }
+            },
+            {
+              "name": "raw_ciphertext",
+              "space": "LOW",
+              "start": "0x08c0",
+              "end": "0x0d00",
+              "bytes": 1088
+            },
+            {
+              "name": "candidate_high_lifetime",
+              "space": "HIGH",
+              "start": "0x3600",
+              "end": "0x3bfc",
+              "bytes": 1532
+            }
+          ]
+        },
+        "symmetric": {
+          "image_bytes": 6142,
+          "image_sectors": 12,
+          "k_used_bytes": 7158,
+          "k_free_total_bytes": 10,
+          "k_top_margin_bytes": 8,
+          "low_top_margin_bytes": 499,
+          "regions": [
+            {
+              "name": "image",
+              "space": "K",
+              "start": "0x1800",
+              "end": "0x2ffe",
+              "bytes": 6142
+            },
+            {
+              "name": "k_primitive_work",
+              "space": "K",
+              "start": "0x3000",
+              "end": "0x33f8",
+              "bytes": 1016
+            },
+            {
+              "name": "runtime_tail",
+              "space": "LOW",
+              "start": "0x0dc0",
+              "end": "0x0e0d",
+              "bytes": 77,
+              "move": {
+                "from": "0x33f8..0x3445",
+                "to": "0x0dc0..0x0e0d",
+                "delta": -9784
+              }
+            },
+            {
+              "name": "preserved_rx_frame",
+              "space": "LOW",
+              "start": "0x0700",
+              "end": "0x08b7",
+              "bytes": 439
+            },
+            {
+              "name": "preserved_raw_ciphertext",
+              "space": "LOW",
+              "start": "0x08c0",
+              "end": "0x0d00",
+              "bytes": 1088
+            },
+            {
+              "name": "preserved_hello_handoff",
+              "space": "LOW",
+              "start": "0x0d00",
+              "end": "0x0dab",
+              "bytes": 171
+            },
+            {
+              "name": "retained_tls_state",
+              "space": "HIGH",
+              "start": "0x3600",
+              "end": "0x3c2e",
+              "bytes": 1582
+            }
+          ]
+        },
+        "fo_tail": {
+          "image_bytes": 2829,
+          "image_sectors": 6,
+          "k_used_bytes": 3829,
+          "k_free_total_bytes": 3339,
+          "k_top_margin_bytes": 0,
+          "low_top_margin_bytes": 48,
+          "regions": [
+            {
+              "name": "image",
+              "space": "K",
+              "start": "0x1800",
+              "end": "0x230d",
+              "bytes": 2829
+            },
+            {
+              "name": "keccak_work",
+              "space": "K",
+              "start": "0x3000",
+              "end": "0x31e8",
+              "bytes": 488,
+              "move": {
+                "from": "0x3000..0x31e8",
+                "to": "0x3000..0x31e8",
+                "delta": 0
+              }
+            },
+            {
+              "name": "accumulator",
+              "space": "K",
+              "start": "0x3200",
+              "end": "0x3400",
+              "bytes": 512,
+              "move": {
+                "from": "0x3400..0x3600",
+                "to": "0x3200..0x3400",
+                "delta": -512
+              }
+            },
+            {
+              "name": "offline_low_work",
+              "space": "LOW",
+              "start": "0x0700",
+              "end": "0x0fd0",
+              "bytes": 2256
+            },
+            {
+              "name": "retained_fo_state",
+              "space": "HIGH",
+              "start": "0x3600",
+              "end": "0x3bfc",
+              "bytes": 1532
+            }
+          ]
+        },
+        "auth": {
+          "image_bytes": 6632,
+          "image_sectors": 13,
+          "k_used_bytes": 6632,
+          "k_free_total_bytes": 536,
+          "k_top_margin_bytes": 536,
+          "low_top_margin_bytes": 74,
+          "regions": [
+            {
+              "name": "image",
+              "space": "K",
+              "start": "0x1800",
+              "end": "0x31e8",
+              "bytes": 6632
+            },
+            {
+              "name": "external_p256_work",
+              "space": "LOW",
+              "start": "0x0700",
+              "end": "0x0fb6",
+              "bytes": 2230
+            },
+            {
+              "name": "quarantined_input",
+              "space": "HIGH",
+              "start": "0x3b9c",
+              "end": "0x3c4f",
+              "bytes": 179
+            }
+          ]
+        },
+        "entropy": {
+          "image_bytes": 2076,
+          "image_sectors": 5,
+          "k_used_bytes": 2076,
+          "k_free_total_bytes": 5092,
+          "k_top_margin_bytes": 5092,
+          "low_top_margin_bytes": 0,
+          "regions": [
+            {
+              "name": "image",
+              "space": "K",
+              "start": "0x1800",
+              "end": "0x201c",
+              "bytes": 2076
+            },
+            {
+              "name": "slot0",
+              "space": "LOW",
+              "start": "0x0700",
+              "end": "0x0900",
+              "bytes": 512
+            },
+            {
+              "name": "slot1",
+              "space": "LOW",
+              "start": "0x0900",
+              "end": "0x0b00",
+              "bytes": 512
+            },
+            {
+              "name": "supplement",
+              "space": "LOW",
+              "start": "0x0b00",
+              "end": "0x0b60",
+              "bytes": 96
+            },
+            {
+              "name": "timing_sample",
+              "space": "LOW",
+              "start": "0x0b80",
+              "end": "0x0b8c",
+              "bytes": 12
+            },
+            {
+              "name": "write_record",
+              "space": "LOW",
+              "start": "0x0c00",
+              "end": "0x0e00",
+              "bytes": 512
+            },
+            {
+              "name": "readback",
+              "space": "LOW",
+              "start": "0x0e00",
+              "end": "0x1000",
+              "bytes": 512
+            },
+            {
+              "name": "ratchet_state",
+              "space": "HIGH",
+              "start": "0x3600",
+              "end": "0x394c",
+              "bytes": 844
+            }
+          ]
+        }
+      }
+    },
+    "K13": {
+      "feasible": false,
+      "range": "0x1800..0x3200",
+      "capacity_bytes": 6656,
+      "blockers": [
+        {
+          "kind": "range_exceeds_space",
+          "phase": "symmetric",
+          "region": "k_primitive_work",
+          "range": "0x3000..0x3238",
+          "space": "K",
+          "space_range": "0x1800..0x3200",
+          "underflow_bytes": 0,
+          "overflow_bytes": 56
+        }
+      ],
+      "unmodified_overflow_bytes": {
+        "keygen": 1024,
+        "hello": 952,
+        "candidate": 1024,
+        "symmetric": 581,
+        "fo_tail": 1024,
+        "auth": 0,
+        "entropy": 0
+      },
+      "phases": {
+        "keygen": {
+          "image_bytes": 2871,
+          "image_sectors": 6,
+          "k_used_bytes": 3895,
+          "k_free_total_bytes": 2761,
+          "k_top_margin_bytes": 0,
+          "low_top_margin_bytes": 672,
+          "regions": [
+            {
+              "name": "image",
+              "space": "K",
+              "start": "0x1800",
+              "end": "0x2337",
+              "bytes": 2871
+            },
+            {
+              "name": "poly_s",
+              "space": "K",
+              "start": "0x2e00",
+              "end": "0x3000",
+              "bytes": 512,
+              "move": {
+                "from": "0x3200..0x3400",
+                "to": "0x2e00..0x3000",
+                "delta": -1024
+              }
+            },
+            {
+              "name": "poly_acc",
+              "space": "K",
+              "start": "0x3000",
+              "end": "0x3200",
+              "bytes": 512,
+              "move": {
+                "from": "0x3400..0x3600",
+                "to": "0x3000..0x3200",
+                "delta": -1024
+              }
+            },
+            {
+              "name": "public_ek",
+              "space": "LOW",
+              "start": "0x08c0",
+              "end": "0x0d60",
+              "bytes": 1184
+            },
+            {
+              "name": "split_secret_output",
+              "space": "HIGH",
+              "start": "0x3600",
+              "end": "0x3b00",
+              "bytes": 1280
+            },
+            {
+              "name": "attempt_seed",
+              "space": "HIGH",
+              "start": "0x3b9c",
+              "end": "0x3bdc",
+              "bytes": 64
+            }
+          ]
+        },
+        "hello": {
+          "image_bytes": 4132,
+          "image_sectors": 9,
+          "k_used_bytes": 5084,
+          "k_free_total_bytes": 1572,
+          "k_top_margin_bytes": 72,
+          "low_top_margin_bytes": 259,
+          "regions": [
+            {
+              "name": "image",
+              "space": "K",
+              "start": "0x1800",
+              "end": "0x2824",
+              "bytes": 4132
+            },
+            {
+              "name": "state",
+              "space": "LOW",
+              "start": "0x0dc0",
+              "end": "0x0efd",
+              "bytes": 317,
+              "move": {
+                "from": "0x3000..0x313d",
+                "to": "0x0dc0..0x0efd",
+                "delta": -8768
+              }
+            },
+            {
+              "name": "ticket_identity",
+              "space": "K",
+              "start": "0x2e00",
+              "end": "0x2ec0",
+              "bytes": 192,
+              "move": {
+                "from": "0x3200..0x32c0",
+                "to": "0x2e00..0x2ec0",
+                "delta": -1024
+              }
+            },
+            {
+              "name": "sha_hmac_work",
+              "space": "K",
+              "start": "0x2ec0",
+              "end": "0x31b8",
+              "bytes": 760,
+              "move": {
+                "from": "0x32c0..0x35b8",
+                "to": "0x2ec0..0x31b8",
+                "delta": -1024
+              }
+            },
+            {
+              "name": "preserved_network_and_public_object",
+              "space": "LOW",
+              "start": "0x0700",
+              "end": "0x0d00",
+              "bytes": 1536
+            },
+            {
+              "name": "preserved_hello_handoff",
+              "space": "LOW",
+              "start": "0x0d00",
+              "end": "0x0dab",
+              "bytes": 171
+            },
+            {
+              "name": "attempt_inputs",
+              "space": "HIGH",
+              "start": "0x3b9c",
+              "end": "0x3c02",
+              "bytes": 102
+            }
+          ]
+        },
+        "candidate": {
+          "image_bytes": 2113,
+          "image_sectors": 5,
+          "k_used_bytes": 3137,
+          "k_free_total_bytes": 3519,
+          "k_top_margin_bytes": 0,
+          "low_top_margin_bytes": 768,
+          "regions": [
+            {
+              "name": "image",
+              "space": "K",
+              "start": "0x1800",
+              "end": "0x2041",
+              "bytes": 2113
+            },
+            {
+              "name": "decoded_u",
+              "space": "K",
+              "start": "0x2e00",
+              "end": "0x3000",
+              "bytes": 512,
+              "move": {
+                "from": "0x3200..0x3400",
+                "to": "0x2e00..0x3000",
+                "delta": -1024
+              }
+            },
+            {
+              "name": "accumulator",
+              "space": "K",
+              "start": "0x3000",
+              "end": "0x3200",
+              "bytes": 512,
+              "move": {
+                "from": "0x3400..0x3600",
+                "to": "0x3000..0x3200",
+                "delta": -1024
+              }
+            },
+            {
+              "name": "raw_ciphertext",
+              "space": "LOW",
+              "start": "0x08c0",
+              "end": "0x0d00",
+              "bytes": 1088
+            },
+            {
+              "name": "candidate_high_lifetime",
+              "space": "HIGH",
+              "start": "0x3600",
+              "end": "0x3bfc",
+              "bytes": 1532
+            }
+          ]
+        },
+        "symmetric": {
+          "image_bytes": 6142,
+          "image_sectors": 12,
+          "k_used_bytes": 6710,
+          "k_free_total_bytes": -54,
+          "k_top_margin_bytes": -56,
+          "low_top_margin_bytes": 51,
+          "regions": [
+            {
+              "name": "image",
+              "space": "K",
+              "start": "0x1800",
+              "end": "0x2ffe",
+              "bytes": 6142
+            },
+            {
+              "name": "k_primitive_work",
+              "space": "K",
+              "start": "0x3000",
+              "end": "0x3238",
+              "bytes": 568
+            },
+            {
+              "name": "prepared_hmac_aead_runtime_tail",
+              "space": "LOW",
+              "start": "0x0dc0",
+              "end": "0x0fcd",
+              "bytes": 525,
+              "move": {
+                "from": "0x3238..0x3445",
+                "to": "0x0dc0..0x0fcd",
+                "delta": -9336
+              }
+            },
+            {
+              "name": "preserved_rx_frame",
+              "space": "LOW",
+              "start": "0x0700",
+              "end": "0x08b7",
+              "bytes": 439
+            },
+            {
+              "name": "preserved_raw_ciphertext",
+              "space": "LOW",
+              "start": "0x08c0",
+              "end": "0x0d00",
+              "bytes": 1088
+            },
+            {
+              "name": "preserved_hello_handoff",
+              "space": "LOW",
+              "start": "0x0d00",
+              "end": "0x0dab",
+              "bytes": 171
+            },
+            {
+              "name": "retained_tls_state",
+              "space": "HIGH",
+              "start": "0x3600",
+              "end": "0x3c2e",
+              "bytes": 1582
+            }
+          ]
+        },
+        "fo_tail": {
+          "image_bytes": 2829,
+          "image_sectors": 6,
+          "k_used_bytes": 3829,
+          "k_free_total_bytes": 2827,
+          "k_top_margin_bytes": 0,
+          "low_top_margin_bytes": 48,
+          "regions": [
+            {
+              "name": "image",
+              "space": "K",
+              "start": "0x1800",
+              "end": "0x230d",
+              "bytes": 2829
+            },
+            {
+              "name": "keccak_work",
+              "space": "K",
+              "start": "0x2e00",
+              "end": "0x2fe8",
+              "bytes": 488,
+              "move": {
+                "from": "0x3000..0x31e8",
+                "to": "0x2e00..0x2fe8",
+                "delta": -512
+              }
+            },
+            {
+              "name": "accumulator",
+              "space": "K",
+              "start": "0x3000",
+              "end": "0x3200",
+              "bytes": 512,
+              "move": {
+                "from": "0x3400..0x3600",
+                "to": "0x3000..0x3200",
+                "delta": -1024
+              }
+            },
+            {
+              "name": "offline_low_work",
+              "space": "LOW",
+              "start": "0x0700",
+              "end": "0x0fd0",
+              "bytes": 2256
+            },
+            {
+              "name": "retained_fo_state",
+              "space": "HIGH",
+              "start": "0x3600",
+              "end": "0x3bfc",
+              "bytes": 1532
+            }
+          ]
+        },
+        "auth": {
+          "image_bytes": 6632,
+          "image_sectors": 13,
+          "k_used_bytes": 6632,
+          "k_free_total_bytes": 24,
+          "k_top_margin_bytes": 24,
+          "low_top_margin_bytes": 74,
+          "regions": [
+            {
+              "name": "image",
+              "space": "K",
+              "start": "0x1800",
+              "end": "0x31e8",
+              "bytes": 6632
+            },
+            {
+              "name": "external_p256_work",
+              "space": "LOW",
+              "start": "0x0700",
+              "end": "0x0fb6",
+              "bytes": 2230
+            },
+            {
+              "name": "quarantined_input",
+              "space": "HIGH",
+              "start": "0x3b9c",
+              "end": "0x3c4f",
+              "bytes": 179
+            }
+          ]
+        },
+        "entropy": {
+          "image_bytes": 2076,
+          "image_sectors": 5,
+          "k_used_bytes": 2076,
+          "k_free_total_bytes": 4580,
+          "k_top_margin_bytes": 4580,
+          "low_top_margin_bytes": 0,
+          "regions": [
+            {
+              "name": "image",
+              "space": "K",
+              "start": "0x1800",
+              "end": "0x201c",
+              "bytes": 2076
+            },
+            {
+              "name": "slot0",
+              "space": "LOW",
+              "start": "0x0700",
+              "end": "0x0900",
+              "bytes": 512
+            },
+            {
+              "name": "slot1",
+              "space": "LOW",
+              "start": "0x0900",
+              "end": "0x0b00",
+              "bytes": 512
+            },
+            {
+              "name": "supplement",
+              "space": "LOW",
+              "start": "0x0b00",
+              "end": "0x0b60",
+              "bytes": 96
+            },
+            {
+              "name": "timing_sample",
+              "space": "LOW",
+              "start": "0x0b80",
+              "end": "0x0b8c",
+              "bytes": 12
+            },
+            {
+              "name": "write_record",
+              "space": "LOW",
+              "start": "0x0c00",
+              "end": "0x0e00",
+              "bytes": 512
+            },
+            {
+              "name": "readback",
+              "space": "LOW",
+              "start": "0x0e00",
+              "end": "0x1000",
+              "bytes": 512
+            },
+            {
+              "name": "ratchet_state",
+              "space": "HIGH",
+              "start": "0x3600",
+              "end": "0x394c",
+              "bytes": 844
+            }
+          ]
+        }
+      }
+    }
+  },
+  "hard_dependencies": {
+    "slim_auth_image_bytes": 6632,
+    "slim_auth_sector_count": 13,
+    "p256_external_work_source": "targets/ibm_pc_5150/boot/core/p256.inc",
+    "p256_external_work_source_sha256": "af65512f541fa68eb9595e513d35e8f7ae1985b86995772bbd9586806817a9d6",
+    "auth_K13_raw_margin_bytes": 24,
+    "K13_symmetric_k_margin_bytes": -56,
+    "K13_symmetric_low_margin_bytes": 51
+  },
+  "gate_canaries": {
+    "overlap_rejected": true,
+    "unexpected_range_blocker_rejected": true,
+    "exact_K13_blocker_recorded": true,
+    "protected_bands_unchanged": true,
+    "current_images_assembled_with_cpu_8086": true
+  },
+  "provenance": {
+    "checker": "tools/crypto-bench/tls13-poc/k_window_repack_gate.py",
+    "checker_sha256": "8f1c724380dc2096e15cef01df3a1ba5ff6dbf894902526a16f04965629ab4b0",
+    "nasm": "NASM version 3.01 compiled on Oct 11 2025"
+  }
+}

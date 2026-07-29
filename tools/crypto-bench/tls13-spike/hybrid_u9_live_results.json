@@ -1,0 +1,63 @@
+{
+  "date": "2026-07-25",
+  "target": "api.openai.com:443",
+  "profile": {
+    "protocol": "TLSv1.3",
+    "cipher_suite": "TLS_CHACHA20_POLY1305_SHA256",
+    "wire_group": "X25519MLKEM768",
+    "signature_algorithm": "ecdsa_secp256r1_sha256",
+    "certificate_compression": "brotli",
+    "mlkem_operation": "standard ML-KEM-768 key generation and decapsulation",
+    "x25519_client_share": "canonical u=9",
+    "x25519_client_shared_value": "copied 32-byte server X25519 public share",
+    "standards_conforming_hybrid": false,
+    "effective_secrecy": "ML-KEM-only"
+  },
+  "wire": {
+    "client_hello_handshake_bytes": 1376,
+    "server_hello_handshake_bytes": 1210,
+    "protected_server_record_wire_bytes": 1947,
+    "protected_server_messages": [
+      {
+        "type": "EncryptedExtensions",
+        "handshake_bytes": 10
+      },
+      {
+        "type": "CompressedCertificate",
+        "handshake_bytes": 1799
+      },
+      {
+        "type": "CertificateVerify",
+        "handshake_bytes": 80
+      },
+      {
+        "type": "Finished",
+        "handshake_bytes": 36
+      }
+    ],
+    "client_finished_record_wire_bytes": 58
+  },
+  "proofs": {
+    "server_flight_aead_verified": true,
+    "server_finished_verified": true,
+    "client_finished_sent": true,
+    "new_session_ticket_received": true,
+    "application_data_sent": false,
+    "credentials_sent": false
+  },
+  "ticket": {
+    "identity_bytes": 192,
+    "nonce_bytes": 1,
+    "resumption_psk_bytes": 32,
+    "lifetime_seconds": 64800,
+    "max_early_data": 14336,
+    "seconds_after_client_finished": 14.982
+  },
+  "elapsed_seconds": 15.103,
+  "conclusion": {
+    "wire_complete": true,
+    "server_hello_only_probe": false,
+    "usable_as_standards_conforming_x25519mlkem768": false,
+    "note": "The algebra matches today's server because X25519(server_scalar, 9) is the returned server public share. The client deliberately omits the genuine X25519 scalar multiplication required by the hybrid-group draft."
+  }
+}

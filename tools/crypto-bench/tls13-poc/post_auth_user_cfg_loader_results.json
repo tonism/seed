@@ -1,0 +1,106 @@
+{
+  "status": "PASS",
+  "profile": "cpu-8086 fixed read-only post-auth USER.CFG loader",
+  "layout": {
+    "loader_bytes": 807,
+    "loader_slot": "0x0520..0x0900",
+    "loader_headroom_bytes": 185,
+    "send_callback": "0x0500",
+    "raw_sector": "0x0e00..0x1000",
+    "temporary_fields": "0x1c00..0x1d06",
+    "publication": "0x0d00..0x0e18"
+  },
+  "builder_resolved_fixture": {
+    "absolute_lba": 12,
+    "file_size": 141,
+    "cluster_count": 1,
+    "chs": [
+      1,
+      0,
+      5
+    ],
+    "geometry": [
+      8,
+      1
+    ]
+  },
+  "success_cases": [
+    "live_relocated_0x0900",
+    "lf_openai",
+    "crlf_openai",
+    "agent_absent",
+    "line_order",
+    "max_key_model",
+    "exact_512_bytes",
+    "transient_read_retry"
+  ],
+  "hostile_cases": [
+    "wrong_agent",
+    "duplicate_model",
+    "duplicate_key",
+    "duplicate_agent",
+    "overlength_model",
+    "overlength_key",
+    "empty_model",
+    "empty_key",
+    "missing_model",
+    "missing_key",
+    "missing_final_newline",
+    "bare_cr",
+    "embedded_nul",
+    "embedded_control",
+    "initial_authorization_failure",
+    "wrapper_reauthorization_failure",
+    "permanent_read_failure",
+    "multi_cluster_descriptor",
+    "size_over_sector",
+    "zero_size",
+    "unsupported_int13_operation"
+  ],
+  "static_gate": {
+    "decoded_instructions": 332,
+    "interrupts": [
+      "0x13"
+    ],
+    "full_authorize_call_site": "0x1500",
+    "indirect_calls": 0
+  },
+  "live_relocated_gate": {
+    "decoded_instructions": 332,
+    "interrupts": [
+      "0x13"
+    ],
+    "full_authorize_call_site": "0x1500",
+    "indirect_calls": 0,
+    "entry": "0x0900",
+    "slot": "0x0900..0x0d00",
+    "executes_byte_exact_pak1": true
+  },
+  "integrated_request": {
+    "sealed_records": 2,
+    "fragment_lengths": [
+      224,
+      36
+    ],
+    "plaintext_bytes": 260,
+    "fixed_loader_arguments_zero": true,
+    "credential_absent_after_send": true
+  },
+  "policy": {
+    "fixed_full_authorize_before_io": true,
+    "checked_int13_operations": [
+      "reset",
+      "one_sector_read"
+    ],
+    "builder_resolved_single_sector_only": true,
+    "fixed_openai_route": true,
+    "status_last_publication": true,
+    "failure_scrub": true,
+    "durable_issuer_0x3600_0x3673_preserved": true,
+    "real_user_config_opened": false
+  },
+  "sha256": {
+    "loader": "3d5ad0d42922f37d53f51fc3f4686df0ad68944e276c9becefa03c309ec0398b",
+    "source": "cfa9e8ed90e61585c19e61a9e5c8c174f8517e3ebb727e6f3667382add89be7f"
+  }
+}

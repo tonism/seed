@@ -1,0 +1,99 @@
+{
+  "schema": "seed-tls13-integrated-live-results-v1",
+  "recorded_at_utc": "2026-07-25T14:28:03Z",
+  "baseline_commit": "548053dfcdfc19b12130ce418ed24f7670c45750",
+  "branch": "codex/build-13-tls13-rearchitecture-spike",
+  "command": "python3 tools/crypto-bench/tls13-spike/tls13_integrated_live.py --live --timeout 35",
+  "target": "api.openai.com:443",
+  "result": {
+    "passed": true,
+    "provider_sla": false,
+    "feeds_deterministic_acceptance_gate": false,
+    "elapsed_seconds": 0.414
+  },
+  "execution_provenance": {
+    "host_os": "Darwin 25.3.0 arm64",
+    "host_python": "3.11.9",
+    "host_openssl": "OpenSSL 3.6.2 7 Apr 2026",
+    "host_brotli": "1.2.0",
+    "seed_8088_target_code_executed": false,
+    "tls_state_machine": "host Python research model",
+    "mlkem_decapsulation": "host OpenSSL subprocess using standards-complete decapsulation before Client Finished",
+    "certificate_path_and_certificate_verify": "host OpenSSL subprocess",
+    "certificate_decompression": "host brotli subprocess",
+    "live_transport_identity_authentication": "performed entirely by host OpenSSL/tools and the host reference model, not by Seed 8088 target code",
+    "openai_api_authentication_attempted": false,
+    "api_credential_loaded": false,
+    "real_api_request_sent": false
+  },
+  "source_sha256": {
+    "tools/crypto-bench/tls13-spike/tls13_integrated_live.py": "eebfd1983eeb402d7af0841d22aabcad721f2ec2c9cf6a0b9415eb3db29c6022",
+    "tools/crypto-bench/tls13-spike/tls13_integrated_oracle.py": "945e766d1b16c337497e016d2e550783adae05b7eee45554e12b2db676342178",
+    "tools/crypto-bench/tls13-spike/tls13_spike.py": "509fc0cb024cbd253811ff474c5c9a7044677ba849534a43651ee607429fa25e",
+    "tools/crypto-bench/tls13-spike/tls13_hybrid_u9_probe.py": "834157042799ae2e6bbbe299da034ebdfc2a161cc3915666ad88078e7214c940",
+    "tools/x509/certs/ecdsa_live_chain.pem": "fae131c1d4525a6b3f7b7e583435dae2bc6a9c435a29b9d171c63d276a4650b9",
+    "tools/crypto-bench/tls13-spike/hybrid_u9_live_results.json": "6d8da56d00d2e9b6897c5f8b9f00213fbd207abff79d437c19a10d0974120546",
+    "tools/crypto-bench/tls13-spike/post_finished_dialogue_results.json": "66897eeaea35b42e3daaf4904b09bdcc53552dd5278a8d08aa93be6213d31700"
+  },
+  "wire_profile": {
+    "protocol": "TLSv1.3",
+    "cipher": "TLS_CHACHA20_POLY1305_SHA256",
+    "group": "X25519MLKEM768",
+    "x25519_client_share": "fixed u=9",
+    "effective_secrecy": "ML-KEM-only research profile",
+    "provisional_pre_fo_split_exercised": false
+  },
+  "geometry": {
+    "client_hello_handshake_bytes": 1376,
+    "server_hello_handshake_bytes": 1210,
+    "protected_server_record_wire_bytes": 1946,
+    "protected_server_message_bytes": [
+      10,
+      1799,
+      79,
+      36
+    ],
+    "strict_p256_signature_der_bytes": 71,
+    "client_finished_record_wire_bytes": 58,
+    "head_plaintext_bytes": 74,
+    "server_application_records_consumed": 2,
+    "new_session_tickets_drained": 2
+  },
+  "proofs": {
+    "complete_server_record_aead_before_parse": true,
+    "server_finished_before_client_finished": true,
+    "exactly_one_literal_head_outstanding": true,
+    "head_response_aead_and_bounded_drain": true,
+    "leaf_under_we1_hostname_and_host_time": true,
+    "certificate_verify": true,
+    "tentative_first_ticket_promoted_after_identity": true,
+    "ticket_requires_psk_dhe": true,
+    "ticket_permits_early_data": false,
+    "atomic_host_commit_reached": true
+  },
+  "identity": {
+    "certificate_body_bytes": 2491,
+    "certificate_entries": 3,
+    "leaf_der_bytes": 903,
+    "leaf_spki_sha256": "244339974d38f7ddbbec30b6b4719e70859f225d7df6c1f80aa33fd30d1b1ec0",
+    "certificate_verify_transcript_sha256": "39006ef4f5db3937d5493708e29e3dc5d868e59cb5e15c07f0cc75fac07a71b0"
+  },
+  "ticket": {
+    "received": true,
+    "tentative_until_identity_proof": true,
+    "promoted": true,
+    "identity_bytes": 192,
+    "nonce_bytes": 1,
+    "psk_bytes": 32,
+    "lifetime_seconds": 64800,
+    "requires_psk_dhe": true,
+    "permits_early_data": false,
+    "required_for_live_commit": false
+  },
+  "limitations": [
+    "This is a current provider observation, not a provider contract or deterministic acceptance gate.",
+    "Host OpenSSL completed full ML-KEM decapsulation before Client Finished, so this run does not validate provisional pre-FO target execution.",
+    "Host WE1/name/time validation does not supply an IBM PC 5150 trusted-time policy.",
+    "No Seed 8088 product code, 16 KiB target, timing path, API credential, or real OpenAI API request was exercised."
+  ]
+}

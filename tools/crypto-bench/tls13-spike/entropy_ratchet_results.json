@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "scope": "two-slot self-contained attempt-seed ratchet crash oracle; not product persistence code",
+  "source": "tools/crypto-bench/tls13-spike/entropy_ratchet_oracle.py",
+  "source_sha256": "b017a0ff86ee231f15b1ff711019ecad1c6e53e9f0853c290df0926b3477edde",
+  "command": "python3 tools/crypto-bench/tls13-spike/entropy_ratchet_oracle.py --json",
+  "status": "PASS",
+  "sector_bytes": 512,
+  "slots": 2,
+  "record_digest": "SHA3-256",
+  "prefix_torn_write_cases": 513,
+  "post_write_boundary_cases": 3,
+  "crash_cases_examined": 516,
+  "successful_sequence_attempts": 4096,
+  "single_byte_corruptions_rejected": 512,
+  "guarantee": "No deterministic attempt-seed reuse after a prefix-torn write or crash at the modeled commit/emission boundaries, provided the latest valid floppy state is not copied or rolled back.",
+  "not_established": [
+    "active mutable-media authenticity",
+    "copied or rolled-back floppy safety",
+    "arbitrary analog sector-failure distributions",
+    "human timing entropy credit",
+    "write-protected cold-boot freshness",
+    "product FAT allocation or BIOS write implementation"
+  ]
+}

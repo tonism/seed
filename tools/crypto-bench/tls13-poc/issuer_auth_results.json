@@ -1,0 +1,111 @@
+{
+  "schema": "seed-tls13-poc-issuer-auth-v1",
+  "scope": "isolated two-pass WE1-authorized leaf and TLS CertificateVerify overlay; separate strict uncompressed target parser exists but is not live-linked; no target Brotli decoder",
+  "provenance": {
+    "source": "tools/crypto-bench/tls13-poc/issuer_auth_overlay.asm",
+    "source_sha256": "cc8e1d2e8a30f4714386f10f2a88e9d7f56f03e4acdeb0bfda2da7b2e939b4c1",
+    "checker": "tools/crypto-bench/tls13-poc/issuer_auth_check.py",
+    "checker_sha256": "1a32d61bb0d8a57a13575c56a5459dfeba8b5c1aa6fae4c5ed1c20cc3a3c0e08",
+    "layout": "tools/crypto-bench/tls13-poc/layout.inc",
+    "layout_sha256": "403713dc0e3062559ddbad249ce9b84e30c26ce700ff6772c6f6cf56134f272d",
+    "symmetric_source": "tools/crypto-bench/tls13-poc/tls13_sym_overlay.asm",
+    "symmetric_source_sha256": "dafa985222d026459156835e5662313cb4d59fb154f1d10ce754ef819282f0a7",
+    "p256_source": "targets/ibm_pc_5150/boot/core/p256.inc",
+    "p256_source_sha256": "af65512f541fa68eb9595e513d35e8f7ae1985b86995772bbd9586806817a9d6",
+    "live_leaf": "tools/crypto-bench/tls13-poc/issuer_auth_live_leaf.pem",
+    "live_leaf_sha256": "bb3e0033320e94d3c8768b43882d8c3762a901d3e743c3e795d3d869beb9227c",
+    "live_vector": "tools/crypto-bench/tls13-poc/issuer_auth_live_vector.json",
+    "live_vector_sha256": "c1193e5cab166cb019d0a5e073c630405b4f11097230255c6e38b4d9955ca7e0",
+    "image_sha256": "1b07dfd5eb5a13777ba6697f65b0293c333b75b68dc74a501e0848310807ff21",
+    "nasm_cpu": "8086"
+  },
+  "layout": {
+    "load_address": "0x1800",
+    "content_bytes": 7134,
+    "sector_count": 14,
+    "sector_rounded_bytes": 7168,
+    "k_capacity_bytes": 7680,
+    "k_free_bytes": 546,
+    "low_work": {
+      "start": "0x700",
+      "end": "0xfba",
+      "bytes": 2234,
+      "tail_bytes": 70
+    },
+    "authenticated_handoff": {
+      "start": "0x3600",
+      "end": "0x3672",
+      "bytes": 114
+    },
+    "input_abi": {
+      "start": "0x3ba4",
+      "end": "0x3c53",
+      "bytes": 175
+    },
+    "live_retained_symmetric_state_collision": {
+      "retained_state_start": "0x3b40",
+      "retained_state_end": "0x3c2e",
+      "overlap_start": "0x3ba4",
+      "overlap_end": "0x3c2e",
+      "overlap_bytes": 138,
+      "ordering_or_relocation_proven": false
+    },
+    "stack_high_water_bytes": 78
+  },
+  "immutable_anchor": {
+    "name": "Google Trust Services WE1",
+    "source": "second certificate in tools/x509/certs/ecdsa_live_chain.pem",
+    "spki_sha256": "908769e8d34477cc2cba0632c88605b22d7294c0840f78596d247c645b1afc0e",
+    "point_on_curve": true,
+    "target_bytes_match": true
+  },
+  "dated_live_vector": {
+    "captured_utc": "2026-07-25T20:10:59.839388+00:00",
+    "target": "api.openai.com:443",
+    "credential_sent": false,
+    "leaf_spki_sha256": "244339974d38f7ddbbec30b6b4719e70859f225d7df6c1f80aa33fd30d1b1ec0",
+    "leaf_tbs_sha256": "19426cac2ffe9cecb34d51f75d7d1e92733abadb36cf93815f60c20716b9d026",
+    "leaf_we1_hostname_time_purpose_host_gate": true,
+    "certificate_verify_host_gate": true,
+    "provider_sla": false
+  },
+  "target_gates": {
+    "real_live_leaf_signature_under_we1": true,
+    "real_live_certificate_verify_under_committed_leaf": true,
+    "phase_reload_between_passes": true,
+    "low_work_poisoned_between_passes": true,
+    "untrusted_cv_point_ignored": true,
+    "cv_before_issuer_rejected": true,
+    "wrong_profile_rejected": true,
+    "zero_or_stale_generation_rejected": true,
+    "strict_der_and_scalar_ranges": true,
+    "coordinate_ranges_and_curve_equation": true,
+    "wrong_issuer_signature_rejected_without_commit": true,
+    "torn_commit_rejected": true,
+    "wrong_certificate_verify_rejected_and_commit_cleared": true,
+    "clear_zeroization": true,
+    "exact_return_ip_sp_and_return_word": true
+  },
+  "sentinels": {
+    "executable_and_immutable_data": "unchanged",
+    "k_tail": "unchanged",
+    "resident_nucleus_and_driver": "unchanged",
+    "unused_high_vault": "unchanged",
+    "reconnect_esc_arena_context": "unchanged",
+    "low_scratch_tail": "unchanged",
+    "input_guards": "unchanged"
+  },
+  "input_abi_contract": {
+    "pass_1": "trusted bounded parser supplies exact-profile bitmap, attempt generation, SHA-256(TBSCertificate), strict DER certificate signature, and candidate uncompressed P-256 point",
+    "pass_2": "TLS parser supplies exact CV profile bitmap, same generation, TLS 1.3 CertificateVerify signed-input digest and strict DER signature; point-shaped input bytes are ignored"
+  },
+  "limitations": [
+    "The separate strict uncompressed target X.509 parser is not part of this bounded overlay and is not live-linked; no target Brotli decoder exists.",
+    "The profile bitmap is an ABI from trusted parser/policy code, not proof by itself.",
+    "The issuer input ABI at 0x3ba4..0x3c53 overlaps full retained symmetric state at 0x3b40..0x3c2e by 138 bytes; the native ticket bundle itself may still end at 0x3c2d. Live integration must prove safe ordering or relocate one side.",
+    "The handoff checksum detects torn/accidental corruption but is not a RAM-integrity MAC.",
+    "Trusted wall-clock policy for certificate validity remains unresolved on the 8088 floor.",
+    "The checked-in live vector is dated evidence, not a provider SLA.",
+    "No literal-8088 timing was measured in this task; both P-256 passes are post-Finished/offline."
+  ]
+}

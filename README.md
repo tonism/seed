@@ -2,10 +2,10 @@
 
 <p align="center">
   <img src="docs/images/seed-demo-8088.gif" width="49%" alt="A cloud model on a 16 KiB 4.77 MHz 8088 IBM PC reads the BIOS clock and works out the time from the raw timer ticks; the boot splash shows a red 'insecure' because the stock-8088 channel is encrypted but not secure. 86Box, sped up 8x.">
-  <img src="docs/images/seed-demo-286.gif" width="49%" alt="The same prompt on a 512 KiB 6 MHz 286: a real secure handshake (no insecure splash) that also finishes the read-and-compute first. 86Box, sped up 8x.">
+  <img src="docs/images/seed-demo-286.gif" width="49%" alt="The same prompt on a 512 KiB 6 MHz 286: real ECDHE and pinned-key peer authentication under the documented no-time expiry policy, with no insecure splash; it also finishes the read-and-compute first. 86Box, sped up 8x.">
 </p>
 
-<p align="center"><sub><b>Same prompt, typed at the same moment, on two machines from the <code>seed build 12</code> splash.</b> &nbsp; Left: 16 KiB · 4.77 MHz 8088 — <i>encrypted, not secure</i>. &nbsp; Right: 512 KiB · 6 MHz 286 — <i>secure, and it finishes first</i>. &nbsp; 86Box, sped up 8×.</sub></p>
+<p align="center"><sub><b>Same prompt, typed at the same moment, on two machines from the <code>seed build 12</code> splash.</b> &nbsp; Left: 16 KiB · 4.77 MHz 8088 — <i>encrypted, not secure</i>. &nbsp; Right: 512 KiB · 6 MHz 286 — <i>real ECDHE and pinned-key peer authentication under the documented no-time expiry policy; it finishes first</i>. &nbsp; 86Box, sped up 8×.</sub></p>
 
 **A frontier cloud model writes 8088 machine code, ships it over the network to a
 1981 IBM PC, and runs it there — then reads the result back into its own context.**
@@ -58,7 +58,8 @@ that channel is *secure* is CPU-tiered, and the product says so honestly:
   observer could derive the keys. The full P-256 is written and OpenSSL-checked, just
   compiled out; it *fits* the RAM (~3.4 KB), so the wall is CPU time, not space. A pre-286
   machine shows a red **"insecure"** on the splash to say so.
-- **On a 286 it is a real secure channel (shipped, Build 12).** The optimised
+- **On a 286 it has real key agreement and peer authentication in the current
+  tree.** The optimised
   constant-time P-256 does a genuine ephemeral ECDHE key agreement, and the server is
   authenticated by verifying its RSA-2048 signature against a **pinned `api.openai.com`
   leaf key** loaded from `SEED/LEAF.DER` after WR1 validation — one in-race RSA verify,
@@ -66,8 +67,11 @@ that channel is *secure* is CPU-tiered, and the product says so honestly:
   6 MHz is a knife-edge). When the leaf rotates (~90 days), the device silently re-pins —
   it checks the freshly-presented leaf is signed by the pinned Google Trust Services CA
   that issued it, off the handshake race, and adopts it. Writable media refreshes
-  `SEED/LEAF.DER`; read-only media re-certifies on each boot after the shipped file is stale
-  until the image is updated. No rebuild of `SEED.SYS`, fail-closed.
+  `SEED/LEAF.DER`; read-only media can re-certify on each boot after the
+  shipped file is stale until the image is updated. DER, signature, and
+  hostname failures close. Certificate dates close only when a usable clock
+  exists; without one, the current weaker policy skips expiry checking. The
+  286 “secure” label is scoped to that documented no-time policy.
 
 Full story: [docs/architecture.md](docs/architecture.md).
 
@@ -101,8 +105,10 @@ key sk-your-openai-key
 > header is exposed to anyone on the network path — and the "Try it" steps above boot
 > exactly such a machine. Even on a secure 286, `USER.CFG` stores the key in plaintext on
 > the image. Use a disposable key with strict limits, revoke it afterward, and don't share
-> an image that has your key in it. For a genuinely secure channel, run Seed on a 286 or
-> faster — see [System Requirements](#system-requirements).
+> an image that has your key in it. For real key agreement and pinned-key peer
+> authentication on the current TLS 1.2 path, run Seed on a 286 or faster;
+> certificate expiry is enforced only when a usable clock exists — see
+> [System Requirements](#system-requirements).
 
 ## Authorship
 
@@ -125,10 +131,12 @@ logs in `notes/`, which record how this was actually built, mistakes and all.
 
 ## System Requirements
 
-**Minimum — any PC.** Seed runs on a bone-stock 1981 IBM PC: a 4.77 MHz 8088 with
-16 KiB of RAM. The whole agent loop is functional at this floor — chat, the native
-read/write/execute tools, and the full TLS 1.2 record layer — though on a pre-286 CPU
-the channel is encrypted, *not* secure (see the recommendation below).
+**Target floor — an IBM PC 5150-class configuration.** Seed is validated in
+original-speed 86Box at 4.77 MHz with an 8088 and 16 KiB of RAM; physical IBM
+PC validation remains open. The whole agent loop is functional at this floor
+— chat, the native read/write/execute tools, and the full TLS 1.2 record layer
+— though on a pre-286 CPU the channel is encrypted, *not* secure (see the
+recommendation below).
 
 ```text
 CPU       8088-compatible, 4.77 MHz  (any PC)
@@ -140,17 +148,21 @@ network   supported ISA Ethernet adapter
 emulator  86Box profiles are provided for development and verification
 ```
 
-**Recommended — a 286, for a secure channel.** Confidentiality is CPU-tiered, and this
-is the one thing the 8088 floor cannot do. Below the 286 the key exchange is stubbed, so
-the connection is *encrypted but not secure* — anyone on the network path can recover the
-session keys, and a pre-286 machine says so with a red **"insecure"** splash. A **286 or
-faster** runs a real authenticated handshake — ephemeral ECDHE key agreement plus a
-pinned-key RSA-2048 certificate verify — inside the provider's handshake window: **8 MHz
-is comfortable, 6 MHz works on a knife-edge.**
+**Recommended — a 286, for current TLS 1.2 real key agreement and pinned-key
+peer authentication.** Below the 286, the current key exchange is stubbed, so
+the connection is *encrypted but not secure* — anyone on the network path can
+recover the session keys, and a pre-286 machine says so with a red
+**"insecure"** splash. A **286 or faster** runs ephemeral ECDHE plus a
+pinned-key RSA-2048 certificate verify inside the provider's handshake window:
+**8 MHz is comfortable, 6 MHz works on a knife-edge.** Certificate expiry
+still follows the documented weaker policy: it closes only when a usable clock
+exists and is skipped otherwise.
 
-> **If the channel needs to be secure, use a 286 or faster.** On anything slower, treat
-> the connection as public and use only a throwaway, rate-limited key. Details in
-> **Status** above and [docs/architecture.md](docs/architecture.md).
+> **For the current TLS 1.2 path, use a 286 or faster for real key agreement
+> and pinned-key peer authentication under that no-time expiry policy.** On
+> anything slower, treat the connection as public and use only a throwaway,
+> rate-limited key. Details in **Status** above and
+> [docs/architecture.md](docs/architecture.md).
 
 Supported network families on the current target:
 
@@ -193,7 +205,8 @@ On the IBM PC 5150 target, Seed can:
 
 ## Known Limitations
 
-Seed is a working agent on real 1981 hardware, with the rough edges that implies:
+Seed is a working 1981-PC-class agent runtime, validated on original-speed
+86Box, with the rough edges that implies:
 
 - **Memory is tight on small machines.** The 16 KiB floor is deliberately tiny:
   the current native-tool layout has a 96 B context window and a 96 B arena. More
@@ -207,10 +220,12 @@ Seed is a working agent on real 1981 hardware, with the rough edges that implies
   prompt, where re-sending runs the reconnect loop again. Never a blank turn.
 - **Long replies render slowly.** Drawing to the text screen is the bottleneck,
   not the network; a very long reply can take minutes to fully render.
-- **Security is CPU-tiered.** On a stock 8088 the hand-rolled handshake does no real
-  key agreement — encrypted, but not a secure channel. Security begins at the 286: real
-  ECDHE plus a pinned-key RSA certificate verify, with silent re-pinning when the leaf
-  rotates (shipped, Build 12). See [docs/architecture.md](docs/architecture.md).
+- **The current TLS 1.2 path is CPU-tiered.** On a stock 8088 it does no real
+  key agreement — encrypted, but not a secure channel. Pinned-key peer
+  authentication begins at the 286: real ECDHE plus a pinned-key RSA
+  certificate verify, with silent re-pinning when the leaf rotates and the
+  documented weaker no-time expiry policy. See
+  [docs/architecture.md](docs/architecture.md).
 
 ## Build
 

@@ -5,12 +5,12 @@ provider over the TLS 1.2 ChaCha20-Poly1305 path: the shared transport rules tha
 apply to every adapter, and the per-NIC carve-outs that exist because of real
 hardware differences. These are durable behavioral requirements, not status notes.
 The lane-validation history and per-card evidence behind these contracts are
-recorded in `docs/builds.md` (the Build 6 and Build 8 checkpoints).
+recorded in `docs/builds.md`.
 
 **Security note:** confidentiality is CPU-tiered. On a stock 8088 this path is *not* a
 secure channel — the ECDH key exchange is stubbed (the premaster is the server's public
 value) and client randomness is a placeholder; a 286 runs the real secure handshake
-(ECDHE + pinned-key RSA cert verify, shipped Build 12). See
+(ECDHE + pinned-key RSA cert verify in the current tree). See
 [`architecture.md`](architecture.md), "CPU And Crypto Budget." The contracts below are
 about transport *reliability* — identical on both tiers — not confidentiality.
 
@@ -38,7 +38,7 @@ These hold for every supported adapter:
   user already read.
 - **Durable prompt tail.** Hold the prompt tail in memory that TLS setup cannot
   overwrite, so it survives a reconnect-and-resend.
-- **Chunked request (Build 9).** Send the provider request as several TLS application
+- **Chunked request.** Send the provider request as several TLS application
   records (headers+model / instructions+ledger / conversation+prompt). When the
   conversation+prompt would overflow the send buffer, flush across further records rather
   than truncating — one HTTP request, more TLS records, transparent to the adapter.

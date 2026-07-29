@@ -1,0 +1,89 @@
+{
+  "date": "2026-07-25",
+  "scope": "host OpenSSL standards-complete handshake; no fixed-u=9, provisional pre-FO, or Seed target networking",
+  "provenance": {
+    "source": "tools/crypto-bench/tls13-spike/tls13_post_finished_dialogue_probe.py",
+    "source_sha256": "0bfd39e969c9742245a83f78c116ee37090784954d9e8217bb30efba07e7dc8f"
+  },
+  "target": "api.openai.com:443",
+  "profile": {
+    "protocol": "TLSv1.3",
+    "cipher_suite": "TLS_CHACHA20_POLY1305_SHA256",
+    "group": "X25519MLKEM768",
+    "signature_algorithm": "ecdsa_secp256r1_sha256"
+  },
+  "experiments": {
+    "requested_keyupdates": {
+      "client_messages_at_seconds": [
+        0.292,
+        3.097,
+        6.077,
+        9.08,
+        12.079
+      ],
+      "server_batch_seconds": 15.034,
+      "new_session_tickets": 2,
+      "server_keyupdates": 1,
+      "server_closed": true,
+      "extended_connection": false
+    },
+    "incomplete_http_headers": {
+      "prefix_at_seconds": 0.056,
+      "progress_bytes_at_seconds": [
+        5.031,
+        10.0,
+        15.049
+      ],
+      "peer_reset_seconds": 15.103,
+      "http_responses": 0,
+      "extended_connection": false
+    },
+    "complete_unauthorized_gets": {
+      "requests_at_seconds": [
+        0.12,
+        5.029,
+        10.018,
+        15.004,
+        20.007,
+        25.002
+      ],
+      "responses": 6,
+      "status": "401 Unauthorized",
+      "response_connection_header": "keep-alive",
+      "alive_when_client_stopped_seconds": 30.067,
+      "extended_connection": true
+    },
+    "complete_unauthorized_heads_long": {
+      "requests_at_seconds": [
+        0.118,
+        25.021,
+        50.064,
+        75.048,
+        100.013,
+        125.033,
+        150.016
+      ],
+      "responses": 7,
+      "status": "401 Unauthorized",
+      "response_connection_header": "keep-alive",
+      "alive_when_client_stopped_seconds": 155.033,
+      "extended_connection": true
+    }
+  },
+  "privacy": {
+    "authorization_header_sent": false,
+    "api_key_sent": false,
+    "user_prompt_sent": false,
+    "user_context_sent": false,
+    "cookies_replayed": false
+  },
+  "conclusion": {
+    "client_finished_ends_pre_finished_race": true,
+    "tls_keyupdate_resets_edge_timer": false,
+    "partial_http_progress_resets_edge_timer": false,
+    "complete_credential_free_http_dialogue_keeps_connection_alive": true,
+    "candidate_profile_transfer_is_inference": true,
+    "provider_sla": false,
+    "note": "This establishes a bounded research liveness mechanism, not permission to release product data before retrospective authentication succeeds."
+  }
+}

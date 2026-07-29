@@ -1,0 +1,45 @@
+{
+  "date": "2026-07-25",
+  "scope": "held-client-Finished close bracket under the P-256/RSA comparison profile; not the fixed-u=9/ML-KEM/ECDSA candidate",
+  "provenance": {
+    "source": "tools/crypto-bench/tls13-spike/tls13_patience_probe.py",
+    "source_sha256": "6afc62cdf0a9d24646dc7c09d7b13de5f9c082865072f604d24884fdbf4d1635"
+  },
+  "target": "api.openai.com:443",
+  "profile": {
+    "protocol": "TLSv1.3",
+    "cipher_suite": "TLS_CHACHA20_POLY1305_SHA256",
+    "group": "P-256",
+    "signature_algorithm": "rsa_pss_rsae_sha256"
+  },
+  "held_client_records": {
+    "change_cipher_spec_wire_bytes": 6,
+    "encrypted_finished_wire_bytes": 58,
+    "total_wire_bytes": 64
+  },
+  "results": [
+    {
+      "delay_seconds": 12.0,
+      "hold_started_seconds": 0.053859,
+      "release_started_seconds": 12.054972,
+      "release_completed_seconds": 12.055037,
+      "first_post_release_server_data_seconds": 15.037728,
+      "new_session_ticket_seconds": 15.037919,
+      "outcome": "handshake_completed_after_release"
+    },
+    {
+      "delay_seconds": 15.0,
+      "hold_started_seconds": 0.115412,
+      "upstream_eof_seconds": 15.109457,
+      "release_started_seconds": null,
+      "outcome": "remote_closed_before_release"
+    }
+  ],
+  "conclusion": {
+    "twelve_second_hold_accepted": true,
+    "fifteen_second_hold_accepted": false,
+    "observed_close_after_hold_seconds": 14.994045,
+    "candidate_profile_deadline_established": false,
+    "published_sla": false
+  }
+}

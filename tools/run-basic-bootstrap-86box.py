@@ -12,10 +12,8 @@ import subprocess
 import struct
 import sys
 import tempfile
-import termios
 import threading
 import time
-import tty
 import zlib
 from pathlib import Path
 
@@ -37,9 +35,7 @@ DEFAULT_DIRECT_CAPTURE_DELAY = 50.0
 BASIC_BOOTSTRAP_ADDR = 0x3A00
 BASIC_BOOTSTRAP_CLEAR_TOP = 14847
 BASIC_HEX_CHUNK_SIZE = 32
-
-PTY_PATH_RE = re.compile(r"serial_passthrough:\s*Slave side is\s*(/dev/ttys\d+)")
-
+CG_EVENT_FLAG_MASK_SHIFT = 1 << 17
 
 KEY_CODES = {
     "\n": (36, False),
@@ -368,16 +364,26 @@ def type_basic_pid_keycodes(
     cg.CGEventPostToPid.argtypes = [ctypes.c_int, ctypes.c_void_p]
     cf.CFRelease.argtypes = [ctypes.c_void_p]
 
-    def post_raw_key(key_code: int, text: str | None = None) -> None:
+    key_hold = min(0.01, max(0.002, key_delay / 3.0))
+
+    def post_raw_key(
+        key_code: int,
+        text: str | None = None,
+        flags: int = 0,
+    ) -> None:
         for pressed in (True, False):
             event = cg.CGEventCreateKeyboardEvent(None, key_code, pressed)
             if not event:
                 raise SystemExit("CGEventCreateKeyboardEvent failed")
             try:
+                if flags:
+                    cg.CGEventSetFlags(event, flags)
                 if pressed and text:
                     chars = (ctypes.c_uint16 * len(text))(*[ord(char) for char in text])
                     cg.CGEventKeyboardSetUnicodeString(event, len(text), chars)
                 cg.CGEventPostToPid(pid, event)
+                if pressed:
+                    time.sleep(key_hold)
             finally:
                 cf.CFRelease(event)
 
@@ -386,17 +392,22 @@ def type_basic_pid_keycodes(
             post_raw_key(key_code, text)
             return
         shift_code = 56
-        chord_delay = min(0.01, max(0.002, key_delay / 3.0))
         shift_down = cg.CGEventCreateKeyboardEvent(None, shift_code, True)
         shift_up = cg.CGEventCreateKeyboardEvent(None, shift_code, False)
         if not shift_down or not shift_up:
             raise SystemExit("CGEventCreateKeyboardEvent failed")
         try:
+            cg.CGEventSetFlags(shift_down, CG_EVENT_FLAG_MASK_SHIFT)
             cg.CGEventPostToPid(pid, shift_down)
-            time.sleep(chord_delay)
-            post_raw_key(key_code, text)
-            time.sleep(chord_delay)
-            cg.CGEventPostToPid(pid, shift_up)
+            try:
+                time.sleep(key_hold)
+                # 86Box consumes the raw key chord.  Carry the modifier on the
+                # punctuation events too so macOS cannot transiently present
+                # ":" as an unshifted ";" when posting directly to the VM.
+                post_raw_key(key_code, text, CG_EVENT_FLAG_MASK_SHIFT)
+                time.sleep(key_hold)
+            finally:
+                cg.CGEventPostToPid(pid, shift_up)
         finally:
             cf.CFRelease(shift_down)
             cf.CFRelease(shift_up)
@@ -411,113 +422,89 @@ def type_basic_pid_keycodes(
 
 
 class ComCapture:
-    """Reads 86Box stdout for the passthrough PTY path then streams bytes off the PTY.
+    """Capture COM1 through 86Box v9001's fixed Unix FIFO device."""
 
-    86Box prints a line like `serial_passthrough: Slave side is /dev/ttysNNN`
-    when `serial1_passthrough_enabled = 1` is set in the VM cfg. We open that
-    PTY and accumulate whatever the guest writes to COM1 (port 0x3F8).
-    """
-
-    def __init__(self, output_path: Path):
+    def __init__(self, output_path: Path, base_path: Path):
         self.output_path = output_path
+        self.base_path = base_path
+        self.input_path = Path(f"{base_path}.in")
+        self.output_fifo = Path(f"{base_path}.out")
         self.buf = bytearray()
         self.lock = threading.Lock()
         self.stop_event = threading.Event()
-        self.pty_path: str | None = None
-        self.pty_open_time: float | None = None
-        self.start_time: float = 0.0
-        self.stdout_thread: threading.Thread | None = None
-        self.pty_thread: threading.Thread | None = None
+        self.thread: threading.Thread | None = None
+        self.fd: int | None = None
+        self.finished = False
 
-    def start(self, process: subprocess.Popen) -> None:
-        self.stdout_thread = threading.Thread(
-            target=self._read_stdout, args=(process,), daemon=True
+    def start(self) -> None:
+        self.base_path.parent.mkdir(parents=True, exist_ok=True)
+        self.output_path.parent.mkdir(parents=True, exist_ok=True)
+        self.output_path.write_bytes(b"")
+        for path in (self.input_path, self.output_fifo):
+            path.unlink(missing_ok=True)
+            os.mkfifo(path, 0o600)
+        # Open the read end before 86Box starts so its nonblocking writer can
+        # connect during serial-device initialization.
+        self.fd = os.open(
+            self.output_fifo,
+            os.O_RDONLY | os.O_NONBLOCK | os.O_NOCTTY,
         )
-        self.stdout_thread.start()
+        self.thread = threading.Thread(target=self._read, daemon=True)
+        self.thread.start()
 
-    def _read_stdout(self, process: subprocess.Popen) -> None:
-        log_path = self.output_path.with_suffix(self.output_path.suffix + ".86box.log")
-        try:
-            log_file = open(log_path, "w")
-        except OSError:
-            log_file = None
-        try:
-            assert process.stdout is not None
-            for line in iter(process.stdout.readline, ""):
-                if self.stop_event.is_set():
-                    break
-                if log_file is not None:
-                    log_file.write(f"[{time.monotonic():.3f}] {line}")
-                    log_file.flush()
-                match = PTY_PATH_RE.search(line)
-                if match and self.pty_path is None:
-                    self.pty_path = match.group(1)
-                    self.pty_open_time = time.monotonic()
-                    print(f"com capture: PTY {self.pty_path} announced at t={self.pty_open_time:.2f}s")
-                    self.pty_thread = threading.Thread(
-                        target=self._read_pty, daemon=True
-                    )
-                    self.pty_thread.start()
-        except (ValueError, OSError):
-            pass
-        finally:
-            if log_file is not None:
-                log_file.close()
-
-    def _read_pty(self) -> None:
-        assert self.pty_path is not None
-        try:
-            fd = os.open(self.pty_path, os.O_RDWR | os.O_NONBLOCK | os.O_NOCTTY)
-        except OSError as exc:
-            print(
-                f"com capture: could not open PTY {self.pty_path}: {exc}",
-                file=sys.stderr,
-            )
-            return
-        try:
-            # PTY slaves default to cooked / line-discipline mode on macOS,
-            # which filters binary bytes. Put into raw mode so all bytes pass.
-            try:
-                tty.setraw(fd, termios.TCSANOW)
-            except termios.error as exc:
-                print(f"com capture: tty.setraw failed: {exc}", file=sys.stderr)
-            while not self.stop_event.is_set():
+    def _read(self) -> None:
+        fd = self.fd
+        assert fd is not None
+        with self.output_path.open("ab") as output:
+            while True:
                 try:
                     chunk = os.read(fd, 4096)
-                    if chunk:
-                        with self.lock:
-                            self.buf.extend(chunk)
-                    else:
-                        time.sleep(0.05)
                 except BlockingIOError:
-                    time.sleep(0.05)
+                    chunk = None
                 except OSError:
                     break
-        finally:
-            os.close(fd)
+                if chunk is None:
+                    time.sleep(0.02)
+                    continue
+                if chunk:
+                    with self.lock:
+                        self.buf.extend(chunk)
+                        output.write(chunk)
+                        output.flush()
+                else:
+                    # A zero-length FIFO read means no writer is connected.
+                    # Before launch/reconnect, keep the read end available.
+                    # During teardown, it is the EOF that proves all queued
+                    # guest bytes have been drained after 86Box stopped.
+                    if self.stop_event.is_set():
+                        break
+                    time.sleep(0.02)
 
     def finish(self) -> None:
+        if self.finished:
+            return
+        self.finished = True
         self.stop_event.set()
-        time.sleep(0.2)
-        if self.stdout_thread is not None:
-            self.stdout_thread.join(timeout=2)
-        if self.pty_thread is not None:
-            self.pty_thread.join(timeout=2)
+        if self.thread is not None:
+            self.thread.join(timeout=2)
+            if self.thread.is_alive() and self.fd is not None:
+                # A deliberately left-running VM can retain the writer. Close
+                # the nonblocking read end after the bounded drain attempt.
+                os.close(self.fd)
+                self.fd = None
+                self.thread.join(timeout=0.5)
+        if self.fd is not None:
+            os.close(self.fd)
+            self.fd = None
         with self.lock:
             data = bytes(self.buf)
         self.output_path.parent.mkdir(parents=True, exist_ok=True)
         self.output_path.write_bytes(data)
+        for path in (self.input_path, self.output_fifo):
+            path.unlink(missing_ok=True)
         print(f"com capture: {len(data)} byte(s) -> {self.output_path}")
-        if self.pty_path is None:
-            print(
-                "com capture: WARNING - never observed a 'serial_passthrough: "
-                "Slave side is /dev/ttysNNN' line in 86Box stdout"
-            )
-            return
         if not data:
-            print(
-                f"com capture: PTY {self.pty_path} opened but no bytes received"
-            )
+            print("com capture: FIFO opened but no bytes received")
             return
         preview = data[:64]
         print(f"com capture: first {len(preview)} bytes hex: {preview.hex()}")
@@ -742,39 +729,94 @@ class PcapCapture:
         return lines
 
 
-def ensure_com_passthrough(lines: list[str]) -> list[str]:
-    """Ensure cfg has `serial1_passthrough_enabled = 1` under [Ports (COM & LPT)]."""
+def ensure_com_pipe(lines: list[str], base_path: Path) -> list[str]:
+    """Select 86Box v9001's fixed Unix FIFO COM device."""
+
     result: list[str] = []
     in_ports = False
-    saw_key = False
-    section_present = False
+    in_pipe = False
+    saw_ports = False
+    saw_serial = False
+    saw_pipe = False
+    saw_path = False
+    saw_mode = False
+    saw_reconnect = False
+
+    def finish_ports() -> None:
+        nonlocal saw_serial
+        if in_ports and not saw_serial:
+            result.append("serial1_device = pipe")
+            saw_serial = True
+
+    def finish_pipe() -> None:
+        nonlocal saw_path, saw_mode, saw_reconnect
+        if not in_pipe:
+            return
+        if not saw_path:
+            result.append(f"path = {base_path}")
+            saw_path = True
+        if not saw_mode:
+            result.append("mode = 1")
+            saw_mode = True
+        if not saw_reconnect:
+            result.append("reconnect = 1")
+            saw_reconnect = True
 
     for line in lines:
         stripped = line.strip()
         if stripped.startswith("[") and stripped.endswith("]"):
-            if in_ports and not saw_key:
-                result.append("serial1_passthrough_enabled = 1")
-                saw_key = True
+            finish_ports()
+            finish_pipe()
             in_ports = stripped == "[Ports (COM & LPT)]"
+            in_pipe = stripped == "[Named Pipe (COM) #1]"
             if in_ports:
-                section_present = True
+                saw_ports = True
+                saw_serial = False
+            if in_pipe:
+                saw_pipe = True
+                saw_path = saw_mode = saw_reconnect = False
             result.append(line)
             continue
-        if in_ports and stripped.startswith("serial1_passthrough_enabled"):
-            result.append("serial1_passthrough_enabled = 1")
-            saw_key = True
+        if in_ports and (
+            stripped.startswith("serial1_device")
+            or stripped.startswith("serial1_passthrough_enabled")
+        ):
+            if not saw_serial:
+                result.append("serial1_device = pipe")
+                saw_serial = True
+            continue
+        if in_pipe and stripped.startswith("path ="):
+            result.append(f"path = {base_path}")
+            saw_path = True
+            continue
+        if in_pipe and stripped.startswith("mode ="):
+            result.append("mode = 1")
+            saw_mode = True
+            continue
+        if in_pipe and stripped.startswith("reconnect ="):
+            result.append("reconnect = 1")
+            saw_reconnect = True
             continue
         result.append(line)
 
-    if in_ports and not saw_key:
-        result.append("serial1_passthrough_enabled = 1")
-        saw_key = True
-
-    if not section_present:
+    finish_ports()
+    finish_pipe()
+    if not saw_ports:
         if result and result[-1].strip() != "":
             result.append("")
         result.append("[Ports (COM & LPT)]")
-        result.append("serial1_passthrough_enabled = 1")
+        result.append("serial1_device = pipe")
+    if not saw_pipe:
+        if result and result[-1].strip() != "":
+            result.append("")
+        result.extend(
+            [
+                "[Named Pipe (COM) #1]",
+                f"path = {base_path}",
+                "mode = 1",
+                "reconnect = 1",
+            ]
+        )
 
     return result
 
@@ -785,6 +827,7 @@ def rewrite_vm_config(
     floppy: Path,
     rom_basic: bool,
     com_passthrough: bool = False,
+    com_pipe_base: Path | None = None,
     muted: bool = True,
 ) -> None:
     lines = config.read_text(encoding="utf-8").splitlines()
@@ -910,8 +953,10 @@ def rewrite_vm_config(
     if in_general_section:
         flush_general_tail()
 
-    if com_passthrough:
-        out = ensure_com_passthrough(out)
+    if com_pipe_base is not None:
+        out = ensure_com_pipe(out, com_pipe_base)
+    elif com_passthrough:
+        raise ValueError("COM capture requires a fixed FIFO base path")
 
     config.write_text("\n".join(out) + "\n", encoding="utf-8")
 
@@ -1062,14 +1107,21 @@ def basic_text_from_loader(loader_bytes: bytes) -> str:
         for offset in range(0, len(loader_bytes), BASIC_HEX_CHUNK_SIZE)
     ]
     lines = [
-        f"10 CLEAR ,{BASIC_BOOTSTRAP_CLEAR_TOP}:DEF SEG=0:P={BASIC_BOOTSTRAP_ADDR}",
-        f"20 FOR K=0 TO {len(chunks) - 1}:READ A$,N",
-        "30 FOR I=0 TO N-1:J=I*2+1",
-        '40 POKE P+I,VAL("&H"+MID$(A$,J,2))',
-        "50 NEXT I:P=P+N:NEXT K",
-        f"60 DEF USR0={BASIC_BOOTSTRAP_ADDR}:A=USR0(0)",
+        f"10 CLEAR ,{BASIC_BOOTSTRAP_CLEAR_TOP}",
+        "20 DEF SEG=0",
+        f"30 P={BASIC_BOOTSTRAP_ADDR}",
+        f"40 FOR K=0 TO {len(chunks) - 1}",
+        "50 READ A$,N",
+        "60 FOR I=0 TO N-1",
+        "70 J=I*2+1",
+        '80 POKE P+I,VAL("&H"+MID$(A$,J,2))',
+        "90 NEXT I",
+        "100 P=P+N",
+        "110 NEXT K",
+        f"120 DEF USR0={BASIC_BOOTSTRAP_ADDR}",
+        "130 A=USR0(0)",
     ]
-    line_no = 70
+    line_no = 200
     for chunk in chunks:
         lines.append(f"{line_no} DATA {hex_pairs(chunk)},{len(chunk)}")
         line_no += 10
@@ -1138,11 +1190,21 @@ def make_loader_boot_floppy(
 class ExternalProcess:
     """Minimal process handle for apps launched through macOS LaunchServices."""
 
-    def __init__(self, pid: int):
+    def __init__(self, pid: int, vm_path: Path | None = None):
         self.pid = pid
+        self.vm_path = vm_path
         self.stdout = None
 
     def poll(self) -> int | None:
+        if self.vm_path is not None:
+            current = matching_86box_pids(self.vm_path)
+            if current:
+                # LaunchServices/86Box may replace its initial process after
+                # opening the VM.  Follow the live VM-path owner so a harmless
+                # PID handoff cannot be mistaken for guest completion.
+                if self.pid not in current:
+                    self.pid = max(current)
+                return None
         try:
             os.kill(self.pid, 0)
         except ProcessLookupError:
@@ -1152,6 +1214,9 @@ class ExternalProcess:
         return None
 
     def kill(self) -> None:
+        if self.vm_path is not None:
+            stop_matching_86box_pids(self.vm_path)
+            return
         try:
             os.kill(self.pid, signal.SIGKILL)
         except ProcessLookupError:
@@ -1272,11 +1337,11 @@ def launch_86box(
                 current = matching_86box_pids(vm_path)
                 created = sorted(current - before)
                 if created:
-                    return ExternalProcess(created[-1])
+                    return ExternalProcess(created[-1], vm_path)
                 time.sleep(0.1)
             current = sorted(matching_86box_pids(vm_path))
             if current:
-                return ExternalProcess(current[-1])
+                return ExternalProcess(current[-1], vm_path)
             print("open(1) launch produced no matching 86Box process; falling back to direct 86Box launch")
 
     cmd = [emulator_path(), "--vmpath", str(vm_path)]
@@ -2466,7 +2531,7 @@ def main() -> int:
         "--com-capture",
         type=Path,
         default=None,
-        help="enable serial1 passthrough and capture COM1 bytes to this file",
+        help="capture COM1 bytes live through a fixed 86Box FIFO",
     )
     parser.add_argument(
         "--no-screenshot",
@@ -2693,6 +2758,11 @@ def main() -> int:
         stop_matching_86box_pids(vm_path)
 
     com_passthrough = args.com_capture is not None
+    com_pipe_base = (
+        args.com_capture.resolve().with_suffix(args.com_capture.suffix + ".pipe")
+        if args.com_capture is not None
+        else None
+    )
 
     if args.entry == "loader":
         floppy = args.loader_floppy
@@ -2704,7 +2774,7 @@ def main() -> int:
             args.debug_boot_stop,
             args.debug_loader_stop,
         )
-        # --com-capture requires cfg rewrite to inject the passthrough key,
+        # --com-capture requires cfg rewrite to inject the fixed FIFO device,
         # which is also where the floppy gets put in fdd_01 for BIOS boot.
         if args.loader_mount == "config" or com_passthrough:
             config = vm_path / "86box.cfg"
@@ -2714,7 +2784,7 @@ def main() -> int:
                 args.ram_kib,
                 floppy,
                 False,
-                com_passthrough=com_passthrough,
+                com_pipe_base=com_pipe_base,
                 muted=not args.sound,
             )
             restore_nvr = prepare_vm_nvr(vm_path, args.ram_kib)
@@ -2728,7 +2798,7 @@ def main() -> int:
             args.ram_kib,
             floppy,
             True,
-            com_passthrough=com_passthrough,
+            com_pipe_base=com_pipe_base,
             muted=not args.sound,
         )
         restore_nvr = prepare_vm_nvr(vm_path, args.ram_kib)
@@ -2744,14 +2814,15 @@ def main() -> int:
             args.ram_kib,
             floppy,
             False,
-            com_passthrough=com_passthrough,
+            com_pipe_base=com_pipe_base,
             muted=not args.sound,
         )
         restore_nvr = prepare_vm_nvr(vm_path, args.ram_kib)
 
     com_capture: ComCapture | None = None
     if args.com_capture is not None:
-        com_capture = ComCapture(args.com_capture)
+        assert com_pipe_base is not None
+        com_capture = ComCapture(args.com_capture.resolve(), com_pipe_base)
 
     pcap_capture: PcapCapture | None = None
     if args.pcap is not None:
@@ -2778,17 +2849,25 @@ def main() -> int:
     previous_frontmost = frontmost_process_name() if args.restore_focus else None
     launch_started_at = time.monotonic()
     try:
+        if com_capture is not None:
+            com_capture.start()
         process = launch_86box(
             vm_path,
             image_args,
-            capture_stdout=com_capture is not None,
+            capture_stdout=False,
             background=not args.foreground_launch,
             detached=args.long_running and com_capture is None,
         )
         needs_window_oracle = args.screen_oracle or bool(args.post_dpi_text)
+        needs_window = needs_window_oracle or (
+            args.entry == "basic" and not args.no_type
+        )
         if (
-            needs_window_oracle
-            and not wait_for_86box_window(args.profile, process.pid)
+            needs_window
+            and not wait_for_86box_window_or_identity_dialog(
+                args.profile,
+                process.pid,
+            )
         ):
             print(
                 "harness: launched 86Box has no capturable window; "
@@ -2800,18 +2879,19 @@ def main() -> int:
             process = launch_86box(
                 vm_path,
                 image_args,
-                capture_stdout=com_capture is not None,
+                capture_stdout=False,
                 background=False,
                 detached=args.long_running and com_capture is None,
             )
-            if not wait_for_86box_window(args.profile, process.pid):
+            if not wait_for_86box_window_or_identity_dialog(
+                args.profile,
+                process.pid,
+            ):
                 print(
                     "harness: direct 86Box launch still has no capturable window",
                     flush=True,
                 )
         restore_frontmost_process(previous_frontmost)
-        if com_capture is not None:
-            com_capture.start(process)
         try:
             time.sleep(args.startup_delay)
             if args.entry == "basic" and not args.no_type and args.mode != "pidkeycode":
@@ -2980,12 +3060,16 @@ def main() -> int:
                 except subprocess.CalledProcessError as exc:
                     print(f"screenshot: failed ({exc})", file=sys.stderr)
         finally:
-            if com_capture is not None:
-                com_capture.finish()
             if not args.leave_running:
                 process.kill()
                 process.wait(timeout=5)
     finally:
+        # COM capture starts before launch so 86Box's nonblocking FIFO writer
+        # always finds a reader. Finish it here, after the VM writer has
+        # stopped, so launch/window failures cannot leak FIFOs and queued
+        # terminal bytes are drained to EOF.
+        if com_capture is not None:
+            com_capture.finish()
         if pcap_capture is not None:
             pcap_capture.stop()
         if restore_config is not None:

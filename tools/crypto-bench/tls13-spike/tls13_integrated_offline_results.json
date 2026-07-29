@@ -1,0 +1,74 @@
+{
+  "schema": "seed-tls13-integrated-offline-results-v1",
+  "recorded_at_utc": "2026-07-25T14:28:03Z",
+  "baseline_commit": "548053dfcdfc19b12130ce418ed24f7670c45750",
+  "branch": "codex/build-13-tls13-rearchitecture-spike",
+  "command": "python3 tools/crypto-bench/tls13-spike/tls13_integrated_checks.py",
+  "result": {
+    "passed": true,
+    "tests_run": 28,
+    "failures": 0,
+    "errors": 0
+  },
+  "execution_provenance": {
+    "kind": "deterministic hostile host-side reference model",
+    "host_python": "3.11.9",
+    "seed_8088_target_code_executed": false,
+    "live_provider_used_as_acceptance_input": false,
+    "claim_scope": "State-machine ordering, transcript binding, hostile-input rejection, atomic commit, credential quarantine, and failure behavior only. This is not a target runtime, cycle, or RAM result."
+  },
+  "source_sha256": {
+    "tools/crypto-bench/tls13-spike/tls13_integrated_oracle.py": "945e766d1b16c337497e016d2e550783adae05b7eee45554e12b2db676342178",
+    "tools/crypto-bench/tls13-spike/tls13_integrated_checks.py": "9e0c82c7275c2aeb9aaad36f83be93797b07639902dcdacb318656739c18bafc",
+    "tools/crypto-bench/tls13-spike/tls13_spike.py": "509fc0cb024cbd253811ff474c5c9a7044677ba849534a43651ee607429fa25e"
+  },
+  "fixed_profile": {
+    "wire_group": "X25519MLKEM768",
+    "x25519_client_share": "u=9",
+    "effective_key_exchange": "ML-KEM-only research profile",
+    "cipher": "TLS_CHACHA20_POLY1305_SHA256",
+    "signature": "ecdsa_secp256r1_sha256",
+    "certificate_compression": "brotli"
+  },
+  "geometry": {
+    "client_hello_bytes": 1376,
+    "server_hello_bytes": 1210,
+    "server_flight_fixture_bytes": 1947,
+    "server_flight_accepted_bytes_inclusive": [
+      1883,
+      1947
+    ],
+    "certificate_verify_fixture_bytes": 80,
+    "certificate_verify_accepted_bytes_inclusive": [
+      16,
+      80
+    ],
+    "strict_p256_signature_der_bytes_exercised_inclusive": [
+      8,
+      72
+    ],
+    "client_finished_record_bytes": 58
+  },
+  "provisional_dialogue": {
+    "request": "HEAD /v1/models HTTP/1.1",
+    "literal_plaintext_bytes": 74,
+    "literal_sha256": "fd3abc5d38bfc50e21f6320b718e04623a868f421902a29c44fb3a501a5587d9",
+    "maximum_response_header_bytes": 2048,
+    "maximum_outstanding_requests": 1,
+    "credentials_structurally_absent_before_commit": true
+  },
+  "covered_security_properties": [
+    "Complete server-flight AEAD verification precedes plaintext parsing.",
+    "Server Finished verification precedes Client Finished emission.",
+    "Only one immutable credential-free HEAD can be outstanding.",
+    "Redirects, interim responses, Upgrade, bodies, overlap, oversize, unsolicited data, KeyUpdate, post-handshake authentication, alerts, and unexpected epochs or inner types are rejected.",
+    "KEM and identity proofs are transcript-bound and all TLS material is rederived and compared before atomic promotion.",
+    "The first tentative ticket may survive peer close only after proof; bounded extra tickets are validated and discarded.",
+    "Post-Finished KEM, leaf, and CertificateVerify failures expose the same public trace and close action.",
+    "Application sequence numbers continue across commit; credentials and real requests become reachable only after live commit."
+  ],
+  "limitations": [
+    "The KEM and identity proof booleans are deterministic oracle inputs; independent ML-KEM and ECDSA known-answer gates remain required.",
+    "No Seed product source, 8088 code, 16 KiB runtime, timing path, or target memory layout is exercised."
+  ]
+}

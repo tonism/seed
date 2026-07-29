@@ -2286,8 +2286,47 @@ p256_reduce_product:
 ; overlap the p256_s* scratch the point ops clobber. The harness includes this
 ; .inc after the (halted) caller and before its own P256_DATA block, so these
 ; labels assemble into addressable, never-executed RAM.
+;
+; A phase overlay may instead define P256_EXTERNAL_WORK_BASE before including
+; this file.  In that form the same labels are absolute aliases into a
+; caller-owned 896-byte work window and no mutable bytes are emitted into the
+; overlay image.
 ; ---------------------------------------------------------------------------
 align 2
+p256_code_end:
+%ifdef P256_EXTERNAL_WORK_BASE
+%if (P256_EXTERNAL_WORK_BASE & 1) != 0
+%error "P256_EXTERNAL_WORK_BASE must be word-aligned"
+%endif
+p256_w_tableX equ P256_EXTERNAL_WORK_BASE
+p256_w_tableY equ p256_w_tableX + (4 * p256_word_len)
+p256_w_p2x equ p256_w_tableY + (4 * p256_word_len)
+p256_w_p2y equ p256_w_p2x + p256_word_len
+p256_w_negy equ p256_w_p2y + p256_word_len
+p256_w_scalar equ p256_w_negy + p256_word_len
+p256_w_digits equ p256_w_scalar + p256_word_len
+p256_w_count equ p256_w_digits + 264
+p256_w_tmp equ p256_w_count + 2
+p256_w_basex_ptr equ p256_w_tmp + 1
+p256_w_basey_ptr equ p256_w_basex_ptr + 2
+p256_w_outx_ptr equ p256_w_basey_ptr + 2
+p256_w_outy_ptr equ p256_w_outx_ptr + 2
+
+p256_kprod equ (p256_w_outy_ptr + 3) & ~1
+p256_kmid equ p256_kprod + 32
+p256_kz0 equ p256_kmid + 36
+p256_kz2 equ p256_kz0 + 32
+p256_km equ p256_kz2 + 32
+p256_kda equ p256_km + 32
+p256_kdb equ p256_kda + 16
+p256_ksign equ p256_kdb + 16
+p256_kdest equ p256_ksign + 2
+
+sol_acc equ (p256_kdest + 3) & ~1
+p256_mutable_work_start equ p256_w_tableX
+p256_mutable_work_end equ sol_acc + 36
+%else
+p256_mutable_work_start:
 p256_w_tableX: times (4 * p256_word_count) dw 0   ; affine x of 1P,3P,5P,7P
 p256_w_tableY: times (4 * p256_word_count) dw 0   ; affine y of 1P,3P,5P,7P
 p256_w_p2x:    times p256_word_count dw 0         ; affine 2P (precompute step)
@@ -2318,3 +2357,6 @@ p256_kdest:   dw 0
 
 align 2
 sol_acc: times 18 dw 0
+p256_mutable_work_end:
+%endif
+p256_mutable_work_len equ p256_mutable_work_end - p256_mutable_work_start

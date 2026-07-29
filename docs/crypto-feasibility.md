@@ -1,24 +1,32 @@
-# Crypto feasibility — where a real secure handshake fits, and why
+# Crypto feasibility — where the current TLS 1.2 secure handshake fits
 
-This is the research record behind one decision: **can seed's hand-rolled TLS
-handshake be genuinely *secure*, and if so, on what hardware?** It is a measured
-answer, not a reasoned one — every claim below comes from a benchmark, and the
-ones that started as guesses are marked where the measurement corrected them.
+This is the research record behind one scoped decision: **where can Seed's
+current TLS 1.2 ECDHE-P256/RSA profile complete its authenticated handshake?**
+It is a measured answer, not a reasoned one — every claim below comes from a
+benchmark, and the ones that started as guesses are marked where the
+measurement corrected them.
 
-**The answer, up front.** On a stock 4.77 MHz 8088 a real secure handshake is out
-of reach by ~11× — not for lack of RAM, but because 256-bit modular arithmetic at
-that clock takes minutes, and the server closes the connection in ~15 seconds. So
-the 8088 tier stays honestly **"encrypted, not secure."** Security *begins at the
-286*: with an optimised P-256, a pinned-key RSA verify, and a faster SHA-256, a
-full cert-authenticated handshake first fits the window on the lowest 6 MHz 286
-(on a ~1.2 s knife-edge) and is comfortable by 8 MHz. That tier shipped in Build 12;
+**The answer, up front.** On a stock 4.77 MHz 8088, this P-256/RSA TLS 1.2
+handshake is out of reach by ~11× — not for lack of RAM, but because its
+256-bit modular arithmetic takes minutes while the server closes the
+connection in ~15 seconds. So the current TLS 1.2 8088 tier stays honestly
+**"encrypted, not secure."** This profile's authenticated tier *begins at the
+286*: with an optimised P-256, a pinned-key RSA verify, and a faster SHA-256,
+the handshake first fits the window on the lowest 6 MHz 286 (on a ~1.2 s
+knife-edge) and is comfortable by 8 MHz. That tier is implemented in the
+current tree, with the documented weaker no-time certificate-expiry fallback;
 see [security.md](security.md) for the security posture and
 [architecture.md](architecture.md) for the system mechanics.
 
-The rest of this document is *how* we know that: the method, the symmetric-crypto
-optimisation hunt, the asymmetric-crypto wall, the levers we ruled out (the 8087
-FPU and the V20/80186 ISA), the 286 threshold, the specific variants we shipped
-and why, and the ECDSA tier we scoped but did not build.
+This result is not a proof that every secure protocol architecture is
+impossible on an 8088. The separate TLS 1.3 rearchitecture work investigates
+streamed phases, precomputation, quarantine, and post-Finished proof; that
+candidate has not yet proved a product secure tier.
+
+The rest of this document is *how* we know the TLS 1.2 result: the method, the
+symmetric-crypto optimisation hunt, the asymmetric-crypto wall, the levers we
+ruled out (the 8087 FPU and the V20/80186 ISA), the 286 threshold, the specific
+variants we shipped and why, and the ECDSA tier we scoped but did not build.
 
 ---
 
@@ -36,7 +44,8 @@ tens of variants could be filtered instantly and only the leaders spent a VM run
 2. **Speed estimate — host, instant.** A static **8088 cycle model**
    (`cycles8088.py`) walks the executed instruction trace, modelling the 8088's
    single 8-bit bus as `max(EU+EA cycles, 4 × (insn_len + memory_bytes))`. It was
-   **calibrated to 98.7%** against real hardware (predicted 735,461 vs measured
+   **calibrated to 98.7%** against an original-timing 86Box measurement
+   (predicted 735,461 vs measured
    745,420 cycles for one SHA-256 block) — accurate enough to *rank* variants before
    any VM run.
 3. **Ground truth — 86Box, serial.** A standalone `SEED.SYS` micro-benchmark boots
@@ -89,7 +98,7 @@ search drove the working set into registers, step by step:
 | round 4 | `r4_v44` | **`xchg` byte-rotate as register renaming** + branchless shortest-path sigma chains | 5.78× |
 
 The thread: **kill bit-loops → kill call overhead → kill memory traffic → kill the
-rotate moves themselves.** On real hardware the two round-4 leaders (`r4_v42`,
+rotate moves themselves.** On original-timing 86Box the two round-4 leaders (`r4_v42`,
 `r4_v44`) are a dead heat and **bit-identical** to the baseline output:
 
 | op | baseline | `r4_v42` | speedup (HW) |
@@ -97,7 +106,7 @@ rotate moves themselves.** On real hardware the two round-4 leaders (`r4_v42`,
 | SHA-256 block | 273 ticks | 55 ticks | **4.96×** |
 | PRF master + key block | 269 (4.92 s) | 58 (**1.06 s**) | **4.64×** |
 
-The always-runs PRF drops **4.92 s → 1.06 s** on real hardware, at zero security cost
+The always-runs PRF drops **4.92 s → 1.06 s** on original-timing 86Box, at zero security cost
 — pure margin under the server's window.
 
 ### The catch, and the shipped decision: speed vs. size
@@ -123,13 +132,13 @@ This same fast SHA is **load-bearing for the 286 secure tier** — it is what ge
 
 ---
 
-## The asymmetric track — real public-key crypto (the wall)
+## The asymmetric track — the current TLS 1.2 public-key wall
 
 "Encrypted but not secure" on the 8088 rests on three skipped pieces: real key
 agreement, real entropy, and certificate authentication. We measured each.
 
 ### Real ECDHE — P-256 scalar multiplication
-The constant-time P-256 had sat under `%if 0` in `core/p256.inc` since Build 6 and had
+The constant-time P-256 had sat disabled under `%if 0` in `core/p256.inc` and had
 never been assembled. Brought to life (`p256_real.inc`), it assembles 8086-clean and
 verifies against the OpenSSL oracle end-to-end (`scalar_mult(d×G) == public`). Then:
 
@@ -165,11 +174,12 @@ cycle-deterministic emulator: only keystroke timing is genuine entropy under emu
 the rest needs real-hardware validation.) Shipping it standalone would be cosmetic, so we
 did not. Detail in `tools/crypto-bench/results/entropy_certauth_scoping.md`.
 
-### Combined reality on the 8088
+### Combined TLS 1.2 reality on the 8088
 ECDHE 110.8 s + cheapest auth ~45 s + PRF ~5 s, all serial ≈ **~160 s ≈ 2.7 minutes**,
-**~11× over** the server's ~15 s patience. Real public-key security on a stock 8088 would
-need a self-hosted long-patience endpoint, an opt-in multi-minute "secure" mode, or a
-faster machine. We chose the faster machine.
+**~11× over** the server's ~15 s patience. This TLS 1.2 P-256/RSA profile on a
+stock 8088 would need a self-hosted long-patience endpoint, an opt-in
+multi-minute mode, or a faster machine. The shipped path chooses the faster
+machine.
 
 ---
 
@@ -197,12 +207,13 @@ but small, and the test was right to run.)
 
 ---
 
-## Where security begins — the 286 (measured at 6 and 8 MHz)
+## Where current TLS 1.2 peer authentication begins — the 286
 
-The 086 class cannot reach a secure handshake even maxed and hybridised. The 286 can. We
-booted the 360K bench image on 86Box's `ibmat` (286, clamped to its real 6–8 MHz) via a
-crafted IBM-AT CMOS. The 286 has no cache, so 6→8 MHz scaled exactly with clock — higher
-clocks project linearly.
+The 086 class cannot reach this P-256/RSA handshake inside the observed window
+even with the measured optimisations. The 286 can. We booted the 360K bench
+image on 86Box's `ibmat` (286, clamped to its real 6–8 MHz) via a crafted
+IBM-AT CMOS. The 286 has no cache, so 6→8 MHz scaled exactly with clock —
+higher clocks project linearly.
 
 | CPU | SHA block | integer 32×32 MUL |
 |---|---|---|
@@ -227,14 +238,15 @@ one per agent, each correctness-gated:
 | **wNAF width-4 scalar** | recode the scalar into signed digits → point-adds 141 → 51 | (fewer field muls) |
 | **combined** (all three) | `variants/p256_combined.inc`, verified vs OpenSSL | **2.554× field mul, 3.27× fewer scalar-mult instrs** |
 
-Measured on real 286 @ 6 MHz hardware (one full ECDHE, output checksum-verified):
+Measured on the 86Box 286 @ 6 MHz profile at original timing (one full ECDHE,
+output checksum-verified):
 
 | | 286 @ 6 ECDHE |
 |---|---|
 | baseline real P-256 | 470 ticks = 25.8 s |
 | **optimised (combined)** | **120 ticks = 6.6 s (3.9×)** |
 
-(The 3.9× on hardware exceeds the 2.55× field-mul model because the 286's fast `MUL` makes
+(The 3.9× original-timing result exceeds the 2.55× field-mul model because the 286's fast `MUL` makes
 the *cut overhead* — Solinas/wNAF — the thing that matters, which is what those two cut.)
 
 ### The full secure-handshake budget on the 286
@@ -243,7 +255,7 @@ Each piece measured on `ibmat @ 6` (entropy projected, gated/cosmetic):
 | component | 286 @ 6 | basis |
 |---|---|---|
 | ECDHE (optimised P-256) | 6.6 s | measured |
-| RSA-2048 cert verify | **6.37 s** | measured (`rsa_bench.asm`) — 16 squarings + 1 multiply as plain Montgomery modmuls, no squaring shortcut at first (a later Build-12 increment, `montsqr`, adds one — see *Follow-up* below) |
+| RSA-2048 cert verify | **6.37 s** | measured (`rsa_bench.asm`) — 16 squarings + 1 multiply as plain Montgomery modmuls, no squaring shortcut at first (a later optimisation, `montsqr`, adds one — see *Follow-up* below) |
 | PRF + transcript (baseline SHA) | 4.94 s | measured |
 | PRF + transcript (with the fast-SHA win) | **0.66 s** | measured (~7.5× here — it is almost pure SHA) |
 | entropy | ~0.2 s | projected (gated) |
@@ -258,11 +270,11 @@ does. Summing the serial crypto against the ~15 s window:
 | @ 8 | **~10.4 s** | ~4.6 s | **comfortable** |
 | @ 12 (linear proj) | ~6.9 s | ~8 s | ample |
 
-**Threshold result: security begins at the 286.** An optimised real ECDHE is 6.6 s on the
-lowest 6 MHz part, so a real cert-authenticated handshake (real ECDHE + RSA cert-auth + the
-fast SHA + entropy) *fits* the ~15 s window there — but on a ~1.2 s knife-edge that will
-flake on a degraded link (the 8088's exact failure mode). The practical, non-flaky secure
-tier is **286 @ 8 MHz and up**.
+**Threshold result for the current TLS 1.2 profile: peer authentication begins
+at the 286.** An optimised real ECDHE is 6.6 s on the lowest 6 MHz part, so the
+ECDHE + pinned-key RSA authentication + fast SHA + entropy budget *fits* the
+~15 s window there — but on a ~1.2 s knife-edge that can flake on a degraded
+link. The practical, non-flaky floor for this path is **286 @ 8 MHz and up**.
 
 > An earlier linear projection (before the P-256 optimisation and the SHA win were folded
 > in) put the threshold at ~16–20 MHz. The optimisation work closed that gap by ~3×: the
@@ -271,8 +283,8 @@ tier is **286 @ 8 MHz and up**.
 
 ### Follow-up — the squaring shortcut, built (`montsqr`)
 
-The budget above assumed the RSA verify away with no squaring shortcut. A later Build-12
-increment built one: **`montsqr`**, a Montgomery SOS squaring used for the modexp's 16
+The budget above assumed the RSA verify path with no squaring shortcut. A
+follow-up optimisation built one: **`montsqr`**, a Montgomery SOS squaring used for the modexp's 16
 squaring steps. Squaring `a²` is cheaper than a generic `a·b` because the off-diagonal
 products `a[i]·a[j]` (i<j) each appear twice — computed once and the partial sum doubled
 (a single left shift), halving the multiply-phase multiplies. It cuts the verify **~19%**
@@ -296,21 +308,21 @@ architecture is still what makes silent re-pin fit @6.
 | **ECDHE** | the combined Karatsuba + Solinas + wNAF P-256 → `core/p256.inc` | 3.9× on the 286 (25.8 s → 6.6 s @6) — the only thing that gets ECDHE under the window on the lowest 286. 286-only (handshake module). |
 | **Cert-auth** | pin the `api.openai.com` leaf key; one in-race RSA-2048 verify | one verify fits the lowest 286; a full chain (~3 verifies) would push back over the window. RSA over ECDSA because ECDSA verify is ~2× ECDHE. (Leaf rotation is handled by [silent re-pinning](architecture.md); see auto-recertify.) |
 | **Entropy** | not shipped standalone | gated — cosmetic without real key agreement; would cut against honest framing. Ships only bundled with the secret it protects. |
-| **Tier** | secure begins at the 286, comfortable at @8; the 8088 stays "encrypted, not secure" | measured: the 8088 is ~11× over the window and cannot be optimised across it; the label is precise, not aspirational. |
+| **Current TLS 1.2 tier** | pinned-key peer authentication begins at the 286, comfortable at @8; the 8088 stays "encrypted, not secure" | measured: this P-256/RSA profile is ~11× over the window on the 8088; this does not prejudge a different TLS 1.3 phase schedule. |
 | **FPU / 80186** | neither | measured to not unlock crypto (FMUL-count floor; the bus beats the 186 ISA). FPU stays a future *non-crypto* capability dimension. |
 
 ---
 
 ## The ECDSA question — scoped, not built
 
-The shipped 286 tier pins an RSA leaf loaded from `SEED/LEAF.DER` — but `api.openai.com`
+The current 286 tier pins an RSA leaf loaded from `SEED/LEAF.DER` — but `api.openai.com`
 is **dual-cert load-balanced** and migrating to ECDSA. The 286's forced `ECDHE_RSA`
 profile still draws an RSA-2048 leaf via GTS WR1 (current shipped leaf: 2026-07-08 to
 2026-10-06; WR1 anchor valid to 2029-02-20); default clients now get a P-256/WE1 ECDSA
 leaf. Today's pin survives
 only because the 286 forces RSA. So we asked the obvious next question — *if the RSA leaf ever
 goes away, can the 286 do ECDSA?* — and scoped it with two more parallel-agent spikes (the
-same method, findings adversarially checked against the shipped code).
+same method, findings adversarially checked against the current code).
 
 **First: is ECDSA verify even affordable @6?** ECDSA verify is `u1·G + u2·Q` — *two* scalar
 mults — against RSA's one modexp, so on this CPU it is ~2× the RSA verify (the opposite of a

@@ -4,11 +4,11 @@ Status: latest tagged release is Build 11 (release hardening: draining-FIFO tran
 reconnect, real LLM compaction, ESC-to-interrupt, tool-directive rendering), `build-11`. Build 12 —
 the capability-tiered memory-layout redesign, native Responses tool calling, environment save/load,
 the full memory-scaling ladder through 386 unreal mode, and the 286 secure tier (real ECDHE +
-pinned-key RSA cert auth, with silent re-pinning on leaf rotation) — is patched and validated on
-`work/compaction-fix`, not yet tagged. Build 13 starts by renaming the runtime to `SEED.SYS`,
-moving NIC drivers to external files under `SEED/DRIVERS/`, and making driver
-packaging optional. See the build sections for shipped
-features and "Forward-looking ideas" for the backlog.
+pinned-key RSA cert auth, with silent re-pinning on leaf rotation) — is patched and
+validated but not yet tagged. Build 13's runtime/driver split is also complete
+and validated: the runtime is `SEED.SYS`, NIC drivers are external files under
+`SEED/DRIVERS/`, and driver packaging is optional. See the build sections for
+completed features and "Forward-looking ideas" for the backlog.
 
 Seed's loading marker has four semantic states plus the boot splash:
 
@@ -147,10 +147,10 @@ record in `notes/old/build11-hardening-attempts.md`.
 
 ## Build 12 — scaling + capability tiers
 
-Build 12 is the current untagged `work/compaction-fix` build. It turns Seed from a
-fixed 16 KiB survival exercise into one runtime file that scales by detected
-capability while keeping the 16 KiB ROM BASIC sidecar and 32 KiB direct boot
-green.
+Build 12 is a completed but untagged milestone in the current tree. It turns
+Seed from a fixed 16 KiB survival exercise into one runtime file that scales by
+detected capability while keeping the 16 KiB ROM BASIC sidecar and 32 KiB
+direct boot green.
 
 ```text
 layout + HAL      capability vector, lifetime-ordered bands, one active NIC driver loaded
@@ -240,8 +240,8 @@ DEC 21040/21143 Tulip, RTL8139C+, EPIC/100, and MCA NE/WD profiles.
 
 ## Forward-looking ideas
 
-Not yet built. Shipped Build 12 items are no longer listed here; their details
-belong in the focused docs linked from the Build 12 section.
+Not yet built. Completed untagged Build 12 items are no longer listed here;
+their details belong in the focused docs linked from the Build 12 section.
 
 Polish:
 

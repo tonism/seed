@@ -1,0 +1,27 @@
+{
+  "done": true,
+  "elapsed_wall_seconds": 74.176,
+  "timeout_seconds": 180.0,
+  "serial_path": "build/crypto-bench/tls13-16k/bench.serial.txt",
+  "serial_text": "CHECK N=1 dt=0 ck=0001\nKECCAK N=1 dt=8 ck=8637\nNTT N=1 dt=3 ck=8080\nINVNTT N=1 dt=5 ck=01D8\nBASEMUL N=1 dt=1 ck=C638\nMULCACHE N=1 dt=13 ck=15B7\nKPCAND N=1 dt=27 ck=6603\nKVALID N=1 dt=171 ck=6603\nKEMMIN N=1 dt=416 ck=5AC1\nKEMCACHE N=1 dt=198 ck=7B99\nDONE\n",
+  "emulator_stdout_bytes": 6007,
+  "machine": {
+    "model": "IBM PC 5150",
+    "cpu": "8088",
+    "cpu_hz": 4772728,
+    "installed_ram_kib": 16,
+    "dynarec": false,
+    "entry": "ROM BASIC sidecar"
+  },
+  "source": "tools/crypto-bench/tls13-spike/mlkem768_kernels_bench.asm",
+  "source_sha256": "28c4c96d5903db10f9b279af458dfc2657f05d1e1bc0c6d6550b6a8e3ae3d0e4",
+  "image_bytes": 7992,
+  "image_sha256": "f40c6d027cfd12cbbc3c681cfc9e0e1bddbee34bade51cded8284549d741f661",
+  "image_sectors": 16,
+  "load_start": "0x1000",
+  "loaded_end": "0x3000",
+  "bootstrap_start": "0x3a00",
+  "ram_top": "0x4000",
+  "stack_guard_bytes": 256,
+  "command": "python3 tools/crypto-bench/tls13-spike/run_8088_16k.py --asm tools/crypto-bench/tls13-spike/mlkem768_kernels_bench.asm"
+}

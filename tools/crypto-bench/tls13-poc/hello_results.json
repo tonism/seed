@@ -1,0 +1,253 @@
+{
+  "schema": "seed-tls13-poc-hello-v1",
+  "scope": "isolated fixed-profile fresh/resumed ClientHello fragment iterator and strict streaming ServerHello parser; no TCP/NIC/runtime integration",
+  "provenance": {
+    "source": "tools/crypto-bench/tls13-poc/hello_overlay.asm",
+    "source_sha256": "107dd7aeb88c0b03aeed8a4a7f9b444b7f72a412fd9125eaa2cbb6b371d381ac",
+    "checker": "tools/crypto-bench/tls13-poc/hello_check.py",
+    "checker_sha256": "d5a9ac7814fe0284e085d84fc27373b71402517953ecea6b23b7511c5ebd006a",
+    "layout": "tools/crypto-bench/tls13-poc/layout.inc",
+    "layout_sha256": "403713dc0e3062559ddbad249ce9b84e30c26ce700ff6772c6f6cf56134f272d",
+    "sha256_source": "targets/ibm_pc_5150/boot/core/sha256.inc",
+    "sha256_source_sha256": "ccdf3f013cc386a066057f7056d86d889a9a1e5cc13c9fbb176d80101a6e8c64",
+    "image_sha256": "dd83fa8212c5358f4e252bb1a03a1477ed810f23af633c461d0d7abf89080f1d",
+    "nasm_cpu": "8086"
+  },
+  "layout": {
+    "load_address": "0x1800",
+    "image_bytes": 4132,
+    "sector_rounded_image_bytes": 4608,
+    "sector_count": 9,
+    "state": {
+      "start": "0x3000",
+      "end": "0x313d",
+      "bytes": 317
+    },
+    "ticket_identity": {
+      "start": "0x3200",
+      "bytes": 192
+    },
+    "sha_hmac_work": {
+      "start": "0x32c0",
+      "end": "0x35b8",
+      "bytes": 760
+    },
+    "exact_nonoverlap_k_bytes": 5401,
+    "exact_nonoverlap_k_free_bytes": 2279,
+    "phase_owned_reclaimed_space": null,
+    "highest_k_address_used": "0x35b8",
+    "routine_stack_high_water_bytes": 52,
+    "receive_fragment_frame": "0x0700..0x08b6",
+    "ek": "0x08c0..0x0d60",
+    "c": "0x08c0..0x0d00",
+    "split_dk_preserved": "0x3600..0x3b9c",
+    "arena_context_preserved": "0x3e40..0x3f00"
+  },
+  "wire": {
+    "fresh_client_handshake_bytes": 1376,
+    "fresh_record_bytes": 1381,
+    "fresh_fragments": [
+      147,
+      384,
+      384,
+      384,
+      32,
+      50
+    ],
+    "resumed_client_handshake_bytes": 1621,
+    "resumed_record_bytes": 1626,
+    "resumed_fragments": [
+      147,
+      384,
+      384,
+      384,
+      32,
+      64,
+      192,
+      39
+    ],
+    "ticket_identity_bytes": 192,
+    "binder_sha256": "bb30cecf56ab4f2ee2e6a1373c14a5c9c3403435d18dcfdcda0c97554d3086b6",
+    "fresh_server_hello_bytes": 1210,
+    "resumed_server_hello_bytes": 1216,
+    "fresh_server_extension_orders": [
+      "supported_versions,key_share",
+      "key_share,supported_versions"
+    ],
+    "fresh_hello_digest": "1a5899467e6dc41d3700f741c8ed727d1cf0748cd4b2035c7f1d225601be3bf7",
+    "resumed_hello_digest": "ca24e51800dd9b4657028ccc39632ee3344f92b7f8ff33d4b8eb41e72b5517e7"
+  },
+  "fresh_only_variant": {
+    "define": "HELLO_FRESH_ONLY",
+    "image_bytes": 3326,
+    "sector_rounded_image_bytes": 3584,
+    "sector_count": 7,
+    "bytes_free_before_eight_sector_prefix": 770,
+    "fresh_fragments": [
+      147,
+      384,
+      384,
+      384,
+      32,
+      50
+    ],
+    "resumed_entry_fails_closed": true,
+    "fresh_wire_replay_parser_both_extension_orders_and_context_handoff": true,
+    "image_sha256": "a5af175b1e1a800aab1678305531dd67080283fce8d4d5cc34779205c7a60a02"
+  },
+  "fresh_ticket_request_variant": {
+    "define": "HELLO_FRESH_TICKET_REQUEST",
+    "live_define_set": "HELLO_FRESH_ONLY+HELLO_CACHED_CONNECT+HELLO_FRESH_TICKET_REQUEST",
+    "wire_extension_hex": "002d00020101",
+    "fresh_extension_occurrences": 1,
+    "fresh_pre_shared_key_offered": false,
+    "fresh_client_handshake_bytes": 1382,
+    "fresh_record_bytes": 1387,
+    "fresh_fragments": [
+      147,
+      384,
+      384,
+      384,
+      32,
+      56
+    ],
+    "fresh_replay_exact": true,
+    "fresh_transcript_and_context_handoff": true,
+    "resumed_record_unchanged": true,
+    "resumed_extension_occurrences": 1,
+    "resumed_fragments": [
+      147,
+      384,
+      384,
+      384,
+      32,
+      64,
+      192,
+      39
+    ],
+    "live_image_bytes": 3740,
+    "live_image_sha256": "53f26cf6962e661f0ed09253f955ae0c54987eb457a99966c11e767d43eaed4c"
+  },
+  "cached_target_connector": {
+    "define": "HELLO_FRESH_ONLY+HELLO_CACHED_CONNECT",
+    "image_bytes": 3734,
+    "connector_incremental_bytes": 408,
+    "sector_rounded_image_bytes": 4096,
+    "sector_count": 8,
+    "bytes_free_in_eight_sector_prefix": 362,
+    "resident_calls": {
+      "wait_ticks": "0x11e5",
+      "tcp_ack": "0x13a6",
+      "build_tcp_segment_frame": "0x13e2",
+      "tcp_add_cx_to_seq": "0x14da",
+      "nic_vt_transmit": "0x15df",
+      "nic_vt_receive": "0x15e1"
+    },
+    "gates": [
+      "cached_target_success",
+      "MSS_384_SYN_shape",
+      "same_port_and_ISN_retransmit",
+      "RST_SYNACK_rejected",
+      "three_attempt_timeout",
+      "final_ACK_failure_propagated",
+      "missing_cached_target_rejected_before_NIC",
+      "zero_window_ACK_checksum_and_sequence",
+      "window_update_ACK_sequence",
+      "resident_addresses_match_current_core_assembly",
+      "pending_fragment_relocation_stable_after_source_overwrite",
+      "pending_fragment_relocation_length_mismatch_rejected",
+      "offline_prehashed_advance_requires_hash_enabled",
+      "exact_near_return_stack"
+    ],
+    "image_sha256": "73978bd575f12cfbdf8030ee547fa9e057651dca84baf25b08cbc0708862afe4"
+  },
+  "gates": {
+    "fresh_matches_existing_integrated_formula": true,
+    "independent_resumption_binder": true,
+    "pre_shared_key_is_final": true,
+    "psk_dhe_ke_only": true,
+    "selected_identity_zero": true,
+    "fragment_max_bytes": 384,
+    "pending_fragment_stable": true,
+    "ticket_length_frozen_at_begin": true,
+    "fresh_and_resumed_replay_exact": true,
+    "replay_not_double_hashed": true,
+    "ek_survives_through_final_fragment_consumption": true,
+    "server_ciphertext_and_x25519_split": true,
+    "hello_transcript_digest": true,
+    "exact_public_entry_stack_returns": [
+      "fresh_begin_success",
+      "resumed_begin_success",
+      "resumed_begin_low_failure",
+      "resumed_begin_high_failure",
+      "next_fragment_wrong_state_failure",
+      "next_fragment_new_success",
+      "next_fragment_pending_success",
+      "next_fragment_end_success",
+      "fragment_consumed_no_pending_failure",
+      "fragment_consumed_success",
+      "rewind_wrong_state_failure",
+      "rewind_success",
+      "server_begin_premature_failure",
+      "server_begin_success",
+      "server_feed_success",
+      "server_feed_zero_failure",
+      "server_feed_wrong_state_failure",
+      "server_feed_oversize_failure",
+      "server_feed_content_failure",
+      "server_finish_success",
+      "server_finish_wrong_state_failure",
+      "server_finish_incomplete_failure",
+      "clear_success"
+    ],
+    "zeroization": true,
+    "sentinels": {
+      "code_and_constants": "unchanged",
+      "resident_nucleus_and_driver_slot": "unchanged",
+      "split_high_dk": "unchanged",
+      "reconnect_esc_arena_context": "unchanged",
+      "rx_ek_guard_gap": "unchanged",
+      "unused_k_gaps": "unchanged"
+    },
+    "hostile_rejections": [
+      "ticket_len_0_rejected",
+      "ticket_len_193_rejected",
+      "handshake_type_rejected",
+      "handshake_length_rejected",
+      "legacy_version_rejected",
+      "session_length_rejected",
+      "session_id_rejected",
+      "cipher_rejected",
+      "compression_rejected",
+      "extensions_length_rejected",
+      "supported_versions_type_rejected",
+      "supported_versions_value_rejected",
+      "key_share_type_rejected",
+      "key_share_extension_length_rejected",
+      "key_share_group_rejected",
+      "key_share_exchange_length_rejected",
+      "key_share_first_key_share_type_rejected",
+      "key_share_first_supported_versions_type_rejected",
+      "key_share_first_supported_versions_value_rejected",
+      "hello_retry_request_rejected",
+      "all_zero_server_x_rejected",
+      "selected_identity_nonzero_rejected",
+      "resumed_psk_extension_shape_rejected",
+      "truncated_server_hello_rejected",
+      "oversize_receive_fragment_rejected",
+      "server_parse_before_final_consume_rejected"
+    ]
+  },
+  "hybrid_schedule_geometry": {
+    "mlkem_component_bytes": 32,
+    "fixed_u9_x25519_component": "server 32-byte public coordinate used directly as the fixed-u=9 X25519 shared result",
+    "hkdf_extract_input_bytes": 64,
+    "order": "ML-KEM K' || server X25519 public coordinate"
+  },
+  "limitations": [
+    "No TCP, NIC, TLS record receive loop, KeyGen, decapsulation, or protected-flight code is part of this overlay.",
+    "The resumed wire profile is a strict RFC-shaped Seed profile with one <=192-byte identity; it is not a frozen raw OpenSSL ClientHello capture.",
+    "Ticket PSKs are volatile same-boot inputs; persistence and cross-boot rollback safety are outside this PoC.",
+    "A parser rejection requires close-and-discard; the quarantined raw c may have been partially written."
+  ]
+}

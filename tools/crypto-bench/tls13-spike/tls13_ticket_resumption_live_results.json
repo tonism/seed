@@ -1,0 +1,226 @@
+{
+  "schema": "seed-tls13-ticket-live-v2",
+  "recorded_utc": "2026-07-25T15:03:55.916911+00:00",
+  "kind": "credential-free host/OpenSSL provider observation; curated v2 record of the preserved v1 measurement",
+  "provenance": {
+    "measurement_source": "tools/crypto-bench/tls13-spike/tls13_ticket_resumption_probe_measurement_v1.py",
+    "measurement_source_sha256": "584d1794c37e4febaea4e0d6b9e4a80c68d4170ff29864948b8dbacf111263e9",
+    "curation_source": "tools/crypto-bench/tls13-spike/tls13_ticket_resumption_probe.py",
+    "curation_source_sha256": "b8155e05776c2da8f90f887700002d33f41ca1b9242952eaebbba13f4f79ff24",
+    "curated_without_network_rerun": true,
+    "curation_changes": [
+      "schema v1 to v2",
+      "renamed flattened server_extensions fields",
+      "recorded that containing-message attribution is not preserved"
+    ],
+    "raw_observation_values_and_output_hashes_changed": false,
+    "settle_seconds": 3.0,
+    "session_psk_file_destroyed_after_probe": true,
+    "extension_parser_scope": "the frozen OpenSSL text parser flattened extension reports across all server handshake messages and did not retain the containing message"
+  },
+  "openssl": "OpenSSL 3.6.2 7 Apr 2026 (Library: OpenSSL 3.6.2 7 Apr 2026)",
+  "request": {
+    "method": "HEAD",
+    "path": "/v1/models",
+    "host": "api.openai.com",
+    "bytes": 69,
+    "authorization": false,
+    "cookie": false,
+    "body": false,
+    "early_data": false
+  },
+  "fresh": {
+    "reused": false,
+    "fixed_cipher": "TLS_CHACHA20_POLY1305_SHA256",
+    "fixed_group": "X25519MLKEM768",
+    "alpn": "http/1.1",
+    "http_status": 401,
+    "first_handshake_sequence": [
+      "ClientHello",
+      "ServerHello",
+      "EncryptedExtensions",
+      "Certificate",
+      "CertificateVerify",
+      "Finished",
+      "Finished"
+    ],
+    "handshake_messages": [
+      {
+        "direction": "client_to_server",
+        "name": "ClientHello",
+        "bytes": 1422
+      },
+      {
+        "direction": "server_to_client",
+        "name": "ServerHello",
+        "bytes": 1210
+      },
+      {
+        "direction": "server_to_client",
+        "name": "EncryptedExtensions",
+        "bytes": 25
+      },
+      {
+        "direction": "server_to_client",
+        "name": "Certificate",
+        "bytes": 2495
+      },
+      {
+        "direction": "server_to_client",
+        "name": "CertificateVerify",
+        "bytes": 78
+      },
+      {
+        "direction": "server_to_client",
+        "name": "Finished",
+        "bytes": 36
+      },
+      {
+        "direction": "client_to_server",
+        "name": "Finished",
+        "bytes": 36
+      },
+      {
+        "direction": "server_to_client",
+        "name": "NewSessionTicket",
+        "bytes": 222
+      },
+      {
+        "direction": "server_to_client",
+        "name": "NewSessionTicket",
+        "bytes": 222
+      }
+    ],
+    "observed_extensions_across_server_handshake": [
+      {
+        "name": "key share",
+        "id": 51,
+        "bytes": 1124
+      },
+      {
+        "name": "supported versions",
+        "id": 43,
+        "bytes": 2
+      },
+      {
+        "name": "server name",
+        "id": 0,
+        "bytes": 0
+      },
+      {
+        "name": "application layer protocol negotiation",
+        "id": 16,
+        "bytes": 11
+      },
+      {
+        "name": "early_data",
+        "id": 42,
+        "bytes": 4
+      },
+      {
+        "name": "early_data",
+        "id": 42,
+        "bytes": 4
+      }
+    ],
+    "output_sha256": "7be6383200781b733839963757db4f96f76b9f643f538d2c32be048f44d72004"
+  },
+  "resumed": {
+    "reused": true,
+    "fixed_cipher": "TLS_CHACHA20_POLY1305_SHA256",
+    "fixed_group": "X25519MLKEM768",
+    "alpn": "http/1.1",
+    "http_status": 401,
+    "first_handshake_sequence": [
+      "ClientHello",
+      "ServerHello",
+      "EncryptedExtensions",
+      "Finished",
+      "Finished"
+    ],
+    "handshake_messages": [
+      {
+        "direction": "client_to_server",
+        "name": "ClientHello",
+        "bytes": 1661
+      },
+      {
+        "direction": "server_to_client",
+        "name": "ServerHello",
+        "bytes": 1216
+      },
+      {
+        "direction": "server_to_client",
+        "name": "EncryptedExtensions",
+        "bytes": 21
+      },
+      {
+        "direction": "server_to_client",
+        "name": "Finished",
+        "bytes": 36
+      },
+      {
+        "direction": "client_to_server",
+        "name": "Finished",
+        "bytes": 36
+      },
+      {
+        "direction": "server_to_client",
+        "name": "NewSessionTicket",
+        "bytes": 222
+      },
+      {
+        "direction": "server_to_client",
+        "name": "NewSessionTicket",
+        "bytes": 222
+      }
+    ],
+    "observed_extensions_across_server_handshake": [
+      {
+        "name": "psk",
+        "id": 41,
+        "bytes": 2
+      },
+      {
+        "name": "key share",
+        "id": 51,
+        "bytes": 1124
+      },
+      {
+        "name": "supported versions",
+        "id": 43,
+        "bytes": 2
+      },
+      {
+        "name": "application layer protocol negotiation",
+        "id": 16,
+        "bytes": 11
+      },
+      {
+        "name": "early_data",
+        "id": 42,
+        "bytes": 4
+      },
+      {
+        "name": "early_data",
+        "id": 42,
+        "bytes": 4
+      }
+    ],
+    "output_sha256": "dc00f27f4b0ee67218fecf365c37eecc63307a7837e355ccd2bf4b7bb551379a"
+  },
+  "conclusion": {
+    "ticket_resumption_accepted": true,
+    "certificate_and_certificate_verify_omitted_on_resume": true,
+    "resumed_key_share_still_required": true,
+    "extension_message_attribution_preserved": false,
+    "resumed_profile": "PSK-DHE with X25519MLKEM768",
+    "architecture_effect": "after retrospective proof promotes a same-boot ticket, a closed first socket can be replaced without repeating certificate/Brotli/ECDSA authentication; the resumed connection still needs fresh KEM work",
+    "not_established": [
+      "Seed target ticket binder/resumption implementation",
+      "fixed-u=9 or provisional-decapsulation resumption on target",
+      "provider SLA or future ticket/profile stability",
+      "persistent/cross-boot ticket safety"
+    ]
+  }
+}

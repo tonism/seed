@@ -1,0 +1,77 @@
+{
+  "date": "2026-07-25",
+  "timing_environment": {
+    "emulator": "86Box v9001",
+    "machine": "IBM PC 5150",
+    "cpu": "8088",
+    "cpu_hz": 4772728,
+    "installed_ram_kib": 64,
+    "dynarec": false,
+    "bios_tick_ms": 54.9254,
+    "literal_16k_bios_boot": false
+  },
+  "static_address_contract": {
+    "ram_ceiling": "0x4000",
+    "image_bytes": 3046,
+    "image_sectors": 6,
+    "load_range": "0x1000..0x1be6",
+    "passes": true
+  },
+  "footprint": {
+    "algorithm_code_bytes": 1526,
+    "benchmark_total_code_bytes": 2000,
+    "algorithm_writable_state_bytes": 808,
+    "writable_state_bytes": 818,
+    "x25519_call_stack_bytes": 20,
+    "benchmark_peak_stack_bytes": 22,
+    "algorithm_state_plus_call_stack_bytes": 828,
+    "benchmark_state_plus_peak_stack_bytes": 840
+  },
+  "arithmetic_counts_per_scalar_multiplication": {
+    "ladder_steps": 255,
+    "field_squares": 1274,
+    "general_field_multiplications": 1287,
+    "a24_constant_multiplications": 255,
+    "word_multiplications": 506816
+  },
+  "vectors": {
+    "pre_tcp_key_generation": {
+      "source": "RFC 7748 section 6.1 Alice private/public pair",
+      "input_u": "0900000000000000000000000000000000000000000000000000000000000000",
+      "expected": "8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a",
+      "ticks": 830,
+      "seconds": 45.5881,
+      "checksum": "E354",
+      "check": 1,
+      "can_move_before_tcp": true
+    },
+    "server_dependent_shared_secret": {
+      "source": "RFC 7748 section 6.1 Alice private, Bob public, shared secret",
+      "input_u": "de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f",
+      "expected": "4a5d9d5ba4ce2de1728e3bf480350f25e07e21c947d19e3376f09b3c1e161742",
+      "ticks": 833,
+      "seconds": 45.7529,
+      "checksum": "1820",
+      "check": 1,
+      "can_move_before_tcp": false
+    }
+  },
+  "provider_window_seconds": 15.0,
+  "shared_secret_margin_seconds": -30.7529,
+  "clears_15_second_gate": false,
+  "bounded_frontier": {
+    "8088_mul_model_cycles": 124,
+    "current_word_mul_only_floor_seconds": 13.1676,
+    "required_speedup_for_x25519_alone_under_15_seconds": 3.0502,
+    "compact_flight_plus_hot_hkdf_seconds": 11.6991,
+    "remaining_window_after_compact_flight_and_hot_hkdf_seconds": 3.3009,
+    "required_speedup_for_current_shared_op_in_remaining_window": 13.8607,
+    "hypothetical_recursive_karatsuba": {
+      "word_multiplications": 211521,
+      "word_mul_only_floor_seconds": 5.4955,
+      "exceeds_remaining_window_before_overhead_seconds": 2.1946,
+      "implemented": false
+    },
+    "conclusion": "No measured or bounded ordinary X25519 implementation has a credible path inside the current TLS critical window on a 4.77 MHz 8088. Karatsuba, unrolling, or a precomputed differential chain remain speculative research, not an architecture dependency."
+  }
+}

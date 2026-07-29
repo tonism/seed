@@ -1,0 +1,367 @@
+{
+  "schema": "seed-live-k14-16k-wire-v4",
+  "scope": "historical three-run client-Finished deadline baseline plus a separately bound current credential-free post-Finished HTTP and volatile-ticket canary on an original-speed 4.772728-MHz 8088 with exactly 16 KiB RAM; not a product runtime or secure-floor proof",
+  "date": "2026-07-26",
+  "status": "pass",
+  "target": {
+    "machine": "IBM PC 5150",
+    "cpu": "8088",
+    "clock_mhz": 4.772728,
+    "dynarec": false,
+    "ram_kib": 16,
+    "entry": "ROM BASIC sidecar",
+    "profile": "vm-net-ne2k8",
+    "driver": "production SEED/DRIVERS/NE.DRV"
+  },
+  "historical_deadline_artifact": {
+    "baseline_git_head": "548053dfcdfc19b12130ce418ed24f7670c45750",
+    "core_bytes": 45568,
+    "core_sectors": 89,
+    "core_sha256": "3f26302850b3e0ce4b7ace63c5d1d471677c78f6e96d8110e38832df907ae2a7",
+    "floppy_bytes": 163840,
+    "floppy_sha256": "d70ce46211b51fcb4b5f2ee1bf30f833cfb74ae735e0adc590bfe2ec343e60dd",
+    "manifest_sha256": "e23d19ebb69294dee95ff5a7c29203c60fef3e33c78626b533a4209ed5344532",
+    "resident_prefix_bytes": 2048,
+    "logical_k_bytes": 7168,
+    "controller_bytes": {
+      "boot": 417,
+      "hello": 337,
+      "crypto": 323,
+      "protected": 900,
+      "protected_slot_bytes": 1024,
+      "protected_slot_slack_bytes": 124,
+      "diagnostic_services": 160
+    }
+  },
+  "provenance": {
+    "builder": "tools/crypto-bench/tls13-poc/build_live_k15.py",
+    "builder_sha256": "b130bb4276a80167307318150dd787e533596933c6d111b919facaf56d8c0411",
+    "controller_source": "tools/crypto-bench/tls13-poc/live_k15_controllers.asm",
+    "controller_source_sha256": "742eff071706fcb295a3a58754adf5e5427f23496a691e9e755ccdd02df57683",
+    "runner": "tools/crypto-bench/tls13-poc/run_live_k14_16k.py",
+    "runner_sha256": "1b2e27a32ffc4357b18ee067f710900343c7e4153d65af694d9794d818e1dff6",
+    "wire_analyzer": "tools/crypto-bench/tls13-poc/live_k15_pcap.py",
+    "wire_analyzer_sha256": "f768720dccb56f5ca1cdb70786fe6e433005c4f6fe7084cfd33d502eaca8acb9",
+    "controller_gate": "tools/crypto-bench/tls13-poc/live_k15_check.py",
+    "controller_gate_sha256": "285247a7e443a376368f6cee85d267a4d95eadc680014052fcb1dff2ff252122",
+    "capture_oracle": "tools/crypto-bench/tls13-poc/live_k15_capture_oracle.py",
+    "capture_oracle_sha256": "0f24a982a8d4da0263051768bdced34dfccb034c2f17b9262f0958eee78ac408",
+    "post_result_observation_seconds": 2.0,
+    "observation_grace_is_outside_deadline": true
+  },
+  "historical_deadline_artifact_binding": {
+    "trial_manifest_sha256": "b81288e7a3d5a8dce111c74a94f353a92db769cb3044105867f6704f8b3b28a4",
+    "trial_runner_sha256": "e7415fd2d419db30d3492cd6a5e129effb5baae77588564a8df0bdadbd515092",
+    "curation_manifest_sha256": "e23d19ebb69294dee95ff5a7c29203c60fef3e33c78626b533a4209ed5344532",
+    "curation_runner_sha256": "b24059fa64dcd17adbe185ad29c4b2ae5e27cd436b77a2057798d0c8ffb949fb",
+    "core_sha256": "3f26302850b3e0ce4b7ace63c5d1d471677c78f6e96d8110e38832df907ae2a7",
+    "floppy_sha256": "d70ce46211b51fcb4b5f2ee1bf30f833cfb74ae735e0adc590bfe2ec343e60dd",
+    "trial_manifest_reconstructed_exactly": true,
+    "binary_outputs_identical": true,
+    "trial_run_record_embeds_binary_hashes": false,
+    "curation_run_record_schema": "seed-live-k14-16k-run-v2",
+    "metadata_only_changes_after_trials": [
+      {
+        "path": "strict_server_shape.protected_flight",
+        "before": "optional one-byte compatibility CCS followed by exactly one encrypted handshake record, no padding or coalesced next record",
+        "after": "zero or one one-byte compatibility CCS followed by exactly one encrypted handshake record, no padding, and no coalesced or already-queued next record"
+      },
+      {
+        "path": "product_input.resident_abi_offsets.parse_tcp_payload",
+        "before": "absent",
+        "after": "0x1522"
+      },
+      {
+        "path": "product_input.resident_abi_offsets.nic_vt_rx_fallback",
+        "before": "absent",
+        "after": "0x15e3"
+      }
+    ]
+  },
+  "historical_deadline_wire_contract": {
+    "start": "first byte of exact live ServerHello",
+    "end": "first byte of the 58-byte client Finished TLS record",
+    "deadline_seconds": 15.0,
+    "client_hello_stream_bytes": 1381,
+    "fresh_server_extension_orders_accepted": [
+      "supported_versions,key_share",
+      "key_share,supported_versions"
+    ],
+    "protected_shape": {
+      "compatibility_ccs_records": "zero or one; body exactly one byte 0x01",
+      "encrypted_handshake_records": 1,
+      "tls_inner_plaintext_padding": 0,
+      "coalesced_or_already_queued_later_record": "rejected before client Finished"
+    },
+    "finished_record_bytes": 58
+  },
+  "historical_deadline_critical_loader": {
+    "bytes": 146,
+    "runtime_range": "0x0f00..0x0f92",
+    "alignment_padding_sectors": 7,
+    "candidate_absolute_lba": 80,
+    "candidate_batch_calls": 1,
+    "symmetric_restore_absolute_lba": 88,
+    "symmetric_restore_batch_calls": 1,
+    "protected_controller_absolute_lba": 59,
+    "protected_controller_batch_calls": 1
+  },
+  "historical_optimization_progression": [
+    {
+      "revision": "one-sector phase loader",
+      "guest_ticks": 284,
+      "wire_seconds": 15.950545,
+      "status": "late"
+    },
+    {
+      "revision": "track-batched phase loader",
+      "guest_ticks": 247,
+      "wire_seconds": 13.921277,
+      "status": "pass"
+    },
+    {
+      "revision": "track-aligned media",
+      "guest_ticks": 239,
+      "wire_seconds": 13.481118,
+      "status": "pass"
+    },
+    {
+      "revision": "track-aligned media repeat",
+      "guest_ticks": 239,
+      "wire_seconds": 13.480155,
+      "status": "pass"
+    }
+  ],
+  "historical_deadline_trials": [
+    {
+      "name": "repeat8",
+      "guest_first": "0x03b6",
+      "guest_commit": "0x03c9",
+      "guest_tx": "0x04a6",
+      "guest_server_hello_to_tx_ticks": 240,
+      "guest_commit_to_tx_ticks": 221,
+      "wire_seconds": 13.536559104919434,
+      "margin_seconds": 1.4634408950805664,
+      "server_ack_latency_seconds": 0.06670904159545898,
+      "host_capture_finished_copies": 1,
+      "manifest_sha256": "b81288e7a3d5a8dce111c74a94f353a92db769cb3044105867f6704f8b3b28a4",
+      "runner_sha256": "e7415fd2d419db30d3492cd6a5e129effb5baae77588564a8df0bdadbd515092",
+      "wire_result_sha256": "98902ad6723c138b3781fb324217aa3ff56019ef831f3621c70f5864906dc079",
+      "run_result_sha256": "9e836fe193034f4d2db25745668a673e1de0cbdca81abeff91c3ed9b5e794564",
+      "pcap_sha256": "36e130e348e4da9514a91b5dadaced68857dccde452b6701c26341cd81f707ac",
+      "status": "pass"
+    },
+    {
+      "name": "repeat9",
+      "guest_first": "0x03b0",
+      "guest_commit": "0x03c3",
+      "guest_tx": "0x04a0",
+      "guest_server_hello_to_tx_ticks": 240,
+      "guest_commit_to_tx_ticks": 221,
+      "wire_seconds": 13.536609172821045,
+      "margin_seconds": 1.463390827178955,
+      "server_ack_latency_seconds": 0.04698896408081055,
+      "host_capture_finished_copies": 1,
+      "manifest_sha256": "b81288e7a3d5a8dce111c74a94f353a92db769cb3044105867f6704f8b3b28a4",
+      "runner_sha256": "e7415fd2d419db30d3492cd6a5e129effb5baae77588564a8df0bdadbd515092",
+      "wire_result_sha256": "9cdc53c61b495297e4b6331d892d6a54b3fca487b057d4f73fb449487c51463f",
+      "run_result_sha256": "17353f2dac6ae820ba97a25f252342d5f3564a9d7f47b19c0d3033cf5792aa1e",
+      "pcap_sha256": "ee2f21ebd168c772440c29047c1cfe1c80c737769020d49cdeff8565608996b1",
+      "status": "pass"
+    },
+    {
+      "name": "repeat10",
+      "guest_first": "0x03b0",
+      "guest_commit": "0x03c3",
+      "guest_tx": "0x049f",
+      "guest_server_hello_to_tx_ticks": 239,
+      "guest_commit_to_tx_ticks": 220,
+      "wire_seconds": 13.483029842376709,
+      "margin_seconds": 1.516970157623291,
+      "server_ack_latency_seconds": 0.0465240478515625,
+      "host_capture_finished_copies": 1,
+      "manifest_sha256": "b81288e7a3d5a8dce111c74a94f353a92db769cb3044105867f6704f8b3b28a4",
+      "runner_sha256": "e7415fd2d419db30d3492cd6a5e129effb5baae77588564a8df0bdadbd515092",
+      "wire_result_sha256": "0ddbccf283e5cfb39f1c550245c0d22ca2c5234dbfe59312a5ec98505507a89f",
+      "run_result_sha256": "36f6b0bc276ccea369ce5506902ccaee69b0efec63d9854ffa04052f1803959f",
+      "pcap_sha256": "edc1962ec0935bfc360e51b32d0075ac873cc70d14790c74b2f0dcd67962fc5e",
+      "status": "pass"
+    }
+  ],
+  "historical_deadline_distribution": {
+    "trial_count": 3,
+    "minimum_wire_seconds": 13.483029842376709,
+    "maximum_wire_seconds": 13.536609172821045,
+    "mean_wire_seconds": 13.518732706705729,
+    "worst_margin_seconds": 1.463390827178955
+  },
+  "historical_transport_reliability": {
+    "finished_transmit_attempts": 2,
+    "retry_delay_bios_ticks": 1,
+    "same_tcp_sequence": true,
+    "logical_sequence_advance_bytes": 58,
+    "offline_second_send_failure_recovery": true,
+    "host_capture_observed_finished_copies_per_trial": [
+      1,
+      1,
+      1
+    ],
+    "second_copy_visibility_reason": "not established; the offline gate proves the attempt, not traversal to the host capture point",
+    "earlier_missing_finished_diagnostic": "capture stopped before Finished became visible at the host capture point; the same image passed with an explicit post-RESULT observation grace",
+    "earlier_diagnostic_is_packet_loss_evidence": false
+  },
+  "historical_deadline_gates": {
+    "guest_deadline_pass_and_result_ordered": true,
+    "host_wire_deadline_pass": true,
+    "server_acked_finished": true,
+    "fragmented_server_hello_and_protected_flight": true,
+    "strict_protected_shape_positive_and_negative_matrix": true,
+    "zero_window_phase_boundary": true,
+    "half_open_rx_extent": "[0x0700,0x08b6)",
+    "post_sym_extension_writes": 0,
+    "critical_loader_fallback": true,
+    "credential_and_api_request_literal_scan": true
+  },
+  "current_post_finished_canary": {
+    "name": "live-attempt6-hardened-canary-pass",
+    "scope": "successful exact-speed credential-free HEAD dialogue and RAM-only tentative ticket capture AEAD-verified under provisional traffic keys after client Finished; CANARY COMMIT is not the secure-tier credential-unlock commit or peer authentication",
+    "frozen_artifacts_required_for_audit": false,
+    "artifact_run_binding": {
+      "baseline_git_head": "548053dfcdfc19b12130ce418ed24f7670c45750",
+      "core_bytes": 45568,
+      "core_sha256": "ccedcd8dcbdf3a87f50b6caf6c35c359642738d7cd4278fed0884d7687dc8144",
+      "floppy_bytes": 163840,
+      "floppy_sha256": "be79ab23ec351f2bed45fa8d0de1b199ba7fc0ae3786f20b799f36367cd1d11c",
+      "manifest_sha256": "b254df9143582d7ed8921a08174236c8e6608dc77804b2dc33714eb142a08b37",
+      "current_offline_byte_identity_replay": {
+        "date": "2026-07-26",
+        "core_identical": true,
+        "floppy_identical": true,
+        "core_sha256": "ccedcd8dcbdf3a87f50b6caf6c35c359642738d7cd4278fed0884d7687dc8144",
+        "floppy_sha256": "be79ab23ec351f2bed45fa8d0de1b199ba7fc0ae3786f20b799f36367cd1d11c",
+        "replay_manifest_sha256": "2b1ee31aee8efee6254c13ba8b3cb6e09442ec0bba467decc01f7e7a19bd603c",
+        "manifest_difference_scope": "absolute output paths only",
+        "network_launch_performed": false
+      },
+      "run_schema": "seed-live-k14-16k-run-v2",
+      "run_result_sha256": "c454e630a92dc4db509b16adb4b58a123e3a7ebf910cad411855232d4dcf67e9",
+      "pcap_sha256": "58384f2473e9830dffefca2e343acdd03e8a634ec136c6ce119ade0db0f4593b",
+      "capture_oracle_schema": "seed-live-k14-capture-oracle-v3",
+      "capture_oracle_sha256": "c7eb9ba8ca0944d775ac9737e0085c14072698eea02ccfcbb43d323d9e4fb775",
+      "wire_result_sha256": "5e7017f32837a705d1015123706ccbbcbe9a40cbe26ff15ef7c6091489437186"
+    },
+    "exact_profile": {
+      "machine": "IBM PC 5150",
+      "machine_id": "ibmpc",
+      "cpu": "8088",
+      "cpu_hz": 4772728,
+      "cpu_multiplier": 1,
+      "dynarec": false,
+      "ram_kib": 16,
+      "entry": "ROM BASIC sidecar",
+      "profile": "vm-net-ne2k8",
+      "driver": "production SEED/DRIVERS/NE.DRV",
+      "exact_profile_verified": true
+    },
+    "read_only_floppy": {
+      "requested": true,
+      "mode_during_run": "0o444",
+      "host_write_open_denied": true,
+      "sha256_before": "be79ab23ec351f2bed45fa8d0de1b199ba7fc0ae3786f20b799f36367cd1d11c",
+      "sha256_after": "be79ab23ec351f2bed45fa8d0de1b199ba7fc0ae3786f20b799f36367cd1d11c",
+      "unchanged": true,
+      "mode_restored": true,
+      "integrity_gate_passed": true
+    },
+    "client_hello": {
+      "handshake_bytes": 1382,
+      "record_bytes": 1387,
+      "psk_key_exchange_mode": "psk_dhe_ke",
+      "pre_shared_key_offered": false
+    },
+    "wire_deadline": {
+      "start": "first byte of exact live ServerHello",
+      "end": "first byte of the 58-byte client Finished TLS record",
+      "deadline_seconds": 15.0,
+      "server_hello_to_client_finished_seconds": 13.404952049255371,
+      "margin_seconds": 1.595047950744629,
+      "identified_live_seed_flows": 1,
+      "completed_live_seed_flows": 1,
+      "client_retransmit_payloads": 0,
+      "server_retransmit_payloads": 0,
+      "stream_conflict": false,
+      "status": "pass"
+    },
+    "capture_oracle": {
+      "tcp_syn": 1785064223.212374,
+      "client_finished": 1785064236.753313,
+      "syn_to_client_finished_seconds": 13.540939092636108,
+      "client_head": 1785064237.709358,
+      "client_finished_to_head_seconds": 0.9560449123382568,
+      "syn_to_head_seconds": 14.496984004974365,
+      "first_post_finished_server_record": 1785064237.93114,
+      "client_finished_to_first_server_record_seconds": 1.1778268814086914,
+      "syn_to_first_server_record_seconds": 14.7187659740448,
+      "first_server_record_to_head_seconds": -0.22178196907043457,
+      "server_finished_record_tag_verified": true,
+      "server_finished_verify_data_matches": true,
+      "client_finished_exact_match": true,
+      "head_tag_verified": true,
+      "head_content_bytes": 50,
+      "post_finished_record_count": 2,
+      "all_post_finished_records_tag_verified": true,
+      "post_finished_target_acceptable": true,
+      "post_finished_target_rejection_count": 0,
+      "new_session_tickets": {
+        "count": 2,
+        "record_server_application_sequence": 0,
+        "message_bytes": [
+          222,
+          222
+        ],
+        "all_messages_within_seed_bounds": true,
+        "all_target_acceptable": true,
+        "retention": "RAM-only tentative ticket"
+      },
+      "http": {
+        "record_server_application_sequence": 1,
+        "content_bytes": 1125,
+        "status_code": 401,
+        "header_terminator_present": true
+      }
+    },
+    "hardened_failure_path_gates": {
+      "protected_bad_tag_no_precommit": true,
+      "protected_authenticated_tail_tamper_no_precommit": true,
+      "duplicate_early_data_rejected": true,
+      "sequence_exhaustion_rejected_without_wrap": true,
+      "capture_oracle_record_order_and_target_compatibility": true
+    },
+    "guest": {
+      "terminal_status": "PASS",
+      "success_markers_ordered": true,
+      "markers": [
+        "DEADLINE PASS",
+        "HEAD TX",
+        "TICKET",
+        "HEAD OK",
+        "CANARY COMMIT",
+        "PASS",
+        "RESULT"
+      ],
+      "ticket_seen": true,
+      "head_ok_seen": true,
+      "canary_commit_seen": true,
+      "pass_seen": true
+    }
+  },
+  "limitations": [
+    "Public deterministic d||z and ClientHello random/session fixtures are used; physical entropy is not proved.",
+    "The X25519 client coordinate is fixed to u=9, so this is not a conforming hybrid X25519MLKEM768 key exchange.",
+    "Only the provisional ML-KEM candidate is used before Finished; complete FO validation remains quarantined afterward.",
+    "Complete FO, live Certificate/CertificateVerify, trusted-time, physical entropy/restart, and atomic credential-unlock proofs are not in the live image.",
+    "The current canary contains no credential, sends only a credential-free HEAD, and retains a tentative ticket only in volatile RAM; its tag-verified records do not establish peer identity.",
+    "Target resumption and the remaining NIC-family matrix are not proved.",
+    "A guest or wire PASS is not a secure-tier or product-replacement claim."
+  ]
+}

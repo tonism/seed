@@ -34,7 +34,7 @@ BIOS loads boot sector
   -> sends DHCPREQUEST and waits for DHCPACK when an offer is available
   -> sends ARP for the DHCP-provided DNS server after DHCPACK
   -> selects the TCP next hop for the selected agent host
-  -> switches to a dim o marker for secure connection prep
+  -> switches to a dim o marker for TLS connection prep
   -> reads SEED/AGENTS.CFG and parses up to five agent declarations
   -> falls back to built-in openai/anthropic/google if SEED/AGENTS.CFG is missing or bad
   -> reads SEED/USER.CFG when present and validates the saved agent choice
@@ -106,8 +106,8 @@ LBA while the normal boot loader continues to read `SEED.SYS` through FAT12. The
 generated sidecar text stores the loader as short hexadecimal `DATA` rows and
 decodes them with ROM BASIC's `VAL("&H...")` support. The current 16 KiB helper
 uses `0x4000` as its RAM ceiling and fails with a single red `X` at the normal
-loading-glyph position if `SEED.SYS` would collide with the BASIC loader or if
-BIOS sector reads fail.
+loading-glyph position if the declared resident prefix would collide with the
+BASIC loader or if BIOS sector reads fail.
 
 Future artifacts may also ship host-specific loaders that jump into `SEED.SYS`
 from an already-running OS. DOS `.COM`, Windows, macOS/OSX, Linux, and other
@@ -205,7 +205,7 @@ The first screen text is hardcoded in `SEED.SYS` for now:
 boot loader     no marker
 hardware setup  dim "."
 internet prep   dim ","
-secure prep     dim "o"
+TLS prep        dim "o"
 crypto prep     normal "o" on CGA/VGA, dim "o" on MDA
 agent/env prep  bright "o"
 failure         current marker turns red, low descending PC speaker tone, fast-typed error, then retry/restart

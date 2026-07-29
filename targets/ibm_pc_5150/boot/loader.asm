@@ -20,6 +20,9 @@ org 0x0600
 core_offset equ 0x1000
 loader_stack_top equ 0x8000
 sector_size equ 512
+loader_stack_guard_len equ sector_size
+core_max_resident_bytes equ \
+    loader_stack_top - loader_stack_guard_len - core_offset
 floppy_sectors_per_track equ FLOPPY_SPT
 fat_count equ 2
 root_sectors equ 4
@@ -113,10 +116,10 @@ find_core:
     mov ax, [si + 26]
     mov [core_cluster], ax
     mov ax, [si + 28]
-    mov [core_bytes_left], ax
-    cmp word [si + 30], 0
-    jne .not_found
-    cmp word [core_bytes_left], 0
+    mov [core_file_size], ax
+    mov ax, [si + 30]
+    mov [core_file_size + 2], ax
+    or ax, [core_file_size]
     je .not_found
     clc
     ret
@@ -222,13 +225,36 @@ read_core_header:
     jz .failed
     mov [core_sectors_left], ax
 
-    mov ax, [core_bytes_left]
-    add ax, sector_size - 1
+    ; Form the resident extent as a full 32-bit byte count.  SEED.SYS is a
+    ; demand-loaded phase container, so its cold tail may grow beyond 64 KiB
+    ; even though only this small resident prefix is loaded here.
+    mov ax, [core_sectors_left]
+    mov dx, ax
     mov cl, 9
-    shr ax, cl
-    cmp [core_sectors_left], ax
+    shl ax, cl
+    mov cl, 7
+    shr dx, cl
+
+    ; The destination advances in segment 0 while this loader still uses the
+    ; 0x8000 stack.  Reject a corrupt-but-large file whose resident count would
+    ; wrap core_dest or overwrite the active INT 13h/call stack.
+    or dx, dx
+    jnz .failed
+    cmp ax, core_max_resident_bytes
     ja .failed
 
+    ; Preserve the original sector-rounded directory-size contract: the last
+    ; resident sector may be only partially represented by the FAT file size.
+    ; resident_bytes - 511 <= file_size is equivalent to
+    ; resident_sectors <= ceil(file_size / 512), without truncating size_high.
+    sub ax, sector_size - 1
+    sbb dx, 0
+    cmp dx, [core_file_size + 2]
+    jb .size_ok
+    ja .failed
+    cmp ax, [core_file_size]
+    ja .failed
+.size_ok:
     pop cx
     pop di
     pop si
@@ -309,7 +335,7 @@ boot_drive db 0
 root_lba dw 0
 root_left db 0
 core_cluster dw 0
-core_bytes_left dw 0
+core_file_size dd 0
 core_dest dw 0
 core_sectors_left dw 0
 core_need_header db 0

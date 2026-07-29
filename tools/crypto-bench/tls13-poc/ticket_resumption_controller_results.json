@@ -1,0 +1,221 @@
+{
+  "composition": {
+    "all_cpu_8086": true,
+    "attempt_bundles": {
+      "independent": true,
+      "initial": {
+        "ek_sha256": "2b5b818f2f9f878905d4bf999b258df5cd9f7844e7eb749736fe401cfcdcafd9",
+        "keygen_sha256": "8ba50319de1f2dd3996355170435872fbf2bcee0e7acacaa918a76fff05046f2",
+        "range": "0x0700..0x0780",
+        "sha256": "64357666f49b304197e4e4a784a8c563c7a55bc897db6589ef893df57b684339"
+      },
+      "one_shot_resumption": {
+        "consumed_and_zeroized_by_prepare": true,
+        "ek_sha256": "bb3902ce17d1280d86447bdb1deee0afa3eaf0ff45d154feb8a22fc53856a1dd",
+        "keygen_sha256": "c4b5eecc770fa50cf01baea4fe4f6e4a013d6ae1c02cf76740b1bf2ead3846e9",
+        "layout": "d[32] || z[32] || random[32] || session[32]",
+        "range": "0x0780..0x0800",
+        "sha256": "38acd5a0d3f41577ed9e6055d6ba5e4e65b9482860efb4d83c5bd7aaf268a58a"
+      }
+    },
+    "credentials_or_writable_media": false,
+    "exact_16k_address_map": true,
+    "fo_selected_sha256": "f32279ac0a1365c0da7c81bef2cd803b24789ad8b8fbfdac46c4e0a68538b138",
+    "hello_image_sha256": "eeaea3f82a4e506b53dbc018f1c2030020203a174e194e6cf8c54499814c4c44",
+    "input_issuer_publication": "LP1 status-last exact-leaf adapter profile",
+    "input_route": "ROG3 TICKET_ONLY",
+    "output_route": "ROG3 LIVE_TICKET after HEAD, FO, and drain",
+    "product_arena_context_untouched": "0x3e40..0x3f00",
+    "symmetric_image_sha256": "7ecaa68d7f0d972e65e905155227c2a9d7c120447d97a9802fef783420710fa1"
+  },
+  "controller": {
+    "entries": {
+      "resume_attempt": "0x0e28",
+      "stamp_authenticated_nst": "0x0dc5"
+    },
+    "file_bytes": 971,
+    "fixed_callback": "0x0500",
+    "fixed_callback_operations": {
+      "1": "clock",
+      "10": "validate_nst_and_import_original_receipt_clock",
+      "11": "restore_vaulted_bundle",
+      "2": "prepare_and_vault",
+      "3": "binder_exchange",
+      "4": "receive_resumed_flight",
+      "5": "send_client_finished",
+      "6": "send_exact_credential_free_head",
+      "7": "deferred_fo",
+      "8": "authenticate_and_drain_head_response",
+      "9": "validate_rog3_ticket_only"
+    },
+    "image_sha256": "d5e1dd21a29a80973e5513e9ad858f4eae92ef0e06cf47a0ad3233119055b08a",
+    "live_relocated_variant": {
+      "complete_instruction_decode": true,
+      "convergence_passes": 1,
+      "entries": [
+        "0x091a",
+        "0x097d"
+      ],
+      "file_bytes": 971,
+      "low": "0x0900..0x0b20",
+      "persistent_services_preserved": "0x355d..0x3600",
+      "prefix": "0x3400..0x350f",
+      "request_slot_limit": "0x0d00",
+      "suffix": "0x0b20..0x0bbc"
+    },
+    "scatter": {
+      "k14_prefix": {
+        "bytes": 271,
+        "end": "0x350f",
+        "start": "0x3400"
+      },
+      "k14_suffix": {
+        "bytes": 156,
+        "end": "0x35f9",
+        "start": "0x355d"
+      },
+      "low": {
+        "bytes": 544,
+        "end": "0x0fcb",
+        "start": "0x0dab"
+      },
+      "retired_before_pak1_model_publication": true,
+      "symmetric_mutable_hole": "0x3510..0x355d"
+    },
+    "state": {
+      "attempt_age_and_ms": "0x3c58..0x3c66",
+      "bytes": 48,
+      "candidate_publication": "0x3c66..0x3c6e",
+      "end": "0x3c76",
+      "fo_publication": "0x3c6e..0x3c76",
+      "receipt_timestamp": "0x3c46..0x3c58",
+      "start": "0x3c46"
+    },
+    "static": {
+      "direct_fixed_callback_calls": 12,
+      "instructions": 351,
+      "low_slack_bytes": 53,
+      "prefix_slack_bytes": 1,
+      "suffix_slack_bytes": 7
+    }
+  },
+  "gate": {
+    "callback_operations": [
+      10,
+      9,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9
+    ],
+    "elapsed_ms": 109851,
+    "elapsed_ticks": 2000,
+    "fo": {
+      "ciphertext_bytes": 1088,
+      "ciphertext_checksum": 10329,
+      "ek_checksum": 8582,
+      "exact_8086_kernel": true,
+      "proof_binds_fresh_keygen_output": true,
+      "proof_status_last": true,
+      "selected_matches_provisional": true,
+      "stream_reads": 17
+    },
+    "hostile_case_count": 36,
+    "hostile_cases": [
+      "fail_prepare",
+      "binder_mismatch",
+      "candidate_missing",
+      "candidate_generation",
+      "candidate_zero_checksum",
+      "candidate_ek_checksum",
+      "mutate_then_fail",
+      "fail_receive",
+      "record_header",
+      "record_length",
+      "record_tag",
+      "record_shape",
+      "record_certificate",
+      "record_finished",
+      "fail_send",
+      "fail_canary_send",
+      "fail_fo",
+      "fail_liveness",
+      "fo_missing",
+      "fo_generation",
+      "fo_checksum",
+      "fo_ek_checksum",
+      "final_route_mutation",
+      "receipt_checksum",
+      "missing_receipt",
+      "same_day_backwards",
+      "day_jump",
+      "elapsed_bound",
+      "expired_ticket",
+      "invalid_route",
+      "malformed_ticket_at_receipt",
+      "invalid_receipt_clock",
+      "zero_attempt_bundle",
+      "same_ticket_retry_reused_bundle",
+      "same_ticket_retry_stale_proof",
+      "tick_low_word_wrap"
+    ],
+    "obfuscated_ticket_age_hex": "1021dd5b",
+    "preservation": {
+      "issuer_restored_before_final_route_validation": true,
+      "issuer_vault_restored_on_failure": true,
+      "one_shot_bundle_reuse_rejected": true,
+      "stale_candidate_fo_cleared_before_retry": true,
+      "ticket_control_restored_on_failure": true,
+      "ticket_only_route_preserved_on_all_hostiles": true
+    },
+    "status": "pass",
+    "tick_wraps": {
+      "low_word": {
+        "age_hex": "1020371e",
+        "attempt": 65552,
+        "elapsed": 32,
+        "elapsed_ms": 1758,
+        "receipt": 65520
+      },
+      "midnight": {
+        "age_hex": "1021dd5b",
+        "attempt": 1000,
+        "elapsed": 2000,
+        "receipt": 1572040
+      }
+    },
+    "valid_dialogue": {
+      "application_keys_before_head": true,
+      "credential_surface_present": false,
+      "exact_allowlisted_head_bytes": 50,
+      "forbidden_literal_hits": [],
+      "head_one_shot_replay_rejected": true,
+      "head_sent_before_deferred_fo": true,
+      "head_sha256": "c5c8039634c3961f485bbceae2e73789f2a702fad7624e67b143176e625309a6",
+      "response_authenticated_and_drained_after_fo": true,
+      "route_promotion_after_response_drain": true
+    },
+    "wire": {
+      "binder_sha256": "cb3024df4074263845d3f3dd8e2e55125ac2c117a06ee96c67d49253a9b6f3eb",
+      "certificate_messages": 0,
+      "client_finished_record_bytes": 58,
+      "client_hello_handshake_bytes": 1621,
+      "client_hello_record_bytes": 1626,
+      "fresh_hybrid_secret_bytes": 64,
+      "resumed_flight_record_bytes": 68,
+      "server_hello_handshake_bytes": 1216
+    }
+  },
+  "schema": "seed-tls13-ticket-resumption-controller-v1",
+  "sources": {
+    "checker": "198b902a142bdbd2626cd2b4dbe5cd6ce4c570100c1e573c361325689639b4ea",
+    "controller": "d84aed1020715f9d4aeb6f358d9119b3a8f88263efa232d3a5ccaf32b777aa0c",
+    "readme": "bd519ca85cc7354b13bc676ed672a9dd9dfbc8dbaebaed6861974ae7ebef0453"
+  },
+  "status": "pass"
+}

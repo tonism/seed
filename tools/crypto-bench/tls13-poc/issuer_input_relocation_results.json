@@ -1,0 +1,144 @@
+{
+  "schema": "seed-tls13-poc-issuer-input-relocation-v1",
+  "scope": "isolated read-only-memory lifetime gate for the native K14 issuer-input relocation; no product/runtime linkage",
+  "provenance": {
+    "auth_source": "tools/crypto-bench/tls13-poc/issuer_auth_overlay.asm",
+    "auth_source_sha256": "cc8e1d2e8a30f4714386f10f2a88e9d7f56f03e4acdeb0bfda2da7b2e939b4c1",
+    "bridge_source": "tools/crypto-bench/tls13-poc/issuer_input_relocation_bridge.asm",
+    "bridge_source_sha256": "b58daa98d40e83dcfa026ea597c7828b4156ccb61d3bc867ebe26547cc0d8dad",
+    "commit_gate_source": "tools/crypto-bench/tls13-poc/read_only_commit_gate.asm",
+    "commit_gate_source_sha256": "76e348137d42604024fbafd7ba37bd56cbed2323817724251ce0d20b03405e54",
+    "checker": "tools/crypto-bench/tls13-poc/issuer_input_relocation_check.py",
+    "checker_sha256": "945e71ec0b21396dceb1e70cca8bf2df9ccbb61e39b561bce62d2e866529bfe5",
+    "layout": "tools/crypto-bench/tls13-poc/layout.inc",
+    "layout_sha256": "403713dc0e3062559ddbad249ce9b84e30c26ce700ff6772c6f6cf56134f272d",
+    "symmetric_source": "tools/crypto-bench/tls13-poc/tls13_sym_overlay.asm",
+    "symmetric_source_sha256": "dafa985222d026459156835e5662313cb4d59fb154f1d10ce754ef819282f0a7",
+    "auth_image_sha256": "366f22292d9b63e464d8c7205c814f81d0ab07cad522e3ad52fb4b86d51c0ce2",
+    "bridge_image_sha256": "b993b5c435095691d0be18060fd5f13d9a2c950a2049728e7ab1ecaa06b773e6",
+    "commit_gate_image_sha256": "3cee46ddc7aeba9ef8c651b78d0b2da686406bf20a80d154331cd2b8528d863e",
+    "nasm_defines": [
+      "TLS13_POC_K14=1",
+      "TLS13_POC_READ_ONLY_INPUT=1"
+    ],
+    "nasm_cpu": "8086"
+  },
+  "layout": {
+    "issuer_image": {
+      "load": [
+        "0x1800",
+        "0x3400"
+      ],
+      "content_bytes": 7134,
+      "rounded_sectors": 14,
+      "rounded_bytes": 7168,
+      "slack_bytes": 34
+    },
+    "bridge_image": {
+      "content_bytes": 429,
+      "rounded_sectors": 1,
+      "slack_bytes": 83
+    },
+    "commit_gate_image": {
+      "content_bytes": 953,
+      "rounded_sectors": 2,
+      "slack_bytes": 71,
+      "header_version": 4,
+      "commit_entry": "0x1812",
+      "validate_ticket_only_entry": "0x197b"
+    },
+    "relocated_input": {
+      "start": "0x3400",
+      "end": "0x34af",
+      "bytes": 175,
+      "low_reload_boundary_guard": "0x33f8",
+      "high_guard": [
+        "0x3508",
+        "0x3510"
+      ]
+    },
+    "symmetric_extension_work": [
+      "0x3510",
+      "0x355d"
+    ],
+    "ticket_state": {
+      "psk": [
+        "0x38b0",
+        "0x38d0"
+      ],
+      "identity_nonce_meta": [
+        "0x3b40",
+        "0x3c2d"
+      ],
+      "relocated_bytes": 0
+    },
+    "reconnect_bytes_consumed": 0,
+    "relocated_input_retired_by_atomic_gate_bytes": 175,
+    "stack_high_water_bytes": 78
+  },
+  "static_instruction_gates": {
+    "bridge": {
+      "decoded_instructions": 166,
+      "decoded_code_bytes": 419,
+      "interrupt_or_port_io_instructions": 0
+    },
+    "atomic_commit_gate": {
+      "decoded_instruction_count": 355,
+      "decoded_code_bytes": 935,
+      "interrupt_input_output_opcode_count": 0,
+      "fixed_credential_callback_calls": 1,
+      "caller_selectable_call_count": 0,
+      "credential_callback_target": "0x1580",
+      "credential_callback_call_address": "0x18d7"
+    }
+  },
+  "gates": {
+    "actual_native_read_only_define": true,
+    "exact_14_sector_load_stops_at_input": true,
+    "real_live_leaf_signature_under_we1": true,
+    "real_live_certificate_verify_under_committed_leaf": true,
+    "parser_hash_and_trusted_time_required": true,
+    "cv_staging_requires_same_generation_issuer_commit": true,
+    "phase_reload_between_both_passes": true,
+    "low_work_poisoned_between_passes": true,
+    "ticket_psk_identity_nonce_meta_byte_stable": true,
+    "symmetric_runtime_suffix_untouched_through_atomic_commit": true,
+    "real_auth_output_accepted_by_atomic_commit_gate": true,
+    "v4_ticket_only_validation_entry_present": true,
+    "relocated_input_retired_before_atomic_commit": true,
+    "resident_driver_reconnect_esc_arena_context_unchanged": true,
+    "no_floppy_write_or_ticket_persistence_required": true,
+    "bridge_and_atomic_gate_have_no_interrupt_or_port_io": true
+  },
+  "comparison": {
+    "issuer_input_relocation": {
+      "bridge_content_bytes": 429,
+      "cold_sectors": 1,
+      "atomic_gate_content_bytes": 953,
+      "combined_content_bytes": 1382,
+      "combined_cold_sectors": 3,
+      "volatile_copy_bytes": 175,
+      "ticket_copy_bytes": 0,
+      "reconnect_bytes": 0,
+      "product_area_impact": "0x3400 input unavailable through authentication; atomic gate retires it before product reuse"
+    },
+    "ticket_relocation": {
+      "volatile_ticket_bundle_bytes": 269,
+      "copy_directions": 2,
+      "reconnect_bytes": 330,
+      "product_area_impact": "precommit reconnect block 0x3c9c..0x3de6 unavailable"
+    },
+    "recommendation": "prefer issuer-input relocation while the exact K14 image and post-FO/post-parser phase order remain invariant"
+  },
+  "hard_dependencies": [
+    "The symmetric 0x3400 controller and FO stream stage must retire before leaf staging.",
+    "The parser/hash/trusted-time outputs must be complete before their overlapping 0x3600 leaf output is replaced by the issuer commit.",
+    "Every issuer phase load must remain exactly 14 sectors and end at 0x3400.",
+    "Future issuer growth beyond 7168 rounded bytes requires a new relocation decision."
+  ],
+  "limitations": [
+    "This is an isolated target-memory and exact-crypto gate, not live protected-flight/parser/TCP linkage.",
+    "Trusted time establishment, bounded certificate decompression, session entropy, and cold restart remain open.",
+    "The phase-order contract relies on trusted scheduler control flow; the guard bytes are overwrite sentinels, not a RAM MAC."
+  ]
+}

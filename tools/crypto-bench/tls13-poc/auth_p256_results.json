@@ -1,0 +1,162 @@
+{
+  "schema": "seed-tls13-poc-auth-p256-v1",
+  "scope": "isolated exact-leaf-pinned TLS 1.3 P-256 CertificateVerify overlay; no runtime integration",
+  "provenance": {
+    "source": "tools/crypto-bench/tls13-poc/auth_p256_overlay.asm",
+    "source_sha256": "c2f3d6f39c4b0228923535508ee7bd36b538f9e42b96e846b7ee9fb2faca126b",
+    "checker": "tools/crypto-bench/tls13-poc/auth_p256_check.py",
+    "checker_sha256": "67f33b896b61cd9be43a3fa10bc173e53b6b4bdcde17ef9aa24252e798e7fb0e",
+    "pins": "tools/crypto-bench/tls13-poc/auth_p256_pins.inc",
+    "pins_sha256": "b973fad8e483f11409d196bed55285ad8ea74f761bbdfc834a4c3639518eb95c",
+    "layout": "tools/crypto-bench/tls13-poc/layout.inc",
+    "layout_sha256": "403713dc0e3062559ddbad249ce9b84e30c26ce700ff6772c6f6cf56134f272d",
+    "p256_source": "targets/ibm_pc_5150/boot/core/p256.inc",
+    "p256_source_sha256": "af65512f541fa68eb9595e513d35e8f7ae1985b86995772bbd9586806817a9d6",
+    "live_vector": "tools/crypto-bench/tls13-poc/issuer_auth_live_vector.json",
+    "live_vector_sha256": "c1193e5cab166cb019d0a5e073c630405b4f11097230255c6e38b4d9955ca7e0",
+    "live_leaf": "tools/crypto-bench/tls13-poc/issuer_auth_live_leaf.pem",
+    "live_leaf_sha256": "bb3e0033320e94d3c8768b43882d8c3762a901d3e743c3e795d3d869beb9227c",
+    "production_image_sha256": "d5cc0fd75de871055cb3ccd378f5a58bd1443dfd7df6a93113b890926814f8bc",
+    "synthetic_image_sha256": "bd2c1b11c63bd3dfacddd070cd6a4f528516eb6445130c15ff2292fe8ab3b735",
+    "live_compact_image_sha256": "f748e3a3a591558830305fe553623f3ab81d0f8e71ea00384ace2391986db346",
+    "nasm_cpu": "8086"
+  },
+  "layout": {
+    "load_address": "0x1800",
+    "content_bytes": 6632,
+    "content_end": "0x31e8",
+    "sector_rounded_bytes": 6656,
+    "sector_count": 13,
+    "k_capacity_bytes": 7680,
+    "k_free_bytes": 1048,
+    "entry_table_bytes": 10,
+    "auth_wrapper_executable_bytes": 1353,
+    "included_p256_executable_bytes": 5023,
+    "included_p256_mutable_bytes": 0,
+    "immutable_curve_and_pin_bytes": 256,
+    "external_low_work": {
+      "start": "0x0700",
+      "end": "0x0fb6",
+      "bytes": 2230,
+      "capacity": 2304,
+      "remaining_bytes": 74,
+      "auth_private_bytes": 1334,
+      "p256_mutable": {
+        "start": "0x0c36",
+        "end": "0x0fb6",
+        "bytes": 896
+      }
+    },
+    "quarantined_input": {
+      "start": "0x3ba4",
+      "end": "0x3c4f",
+      "bytes": 171,
+      "guard_bytes_each": 8
+    },
+    "product_pool_untouched": "0x3e40..0x3f00"
+  },
+  "production_pin": {
+    "tracked_certificate": "tools/x509/certs/ecdsa_live_chain.pem",
+    "point_match_executed": true,
+    "changed_point_rejected": true,
+    "spki_sha256": "f60fa6b7254084bdf0425d0954e283292e4d66d616b72e6942e2e35a44a54c25",
+    "metadata": [
+      "subject=CN=api.openai.com",
+      "issuer=C=US, O=Google Trust Services, CN=WE1",
+      "notAfter=Aug  8 02:13:12 2026 GMT"
+    ]
+  },
+  "target_gates": {
+    "known_private_fixture": "tls13-spike/auth_integrated_oracle.py",
+    "valid_equation": true,
+    "intermediates_match_independent_oracle": true,
+    "strict_der_bytes": 71,
+    "invalid_digest_rejected": true,
+    "canonical_but_wrong_signature_rejected": true,
+    "changed_exact_point_rejected": true,
+    "malformed_der_rejected": true,
+    "zeroization_gate": true,
+    "exact_return_ip": true,
+    "exact_caller_sp": true,
+    "caller_return_word_preserved": true,
+    "stack_high_water_bytes": 72
+  },
+  "sentinels": {
+    "executable_and_immutable_data": "unchanged",
+    "k_tail": "unchanged",
+    "resident_nucleus_and_driver_slot": "unchanged",
+    "high_fo_tls_vault": "unchanged",
+    "reconnect_esc_arena_context": "unchanged",
+    "input_guards": "unchanged"
+  },
+  "live_certificate_verify_fixture": {
+    "available": true,
+    "vector": "tools/crypto-bench/tls13-poc/issuer_auth_live_vector.json",
+    "leaf": "tools/crypto-bench/tls13-poc/issuer_auth_live_leaf.pem",
+    "captured_utc": "2026-07-25T20:10:59.839388+00:00",
+    "credential_sent": false,
+    "host_validation": {
+      "we1_chain": true,
+      "hostname": "api.openai.com",
+      "capture_time": true,
+      "server_purpose_and_leaf_profile": true,
+      "certificate_verify": true,
+      "leaf_sha256": "76e49dae8cbc1f012fc9fb6e822060f8ed3a56dd3ea33ba3fb2b78cbe8cce64c",
+      "spki_sha256": "244339974d38f7ddbbec30b6b4719e70859f225d7df6c1f80aa33fd30d1b1ec0"
+    },
+    "assembly_defines": [
+      "AUTH_P256_LIVE_COMPACT_INPUT",
+      "AUTH_P256_LIVE_202607_PIN"
+    ],
+    "image": {
+      "content_bytes": 6592,
+      "sector_rounded_bytes": 6656,
+      "sector_count": 13,
+      "sha256": "f748e3a3a591558830305fe553623f3ab81d0f8e71ea00384ace2391986db346"
+    },
+    "abi": {
+      "digest": "0x3c30",
+      "signature_length": "0x3c50",
+      "signature": "0x3c52",
+      "signature_capacity_bytes": 72,
+      "status": "0x3c9a",
+      "end": "0x3c9b"
+    },
+    "target_gates": {
+      "real_certificate_verify_accepted": true,
+      "altered_digest_rejected": true,
+      "altered_signature_rejected": true,
+      "status_committed_only_on_success": true,
+      "clear_zeroized_compact_input_and_work": true,
+      "stack_high_water_bytes": 72
+    },
+    "sentinels": {
+      "low_input_guard_bytes": 8,
+      "high_input_guard_bytes": 1,
+      "attempt_prefix_bytes_untouched": 140,
+      "k_tail_bytes": 1088,
+      "unused_low_tail_bytes": 74,
+      "resident_driver_bytes_untouched": 2048,
+      "high_vault_bytes_untouched": 1436,
+      "reconnect_esc_bytes_untouched": 420,
+      "arena_context_bytes_untouched": 192
+    },
+    "clear_sentinels": {
+      "low_input_guard_bytes": 8,
+      "high_input_guard_bytes": 1,
+      "attempt_prefix_bytes_untouched": 140,
+      "k_tail_bytes": 1088,
+      "unused_low_tail_bytes": 74,
+      "resident_driver_bytes_untouched": 2048,
+      "high_vault_bytes_untouched": 1436,
+      "reconnect_esc_bytes_untouched": 420,
+      "arena_context_bytes_untouched": 192
+    }
+  },
+  "limitations": [
+    "The production pin is the first certificate currently tracked in ecdsa_live_chain.pem and expires on 8 August 2026.",
+    "The compact live pin is a dated integration checkpoint for the checked-in leaf and expires on 6 October 2026.",
+    "No Brotli, X.509, hostname, validity-time, WE1 recertification, TLS transcript construction, or socket code is part of this overlay.",
+    "Exact-leaf rotation must fail closed until a separately authenticated pin update is designed."
+  ]
+}

@@ -1,0 +1,65 @@
+{
+  "schema": "seed-post-auth-proof-integrity-v1",
+  "status": "pass",
+  "scope": "offline byte-binding and proof-output privacy gate; public dummy credentials only; no VM, target entropy, network, or security credit",
+  "sources": {
+    "checker": "d5bf9dea2114c559d092c2964a014a546847bf4b76bd4f30fd20d07b92c79f2b",
+    "builder": "ab697146632a792c4de87a266a4a2e8a6131ff5774a018fd188e7e1093eafac4",
+    "runner": "214eb7a33581333febf85447f85c8bd075801b3f87ddd1a0517f7c7c69efed80",
+    "basic_loader_source": "500cb40af2cb0a07c60d0338b203f77efa0be8f63bfec841d8d168a6f82100bb",
+    "basic_text_builder": "29c02c988619dc4312cdfab879cbdbcbeb25e8f7e2e62ce283b56349ca6cc621",
+    "live_base_builder": "4dc51926d69fa2cb53d4b4658b81c218de6811f809cb7b1070b99fe17d9fd152"
+  },
+  "isolated_automatic_base": {
+    "generated_inside_private_gate": true,
+    "supplied_base_copied_before_use": false,
+    "manual_operator_entry_required": false,
+    "unattended_collection": true,
+    "collection_before_first_network_transmission": true,
+    "automated_security_credit_bits": 0,
+    "physical_security_credit_pending": true,
+    "network_or_vm_launched": false,
+    "core_bytes": 62464,
+    "core_sha256": "9c8e7d8dfcbc6ab26279d03af3f5fde5d47654c51df25520a2d030fc371304a3",
+    "manifest_sha256": "761597bfc7eb9796f1d7a236bcc7a1b2a614277b3928810a694708da3d59c9a7"
+  },
+  "basic_sidecar_binding": {
+    "deterministic_rebuild_passed": true,
+    "loader_bytes": 143,
+    "loader_sha256": "638390aaa50f7db9e6c853324a00b16b18163b3426f0dc442dc26ed76e13bd8a",
+    "basic_program_bytes": 566,
+    "basic_program_sha256": "78e52946664e4457e276c5a94cb756b9d7303e6cfe6cde9214ec5048b3c65e03",
+    "rebuilt_loader_path_private_to_gate": true,
+    "rebuilt_basic_path_private_to_gate": true,
+    "hostile_cases": [
+      "base_loader_byte_flip_rejected",
+      "base_basic_byte_flip_rejected"
+    ]
+  },
+  "credential_size_non_disclosure": {
+    "public_fixture_sizes": [
+      88,
+      416
+    ],
+    "production_manifest_equal_after_output_path_normalization": true,
+    "production_console_equal_after_output_path_normalization": true,
+    "runner_report_equal": true,
+    "credential_dependent_core_hash_omitted": true,
+    "credential_dependent_ucl1_hash_omitted": true,
+    "fixed_low_callback_hashes_recorded": true,
+    "image_hash_omitted": true,
+    "credential_contents_path_size_hash_not_logged": true,
+    "real_vm_or_network_launched": false
+  },
+  "hostile_cases": {
+    "count": 5,
+    "all_rejected": true,
+    "cases": [
+      "base_loader_byte_flip_rejected",
+      "base_basic_byte_flip_rejected",
+      "runner_rejects_loader_changed_after_hash",
+      "runner_rejects_basic_changed_after_hash",
+      "runner_rejects_false_rebuild_compare_flag"
+    ]
+  }
+}

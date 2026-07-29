@@ -1,0 +1,171 @@
+{
+  "schema": "seed-tls13-secure-floor-spike-decision-v5",
+  "recorded_date": "2026-07-26",
+  "baseline_git_head": "548053dfcdfc19b12130ce418ed24f7670c45750",
+  "evidence_gate_status": "pass",
+  "artifact_sha256": {
+    "mlkem768_integrated_results.json": "a66015c5fb8370f220184145d061456b68522d81440fa9e40714846646315001",
+    "auth_integrated_results.json": "57afd7c362a2617ea9ef28da85facf2295d20086c8bbe7552981b6ed165c1efb",
+    "tls13_integrated_results.json": "f6e7108effd24e81891e912fc1a79492ef294e8cb69fbdc4708a8374812be86c",
+    "tls13_ticket_resumption_live_results.json": "43d7c7bfd23c88bdf61815fa39d0d5aa032236e30eeaeb7d55c9473e18e11b9a",
+    "entropy_ratchet_results.json": "5882af4fbf978dc56c3e8073091642f2466056a3215b1c17939c56e8b13db6aa",
+    "post_finished_dialogue_results.json": "b43ca393c38d8b1576aa0bada8b8776c23a66d6c031c06dbc5ecd08e72c54bf8",
+    "patience_results.json": "3bfd54bdb654d5cb18eb6993ce3d96f659ab589bad881a0b862f0b831aeea592",
+    "phase_chain_literal16k_k14_results.json": "ae20c836b0f547c70857d8fbb5f5b66df86786a32f3bf580212aff9468706180",
+    "live_k14_16k_results.json": "75f23f93417f55a0897364dddf810fbeb533064940ad6b9ebee81be2a7689d1c"
+  },
+  "historical_evidence_curation": {
+    "component_recorded_date": "2026-07-25",
+    "current_replay_wrapper_hashes_refreshed": true,
+    "historical_mlkem_auth_ticks_com_text_and_image_hashes_changed": false,
+    "all_recorded_mlkem_and_auth_images_reassembled_byte_identically": true,
+    "k14_phase_chain_current_target_rerun": true
+  },
+  "literal_16k_evidence": {
+    "address_space_scope": "the K14 fixture phase-links entropy, KeyGen, HELLO, candidate, symmetric, FO, and authentication below the literal 16 KiB ROM-BASIC ceiling; the current live sibling combines the production nucleus and NE.DRV through client Finished, credential-free HTTP and volatile ticket capture AEAD-verified under provisional traffic keys, but peer identity and full secure product coexistence are not established",
+    "mlkem_timing_scope": "86Box v9001 literal 16 KiB configuration; not physical IBM hardware",
+    "mlkem_keygen_seconds": 22.02508586284406,
+    "mlkem_candidate_seconds": 1.9004188799361708,
+    "mlkem_complete_decapsulation_seconds": 24.84458978876092,
+    "mlkem_post_candidate_tail_seconds": 22.94417090882475,
+    "mlkem_matrix_cache_bytes": 0,
+    "authentication_content_bytes": 9790,
+    "authentication_execution_scope": "Unicorn executes the assembled cpu 8086 target instructions and exact fixture data",
+    "authentication_timing_authority": "the repository's calibrated cycles8088.py model over the exact executed instruction/data trace",
+    "authentication_fixture_identity": "deterministic synthetic WE1 and leaf; not live OpenAI chain bytes",
+    "authentication_post_finished_seconds": 89.166923,
+    "authentication_cold_seconds": 94.418596,
+    "authentication_longest_candidate_slice_seconds": 2.590589,
+    "authentication_resumable_bytes": 706,
+    "k14_logical_k_bytes": 7168,
+    "k14_resident_prefix_bytes": 2048,
+    "k14_fixture_critical_ticks": 225,
+    "k14_fixture_fo_ticks": 470,
+    "k14_fixture_auth_ticks": 989,
+    "live_product_shaped_core_bytes": 45568
+  },
+  "protocol_evidence": {
+    "hostile_state_machine_tests": 28,
+    "hostile_state_machine_passed": 28,
+    "credential_free_head_liveness_standard_openssl_seconds": 155.033,
+    "head_cadence_transfer_to_candidate_is_inference": true,
+    "observed_initial_close_p256_rsa_profile_seconds": 14.994045,
+    "historical_three_run_deadline_baseline": {
+      "trial_count": 3,
+      "worst_wire_seconds": 13.536609172821045,
+      "worst_margin_seconds": 1.463390827178955,
+      "all_passed": true
+    },
+    "current_post_finished_canary": {
+      "exact_profile_verified": true,
+      "host_read_only_floppy_gate_passed": true,
+      "host_read_only_scope": "image mode 0444, host write-open denied, image SHA-256 unchanged, and original mode restored; not a physical write-protect mechanism",
+      "client_hello_bytes": 1382,
+      "psk_key_exchange_mode": "psk_dhe_ke",
+      "wire_seconds": 13.404952049255371,
+      "wire_margin_seconds": 1.595047950744629,
+      "credential_free_head_tag_verified": true,
+      "http_response_tag_verified": true,
+      "http_content_bytes": 1125,
+      "volatile_tickets_tag_verified": 2,
+      "ticket_message_bytes": [
+        222,
+        222
+      ],
+      "guest_markers": [
+        "DEADLINE PASS",
+        "HEAD TX",
+        "TICKET",
+        "HEAD OK",
+        "CANARY COMMIT",
+        "PASS",
+        "RESULT"
+      ],
+      "hardened_failure_path_gates": {
+        "protected_bad_tag_no_precommit": true,
+        "protected_authenticated_tail_tamper_no_precommit": true,
+        "duplicate_early_data_rejected": true,
+        "sequence_exhaustion_rejected_without_wrap": true,
+        "capture_oracle_record_order_and_target_compatibility": true
+      }
+    },
+    "candidate_profile_deadline_distribution_established": false,
+    "live_path_scope": "production nucleus and NE.DRV proven through verified server Finished, transmitted client Finished, and a credential-free HEAD/HTTP dialogue plus RAM-only tentative ticket capture AEAD-verified under provisional traffic keys; peer identity, credentials, and product API traffic remain absent",
+    "historical_client_finished_same_sequence_retry_proven_offline": true,
+    "host_observed_same_boot_ticket_resumption_accepted": true,
+    "resumed_certificate_authentication_omitted": true,
+    "resumed_fresh_key_share_required": true
+  },
+  "restart_evidence": {
+    "ratchet_oracle_passed": true,
+    "crash_cases": 516,
+    "advances": 4096,
+    "single_byte_corruptions": 512,
+    "physical_entropy_established": false,
+    "rollback_safety_established": false,
+    "write_protected_fallback_established": false,
+    "current_canary_host_read_only_floppy_gate_passed": true
+  },
+  "architecture_decision": {
+    "status": "validated credential-free live path through volatile ticket capture; conditional secure-tier candidate",
+    "recommended_shape": "resident nucleus plus mutually exclusive streamed security slices, credential-free quarantine, ticket-assisted close recovery, and atomic credential unlock",
+    "ticket_role": "same-boot recovery after retrospective proof; not a pre-Finished deadline extension or cold-start dependency",
+    "head_role": "opportunistic live-socket continuity at bounded checkpoints",
+    "leaf_pinning": "leaf plus WE1 issuer proof; not current plus guessed-next leaf",
+    "safe_16k_arena_context_bytes": [
+      96,
+      96
+    ],
+    "safe_32k_arena_context_bytes": [
+      224,
+      224
+    ],
+    "staged_k14_persistent_arena_context_bytes": [
+      96,
+      96
+    ],
+    "staged_k14_phase_owned_reclaimed_bytes": 512,
+    "conditional_relinked_repacked_upper_bounds_bytes": {
+      "balanced": [
+        352,
+        352
+      ],
+      "executable_first": [
+        608,
+        96
+      ]
+    },
+    "conditional_relinked_repacked_upper_bounds_accepted": false,
+    "phase_lifetime_link_proven_through_client_finished": true,
+    "credential_free_post_finished_dialogue_proven": true,
+    "volatile_ticket_capture_proven": true,
+    "post_finished_secure_commit_proven": false,
+    "secure_floor_proven": false,
+    "product_replacement_authorized": false,
+    "tls12_removal_authorized": false,
+    "remaining_false_reasons": [
+      "complete ML-KEM FO on the live path",
+      "live Certificate and CertificateVerify authentication",
+      "trusted time or an explicit no-time certificate policy",
+      "physical entropy plus restart and rollback behavior",
+      "atomic credential unlock after every retrospective proof",
+      "target ticket resumption and close recovery",
+      "full legacy and modern NIC regression matrix"
+    ]
+  },
+  "hard_open_gates": [
+    "complete ML-KEM FO on the live target path",
+    "live uncompressed Certificate/CV capture linked to the checked X.509/SPKI/profile parser; bounded Brotli decoder only if compression is retained",
+    "live Certificate and CertificateVerify authentication",
+    "self-contained trusted-time or explicit no-time certificate policy",
+    "physical entropy source, health model, restart/rollback policy, and read-only regeneration fallback",
+    "atomic credential unlock without releasing quarantined state early",
+    "target ticket binder/resumption and socket-close recovery",
+    "full legacy and modern NIC matrix under the integrated scheduler",
+    "new linked K14 phase/high-state schedule before any persistent arena growth",
+    "representative invalid ML-KEM timing and side-channel review",
+    "independent review of fixed-u=9, provisional pre-FO use, and deferred authentication",
+    "real IBM PC timing"
+  ],
+  "next_gate": "complete live FO, Certificate/CertificateVerify, trusted-time, entropy/restart, and atomic credential unlock; then prove target resumption and the NIC matrix, while current TLS 1.2 remains unchanged"
+}

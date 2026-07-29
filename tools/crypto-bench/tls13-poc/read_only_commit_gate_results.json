@@ -1,0 +1,353 @@
+{
+  "schema": "seed-tls13-read-only-commit-gate-v4",
+  "decision": "pass: three RAM-only authenticated routes atomically gate one fixed full-bundle-authorized credential callback; a fifth read-only entry validates only committed TICKET_ONLY input; bounded publication and callback failures are retryable",
+  "source": "tools/crypto-bench/tls13-poc/read_only_commit_gate.asm",
+  "source_sha256": "76e348137d42604024fbafd7ba37bd56cbed2323817724251ce0d20b03405e54",
+  "checker": "tools/crypto-bench/tls13-poc/read_only_commit_gate_check.py",
+  "checker_sha256": "18f8cd72b2d5b28a1746c8e7aa13c85a0575c807d72eec47fc1f8e49bad7ddb0",
+  "readme": "tools/crypto-bench/tls13-poc/read_only_commit_gate_README.md",
+  "readme_sha256": "8284b6970b38f27a63cec2bd5e7e33a7ce57f7576077a8638a1976530adf0351",
+  "image": {
+    "bytes": 953,
+    "sha256": "3cee46ddc7aeba9ef8c651b78d0b2da686406bf20a80d154331cd2b8528d863e",
+    "sectors": 2,
+    "load_range": "0x1800..0x1bb9",
+    "header_version": 4,
+    "entries": [
+      "0x1812",
+      "0x18b7",
+      "0x1b7a",
+      "0x195d",
+      "0x197b"
+    ],
+    "emulated_ram_bytes": 16384,
+    "emulated_ram_ceiling": "0x4000"
+  },
+  "memory_contract": {
+    "relocated_issuer_input": "0x3400..0x34af",
+    "authenticated_issuer_handoff": "0x3600..0x3672",
+    "ticket_psk": "0x38b0..0x38d0",
+    "ticket_identity_nonce_meta": "0x3b40..0x3c2d",
+    "gate_control": "0x3c30..0x3c40",
+    "credential_publication": "0x3c40..0x3c46",
+    "credential_destination_phase_reuses_issuer_input": "0x3400..0x34c1"
+  },
+  "static_instruction_gate": {
+    "decoded_instruction_count": 355,
+    "decoded_code_bytes": 935,
+    "interrupt_input_output_opcode_count": 0,
+    "fixed_credential_callback_calls": 1,
+    "caller_selectable_call_count": 0,
+    "credential_callback_target": "0x1580",
+    "credential_callback_call_address": "0x18d7"
+  },
+  "positive": {
+    "live_no_ticket": {
+      "commit_state_store_last": true,
+      "callback_calls": 1,
+      "fixed_phase_key": "0x6b14",
+      "fixed_destination": "0x3400",
+      "caller_ax_bx_dx_ignored": true,
+      "exact_cold_phase_bytes": true,
+      "bounded_status_last_publication": true,
+      "unlock_state_store_last": true
+    },
+    "live_ticket": {
+      "commit_state_store_last": true,
+      "callback_calls": 1,
+      "fixed_phase_key": "0x6b14",
+      "fixed_destination": "0x3400",
+      "caller_ax_bx_dx_ignored": true,
+      "exact_cold_phase_bytes": true,
+      "bounded_status_last_publication": true,
+      "unlock_state_store_last": true
+    },
+    "ticket_only": {
+      "commit_state_store_last": true,
+      "full_bundle_validation_succeeded": true,
+      "validation_writes": 0,
+      "credential_unlock_rejected": true,
+      "callback_calls": 0,
+      "commit_preserved_for_resumption": true,
+      "credential_destination_zeroized": true
+    },
+    "issuer_input_retired": true,
+    "issuer_handoff_preserved": true,
+    "credential_callback_only_after_live_commit": true,
+    "interrupt_calls": 0,
+    "media_write_calls": 0,
+    "outside_allowed_ranges_unchanged": true,
+    "boundary_sentinels": "preserved"
+  },
+  "hostile_cases": {
+    "ticket_only_validator_rejects_live_ticket": {
+      "rejected": true,
+      "callback_calls": 0,
+      "validation_writes": 0,
+      "committed_bundle_preserved": true,
+      "credential_destination_zeroized": true
+    },
+    "ticket_only_validator_rejects_live_no_ticket": {
+      "rejected": true,
+      "callback_calls": 0,
+      "validation_writes": 0,
+      "committed_bundle_preserved": true,
+      "credential_destination_zeroized": true
+    },
+    "ticket_only_validator_rejects_corrupt_checksum": {
+      "rejected": true,
+      "callback_calls": 0,
+      "validation_writes": 0,
+      "corrupt_bundle_preserved_for_fail_closed_recovery": true,
+      "credential_destination_zeroized": true
+    },
+    "direct_callback_before_commit": {
+      "rejected": true,
+      "full_bundle_authorization": true,
+      "credential_and_publication_unchanged": true
+    },
+    "forged_old_marker_quartet_direct_callback": {
+      "rejected": true,
+      "old_state_route_quartet_was_consistent": true,
+      "full_magic_generation_issuer_ticket_checksum_required": true,
+      "credential_and_publication_unchanged": true
+    },
+    "unlock_before_commit": {
+      "rejected": true,
+      "callback_calls": 0,
+      "full_zeroization": true
+    },
+    "invalid_route_0000": {
+      "rejected": true,
+      "loader_calls": 0,
+      "full_zeroization": true,
+      "boundary_sentinels": "preserved"
+    },
+    "invalid_route_0004": {
+      "rejected": true,
+      "loader_calls": 0,
+      "full_zeroization": true,
+      "boundary_sentinels": "preserved"
+    },
+    "invalid_route_ffff": {
+      "rejected": true,
+      "loader_calls": 0,
+      "full_zeroization": true,
+      "boundary_sentinels": "preserved"
+    },
+    "wrong_generation_argument": {
+      "rejected": true,
+      "loader_calls": 0,
+      "full_zeroization": true,
+      "boundary_sentinels": "preserved"
+    },
+    "wrong_cv_generation": {
+      "rejected": true,
+      "loader_calls": 0,
+      "full_zeroization": true,
+      "boundary_sentinels": "preserved"
+    },
+    "wrong_issuer_profile": {
+      "rejected": true,
+      "loader_calls": 0,
+      "full_zeroization": true,
+      "boundary_sentinels": "preserved"
+    },
+    "wrong_cv_profile": {
+      "rejected": true,
+      "loader_calls": 0,
+      "full_zeroization": true,
+      "boundary_sentinels": "preserved"
+    },
+    "missing_issuer_status": {
+      "rejected": true,
+      "loader_calls": 0,
+      "full_zeroization": true,
+      "boundary_sentinels": "preserved"
+    },
+    "missing_cv_status": {
+      "rejected": true,
+      "loader_calls": 0,
+      "full_zeroization": true,
+      "boundary_sentinels": "preserved"
+    },
+    "corrupt_issuer_checksum": {
+      "rejected": true,
+      "loader_calls": 0,
+      "full_zeroization": true,
+      "boundary_sentinels": "preserved"
+    },
+    "ticket_identity_length_zero": {
+      "rejected": true,
+      "loader_calls": 0,
+      "full_zeroization": true,
+      "boundary_sentinels": "preserved"
+    },
+    "ticket_identity_length_oversize": {
+      "rejected": true,
+      "loader_calls": 0,
+      "full_zeroization": true,
+      "boundary_sentinels": "preserved"
+    },
+    "ticket_nonce_length_zero": {
+      "rejected": true,
+      "loader_calls": 0,
+      "full_zeroization": true,
+      "boundary_sentinels": "preserved"
+    },
+    "ticket_nonce_length_oversize": {
+      "rejected": true,
+      "loader_calls": 0,
+      "full_zeroization": true,
+      "boundary_sentinels": "preserved"
+    },
+    "ticket_lifetime_zero": {
+      "rejected": true,
+      "loader_calls": 0,
+      "full_zeroization": true,
+      "boundary_sentinels": "preserved"
+    },
+    "ticket_lifetime_oversize": {
+      "rejected": true,
+      "loader_calls": 0,
+      "full_zeroization": true,
+      "boundary_sentinels": "preserved"
+    },
+    "ticket_not_present": {
+      "rejected": true,
+      "loader_calls": 0,
+      "full_zeroization": true,
+      "boundary_sentinels": "preserved"
+    },
+    "live_ticket_requires_ticket": {
+      "rejected": true,
+      "loader_calls": 0,
+      "full_zeroization": true,
+      "boundary_sentinels": "preserved"
+    },
+    "ticket_only_requires_ticket": {
+      "rejected": true,
+      "loader_calls": 0,
+      "full_zeroization": true,
+      "boundary_sentinels": "preserved"
+    },
+    "live_no_ticket_rejects_ticket": {
+      "rejected": true,
+      "loader_calls": 0,
+      "full_zeroization": true,
+      "boundary_sentinels": "preserved"
+    },
+    "live_no_ticket_rejects_stale_bytes": {
+      "rejected": true,
+      "loader_calls": 0,
+      "full_zeroization": true,
+      "boundary_sentinels": "preserved"
+    },
+    "ticket_checksum_tamper": {
+      "rejected": true,
+      "callback_calls": 0,
+      "full_zeroization": true
+    },
+    "route_inverse_tamper": {
+      "rejected": true,
+      "callback_calls": 0,
+      "full_zeroization": true
+    },
+    "route_checksum_tamper": {
+      "rejected": true,
+      "route_inverse_was_consistent": true,
+      "callback_calls": 0,
+      "full_zeroization": true
+    },
+    "committed_generation_tamper": {
+      "rejected": true,
+      "callback_calls": 0,
+      "full_zeroization": true
+    },
+    "credential_success_without_publication": {
+      "callback_returned_success": true,
+      "gate_rejected_publication": true,
+      "credential_and_descriptor_scrubbed": true,
+      "commit_ticket_and_issuer_preserved": true
+    },
+    "credential_partial_success": {
+      "callback_returned_success": true,
+      "gate_rejected_publication": true,
+      "credential_and_descriptor_scrubbed": true,
+      "commit_ticket_and_issuer_preserved": true
+    },
+    "credential_missing_trailing_nul": {
+      "callback_returned_success": true,
+      "gate_rejected_publication": true,
+      "credential_and_descriptor_scrubbed": true,
+      "commit_ticket_and_issuer_preserved": true
+    },
+    "credential_zero_length": {
+      "callback_returned_success": true,
+      "gate_rejected_publication": true,
+      "credential_and_descriptor_scrubbed": true,
+      "commit_ticket_and_issuer_preserved": true
+    },
+    "credential_oversize_length": {
+      "callback_returned_success": true,
+      "gate_rejected_publication": true,
+      "credential_and_descriptor_scrubbed": true,
+      "commit_ticket_and_issuer_preserved": true
+    },
+    "credential_zero_content": {
+      "callback_returned_success": true,
+      "gate_rejected_publication": true,
+      "credential_and_descriptor_scrubbed": true,
+      "commit_ticket_and_issuer_preserved": true
+    },
+    "credential_callback_failure_retry": {
+      "first_call_rejected": true,
+      "callback_calls": 2,
+      "partial_credential_zeroized": true,
+      "commit_ticket_and_issuer_preserved": true,
+      "second_call_succeeded": true
+    },
+    "explicit_abort": {
+      "carry": true,
+      "full_zeroization": true,
+      "boundary_sentinels": "preserved"
+    }
+  },
+  "hostile_case_count": 39,
+  "gates": [
+    "cpu_8086_assembly",
+    "two_sector_phase_bound",
+    "complete_instruction_decode",
+    "no_interrupt_or_port_io_opcode",
+    "exactly_one_fixed_credential_callback",
+    "no_indirect_or_caller_selectable_call",
+    "issuer_generation_profile_status_and_checksum",
+    "live_no_ticket_requires_zero_ticket_slots",
+    "ticket_routes_require_presence_lengths_lifetime_and_checksum",
+    "route_and_inverse_bound_into_checksum",
+    "issuer_input_retired_before_atomic_commit",
+    "credential_callback_only_after_committed_live_route",
+    "resident_callback_revalidates_full_committed_bundle",
+    "forged_old_marker_quartet_rejected",
+    "fifth_fixed_entry_validates_only_committed_ticket_only",
+    "ticket_only_validation_is_read_only_and_credential_free",
+    "ticket_only_validation_rejects_wrong_route_or_corrupt_bundle",
+    "ticket_only_rejects_credential_unlock_without_losing_commit",
+    "fixed_phase_key_destination_and_callback",
+    "credential_length_1_through_192_plus_trailing_nul",
+    "credential_checksum_inverse_and_status_last_required",
+    "empty_partial_and_malformed_success_publications_rejected",
+    "callback_failure_scrubs_partial_credential_and_preserves_commit",
+    "credential_callback_retry_succeeds",
+    "full_failure_zeroization",
+    "boundary_sentinels_preserved",
+    "all_emulated_writes_confined_to_declared_state_or_stack"
+  ],
+  "nonclaims": [
+    "No physical floppy, FAT12, or BIOS read path is exercised.",
+    "The caller supplies a trusted proof-controller route; this gate does not independently observe TCP liveness.",
+    "The fixed resident credential callback is trusted code, not a hardware memory-protection boundary.",
+    "No TLS handshake, live certificate chain, entropy, or trusted-time proof is exercised.",
+    "This is an architecture PoC gate, not a secure-tier completion claim."
+  ]
+}

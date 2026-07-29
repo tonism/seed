@@ -1,0 +1,58 @@
+{
+  "schema": "seed-tls13-floppy-entropy-v1",
+  "controller_bytes": 512,
+  "controller_sha256": "787d9568ec5269a40bd67b1a531be0e3e2a70b57bd4688237d97e7689c095762",
+  "keygen_sha256": "bc921cdb4fee657b665253cee2b4a41911553e1fc0f270699898c88c42a2f7cd",
+  "samples": 256,
+  "one_shot_attempt_bundles": 2,
+  "source_model": {
+    "source": "physical floppy read/seek/rotation completion timing measured by PIT",
+    "emulator_security_credit_bits": 0,
+    "physical_security_credit_bits": "pending real-hardware characterization",
+    "qualification": "Unicorn and 86Box can prove mechanics only; conditioning cannot create entropy absent from the physical source"
+  },
+  "health_model": {
+    "status": "provisional stuck-source screening only",
+    "symbol": "low8(delta) XOR high8(delta), delta=before-after mod 65536",
+    "max_identical_symbol_run": 64,
+    "minimum_symbol_changes": 8,
+    "calibration": "pending representative physical hardware"
+  },
+  "keccak_mutable_zeroization": {
+    "start": "0x214f",
+    "end": "0x2337",
+    "bytes": 488,
+    "layout": "c[40] || d[40] || lane_tmp[8] || state[200] || b[200]",
+    "pre_poisoned_success_failure_and_abort": true,
+    "outside_guards_preserved": true
+  },
+  "exact_keygen": {
+    "split_dk_sha256": "0d018bbbf3955e4f0dd10bda8a28821b2a6ed435687a41f1d55548b05f139fe7",
+    "unicorn_seconds": 0.5659824169706553,
+    "independent_fips_oracle_match": true
+  },
+  "gates": {
+    "host_sha3_oracle": "PASS",
+    "initial_resumption_domain_separation": "PASS",
+    "real_keygen_after_entropy_fips_oracle": "PASS",
+    "same_input_replay": "PASS",
+    "timing_diversity": "PASS",
+    "public_media_bytes_not_hashed": "PASS",
+    "read_failure_fail_closed": "PASS",
+    "repetition_count_fail_closed": "PASS",
+    "insufficient_changes_fail_closed": "PASS",
+    "explicit_abort_zeroizes": "PASS",
+    "success_failure_abort_private_zeroization": "PASS",
+    "exact_keccak_mutable_bounds": "PASS",
+    "keccak_outside_guards_preserved": "PASS",
+    "controller_immutable_bytes_preserved": "PASS",
+    "scratch_guards_preserved": "PASS",
+    "chs_schedule": "alternating 0/0/1 and 39/0/8",
+    "bios_drive_forwarding": "PASS",
+    "disk_writes": 0,
+    "bios_services": [
+      "int 13h AH=02h one-sector reads only"
+    ]
+  },
+  "checker_wall_seconds": 2.6021665839944035
+}

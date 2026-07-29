@@ -1,0 +1,84 @@
+{
+  "scope": "offline ML-KEM-768 FO tail: exact K-PKE re-encryption, fixed c-prime comparison, J, and branchless implicit rejection",
+  "source": "tools/crypto-bench/tls13-poc/fo_tail_kernel.asm",
+  "single_overlay_fit": true,
+  "timing_ready_entry": "0x1800",
+  "phase_labels": {
+    "reencrypt_start": "0x1847",
+    "reencrypt_end": "0x1907",
+    "j_start": "0x1907"
+  },
+  "correctness": {
+    "cpu_8086_gate": "pass",
+    "no_k_pke_decrypt": "pass",
+    "direct_accumulation_without_poly_product": "pass",
+    "valid_c_prime_equals_c": "pass",
+    "invalid_fixed_length_compare": "pass",
+    "valid_selected_k_equals_openssl": "pass",
+    "invalid_j_and_selected_secret_equal_openssl": "pass",
+    "valid_and_invalid_stream_schedule_identical": "pass",
+    "every_public_stream_failure_fails_closed": "pass",
+    "product_address_sentinels": "pass",
+    "stack_and_16k_ceiling": "pass",
+    "alternate_link_origin_0x2000": "pass"
+  },
+  "stream_abi": {
+    "objects": {
+      "ek": 1184,
+      "ciphertext": 1088
+    },
+    "request_count": 17,
+    "maximum_request_bytes": 384,
+    "ek_bytes_read": 1184,
+    "ciphertext_bytes_read": 2176,
+    "ciphertext_passes": 2
+  },
+  "fixed_addresses": {
+    "ticket_hold": "0x0700..0x0830",
+    "three_y_hat_polynomials": "0x0830..0x0e30",
+    "rho": "0x0e30..0x0e50",
+    "public_stream_buffer": "0x0e50..0x0fd0",
+    "keccak_work": "0x3000..0x31e8",
+    "accumulator": "0x3400..0x3600",
+    "saved_ciphertext_mirror_preserved": "0x3600..0x3a40",
+    "message_m_prime_preserved": "0x3a40..0x3a60",
+    "selected_secret": "0x3b9c..0x3bbc",
+    "r_prime_preserved": "0x3bbc..0x3bdc",
+    "z_preserved": "0x3bdc..0x3bfc"
+  },
+  "ledger": {
+    "overlay_content_bytes": 2829,
+    "overlay_sector_count": 6,
+    "overlay_sector_bytes": 3072,
+    "executable_bytes": 2182,
+    "immutable_static_bytes": 574,
+    "internal_mutable_scalar_bytes": 73,
+    "ticket_hold_bytes": 304,
+    "low_y_hat_bytes": 1536,
+    "low_rho_bytes": 32,
+    "low_public_buffer_bytes": 384,
+    "low_tail_guard_bytes": 48,
+    "k_keccak_work_bytes": 488,
+    "k_accumulator_bytes": 512,
+    "poly_product_bytes": 0,
+    "sector_safe_slack_before_0x3000_work": 3072,
+    "free_gap_between_keccak_and_accumulator": 536,
+    "k_bytes_after_sector_rounded_overlay": 4608,
+    "stack_high_water_including_return": 26
+  },
+  "hashes_sha256": {
+    "kernel_source": "5e4e3d1b457526d94c4fce05b8f744cbf4cf345b582a849c700138e8938d41f2",
+    "image_origin_1800": "f5a1d4b4db475bbae2ebb396d7ea75ab94d463f6258af6a29066eaf9f940f0f9",
+    "image_origin_2000": "b0ecea2f340071467ff4b8d1739c22e526925e7233abf0c4dce0c8c101e78152",
+    "ek": "70f0f86c48e8c4ffdb6aa6bd96ca69fce0aa6a007e7147de00dde2157e981c0e",
+    "ciphertext_valid": "e0bab73b492e57d13b4fa2380af43c7bd20f0cdee8e4c089d08b0aa3cef465de",
+    "ciphertext_invalid_bit0": "04897749dd755c3d931d202c7e6e45da4054844e812355f1249e3b34fa3f47c5",
+    "message": "33e5e38241714bd6d87e57705ec4a78b5babf17c2fe987829105e44097fc8dcd",
+    "candidate_g": "238514dd84f0498cab7738fd93c3cebfb2281ccbf0d07e4415c339351ef207c8",
+    "z": "c12c3395aedd43b281fbe83139ce8c25748ab31ed6842410f5b0590c626c62f7",
+    "selected_valid": "181254060498b30f3511e3c5c2b3719194ee7deb3036cd5fa3b74ebc62ef33d0",
+    "j_valid": "9824fd26c5aaa0ec05979c155845cec09cd6dc256a7d6b24c11b586d6d56ab8d",
+    "selected_invalid": "b5e9c216ae1c85bdf257f3fc5b1cf877e02f0e418b7fa9c30b7a1dcafce9fb76",
+    "j_invalid": "b5e9c216ae1c85bdf257f3fc5b1cf877e02f0e418b7fa9c30b7a1dcafce9fb76"
+  }
+}

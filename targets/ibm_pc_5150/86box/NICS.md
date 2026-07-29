@@ -1,6 +1,6 @@
 # 86Box NIC Inventory
 
-Build 5 treated network support as internet readiness. Stage 2 still probes
+The network path treats adapter support as internet readiness. Hardware setup probes
 common ISA Ethernet I/O bases, records the responding I/O base, starts
 resolving the adapter family when the base is ambiguous, and reads 3c501,
 3c503, NE1000/NE2000, and WD80x3 station-address PROMs into the handoff block
@@ -13,14 +13,14 @@ sends ARP for the DHCP-provided DNS server, resolves the selected agent host,
 selects and ARPs the TCP next hop, opens a TCP connection to port 443, and sends
 the final ACK.
 
-Build 6 adds the dark `"o"` secure-connection checkpoint, the normal `"o"`
+The current UI adds the dark `"o"` TLS-connection checkpoint, the normal `"o"`
 local crypto checkpoint, and the bright `"o"` agent/environment checkpoint.
 MDA collapses dark and normal `"o"` to the same non-bright attribute. The
 current ready screen also proves that agent interfaces came from either a valid
 FAT12 `SEED/AGENTS.CFG` file or the built-in `openai`, `anthropic`, and
 `google` fallback, and that selected agent and connection values came from
 either valid `SEED/USER.CFG` state or the question flow. With valid saved `SEED/USER.CFG`, the
-Build 6 path also resolves the selected agent host and proves TCP 443
+The current path also resolves the selected agent host and proves TCP 443
 connection, then runs the full TLS 1.2 / application-data path (ClientHello
 through encrypted application data) documented once in
 [../../../docs/architecture.md](../../../docs/architecture.md), "Provider
@@ -123,9 +123,9 @@ smc_epic100          SMC EtherPower II 9432        covered by vm-net-epic100
 
 ## Current 5150 Test Profiles
 
-All current 5150 candidate profiles were boot-tested for the Build 6
+All current 5150 candidate profiles were boot-tested for the TLS/API
 internet-proof checkpoint on 27 April 2026 with `USER.CFG` excluded from the
-test floppy. Each NIC-present profile reached the dark `"o"` secure-connection
+test floppy. Each NIC-present profile reached the dark `"o"` TLS-connection
 `agent?` prompt after packet-level internet readiness and FAT12 `SEED/AGENTS.CFG`
 parsing. With a valid `SEED/USER.CFG`, the same checkpoint can skip the prompt and
 advance to the `seed build 6` splash.
@@ -161,11 +161,11 @@ ROM BASIC sidecar path later reached returned `ok` on those same
 representative families before the compact helper release; the released hex
 helper was smoke-tested through returned `ok` on `vm-net-ne2k8`.
 
-On 21 July 2026, the Build 13 PCnet/LANCE expansion reached the Default Prompt
+On 21 July 2026, the PCnet/LANCE expansion reached the Default Prompt
 Interface and returned `kiwi` on `vm-net-pcnetisa`, `vm-net-pcnetracal`, and
 `vm-net-pcnetisaplus`. The same checkpoint revalidated `vm-net-ne2kpnp` and
 the original-speed 16 KiB `vm-net-ne2k8` path after moving the NE PROM read
-buffer out of the hardware-setup phase image. The Build 13 PCI discovery
+buffer out of the hardware-setup phase image. The PCI discovery
 checkpoint also reached the Default Prompt Interface and returned `kiwi` on
 `vm-net-ne2kpci`, with `vm-net-ne2kpnp` revalidated afterward to prove fallback
 from PCI discovery to ISA PnP stayed green.

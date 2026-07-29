@@ -1,0 +1,126 @@
+{
+  "status": "PASS",
+  "profile": "cpu-8086 K14 post-auth application controller",
+  "layout": {
+    "request_controller_bytes": 626,
+    "request_adapter_bytes": 232,
+    "response_controller_bytes": 1024,
+    "response_literals_bytes": 257,
+    "low_controller_slot": "0x0900..0x0d00",
+    "quarantine_spans": [
+      "0x0d00..0x0f00",
+      "0x3600..0x3838",
+      "0x3920..0x3b40"
+    ],
+    "retained_scanner_state": "0x3c4a..0x3c62"
+  },
+  "request": {
+    "records": 2,
+    "fragment_lengths": [
+      224,
+      36
+    ],
+    "plaintext_bytes": 260,
+    "max_tls_inner_content": 224,
+    "fixed_unlock_arguments_zero": true,
+    "status_last_publication": true,
+    "publication_empty_before_callback": true,
+    "fixed_restore_arguments_zero": true,
+    "scratch_scrubbed": true
+  },
+  "response": {
+    "records": 7,
+    "largest_authenticated_content": 1539,
+    "crossed_quarantine_spans": 3,
+    "record_seam_splits": [
+      "first_output_type",
+      "first_delta_value",
+      "second_output_type",
+      "second_delta_value",
+      "completed_type"
+    ],
+    "scanner_unchanged_before_each_tag": true,
+    "aggregated_exact_ok_then_completed": true,
+    "http_transfer_framing": "chunked",
+    "http_terminal_separate_authenticated_record": true,
+    "sse_event_lines_harmless": true
+  },
+  "hostile_request_cases": [
+    "precommit",
+    "callback_failure",
+    "partial_success",
+    "overlength",
+    "unterminated",
+    "bad_checksum",
+    "wrong_route",
+    "model_overlength",
+    "model_unterminated",
+    "model_injection",
+    "send_failure",
+    "restore_failure"
+  ],
+  "hostile_response_cases": [
+    "tag_failure_after_authenticated_partial_marker",
+    "authenticated_non_2xx",
+    "missing_completion",
+    "orphan_delta",
+    "delta_in_later_object",
+    "completion_without_http_terminal",
+    "wrong_delta",
+    "whitespace_inside_ok",
+    "wrong_first_byte",
+    "bytes_after_http_terminal",
+    "compact_single_delta_ok_accepted",
+    "third_output_event",
+    "oversized_record"
+  ],
+  "static_gate": {
+    "request": {
+      "decoded_instructions": 262,
+      "direct_call_targets": [
+        "0x0500",
+        "0x0510",
+        "0x0520",
+        "0x09d5",
+        "0x0a32",
+        "0x0a4e",
+        "0x0a78",
+        "0x0aa4",
+        "0x0ace",
+        "0x0af6",
+        "0x0b17",
+        "0x0b48",
+        "0x340a"
+      ]
+    },
+    "response": {
+      "decoded_instructions": 384,
+      "direct_call_targets": [
+        "0x0acb",
+        "0x0af6",
+        "0x0b3b",
+        "0x0b4e",
+        "0x196d",
+        "0x1dd7",
+        "0x1e1d",
+        "0x340e",
+        "0x3462",
+        "0x347f"
+      ]
+    }
+  },
+  "credential_policy": {
+    "compiled_or_reported": false,
+    "publication_address_fixed": "0x0d00",
+    "unlock_callback_fixed": "0x0520",
+    "sym_restore_callback_fixed": "0x0510",
+    "send_callback_fixed": "0x0500"
+  },
+  "sha256": {
+    "sym": "3ba29e3246f69e56d53da8b389a22d9f3dc125ffef33c395ccb7e403720d1ff0",
+    "request_adapter": "1c6873cd34273aa820345855a45e67e66570c7b8f743baac3f0a84f55623e968",
+    "request": "7a36cfae3d98ce541f2df451bf67b57f84460a7038e360cda0ef22f3ae7fa1c2",
+    "response_literals": "601056687417ffec256c43c84b1a22662d63817cc9966a4bf4448f963eef1fb6",
+    "response": "6c82367239e24b55137412d8f234e0d32610a5a3b705ecb9a51850bec2b6e434"
+  }
+}

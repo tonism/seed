@@ -42,9 +42,10 @@ Do not introduce other runtime module loading unless explicitly scoped.
 
 That image is a 160 KiB FAT12 floppy image with a stage 1 boot sector, a small
 reserved-sector FAT12 loader, FAT copies, a root directory, and file data. The
-loader reads the visible root `SEED.SYS` file through its FAT12 cluster chain
-and jumps to it at `0000:1000`. Runtime configuration and prompt files are
-shipped under the root `SEED/` directory. The current OpenAI RSA leaf ships as
+loader reads the visible root `SEED.SYS` file's declared resident prefix
+through its FAT12 cluster chain and jumps to it at `0000:1000`. Runtime
+configuration and prompt files are shipped under the root `SEED/` directory.
+The current OpenAI RSA leaf ships as
 `SEED/LEAF.DER`; 286+ boots verify it against the baked WR1 anchor before use
 and may refresh it after verified recertification. The tracked `AGENTS.CFG`
 file is shipped as `SEED/AGENTS.CFG` when present and overrides the built-in
@@ -78,12 +79,13 @@ the boot loader and the BASIC loader can find the same runtime image.
 - Target 8088-compatible 16-bit real-mode code for `ibm_pc_5150`. Keep NASM
   sources locked to `cpu 8086` so unsupported opcodes are caught at build time.
 - Do not introduce protected mode or graphics mode unless explicitly scoped.
-- The current capability is the Default Prompt Interface chat loop, Build 9
-  minimal context management (a model-compacted rolling conversation window), and
-  Build 10 minimal tool calling (`$r`/`$w`/`$x` RAM read/write/execute with an
-  agentic loop), on the 16 KiB ROM BASIC + 32 KiB direct-boot entry contract. Do
-  not add environment handover or a general local-tool ABI unless explicitly
-  scoped; those are the next steps.
+- The current capability is the Default Prompt Interface chat loop, a
+  model-compacted rolling conversation window, Responses native RAM
+  read/write/execute tools with an agentic loop, and optional environment
+  save/load on writable media, on the 16 KiB ROM BASIC + 32 KiB direct-boot
+  entry contract. Keep tool access target-local and preserve the current ENV
+  compatibility contract; do not introduce a general OS-style local-tool ABI
+  unless explicitly scoped.
 - OpenAI, Anthropic, and Google define the supported agent TLS compatibility
   surface. Extra default `AGENTS.CFG` entries may stay only if they fit the
   same path; do not add alternate crypto paths just to keep a gateway.
@@ -184,7 +186,7 @@ displayed the returned `ok`: `vm-net-3c501`, `vm-net-3c503`, `vm-net-ne1k`,
 `vm-net-wd8003eb`. On 7 May 2026, the 32 KiB slimming checkpoint passed
 representative family tests on `vm-net-ne2k8`, `vm-net-3c501`,
 `vm-net-3c503`, and `vm-net-wd8003e`, each displaying returned `ok` and
-`seed build 6`. On 10 May 2026, the Build 7 ROM BASIC sidecar path reached
+`seed build 6`. On 10 May 2026, the ROM BASIC sidecar path reached
 returned `ok` on all seven 16 KiB NIC profiles: `vm-net-3c501`,
 `vm-net-3c503`, `vm-net-ne1k`, `vm-net-ne2k8`, `vm-net-novell-ne1k`,
 `vm-net-wd8003e`, and `vm-net-wd8003eb`; the no-card CGA and MDA profiles

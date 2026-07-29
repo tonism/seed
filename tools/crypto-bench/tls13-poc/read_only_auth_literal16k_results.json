@@ -1,0 +1,214 @@
+{
+  "guest": {
+    "bios_interrupt_calls": 34,
+    "bios_write_requests_blocked": 1,
+    "disk_reads": 34,
+    "lines": [
+      "AUTH1 PASS t=984 ticks",
+      "AUTH2 PASS t=986 ticks",
+      "FORGE PASS",
+      "COMMIT PASS",
+      "RETRY PASS",
+      "UNLOCK PASS",
+      "READONLY PASS reads=34 bios=34 blocked=1",
+      "PASS",
+      "RESULT"
+    ],
+    "required_milestones": true,
+    "success": true,
+    "ticks": {
+      "auth1": 984,
+      "auth2": 986
+    }
+  },
+  "manifest": {
+    "claims": {
+      "atomic_credential_unlock_structural_gate": true,
+      "bios_write_request_blocked_before_interrupt": true,
+      "credential_publication_validated": true,
+      "fixed_credential_callback_authority": true,
+      "fixture_path_write_independence_proven": true,
+      "forged_marker_direct_callback_rejected": true,
+      "fresh_entropy": false,
+      "live_network_chain": false,
+      "native_ticket_vs_auth_overlap_resolved": true,
+      "precommit_direct_callback_rejected": true,
+      "product_cold_boot_write_independence_proven": false,
+      "retryable_credential_read_failure": true,
+      "route_aware_commit": true,
+      "runtime_bios_function_trace": true,
+      "secure_floor_proven": false,
+      "trusted_time": false
+    },
+    "credential_gate": {
+      "callback": "0x1580",
+      "caller_selectable_calls": 0,
+      "credential_publication_bytes": 6,
+      "credential_publication_status_last": true,
+      "destination": "0x3400",
+      "direct_callback_calls": 1,
+      "header_version": 4,
+      "phase_key": "0x6b14",
+      "resident_callback_abi_checked": true,
+      "resident_callback_authorize_entry": "0x195d",
+      "resident_callback_header_version_checked": true,
+      "resident_callback_revalidates_full_bundle": true,
+      "retryable_partial_failure_exercised_by_guest": true
+    },
+    "fixtures": {
+      "canary": {
+        "bytes": 32,
+        "sha256": "384b64b286a9fa2415f7a1e60b304d141491588dc729cb7addb7a5e634af9f95"
+      },
+      "cv": {
+        "bytes": 175,
+        "sha256": "7d6f2f3d02c8b6069dda3d0363cab609fc33a0cc0a64c474a34321cd6ef27e5a"
+      },
+      "leaf": {
+        "bytes": 175,
+        "sha256": "5249a82e37717fe30e16c32ad6327ff90e6f2d35cdef3051ae9f975bf16b8219"
+      },
+      "meta": {
+        "bytes": 170,
+        "sha256": "4fafc7583f140fb9d0a36dc8aee543f6598d8c30a6a3854af1f6f48182bc1a53"
+      },
+      "ticket": {
+        "bytes": 269,
+        "sha256": "887180d08507e12c275464cd6353312020ef5c065a9d271050951c8c85aa78bd"
+      }
+    },
+    "images": {
+      "container_bytes": 12288,
+      "container_sectors": 24,
+      "container_sha256": "64d89a8116e822941cff5fcca0ea35bbf9464af93f0b300e0da2a1ba1db73c27",
+      "gate_bytes": 953,
+      "gate_sectors": 2,
+      "gate_sha256": "3cee46ddc7aeba9ef8c651b78d0b2da686406bf20a80d154331cd2b8528d863e",
+      "issuer_bytes": 7134,
+      "issuer_sectors": 14,
+      "issuer_sha256": "366f22292d9b63e464d8c7205c814f81d0ab07cad522e3ad52fb4b86d51c0ce2",
+      "resident_bytes": 2048
+    },
+    "memory": {
+      "arena_context_untouched": [
+        "0x3e40",
+        "0x3f00"
+      ],
+      "commit_control": [
+        "0x3c30",
+        "0x3c40"
+      ],
+      "credential_destination_phase_reuses_issuer_input": [
+        "0x3400",
+        "0x34c1"
+      ],
+      "credential_publication": [
+        "0x3c40",
+        "0x3c46"
+      ],
+      "issuer_commit": [
+        "0x3600",
+        "0x3672"
+      ],
+      "issuer_input": [
+        "0x3400",
+        "0x34af"
+      ],
+      "reconnect_untouched": [
+        "0x3c9c",
+        "0x3de6"
+      ],
+      "ticket_identity_nonce_meta": [
+        "0x3b40",
+        "0x3c2d"
+      ],
+      "ticket_psk": [
+        "0x38b0",
+        "0x38d0"
+      ]
+    },
+    "provenance": {
+      "builder": "tools/crypto-bench/tls13-poc/build_read_only_auth_literal16k.py",
+      "builder_sha256": "6768c33491fc8d05439b71657fda6154897fdc5d344c6c654caa0e75c270b1a0",
+      "gate": "tools/crypto-bench/tls13-poc/read_only_commit_gate.asm",
+      "gate_sha256": "76e348137d42604024fbafd7ba37bd56cbed2323817724251ce0d20b03405e54",
+      "harness": "tools/crypto-bench/tls13-poc/read_only_auth_literal16k.asm",
+      "harness_sha256": "8531feaefcb74c0014bcf6561a81a9a712bcab7ba56868f53468ffc9e6da85fa",
+      "issuer": "tools/crypto-bench/tls13-poc/issuer_auth_overlay.asm",
+      "issuer_sha256": "cc8e1d2e8a30f4714386f10f2a88e9d7f56f03e4acdeb0bfda2da7b2e939b4c1",
+      "live_leaf_sha256": "bb3e0033320e94d3c8768b43882d8c3762a901d3e743c3e795d3d869beb9227c",
+      "live_vector_sha256": "c1193e5cab166cb019d0a5e073c630405b4f11097230255c6e38b4d9955ca7e0"
+    },
+    "read_only_media": {
+      "bios_functions_allowed": [
+        "AH=02 read one sector",
+        "AH=00 reset after error"
+      ],
+      "resident_int13_sites": 1,
+      "runtime_function_trace": true,
+      "runtime_write_rejection_self_test": "AH=03",
+      "source_int13_sites": 1,
+      "unsupported_function_rejected_before_interrupt": true,
+      "write_service_present": false
+    },
+    "schema": "seed-tls13-read-only-auth-literal16k-v3",
+    "scope": "exact 16-KiB cold-phase WE1 leaf + CertificateVerify arithmetic, native RAM-only ticket coexistence, LIVE_TICKET atomic commit, full-bundle callback authorization, bounded status-last credential publication with retryable failure, and runtime-enforced read-only media path; fixture-fed and not a live TLS chain",
+    "status": "offline-pass"
+  },
+  "manifest_sha256": "ec189549fd0d6d679c79eab415514f8048f3a1eddbb22039f00a6618234aff70",
+  "run": {
+    "basic_builder": "tools/build-basic-bootstrap.py",
+    "basic_builder_sha256": "06d17870b0439eec2f2e2e2a2dbd0cd30d752f6bf6dee4bd75a5150b1cf7a12a",
+    "bootstrap_source": "targets/ibm_pc_5150/basic/bootstrap.asm",
+    "bootstrap_source_sha256": "0e488a82b7c3598f2ba6739011b467baa62762f93cea34c0d1448e9db5752a2a",
+    "bootstrap_start": "0x3a00",
+    "command": "python3 tools/crypto-bench/tls13-spike/run_8088_16k.py --asm tools/crypto-bench/tls13-poc/read_only_auth_literal16k.asm --resident-sectors 4 --start-token 'ROAUTH POC' --start-timeout 45 --floppy-read-only",
+    "done": true,
+    "elapsed_wall_seconds": 145.674,
+    "emulator_launch": "LaunchServices --vmpath + fixed COM FIFO",
+    "emulator_stdout_bytes": 156,
+    "floppy_media": {
+      "host_write_open_denied": true,
+      "mode_during_run": "0o444",
+      "mode_restored": true,
+      "read_only_requested": true,
+      "sha256_after": "1e7662dacada55dd33375eda43185a1b47402016d3a306023a51f71fcc9baaa7",
+      "sha256_before": "1e7662dacada55dd33375eda43185a1b47402016d3a306023a51f71fcc9baaa7",
+      "unchanged": true
+    },
+    "global_config_override": null,
+    "image_bytes": 12288,
+    "image_sectors": 24,
+    "image_sha256": "64d89a8116e822941cff5fcca0ea35bbf9464af93f0b300e0da2a1ba1db73c27",
+    "load_start": "0x1000",
+    "loaded_end": "0x1800",
+    "loader_status_text": "POC LOADER...",
+    "machine": {
+      "cpu": "8088",
+      "cpu_hz": 4772728,
+      "dynarec": false,
+      "entry": "ROM BASIC sidecar",
+      "installed_ram_kib": 16,
+      "model": "IBM PC 5150"
+    },
+    "ram_top": "0x4000",
+    "resident_sectors": 4,
+    "runner": "tools/crypto-bench/tls13-spike/run_8088_16k.py",
+    "runner_sha256": "58592c8d946dea8977c99acac36d37f639175a0cb1a61f4df79c1793fc7ae022",
+    "serial_path": "build/crypto-bench/tls13-16k/bench.serial.txt",
+    "serial_text": "AUTH1 PASS t=984 ticks\nAUTH2 PASS t=986 ticks\nFORGE PASS\nCOMMIT PASS\nRETRY PASS\nUNLOCK PASS\nREADONLY PASS reads=34 bios=34 blocked=1\nPASS\nRESULT\n",
+    "source": "tools/crypto-bench/tls13-poc/read_only_auth_literal16k.asm",
+    "source_sha256": "8531feaefcb74c0014bcf6561a81a9a712bcab7ba56868f53468ffc9e6da85fa",
+    "stack_guard_bytes": 256,
+    "start_elapsed_wall_seconds": 2.248,
+    "start_seen": true,
+    "start_timeout_hit": false,
+    "start_timeout_seconds": 45.0,
+    "startup_failure_screenshot": null,
+    "timeout_seconds": 420.0,
+    "vm_harness": "tools/run-basic-bootstrap-86box.py",
+    "vm_harness_sha256": "864142aab5df77ad5735b47ad16923c6648d5735c5fe7e069c69e6f1d83fc118"
+  },
+  "schema": "seed-tls13-read-only-auth-literal16k-run-v3",
+  "status": "pass"
+}

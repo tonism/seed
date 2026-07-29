@@ -9,12 +9,14 @@ boundary* — the benchmarks, the optimisation hunt, the levers ruled out; the s
 mechanics (where the crypto lives, the handshake's place in the boot) are in
 [architecture.md](architecture.md).
 
-**The one line:** a stock 8088 is honestly **encrypted, but not secure** — no key
-agreement, no authentication, so a passive eavesdropper recovers every session key. A
-**286 is a real, authenticated secure channel** — real ECDHE, a pinned-key RSA
-certificate verify, and silent re-pinning when the leaf rotates. *Secure is a 286
-capability, never the 16 KiB / 4.77 MHz floor*, and the product says so to the user's
-face rather than implying more than it delivers.
+**The one line for the current TLS 1.2 product:** a stock 8088 is honestly
+**encrypted, but not secure** — no key agreement, no authentication, so a passive
+eavesdropper recovers every session key. A **286 has real ECDHE and
+WR1/hostname-authenticated peer keys** with silent re-pinning. Its “secure”
+label assumes the documented weaker no-time expiry policy: when no usable
+clock exists, certificate dates are not checked. The TLS 1.3 8088 research
+canary does not change this current-tree boundary until its complete
+secure-floor gate passes.
 
 ## The 8088 floor — encrypted, not secure
 
@@ -35,22 +37,27 @@ the server closes the connection in ~15 s. Concretely:
   shipped standalone — that would be cosmetic.
 
 So the 8088 tier is **encrypted, not secure**, and the label is precise, not
-aspirational. A pre-286 machine shows a red **"insecure"** on the splash to say so. The
-full measured case for *why* this can't be optimised across — the ~2.7-minute combined
-handshake, ~11× over the window — is in [crypto-feasibility.md](crypto-feasibility.md).
+aspirational. A pre-286 machine shows a red **"insecure"** on the splash to say
+so. The current TLS 1.2 P-256/RSA profile measures about 2.7 minutes on the
+8088, roughly 11× over the window; the full case is in
+[crypto-feasibility.md](crypto-feasibility.md). That result does not prejudge
+the separate streamed/deferred TLS 1.3 architecture research.
 
-## The 286 secure tier — real and authenticated
+## The current 286 authenticated tier
 
 The 286 is the first processor whose integer `MUL` is fast enough (≈9× the 8088's) to
-run a real authenticated handshake inside the provider's window. On it the secure
-channel is **real, not skipped**:
+run the current real authenticated handshake inside the provider's window.
+Its ECDHE and pinned-key peer authentication are **real, not skipped**; the
+overall “secure” label remains qualified by the weaker no-time expiry policy
+and by physical min-entropy not yet being validated on hardware:
 
 - **Real ECDHE key agreement.** The optimised constant-time P-256 (Solinas + Karatsuba
   + wNAF, OpenSSL-verified, ~6.6 s/scalar-mult on the lowest 6 MHz part) is wired as a
   286-only handshake module. The client generates a genuine ephemeral keypair from an
-  entropy pool (PIT / MAC / tick → SHA-256), sends its real public point, and derives
+  implemented entropy pool (PIT / MAC / tick → SHA-256), sends its real public point, and derives
   `premaster = client_private × server_public`. No scalar-1 stub — the session keys are
-  a real shared secret.
+  a real shared secret. The mixer is implemented, but physical min-entropy from
+  those inputs still needs hardware validation.
 - **Real server authentication.** The 286 negotiates `ECDHE_RSA` and verifies the
   ServerKeyExchange's RSA-2048-PKCS#1 signature — the one in-race RSA verify — against a
   **pinned provider leaf public key**, proving the server holds that key. It is real
@@ -61,12 +68,13 @@ module that **overlays the 32 KiB loop cache — 0 resident RAM on 16 KiB**; the
 never loads it. (`montsqr`, a Montgomery squaring shortcut for the RSA modexp, widens
 the @6 margin ~19%; see crypto-feasibility.md.)
 
-**Validated** on both the 6 MHz 286 (the knife-edge) and the 8 MHz: each completes a
+**Validated in original-timing 86Box** on both the 6 MHz 286 (the knife-edge)
+and the 8 MHz: each completes a
 full real-ECDHE + RSA-cert-authenticated handshake and reaches the model, and a
 **one-bit-tampered pinned key is rejected** (the handshake fails) — the pin is enforced.
 The handshake fits the ~15 s window even at 6 MHz, but on a ~1.2 s knife-edge that may
 flake on a degraded link (the 8088's exact failure mode); **8 MHz is the comfortable
-secure floor**.
+authenticated-path floor under the documented policy**.
 
 ### Why pin the leaf, not chain to the root
 
@@ -83,42 +91,52 @@ durable CA anchor is baked into `SEED.SYS`.
 A pinned leaf rotating every ~90 days would otherwise force a runtime rebuild every quarter, so
 the 286 bakes a **durable** anchor — the issuing CA, **Google Trust Services WR1**
 (RSA-2048, valid for years) — and ships the current leaf as `SEED/LEAF.DER`. On 286+,
-Seed verifies that file against WR1 before opening a TLS socket. If the file is missing,
-stale, or invalid, the in-race verify fails closed and the device runs a full X.509
+Seed verifies that file against WR1 before opening a TLS socket. If the file is missing
+or fails the available checks, the device does not adopt it and runs a full X.509
 chain-verify **off the ~15 s race**:
 
 1. parse the freshly-presented leaf (strict DER),
 2. confirm its SAN is exactly `api.openai.com`,
 3. verify the leaf's signature against the pinned WR1, **and**
-4. check the leaf is currently within its `notBefore`/`notAfter` window.
+4. when a usable RTC value is available, check the leaf is currently within its
+   `notBefore`/`notAfter` window.
 
-If all four pass, the new leaf is adopted as the pin and the handshake is retried. A dim
+The current implementation skips step 4 when time is unavailable. If every
+applicable check passes, the new leaf is adopted as the pin and the handshake is retried. A dim
 `> recertify` marks the pause (**mid-chat only** — silent during cold-boot loading), and
 a mid-chat rotation keeps the conversation (history lives in RAM).
 
 After a successful re-pin, Seed also tries to write the verified leaf DER back to
 `SEED/LEAF.DER` on the boot medium. This is best-effort and silent: write-protected or
 full media simply continue without the cache update. Later 286+ connects read that file before
-opening a TLS socket, verify it through the same strict-DER, SAN, WR1-signature, and date
-checks, and only then adopt it as the fast-path pin. The file is therefore not
+opening a TLS socket, verify it through the same strict-DER, SAN, WR1-signature, and
+available-time checks, and only then adopt it as the fast-path pin. The file is therefore not
 trust-on-disk; the immutable WR1 anchor in `SEED.SYS` remains the trust root. A missing
 or invalid file falls back to the normal live-leaf recertify path.
 
 This is deliberately **not trust-on-first-use**: a leaf is adopted only if a CA we
-*already* pinned signed it, for the *exact* host we expect, and only while it is in date
-— anything else **fails closed** and falls through to the normal reconnect-failed path.
+*already* pinned signed it and for the *exact* host we expect. An available usable clock
+must also place it in date; without one, the current weaker policy skips expiry checking.
+Cryptographic, DER, and hostname failures **fail closed** and fall through to the normal
+reconnect-failed path.
 
-Two properties make the date check trustworthy:
+Two properties define the current best-effort date check, but they do not make
+it a trusted clock against an active network attacker:
 
-- **An independent clock.** A 286-only setup phase syncs the CMOS RTC from NTP
-  (`time1.google.com`) at boot, *before* any TLS, and the validity gate reads that RTC —
-  so a hostile server cannot backdate the check via its own response. If NTP is
+- **A TLS-peer-independent clock.** A 286-only setup phase syncs the CMOS RTC
+  from unauthenticated NTP (`time1.google.com`) at boot, *before* any TLS, and
+  the validity gate reads that RTC. This keeps the date out of the TLS peer's
+  own response, but an active network attacker can still spoof NTP. If NTP is
   unreachable the date check is skipped (best-effort), not failed.
 - **Off-race timing.** The WR1 re-derive (~3.3 s on a 6 MHz part) runs *before* the
   reconnect opens its socket — off the server's window. It has to: when it ran between
   the SYN and the ClientHello instead, the 6 MHz client Finished landed ~1.6 s past the
   deadline and the server closed (wire-confirmed). Moving the derive ahead of the connect
   fixed the @6 re-pin.
+
+A replacement secure floor therefore needs trusted user-set time, an
+authenticated persisted lower bound, or an explicitly accepted weaker/no-time
+certificate policy; the current NTP behavior is not sufficient evidence.
 
 WR1 itself rotates on the order of years and still needs a human re-pin then
 (`tools/gen-rsa-pinned-key.py --mode anchor`). Like the rest of the secure tier this is
@@ -132,10 +150,11 @@ the 16 KiB hot path carries none of it.
 pinned leaf key    api.openai.com's RSA-2048 leaf from SEED/LEAF.DER or verified recertification
 pinned CA anchor   Google Trust Services WR1 (RSA-2048) — the durable re-pin anchor
 leaf DER file      SEED/LEAF.DER, shipped and refreshable; verified against WR1 before adoption
-adoption rule      a new leaf is pinned ONLY if WR1 signed it, SAN == api.openai.com,
-                   and it is in date — never trust-on-first-use
-failure            fail closed: an unverifiable leaf is not adopted; reconnect-failed path
-validity clock     CMOS RTC, NTP-synced at boot, independent of the authenticated peer
+adoption rule      a new leaf is pinned ONLY if WR1 signed it and SAN == api.openai.com;
+                   an available usable clock must also place it in date — never TOFU
+failure            DER/signature/SAN failures, and date failures when time is usable,
+                   fail closed; missing time currently skips the date check
+validity clock     CMOS RTC, best-effort unauthenticated NTP sync at boot; not trusted
 human re-pin       leaf: automatic (auto-recertify); CA (WR1): manual, ~yearly cadence
                    (tools/gen-rsa-pinned-key.py)
 ```

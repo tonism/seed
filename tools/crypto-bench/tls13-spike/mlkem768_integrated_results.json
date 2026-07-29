@@ -1,0 +1,222 @@
+{
+  "schema": "seed-mlkem768-integrated-spike-v2",
+  "recorded_date": "2026-07-25",
+  "curated_date": "2026-07-26",
+  "scope": "isolated exact ML-KEM-768 KeyGen and Decaps arithmetic on the literal headline floor; not product TLS integration",
+  "machine": {
+    "execution": "86Box emulator",
+    "emulator_version": "6.0.0.9001",
+    "profile": "targets/ibm_pc_5150/86box/vm-net-ne2k8",
+    "model": "IBM PC 5150",
+    "cpu": "8088",
+    "cpu_hz": 4772728,
+    "installed_ram_kib": 16,
+    "dynarec": false,
+    "entry": "ROM BASIC sidecar",
+    "bios_tick_hz": 18.206512451171875
+  },
+  "measurement_environment": {
+    "statement": "All literal target timings are 86Box v9001 emulation of a configured 4.772728 MHz 8088 with 16 KiB RAM and dynarec disabled, entered through the ROM BASIC sidecar. They are not measurements on physical IBM hardware.",
+    "effective_overrides": {
+      "installed_ram_kib": 16,
+      "cpu_family": "8088",
+      "cpu_hz": 4772728,
+      "dynarec": false,
+      "entry": "ROM BASIC sidecar",
+      "benchmark_floppy_drive": "B:"
+    },
+    "reconstructed_effective_profile_sha256": "3035965fb864dbcf97294e3e0df2ee6cd5facfca2cb427bc93ceb68f62092124",
+    "reconstructed_effective_profile_not_captured_at_run": true,
+    "emulator_binary_hash_at_run": "not captured",
+    "bios_rom_hashes_at_run": "not captured"
+  },
+  "reference": {
+    "openssl": "OpenSSL 3.6.2 7 Apr 2026",
+    "vector_provenance": "one frozen OpenSSL-generated ML-KEM-768 seed/expanded-key/ciphertext vector",
+    "not_claimed": "NIST ACVP response-file provenance",
+    "d_z_sha256": "7820f6387113e6e95b2dda16742c222489bb99d413d5f70dbdccfc27e0d4da12",
+    "expanded_dk_sha256": "2754ed0f63b1cfb4bcedc9986f94521ed8641b719f7e9a087b769a33612ad25f",
+    "ciphertext_sha256": "e0bab73b492e57d13b4fa2380af43c7bd20f0cdee8e4c089d08b0aa3cef465de",
+    "g_sha256": "238514dd84f0498cab7738fd93c3cebfb2281ccbf0d07e4415c339351ef207c8"
+  },
+  "source_hashes": {
+    "mlkem768_integrated_candidate.asm": "804007df1d875b8e6f1bf627269ff825cabf09dab913375956546f2e9ea0f42d",
+    "mlkem768_integrated_keygen.asm": "1b32330c8616f1d0fb01d48113afa1f68a395cc817f8015e786a83158b59c782",
+    "mlkem768_integrated_core.inc": "3a01b4cb02829ea63f2b009a7f0dd4312deee6cb09e85da320d6d36b1817bb2a",
+    "mlkem768_integrated_vectors.inc": "5b4f91a2a55c503b2950d2e1d69595dd3a6d7b08cecf52f868978775eae8731f",
+    "mlkem768_integrated_check.py": "b5ddeeb021ce4e1875c43271708fac25111c82172e4539cf6fa7293998b24a8e",
+    "mlkem768_integrated_keygen_check.py": "3607bb23547e30104b0d54fcd34dc1e4c69f6dbebe6ff203aa1fa7771d774e2f",
+    "mlkem768_kernels_check.py": "7186a374f4f9a0e43bdbd19991a74b039e7ab35d8807242b39e69ed2a2e7457a",
+    "run_8088_16k.py_current_replay": "58592c8d946dea8977c99acac36d37f639175a0cb1a61f4df79c1793fc7ae022",
+    "run_basic_bootstrap_86box.py": "747c9b3e11805ae817670f04e2c0f4abf873897ff52cc784468224f3c58cd49e",
+    "basic_bootstrap.asm": "0e488a82b7c3598f2ba6739011b467baa62762f93cea34c0d1448e9db5752a2a",
+    "build_basic_bootstrap.py": "06d17870b0439eec2f2e2e2a2dbd0cd30d752f6bf6dee4bd75a5150b1cf7a12a",
+    "vm_profile_base_config": "b06a3de2f784fed526a44cf7e9c8fbaebbc164a974d0ccb2dffd58c68b50a492"
+  },
+  "toolchain": {
+    "nasm": "3.01",
+    "unicorn": "2.1.4",
+    "rom_digest_frozen": false
+  },
+  "measurement_provenance_caveat": "The raw runner JSON's command field omitted --define, --timeout, and --json-out. The curated exact commands below are corroborated by reassembly of every define set to the recorded image byte count and SHA-256. The source-hash table follows the current replayable wrappers: the KeyGen/core changes are conditional product-overlay extraction guards whose default benchmark images remain byte-identical, and the runner now records the previously omitted defines plus optional resident-sector/start-token controls and uses the fixed COM FIFO launch path. The current runner also exposes opt-in --floppy-read-only host-media protection: it chmods the generated image to 0444, requires host write-open denial, records before/after hashes, and restores the prior mode. That option protects the host floppy file; it is not a property retroactively attributed to these historical guest measurements. All four recorded benchmark image hashes still reassemble byte-identically. Those wrapper hashes are not a claim that the later source text was captured at the original run; the measurements were not rerun, and no recorded timing or raw observation was changed. The external 86Box IBM PC ROM digest was not frozen.",
+  "offline_correctness": {
+    "decapsulation": {
+      "status": "pass",
+      "valid_candidate_secret_hex": "f82ef64d9ff23d0b6a7099078f16b265ee551f684a31a6a2b24a6ff64d424ee1",
+      "reencryption_coins_hex": "4c4759e0eb13923aed45c283c714ad53adbc2daaa73d542b308be7a6e7b3f805",
+      "valid_serialized_difference_or": 0,
+      "invalid_serialized_difference_or": 1,
+      "invalid_selected_secret_hex": "56c58436fb2ac93744ab6564ad26491c5f4937a2d739a9529a333c9277a8ce3c",
+      "gates": [
+        "all K-PKE.Decrypt and G bytes equal independent Python arithmetic",
+        "independent K-PKE.Encrypt reproduces all 1088 valid ciphertext bytes",
+        "valid selected output equals OpenSSL",
+        "invalid J(z||c) and selected output equal Python SHAKE256 and OpenSSL"
+      ],
+      "invalid_vector": {
+        "mutation": "ciphertext[0] ^= 0x01",
+        "changed_bits": 1,
+        "message_equal_to_valid": true,
+        "g_equal_to_valid": true,
+        "purpose": "serialized mismatch, J, and implicit-rejection selection",
+        "fixed_work_evidence": false
+      }
+    },
+    "keygen": {
+      "status": "pass",
+      "gates": [
+        "independent Python FIPS KeyGen equals frozen OpenSSL expanded key",
+        "all 2400 assembly output bytes equal Python and OpenSSL",
+        "dkPKE, ekPKE, H(ek), and z subobjects match"
+      ]
+    }
+  },
+  "layout": {
+    "decapsulation": {
+      "content_bytes": 10149,
+      "content_range_half_open": "0x1000..0x37a5",
+      "sector_count": 20,
+      "sector_rounded_load_bytes": 10240,
+      "sector_range_half_open": "0x1000..0x3800",
+      "free_to_bootstrap_after_sector_load": 512,
+      "free_to_ram_ceiling_after_sector_load": 2048,
+      "candidate_routine_only_unicorn_stack_high_water_bytes": 22,
+      "full_decaps_routine_only_unicorn_stack_high_water_bytes": 26,
+      "matrix_cache_bytes": 0
+    },
+    "keygen": {
+      "content_bytes": 7063,
+      "content_range_half_open": "0x1000..0x2b97",
+      "sector_count": 14,
+      "sector_rounded_load_bytes": 7168,
+      "sector_range_half_open": "0x1000..0x2c00",
+      "free_to_bootstrap_after_sector_load": 3584,
+      "free_to_ram_ceiling_after_sector_load": 5120,
+      "routine_only_unicorn_stack_high_water_bytes": 24,
+      "matrix_cache_bytes": 0,
+      "retained_unserialized_secret_vector_bytes": 0,
+      "expanded_dk_output_bytes": 2400
+    },
+    "bootstrap_start": "0x3a00",
+    "ram_ceiling": "0x4000"
+  },
+  "literal_86box_runs": [
+    {
+      "name": "provisional candidate repeated",
+      "defines": [
+        "BENCH_CANDIDATE_ONLY",
+        "BENCH_ITERS=5"
+      ],
+      "exact_command": "python3 tools/crypto-bench/tls13-spike/run_8088_16k.py --asm tools/crypto-bench/tls13-spike/mlkem768_integrated_candidate.asm --define BENCH_CANDIDATE_ONLY --define BENCH_ITERS=5 --timeout 600 --json-out build/crypto-bench/tls13-16k/mlkem768_integrated_candidate_n5.json",
+      "captured_com1": "CHECK N=1 dt=0 ck=0001\nMLKCAND N=5 dt=173 ck=65C7\nDONE\n",
+      "iterations": 5,
+      "total_ticks": 173,
+      "ticks_per_operation": 34.6,
+      "seconds_per_operation": 1.9004188799361708,
+      "image_bytes": 10149,
+      "image_sha256": "df8bd6c238fc5c89c03187244f8746c59e591ebb659c6a11ca999aabb7e7d7c5",
+      "status": "pass"
+    },
+    {
+      "name": "complete decapsulation valid repeated",
+      "defines": [
+        "BENCH_ITERS=3"
+      ],
+      "exact_command": "python3 tools/crypto-bench/tls13-spike/run_8088_16k.py --asm tools/crypto-bench/tls13-spike/mlkem768_integrated_candidate.asm --define BENCH_ITERS=3 --timeout 900 --json-out build/crypto-bench/tls13-16k/mlkem768_integrated_decaps_valid_n3.json",
+      "captured_com1": "CHECK N=1 dt=0 ck=0001\nMLKDECAP N=3 dt=1357 ck=65C7\nDONE\n",
+      "iterations": 3,
+      "total_ticks": 1357,
+      "ticks_per_operation": 452.3333333333333,
+      "seconds_per_operation": 24.84458978876092,
+      "image_bytes": 10149,
+      "image_sha256": "95d76b662d445a1ff903a629f1de3d2c168b880c0673ea57ee1c54d2261d0eeb",
+      "status": "pass"
+    },
+    {
+      "name": "complete decapsulation one-bit-invalid repeated",
+      "defines": [
+        "BENCH_INVALID",
+        "BENCH_ITERS=3"
+      ],
+      "exact_command": "python3 tools/crypto-bench/tls13-spike/run_8088_16k.py --asm tools/crypto-bench/tls13-spike/mlkem768_integrated_candidate.asm --define BENCH_INVALID --define BENCH_ITERS=3 --timeout 900 --json-out build/crypto-bench/tls13-16k/mlkem768_integrated_decaps_invalid_n3.json",
+      "captured_com1": "CHECK N=1 dt=0 ck=0001\nMLKDECAP N=3 dt=1357 ck=D46E\nDONE\n",
+      "iterations": 3,
+      "total_ticks": 1357,
+      "ticks_per_operation": 452.3333333333333,
+      "seconds_per_operation": 24.84458978876092,
+      "image_bytes": 10185,
+      "image_sha256": "480807012bd9936a45b08838f00002406c0cdf36ee5cd5bf55c29f78ca6c7f04",
+      "status": "pass"
+    },
+    {
+      "name": "deterministic keygen",
+      "defines": [],
+      "exact_command": "python3 tools/crypto-bench/tls13-spike/run_8088_16k.py --asm tools/crypto-bench/tls13-spike/mlkem768_integrated_keygen.asm --timeout 900 --json-out build/crypto-bench/tls13-16k/mlkem768_integrated_keygen.json",
+      "captured_com1": "CHECK N=1 dt=0 ck=0001\nMLKKEY N=1 dt=401 ck=DA4E\nDONE\n",
+      "iterations": 1,
+      "total_ticks": 401,
+      "ticks_per_operation": 401.0,
+      "seconds_per_operation": 22.02508586284406,
+      "image_bytes": 7063,
+      "image_sha256": "c2692fdbde36ceb6cefbeaa9b12e7d9c165aaa6ecfedffbbd99d39f54cc4c8ee",
+      "status": "pass"
+    }
+  ],
+  "derived": {
+    "post_candidate_tail_ticks": 417.7333333333333,
+    "post_candidate_tail_seconds": 22.94417090882475,
+    "full_decaps_seconds_over_15": 9.84458978876092,
+    "runtime_reduction_needed_for_15_seconds_fraction": 0.3962468236531066,
+    "throughput_factor_needed_for_15_seconds": 1.6563059859173947,
+    "throughput_increase_needed_for_15_seconds_fraction": 0.6563059859173947,
+    "valid_invalid_same_total_at_bios_tick_resolution": true,
+    "valid_invalid_timing_interpretation": "The one frozen invalid vector differs at ciphertext byte 0, retains the valid vector's decrypted message/G candidate, and has the same N=3 BIOS-tick total. This is coarse equality for one near-valid mutation, not representative invalid-input, fixed-work, or constant-time evidence."
+  },
+  "command_provenance": {
+    "raw_runner_command_complete": false,
+    "raw_runner_omitted": [
+      "--define",
+      "--timeout",
+      "--json-out"
+    ],
+    "recorded_exact_commands_corroborated_by": "every define set reassembles byte-for-byte to its recorded image_sha256",
+    "raw_record_sha256": {
+      "candidate_n5": "aa9e46fe4c0d29b26ffde05173f7b509861b0a3937cf8ab682dfa7e6628269f0",
+      "decaps_valid_n3": "d45edfb4bb0cd4391d63a633c8606baa696d30402862bb7ac20157f0d29ac4d8",
+      "decaps_invalid_n3": "e8341af0e2640cb3602932bf756086f5d5345a48f5bc253b9eb0da8026b18c91",
+      "keygen_n1": "a3be87d9614f0c6931794a6b3a2a7018bb8eaa132b3dd28eb32cdcdc861b084a"
+    }
+  },
+  "remaining_gates": [
+    "on-device entropy collection and conditioning for d and z",
+    "restart-safe ratchet integration and rollback/write-protected policy",
+    "product phase-overlay and object-lifecycle integration",
+    "representative official/independent valid and invalid vector matrix",
+    "cycle-level side-channel review",
+    "real IBM PC hardware timing and entropy-source validation",
+    "sparse or relocated KeyGen-to-Decaps handoff that survives the overlay reload",
+    "final product link preserving the resident nucleus, K/TCP path, arena, context, and interrupt stack",
+    "integrated TLS timing including TCP, parser, authentication, and keepalive margin",
+    "independent review of provisional pre-FO use and fixed-X25519-u=9 research profile"
+  ]
+}

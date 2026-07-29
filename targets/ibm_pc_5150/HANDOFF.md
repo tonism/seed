@@ -45,7 +45,7 @@ offset  size  value
 0x2c    2     runtime RAM top used for the initial stack
 ```
 
-## Capability vector (Build 12)
+## Capability vector
 
 This block is also Seed's **capability vector** — the boot-detected facts that
 drive what loads and where (see [../../docs/architecture.md](../../docs/architecture.md),
@@ -205,8 +205,8 @@ offer is available, Seed sends DHCPREQUEST and performs a bounded DHCPACK wait.
 After DHCPACK, it sends a bounded ARP request for the DHCP-provided DNS server
 and records the resolved MAC internally for the DNS packet step. It then resolves
 the selected agent host with a minimal DNS A query and records the returned IPv4
-address internally. (Build 11 removed the old standalone `example.com` port-80
-connectivity probe; the DNS and TCP path now targets the
+address internally. (The old standalone `example.com` port-80 connectivity
+probe is gone; the DNS and TCP path now targets the
 agent endpoint directly.) Seed selects the TCP next hop using the DHCP subnet mask
 and router, ARPs that next hop, opens a TCP connection to the agent endpoint, and
 sends the final ACK after receiving a matching SYN-ACK.
@@ -222,8 +222,8 @@ DNS response, or SYN-ACK is observed during the bounded waits, the dark `","`
 internet phase fails into the network setup error path with the corresponding
 status and network error.
 
-The secure-connection phase follows the dark `","` internet phase. It uses a dark `"o"` for
-secure connection prep, switches to a normal `"o"` for local ECDHE/key
+The TLS-connection phase follows the dark `","` internet phase. It uses a dark `"o"` for
+TLS connection prep, switches to a normal `"o"` for local ECDHE/key
 material derivation, and switches to a bright `"o"` after the TLS
 proof succeeds. On MDA, dark and normal `"o"` both render non-bright. This phase
 covers the network readiness states for TCP payload send/receive and the

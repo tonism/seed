@@ -12,8 +12,8 @@ and every byte of headroom above 16 KiB belongs to the user, not to Seed.** A
 bigger machine does not get a bigger Seed; it gets a bigger conversation and a
 bigger arena to build in. That principle is the spine of everything below.
 
-> **Status.** This contract describes the Build 13 runtime/driver split on top of
-> the Build 12 capability-tiered architecture: lifetime-ordered low memory, one
+> **Status.** This contract describes the current runtime/driver split on top of
+> the capability-tiered architecture: lifetime-ordered low memory, one
 > `SEED.SYS` runtime, external NIC driver files, native function tools, RAM
 > scaling from the 16 KiB floor through EMS / 286 native extended / 386 unreal
 > mode, and CPU-tiered security beginning at the 286. Byte-level maps for the
@@ -56,9 +56,12 @@ There are exactly **two boot shapes, locked**, and several additive reach /
 capability tiers above them:
 
 ```text
-16 KiB  — the baseline and the canonical shape. EVERY feature works here,
-          including the fast crypto. This is the recovery/identity floor and
-          the shape the whole system is designed around. Inviolable.
+16 KiB  — the baseline and the canonical shape. Every user-facing product
+          function works here, including the agent loop and memory tools.
+          This is the functional/recovery floor and the shape the whole
+          system is designed around. Transport confidentiality and
+          authenticated peer identity remain separate CPU-tier capabilities.
+          Inviolable.
 
 32 KiB  — the convenience tier. The chat loop no longer reads the floppy
           mid-conversation (it preloads its working set and tools schema at
@@ -81,20 +84,25 @@ EMS       — 8088/V30-class path past the 1 MiB real-mode ceiling. Seed drives 
 386 unreal — BIOS-compatible real mode with 4 GB segment limits. High memory is
           flat direct memory instead of an EMS or `int 15h` window.
 
-286+     — a CPU-class capability, orthogonal to RAM: the first processor fast
-          enough to run a real, authenticated TLS handshake inside the
-          provider's window (see [security.md](security.md)). "Secure" is a 286 tier,
-          never the 16 KiB / 4.77 MHz floor.
+286+     — a CPU-class capability, orthogonal to RAM: in the current TLS 1.2
+          runtime, the first processor fast enough to run the authenticated
+          handshake inside the provider's window (see
+          [security.md](security.md)). The TLS 1.3 research canary does not
+          change the current TLS 1.2 security floor until every secure-floor
+          gate passes.
 
 persistence — if the boot floppy accepts a requested save write, Seed can save
           and restore the conversation window, arena, and screen. Startup does
           not probe writeability.
 ```
 
-Functional parity is at 16 KiB. Larger memory and faster CPU tiers add performance,
-headroom, wider address reach, persistence when requested writes succeed, and — on the 286 —
-real confidentiality; they do not make the basic agent/tool loop unavailable on the
-floor. A feature that cannot degrade to the 16 KiB shape is a design failure.
+Product-function parity is at 16 KiB. Larger memory and faster CPU tiers add
+performance, headroom, wider address reach, persistence when requested writes
+succeed, and — on the current 286 secure tier — real confidentiality and
+authenticated peer identity; they do not make the basic agent/tool loop
+unavailable on the floor. A user-facing product function that cannot degrade
+to the 16 KiB shape is a design failure. Product-function parity must not be
+read as a claim of equal transport security across CPU tiers.
 
 ## Current Target Snapshot
 
@@ -106,21 +114,22 @@ RAM tiers        16 KiB (ROM BASIC sidecar entry), 32 KiB direct boot, far conve
                  EMS, 286 HMA/native extended, 386 unreal
 media            160 KiB headline FAT12 floppy image; 360 KiB profile image for 286 work
 video            BIOS text mode, CGA or MDA
-network          3c501, 3c503, NE1000/NE2000, Novell NE1000, WD80x3 families
+network          3c501, 3c503, NE/WD80x3, PCnet/LANCE, DEC Tulip, RTL8139,
+                 and EPIC/100 families across the documented ISA/MCA/VLB/PCI paths
 runtime file     one visible SEED.SYS plus optional external SEED/DRIVERS/*.DRV NIC files
 ```
 
 Current measured image (`tools/core-sys-info.py`, this tree):
 
 ```text
-SEED.SYS total bytes:        52224
-SEED.SYS total sectors:      102
-resident nucleus sectors:    4   (2048 B; 1494 nonzero B)
+SEED.SYS total bytes:        53760
+SEED.SYS total sectors:      105
+resident nucleus sectors:    4   (2048 B; 1495 nonzero B)
 phase count:                 29
 provider-critical K window:  15 sectors / 7680 bytes (0x1800..0x3600)
 ```
 
-The resident nucleus is still fixed at four sectors; Build 12's growth is cold
+The resident nucleus is still fixed at four sectors; current growth is cold
 phases and optional high-memory overlays, not a larger always-resident Seed.
 
 ## Boot Artifact
@@ -138,7 +147,7 @@ visible runtime file plus runtime-owned subdirectories:
 | sector 12+     file data
 |                SEED.SYS is the first FAT data file
 |                SEED/ holds AGENTS.CFG, optional USER.CFG, IDENTITY, COMPACT, TOOLS
-|                SEED/LEAF.DER may be created as a verified recert cache
+|                SEED/LEAF.DER ships as a verified pin and may be refreshed
 |                SEED/DRIVERS/ optionally holds one-sector NIC .DRV files
 ```
 
@@ -218,9 +227,10 @@ preload-vs-demand decision, the active NIC driver, and (on a 286) the secure
 crypto path — are called **indirectly through a fixed low vector table** that
 the boot fills from the capability vector. The calls are coarse-grained
 (per-phase, per-record, per-handshake), so the indirection costs a few bytes and
-a few cycles, never a per-instruction tax. The 16 KiB hot path — a full nucleus
-at 2033/2048 bytes, and crypto inner loops with no spare registers — pays none
-of it.
+a few cycles, never a per-instruction tax. The 16 KiB hot path — 1,495 nonzero
+shared bytes in the four-sector resident region before a one-sector NIC driver
+occupies its reserved slot, plus crypto inner loops with no spare registers —
+pays none of it.
 
 **Why not runtime-relative addressing.** Setting region bases at runtime (a base
 register or segment per region) is maximally flexible and would let code load
@@ -258,7 +268,7 @@ reconnect-survives   must persist across a mid-session handshake (keys, context)
 ```
 
 Reuse is allowed **only across provably-disjoint lifetimes, and the build
-asserts it** — killing the alias-bug class that recurred through Build 11. The
+asserts it** — killing the recurring alias-bug class. The
 16 KiB shape, bottom to top:
 
 ```text
@@ -344,7 +354,7 @@ The tiers differ only in what they pin:
          loop-time RAM.
 ```
 
-> **Implemented (Build 12).** On a 32 KiB direct boot, the boot reads the loop's working set —
+> **Implemented.** On a 32 KiB direct boot, the boot reads the loop's working set —
 > the chat-loop phases, the resident crypto (K) window, and the IDENTITY prompt — into a
 > high RAM cache once (`loop_cache`, above the arena/context pool and below the stack). The
 > phase loader (`load_core_sectors_at`) and the prompt streamer then serve ordinary turns from RAM, so a
@@ -544,7 +554,7 @@ in [crypto-feasibility.md](crypto-feasibility.md), not a replacement for the
 packet-capture trace above:
 
 ```text
-286 @6 FIRST BOOT  -  secure path     (real ECDHE + RSA auth + reply)
+286 @6 FIRST BOOT  -  authenticated path (qualified entropy/expiry policy)
 
        |setup|P-256 ECDHE | RSA verify |reply
   t/s  0   2   4   6   8   10  12  14  16  18  20
@@ -555,10 +565,14 @@ packet-capture trace above:
   RAM  ░▒▓█████████████████████████████████████
 ```
 
-The 286 loads its secure overlay only on 286+ machines, uses real entropy, runs
-the genuine P-256/RSA path, and NTP-syncs the validity clock for cert checks.
-At 6 MHz the authenticated handshake greets but is still the tight path; at
-8 MHz it has comfortable room.
+The 286 loads its authenticated overlay only on 286+ machines, seeds its
+ephemeral key through the implemented SHA-256 entropy mixer, and runs the
+genuine P-256/RSA path. Physical min-entropy from the configured inputs is not
+yet validated on hardware. It attempts a best-effort NTP clock sync, but that
+source is not trusted: certificate expiry closes only when a usable clock
+exists and is skipped under the documented weaker no-time policy. At 6 MHz
+the authenticated handshake greets but is still the tight path; at 8 MHz it
+has comfortable room.
 
 On the 8088, the TLS handshake is ~14.5 s of the CPU pinned flat-out — SHA-256 hashing the
 2.8 KB certificate into the transcript, the PRF key schedule, and ChaCha — in
@@ -613,16 +627,20 @@ is **capability-tiered security**, covered in full in [security.md](security.md)
   authentication is skipped too (RSA/ECDSA verify is tens of seconds to minutes here). Real
   entropy would not help on its own. A pre-286 machine shows a red **"insecure"** on the
   splash to say so.
-- **Security begins at the 286 (Build 12).** The 286 runs a *real* authenticated handshake —
+- **Current TLS 1.2 security begins at the 286.** The 286 runs a *real* authenticated handshake —
   real ECDHE key agreement (the optimised P-256, ~6.6 s/scalar-mult @6), a pinned-key
   RSA-2048 certificate verify, and **silent re-pinning** when the leaf rotates — inside a
   handshake-only module that overlays the 32 KiB loop cache (0 resident RAM on 16 KiB; the
   hot path never loads it). The fast SHA above is load-bearing for it. The full handshake
   fits the provider's ~15 s window even at 6 MHz (a ~1.2 s knife-edge; 8 MHz is the
   comfortable floor), tamper-rejecting a bad pin.
+  This authentication is subject to the current certificate-time policy:
+  DER/signature/hostname failures close, but expiry checking is skipped when
+  no usable RTC value is available.
 
-The trust model, the off-race re-pin mechanics, the NTP-synced validity clock, and the
-scoped-but-unbuilt ECDSA contingency are all in [security.md](security.md).
+The trust model, the off-race re-pin mechanics, the best-effort
+unauthenticated-NTP/no-time validity policy, and the scoped-but-unbuilt ECDSA
+contingency are all in [security.md](security.md).
 
 The handshake race is also why the chat loop reuses one session instead of
 reconnecting per turn — a fresh mid-chat handshake can lose the race:
@@ -662,11 +680,12 @@ detects the family, loads the active driver, and fills the vtable; only the
 bounded **active-driver slot**. New families grow the floppy, not the resident
 footprint — one driver is ever live.
 
-> **Implemented (Build 13).** The NIC families are packaged as external driver
-> files — `NE.DRV` (ne1000/ne2000/Novell), `WD80X3.DRV`, `3C503.DRV`, `3C501.DRV`,
-> and `PCNET.DRV` under `SEED/DRIVERS/` when included. The shared DP8390 ring is
-> one macro source compiled into the three ring cards; `3c501` and PCnet/LANCE
-> are fully custom. The boot scans
+> **Implemented.** The NIC families are packaged as external driver
+> files — `NE.DRV` (NE1000/NE2000/Novell), `WD80X3.DRV`, `3C503.DRV`,
+> `3C501.DRV`, `PCNET.DRV`, `TULIP.DRV`, `RTL8139.DRV`, and `EPIC100.DRV`
+> under `SEED/DRIVERS/` when included. The shared DP8390 ring is one macro
+> source compiled into the three ring cards; the other families have their
+> own device paths. The boot scans
 > `.DRV` files, validates the `SDRV` metadata, ABI version, one-sector size, and
 > family mask, then reads one suitable driver into the active-driver slot. One
 > match loads automatically; multiple matches show a `which driver?` chooser; no
@@ -694,8 +713,8 @@ So "thinking ahead a few steps" is concrete and cheap: make three seams
 extensible now and build the drivers later. (1) The capability vector carries
 NIC-family *and* link-type (wired/Wi-Fi), alongside CPU class and FPU. (2) A
 driver is a floppy module with a known vtable. (3) The config model grows
-without reshaping. The active-driver slot is currently **one sector (512 B)** — it
-fits today's worst-case driver (3c503, ~448 B); a larger future driver, or Wi-Fi
+without reshaping. The active-driver slot is currently **one sector (512 B)** —
+every current driver image is exactly one sector; a larger future driver, or Wi-Fi
 (whose scan/SSID UI is additive floppy phases and whose WPA crypto lives in the
 handshake-only band), is the case that would size it to two sectors, which on 16K
 would cost arena. That sizing is the remaining seam decision, not code to write now.
@@ -825,8 +844,9 @@ redisplays.
 **Leaf DER.** The security path owns one separate refreshable file:
 `SEED/LEAF.DER`. Standard images ship the current `api.openai.com` RSA leaf there, but it
 is not trusted just because it is on the floppy. Before opening a 286+ TLS socket, Seed
-reads the file, verifies strict DER, SAN, WR1 signature, and validity dates against the
-baked WR1 anchor, and only then adopts it as the leaf pin. After an auto-recertification
+reads the file, verifies strict DER, SAN, WR1 signature, and, when a usable RTC
+value is available, validity dates against the baked WR1 anchor. The current
+weaker no-time fallback skips the date check. After an auto-recertification
 verifies a freshly captured leaf, Seed tries to write that DER back to the boot medium.
 Missing, stale, malformed, full-media, or write-protected cases fall back to the normal
 live-leaf recertify path.
@@ -907,7 +927,7 @@ environment.
 The memory map should have one authoritative source that generates the
 constants, the docs map, and the budget/lifetime checks. `layout.inc` is already
 the de-facto source — `tools/memory-map.py` parses its equates and
-`tools/core-sys-info.py` reads the `SEED.SYS` header. Build 12 closes the two
+`tools/core-sys-info.py` reads the `SEED.SYS` header. The current implementation closes the two
 real leaks: the Makefile constants duplicated by hand (the budget view can drift
 silently), and the per-phase `%error` caps scattered across `core.asm`. Both
 fold into one region/lifetime checker driven by `layout.inc`, so the owned
@@ -927,6 +947,6 @@ real, authenticated TLS on a 286-class CPU
 later: more NIC families and link types, additively
 ```
 
-The >64 KiB Build 12 path is additive through the relocation seam (near→far dispatch
+The >64 KiB path is additive through the relocation seam (near→far dispatch
 vectors, above), not a rewrite. EMS bank-switching, 286 HMA/native extended memory, and
-386+ unreal mode are Build 12 tiers. TLS 1.3 and the 64-bit, no-BIOS runtime are later work.
+386+ unreal mode are current tiers. TLS 1.3 and the 64-bit, no-BIOS runtime are later work.

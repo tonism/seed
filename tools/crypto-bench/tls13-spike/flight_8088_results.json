@@ -1,0 +1,155 @@
+{
+  "date": "2026-07-25",
+  "timing_environment": {
+    "emulator": "86Box v9001",
+    "machine": "IBM PC 5150",
+    "cpu": "8088",
+    "cpu_hz": 4772728,
+    "installed_ram_kib": 64,
+    "dynarec": false,
+    "bios_tick_ms": 54.9254,
+    "literal_16k_bios_boot": false
+  },
+  "static_address_contract": {
+    "ram_ceiling": "0x4000",
+    "high_crypto_scratch": "0x3600",
+    "stack_guard": "0x3f00..0x4000",
+    "full_image_bytes": 5572,
+    "component_image_bytes": 6411,
+    "component_load_range": "0x1000..0x290b",
+    "passes": true
+  },
+  "hot_hkdf_seconds": 2.2519,
+  "critical_hkdf_seconds": 1.3182,
+  "server_close_seconds": 15.0,
+  "profiles": {
+    "brotli_compact_ecdsa": {
+      "geometry": {
+        "outer_payload": 1942,
+        "ciphertext_inner": 1926,
+        "transcript": 1925,
+        "mss_384_chunks": 6,
+        "compressed_certificate_handshake": 1799,
+        "decoded_certificate_body": 2491
+      },
+      "operations": {
+        "chacha_blocks_including_otk": 32,
+        "poly1305_blocks": 123,
+        "sha256_blocks": 31
+      },
+      "timings": {
+        "CHAXOR": {
+          "ticks": 40,
+          "seconds": 2.197,
+          "ck": "2527"
+        },
+        "POLY": {
+          "ticks": 66,
+          "seconds": 3.6251,
+          "ck": "C0A8"
+        },
+        "SHAFLT": {
+          "ticks": 21,
+          "seconds": 1.1534,
+          "ck": "0FAC"
+        },
+        "FLIGHT": {
+          "ticks": 128,
+          "seconds": 7.0305,
+          "ck": "6658"
+        }
+      },
+      "component_sum_ticks": 127,
+      "full_plus_critical_hkdf_seconds": 8.3487,
+      "fixed_work_margin_before_close_seconds": 6.6513,
+      "fixed_work_only": true,
+      "omitted_from_margin": [
+        "hybrid ServerHello transcript hashing",
+        "ML-KEM-768 decapsulation",
+        "TLS parsing and TCP work",
+        "client Finished record AEAD and transmit",
+        "Brotli decoding and certificate validation"
+      ]
+    },
+    "compact_ecdsa": {
+      "geometry": {
+        "outer_payload": 2638,
+        "ciphertext_inner": 2622,
+        "transcript": 2621,
+        "mss_384_chunks": 7,
+        "leaf_der": 903
+      },
+      "operations": {
+        "chacha_blocks_including_otk": 42,
+        "poly1305_blocks": 166,
+        "sha256_blocks": 42
+      },
+      "timings": {
+        "CHAXOR": {
+          "ticks": 53,
+          "seconds": 2.911,
+          "ck": "BB1B"
+        },
+        "POLY": {
+          "ticks": 89,
+          "seconds": 4.8884,
+          "ck": "1BF8"
+        },
+        "SHAFLT": {
+          "ticks": 29,
+          "seconds": 1.5928,
+          "ck": "2A4F"
+        },
+        "FLIGHT": {
+          "ticks": 172,
+          "seconds": 9.4472,
+          "ck": "7EF6"
+        }
+      },
+      "component_sum_ticks": 171,
+      "full_plus_hot_hkdf_seconds": 11.6991,
+      "margin_before_close_seconds": 3.3009,
+      "clears_15_second_gate": true
+    },
+    "rsa": {
+      "geometry": {
+        "outer_payload": 4327,
+        "ciphertext_inner": 4311,
+        "transcript": 4310,
+        "mss_384_chunks": 12,
+        "leaf_der": 1300
+      },
+      "operations": {
+        "chacha_blocks_including_otk": 69,
+        "poly1305_blocks": 272,
+        "sha256_blocks": 68
+      },
+      "timings": {
+        "CHAXOR": {
+          "ticks": 87,
+          "seconds": 4.7785,
+          "ck": "4E87"
+        },
+        "POLY": {
+          "ticks": 147,
+          "seconds": 8.074,
+          "ck": "17CD"
+        },
+        "SHAFLT": {
+          "ticks": 47,
+          "seconds": 2.5815,
+          "ck": "107E"
+        },
+        "FLIGHT": {
+          "ticks": 282,
+          "seconds": 15.489,
+          "ck": "73AA"
+        }
+      },
+      "component_sum_ticks": 281,
+      "full_plus_hot_hkdf_seconds": 17.7409,
+      "margin_before_close_seconds": -2.7409,
+      "clears_15_second_gate": false
+    }
+  }
+}

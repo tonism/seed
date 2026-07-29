@@ -1,0 +1,37 @@
+{
+  "schema": "seed-tls13-issuer-auth-live-vector-v1",
+  "captured_utc": "2026-07-25T20:10:59.839388+00:00",
+  "target": "api.openai.com:443",
+  "credential_sent": false,
+  "request": "one literal credential-free HEAD after client Finished",
+  "wire_profile": {
+    "group": "X25519MLKEM768",
+    "client_hello_bytes": 1376,
+    "server_hello_bytes": 1210,
+    "protected_server_record_bytes": 1945,
+    "server_handshake_message_bytes": [
+      10,
+      1799,
+      78,
+      36
+    ]
+  },
+  "leaf": {
+    "pem": "issuer_auth_live_leaf.pem",
+    "der_bytes": 903,
+    "sha256_fingerprint": "76e49dae8cbc1f012fc9fb6e822060f8ed3a56dd3ea33ba3fb2b78cbe8cce64c",
+    "spki_sha256": "244339974d38f7ddbbec30b6b4719e70859f225d7df6c1f80aa33fd30d1b1ec0",
+    "tbs_sha256": "19426cac2ffe9cecb34d51f75d7d1e92733abadb36cf93815f60c20716b9d026",
+    "subject": "CN=api.openai.com",
+    "issuer": "C=US, O=Google Trust Services, CN=WE1",
+    "not_before": "Jul  8 02:04:42 2026 GMT",
+    "not_after": "Oct  6 03:04:17 2026 GMT"
+  },
+  "certificate_verify": {
+    "signature_scheme": "ecdsa_secp256r1_sha256",
+    "transcript_sha256": "1f55204f9beedbc99d3c74030f2413bde4d254c314d897787a79bdb10912190a",
+    "signed_input_sha256": "932131c6aa5ac7d0bbabc2c0f34c9744b0a25eb8cc28d791fe81a55caf5a2967",
+    "signature_der": "3044022045cf8637e5ddb8666bebc32bf3d8b66653f2807e0c9f6b1d067be4f222794af6022021a325601782e0c266b5e778d1ca052a70ca462b2046fc8a23226a802704f452"
+  },
+  "scope": "dated credential-free provider observation used as a deterministic checked-in target vector; not a provider SLA"
+}

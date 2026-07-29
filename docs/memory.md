@@ -166,7 +166,7 @@ and it sits below critical scratch (the reconnect-safe line), so it can
 never be permanent pool. The context pool therefore lives ABOVE
 that line - reconnect-safe caches, user/agent arena (+), and
 conversation window (m) - so it survives an idle/walk-away reconnect. In
-the current Build 12 native-tool layout the remaining 16 KiB pool is
+the current native-tool layout the remaining 16 KiB pool is
 192 B, split 50/50 by hardware_setup into a 96 B arena and a 96 B
 window at the far end. The 32 KiB direct tier spends its extra low RAM on the
 normal-turn loop cache and tools-schema cache, so its seg-0

@@ -1,0 +1,37 @@
+{
+  "coverage": {
+    "accepted_and_rejected_finished_paths": true,
+    "accepted_early_data_eoed": true,
+    "accepted_preload_only": true,
+    "compatibility_head": true,
+    "invalid_dispositions_fail_closed": true,
+    "missing_fixed_services_fail_build": true
+  },
+  "preservation": {
+    "k14_bounds_source_derived": true,
+    "k14_mutable_range": [
+      12288,
+      13304
+    ],
+    "k14_record_aead_subspan": [
+      12975,
+      13304
+    ],
+    "resident_range": [
+      1536,
+      2230
+    ],
+    "stack_es_df": true
+  },
+  "status": "pass",
+  "worker": {
+    "bytes": 286,
+    "limit": 512,
+    "operations": [
+      4,
+      5,
+      6,
+      7
+    ]
+  }
+}

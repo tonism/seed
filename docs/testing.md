@@ -19,7 +19,7 @@ Seed boots two ways, and they exercise different memory sizes:
 - **16 KiB, ROM BASIC sidecar** (`--entry basic`, the default). The floppy sits
   in drive B:, the machine powers into ROM BASIC, and the harness types a BASIC
   bootstrap that POKEs `SEED.SYS` into RAM and runs it. `ram_top` ends up
-  `0x4000`; in the current Build 12 layout the reconnect-safe pool leaves a
+  `0x4000`; in the current layout the reconnect-safe pool leaves a
   96 B conversation window and a 96 B arena. This is the
   compatibility gate.
 - **>=32 KiB, direct floppy boot** (`--entry direct`). The floppy

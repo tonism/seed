@@ -1,0 +1,101 @@
+{
+  "status": "PASS",
+  "runtime_integration": false,
+  "target": "8086 real mode under Unicorn",
+  "assembly": "entropy_ratchet_overlay.asm",
+  "static_bytes": 2076,
+  "static_sectors_rounded": 5,
+  "overlay_window": [
+    6144,
+    13824
+  ],
+  "high_state_window": [
+    13824,
+    14668
+  ],
+  "stack_top": 16368,
+  "external_buffers": {
+    "slot0": [
+      1792,
+      2304
+    ],
+    "slot1": [
+      2304,
+      2816
+    ],
+    "supplement": [
+      2816,
+      2912
+    ],
+    "write_record": [
+      3072,
+      3584
+    ],
+    "readback": [
+      3584,
+      4096
+    ],
+    "d_z": [
+      13920,
+      13984
+    ]
+  },
+  "record_format": {
+    "slot_bytes": 512,
+    "generation_bits": 64,
+    "state_bytes": 32,
+    "integrity": "domain-separated SHA3-256",
+    "integrity_is_authentication": false
+  },
+  "host_record_and_derivation_parity": true,
+  "d_z_release_requires_exact_verified_readback": true,
+  "collector": {
+    "sample_bytes": 12,
+    "sample_sources": [
+      "latched PIT channel 0 count",
+      "BIOS tick snapshot",
+      "BIOS keyboard ring head/tail",
+      "nonconsuming queued-key peek"
+    ],
+    "buffer_cap_bytes": 96,
+    "entropy_credit_claimed_bits": 0
+  },
+  "readback_gate": {
+    "rejected_prefix_readbacks": 512,
+    "accepted_complete_readbacks": 1
+  },
+  "crash_gate": {
+    "target_prefix_torn_write_cases": 513,
+    "target_post_write_boundary_cases": 3
+  },
+  "corruption_gate": {
+    "target_single_byte_corruptions_rejected": 512
+  },
+  "equal_generation_gate": {
+    "different_state": "rejected",
+    "identical_state_tiebreak_slot": 1
+  },
+  "identical_supplement_gate": {
+    "target_identical_supplement_attempts": 128
+  },
+  "rollback_copy_caveat": {
+    "copied_media_same_input_repeats_dz": true,
+    "rollback_safety_established": false
+  },
+  "existing_host_oracle": {
+    "status": "PASS",
+    "prefix_torn_write_cases": 513,
+    "post_write_boundary_cases": 3,
+    "successful_sequence_attempts": 4096,
+    "single_byte_corruptions_rejected": 512
+  },
+  "physical_assumptions_not_established": [
+    "which BIOS/FAT sectors are safely preallocated to the two slots",
+    "BIOS write/readback behavior on target floppy controllers and media",
+    "power-failure atomicity beyond exhaustive prefix tears",
+    "active mutable-media authenticity",
+    "copied or rolled-back floppy safety",
+    "min-entropy in PIT/tick/keyboard timing samples",
+    "freshness when media is write-protected"
+  ]
+}

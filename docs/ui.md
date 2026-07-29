@@ -74,7 +74,7 @@ After boot, Seed renders a model greeting and takes prompts at a `>` marker. Use
 shows in bright text and streamed model responses in normal text; turns reuse one live TLS
 session.
 
-When the rolling conversation window fills (Build 9), Seed compacts it: a dim status line,
+When the rolling conversation window fills, Seed compacts it: a dim status line,
 fast-typed like the boot banner, reads `compacting context`. The one-line recap the model
 emits to drive that compaction is captured silently and never drawn — the user sees only the
 status line, then the answer.

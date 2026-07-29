@@ -1,0 +1,99 @@
+{
+  "date": "2026-07-25",
+  "frozen_artifacts": {
+    "offline": "tls13_integrated_offline_results.json",
+    "opt_in_live": "tls13_integrated_live_results.json"
+  },
+  "deterministic_hostile_gate": {
+    "command": "python3 tools/crypto-bench/tls13-spike/tls13_integrated_checks.py",
+    "tests": 28,
+    "passed": 28,
+    "failed": 0,
+    "uses_live_provider_as_acceptance_input": false,
+    "fixed_head_plaintext_bytes": 74,
+    "fixed_head_sha256": "fd3abc5d38bfc50e21f6320b718e04623a868f421902a29c44fb3a501a5587d9",
+    "failure_action": "close",
+    "execution": "host Python reference model; no Seed 8088 target code",
+    "oracle_sha256": "945e766d1b16c337497e016d2e550783adae05b7eee45554e12b2db676342178",
+    "checks_sha256": "9e0c82c7275c2aeb9aaad36f83be93797b07639902dcdacb318656739c18bafc"
+  },
+  "combined_live_observation": {
+    "command": "python3 tools/crypto-bench/tls13-spike/tls13_integrated_live.py --live --timeout 35",
+    "target": "api.openai.com:443",
+    "passed": true,
+    "provider_sla": false,
+    "feeds_deterministic_acceptance_gate": false,
+    "execution": "host Python/OpenSSL/brotli model only; no Seed 8088 target code and no API authentication",
+    "live_source_sha256": "eebfd1983eeb402d7af0841d22aabcad721f2ec2c9cf6a0b9415eb3db29c6022",
+    "profile": {
+      "protocol": "TLSv1.3",
+      "cipher": "TLS_CHACHA20_POLY1305_SHA256",
+      "wire_group": "X25519MLKEM768",
+      "x25519_client_share": "fixed u=9",
+      "effective_secrecy": "ML-KEM-only research profile",
+      "mlkem_decapsulation": "standard OpenSSL decapsulation completed before client Finished",
+      "provisional_pre_fo_split_exercised": false
+    },
+    "wire": {
+      "client_hello_handshake_bytes": 1376,
+      "server_hello_handshake_bytes": 1210,
+      "protected_server_record_wire_bytes": 1946,
+      "protected_server_message_bytes": [
+        10,
+        1799,
+        79,
+        36
+      ],
+      "client_finished_record_wire_bytes": 58,
+      "head_plaintext_bytes": 74,
+      "server_application_records_consumed": 2,
+      "new_session_tickets_drained": 2
+    },
+    "proofs": {
+      "complete_server_record_aead_before_parse": true,
+      "server_finished_before_client_finished": true,
+      "exactly_one_literal_head_outstanding": true,
+      "head_response_aead_and_bounded_drain": true,
+      "leaf_under_we1_hostname_and_host_time": true,
+      "certificate_verify": true,
+      "tentative_first_ticket_promoted_after_identity": true,
+      "ticket_requires_psk_dhe": true,
+      "ticket_permits_early_data": false,
+      "credential_loaded": false,
+      "real_request_sent": false,
+      "atomic_host_commit_reached": true
+    },
+    "identity": {
+      "certificate_body_bytes": 2491,
+      "certificate_entries": 3,
+      "leaf_der_bytes": 903,
+      "leaf_spki_sha256": "244339974d38f7ddbbec30b6b4719e70859f225d7df6c1f80aa33fd30d1b1ec0",
+      "certificate_verify_transcript_sha256": "39006ef4f5db3937d5493708e29e3dc5d868e59cb5e15c07f0cc75fac07a71b0"
+    }
+  },
+  "live_variability_discovered": {
+    "strict_p256_ecdsa_signature_der_bytes": [
+      70,
+      71,
+      72
+    ],
+    "certificate_verify_handshake_bytes": [
+      78,
+      79,
+      80
+    ],
+    "protected_server_record_wire_bytes": [
+      1945,
+      1946,
+      1947
+    ],
+    "required_gate": "accept strict DER P-256 signatures across the mathematically valid 8..72-byte range (CertificateVerify 16..80, protected record 1883..1947); observed 70/71/72-byte signatures must not become a frozen length",
+    "new_session_ticket_behavior": "the provider can pack two valid NewSessionTicket messages in one record; retain only the first and structurally validate/drain bounded extras"
+  },
+  "limitations": [
+    "The live run cannot validate provisional pre-FO ML-KEM use because host OpenSSL performs standards-complete decapsulation before client Finished.",
+    "Host WE1/name/time validation does not supply the IBM PC 5150 trusted-time policy.",
+    "The deterministic state-machine gate consumes transcript-bound KEM and identity proof results; independent ML-KEM and ECDSA known-answer gates remain required.",
+    "No product runtime or 16 KiB target integration is implemented here."
+  ]
+}

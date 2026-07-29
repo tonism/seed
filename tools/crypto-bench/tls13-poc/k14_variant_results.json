@@ -1,0 +1,412 @@
+{
+  "controller_symbols": {
+    "candidate": {
+      "candidate_handoff_end": "0x0780",
+      "candidate_handoff_start": "0x0700"
+    },
+    "fo_tail": {
+      "fo_stream_stage": "0x3400",
+      "fo_stream_stage_sectors": "0x0001"
+    },
+    "hello": {
+      "hello_server_stage": "0x3400",
+      "hello_server_stage_sectors": "0x0001"
+    },
+    "symmetric": {
+      "sym_controller": "0x3400",
+      "sym_controller_end": "0x34c5",
+      "sym_flight_stage": "0x0e00",
+      "sym_flight_stage_sectors": "0x0001"
+    }
+  },
+  "delta_restore": {
+    "hello_dirty_prefix_sectors": 9,
+    "restore_sectors": 9,
+    "symmetric_preload_sectors": 12
+  },
+  "gates": {
+    "86box_started": false,
+    "address_independent_auth_and_entropy_images_match_K15": true,
+    "default_K15_container_rebuilt_after_K14": true,
+    "derived_full_sector_write_geometry": true,
+    "exact_auth_at_most_13_sectors": true,
+    "exact_symbol_addresses": true,
+    "full_four_sector_phase_container": true,
+    "full_sector_io_staging_nonoverlap": true,
+    "functional_oracles": [
+      "auth_exact",
+      "auth_issuer",
+      "candidate",
+      "entropy",
+      "fo_tail",
+      "hello",
+      "keygen",
+      "symmetric"
+    ],
+    "issuer_auth_at_most_14_sectors": true,
+    "ordered_RX_and_stage_writes_avoid_live_candidate_handoff": true,
+    "ordered_phase_owned_sector_writes_avoid_live_sym_runtime": true,
+    "phase_interval_nonoverlap": true,
+    "preloaded_symmetric_suffix_live_through_HELLO": true,
+    "return_and_stack_contracts": true,
+    "sector_rounded_images_end_at_or_below_0x3400": true,
+    "unsafe_lifetime_order_negative_controls_rejected": true,
+    "write_set_and_protected_band_sentinels": true
+  },
+  "limitations": {
+    "candidate_handoff_overlaps_live_rx_frame": true,
+    "fixture_chain_avoids_rx_by_staging_at_0x0e00": true,
+    "live_controller_reclaimed_space_reload_after_sym_init_is_unsafe": true,
+    "secure_live_network_floor_proven": false
+  },
+  "logical_k": {
+    "bytes": 7168,
+    "end": "0x3400",
+    "start": "0x1800"
+  },
+  "memory_lifetimes": {
+    "candidate_handoff": {
+      "bytes": 128,
+      "end": "0x0780",
+      "start": "0x0700"
+    },
+    "derived_full_sector_writes": {
+      "fo_public_stream": {
+        "bytes_per_write": 512,
+        "end": "0x3600",
+        "sectors_per_write": 1,
+        "start": "0x3400"
+      },
+      "hello_server": {
+        "bytes_per_write": 512,
+        "end": "0x3600",
+        "sectors_per_write": 1,
+        "start": "0x3400"
+      },
+      "symmetric_controller_install": {
+        "bytes_per_write": 512,
+        "end": "0x3600",
+        "sectors_per_write": 1,
+        "start": "0x3400"
+      },
+      "symmetric_flight": {
+        "bytes_per_write": 512,
+        "end": "0x1000",
+        "sectors_per_write": 1,
+        "start": "0x0e00"
+      }
+    },
+    "live_rx_frame": {
+      "end": "0x08b6",
+      "overlaps_candidate_handoff": true,
+      "start": "0x0700"
+    },
+    "negative_controls": {
+      "phase_owned_sector_after_sym_init_rejected": true,
+      "rx_write_during_candidate_lifetime_rejected": true
+    },
+    "ordered_events": [
+      {
+        "candidate_handoff_live": false,
+        "event": "symmetric_preload",
+        "phase_runtime_live": false,
+        "preloaded_suffix_live": false,
+        "write": {
+          "class": "sector",
+          "end": "0x3000",
+          "start": "0x1800"
+        }
+      },
+      {
+        "candidate_handoff_live": false,
+        "event": "keygen_phase_load",
+        "phase_runtime_live": false,
+        "preloaded_suffix_live": true,
+        "write": {
+          "class": "sector",
+          "end": "0x2400",
+          "start": "0x1800"
+        }
+      },
+      {
+        "candidate_handoff_live": false,
+        "event": "hello_phase_load",
+        "phase_runtime_live": false,
+        "preloaded_suffix_live": true,
+        "write": {
+          "class": "sector",
+          "end": "0x2a00",
+          "start": "0x1800"
+        }
+      },
+      {
+        "candidate_handoff_live": false,
+        "event": "hello_server_fixture_stage",
+        "phase_runtime_live": false,
+        "preloaded_suffix_live": true,
+        "write": {
+          "class": "sector",
+          "end": "0x3600",
+          "start": "0x3400"
+        }
+      },
+      {
+        "candidate_handoff_live": false,
+        "event": "candidate_phase_load",
+        "phase_runtime_live": false,
+        "preloaded_suffix_live": true,
+        "write": {
+          "class": "sector",
+          "end": "0x2200",
+          "start": "0x1800"
+        }
+      },
+      {
+        "candidate_handoff_live": false,
+        "event": "candidate_handoff_publish",
+        "phase_runtime_live": false,
+        "preloaded_suffix_live": true,
+        "write": {
+          "class": "handoff",
+          "end": "0x0780",
+          "start": "0x0700"
+        }
+      },
+      {
+        "candidate_handoff_live": true,
+        "event": "symmetric_dirty_prefix_restore",
+        "phase_runtime_live": false,
+        "preloaded_suffix_live": true,
+        "write": {
+          "class": "sector",
+          "end": "0x2a00",
+          "start": "0x1800"
+        }
+      },
+      {
+        "candidate_handoff_live": true,
+        "event": "symmetric_controller_install",
+        "phase_runtime_live": false,
+        "preloaded_suffix_live": false,
+        "write": {
+          "class": "sector",
+          "end": "0x3600",
+          "start": "0x3400"
+        }
+      },
+      {
+        "candidate_handoff_live": true,
+        "event": "sym_init",
+        "phase_runtime_live": false,
+        "preloaded_suffix_live": false,
+        "write": null
+      },
+      {
+        "candidate_handoff_live": true,
+        "event": "symmetric_flight_stage",
+        "phase_runtime_live": true,
+        "preloaded_suffix_live": false,
+        "write": {
+          "class": "sector",
+          "end": "0x1000",
+          "start": "0x0e00"
+        }
+      },
+      {
+        "candidate_handoff_live": true,
+        "event": "client_finished_fixture_stage",
+        "phase_runtime_live": true,
+        "preloaded_suffix_live": false,
+        "write": {
+          "class": "sector",
+          "end": "0x1000",
+          "start": "0x0e00"
+        }
+      },
+      {
+        "candidate_handoff_live": true,
+        "event": "sym_complete",
+        "phase_runtime_live": true,
+        "preloaded_suffix_live": false,
+        "write": null
+      },
+      {
+        "candidate_handoff_live": true,
+        "event": "candidate_rehome",
+        "phase_runtime_live": false,
+        "preloaded_suffix_live": false,
+        "write": null
+      },
+      {
+        "candidate_handoff_live": false,
+        "event": "fo_phase_load",
+        "phase_runtime_live": false,
+        "preloaded_suffix_live": false,
+        "write": {
+          "class": "sector",
+          "end": "0x2400",
+          "start": "0x1800"
+        }
+      },
+      {
+        "candidate_handoff_live": false,
+        "event": "fo_public_stream_stage",
+        "phase_runtime_live": false,
+        "preloaded_suffix_live": false,
+        "write": {
+          "class": "sector",
+          "end": "0x3600",
+          "start": "0x3400"
+        }
+      }
+    ],
+    "preloaded_symmetric_suffix": {
+      "bytes": 1536,
+      "end": "0x3000",
+      "live_during_hello": true,
+      "start": "0x2a00"
+    },
+    "symmetric_phase_runtime": {
+      "bytes": 77,
+      "end": "0x355d",
+      "start": "0x3510"
+    }
+  },
+  "phase_container": {
+    "bytes": 79872,
+    "path": "build/crypto-bench/tls13-poc/poc_harness_k14.bin",
+    "resident_prefix_bytes": 2048,
+    "sectors": 156,
+    "sha256": "e460e905b4b1b86d79b4a4fb8c23cc46afddc9fb22db408abdc30e06e015e5b5"
+  },
+  "phase_owned_reclaimed_space": {
+    "bytes": 512,
+    "contiguous_with_product_arena_context": false,
+    "end": "0x3600",
+    "reconnect_safe": false,
+    "start": "0x3400",
+    "user_arena": false
+  },
+  "phases": {
+    "auth_exact": {
+      "bytes": 6632,
+      "image_sha256": "d5cc0fd75de871055cb3ccd378f5a58bd1443dfd7df6a93113b890926814f8bc",
+      "rounded_bytes": 6656,
+      "sectors": 13,
+      "symbols": {
+        "auth_overlay_image_end": "0x31e8",
+        "auth_overlay_table": "0x1800",
+        "auth_work_end": "0x0fb6",
+        "auth_work_start": "0x0700"
+      }
+    },
+    "auth_issuer": {
+      "bytes": 7134,
+      "image_sha256": "1b07dfd5eb5a13777ba6697f65b0293c333b75b68dc74a501e0848310807ff21",
+      "rounded_bytes": 7168,
+      "sectors": 14,
+      "symbols": {
+        "auth_work_end": "0x0fba",
+        "auth_work_start": "0x0700",
+        "issuer_auth_overlay_image_end": "0x33de",
+        "issuer_auth_overlay_table": "0x1800"
+      }
+    },
+    "candidate": {
+      "bytes": 2113,
+      "image_sha256": "7cb8fc8254e20db6d704840599c8a41c5a7456ee3abf4970bce163daf00729d2",
+      "rounded_bytes": 2560,
+      "sectors": 5,
+      "symbols": {
+        "mlkem_keccak_state": "0x3600",
+        "mlkem_keccak_work_end": "0x37e8",
+        "mlkem_overlay_end": "0x2041",
+        "mlkem_overlay_start": "0x1800",
+        "mlkem_poly_acc": "0x3200",
+        "mlkem_poly_u": "0x3000"
+      }
+    },
+    "entropy": {
+      "bytes": 2076,
+      "image_sha256": "bfe13ec98e7e732bd2c8dece13ffdd4044f8b46a8d0916195bc75b9575de9d1a",
+      "rounded_bytes": 2560,
+      "sectors": 5,
+      "symbols": {
+        "entropy_header": "0x1800",
+        "entropy_high_end": "0x394c",
+        "entropy_high_start": "0x3600",
+        "entropy_overlay_end": "0x201c",
+        "entropy_slot0": "0x0700"
+      }
+    },
+    "fo_tail": {
+      "bytes": 2829,
+      "image_sha256": "e9fd154e052cb8acedb1c8e0c90dbe8fbac2e1a88ca1959e0733c0d25c985860",
+      "rounded_bytes": 3072,
+      "sectors": 6,
+      "symbols": {
+        "fo_keccak_state": "0x3000",
+        "fo_keccak_work_end": "0x31e8",
+        "fo_low_work_end": "0x0fd0",
+        "fo_overlay_end": "0x230d",
+        "fo_overlay_start": "0x1800",
+        "fo_poly_acc": "0x3200"
+      }
+    },
+    "hello": {
+      "bytes": 4132,
+      "image_sha256": "ec0d3ac22de79c8238369de6685c2890b5f06c758b3310b9d837cd9c11e4b865",
+      "rounded_bytes": 4608,
+      "sectors": 9,
+      "symbols": {
+        "hello_image_end": "0x2824",
+        "hello_overlay_header": "0x1800",
+        "hello_sha_work_end": "0x33b8",
+        "hello_sha_work_start": "0x30c0",
+        "hello_state_base": "0x0dc0",
+        "hello_state_end": "0x0efd",
+        "poc_rx_frame_end": "0x08b6",
+        "poc_rx_frame_start": "0x0700",
+        "poc_ticket_identity": "0x3000",
+        "poc_ticket_identity_end": "0x30c0"
+      }
+    },
+    "keygen": {
+      "bytes": 2871,
+      "image_sha256": "bc921cdb4fee657b665253cee2b4a41911553e1fc0f270699898c88c42a2f7cd",
+      "rounded_bytes": 3072,
+      "sectors": 6,
+      "symbols": {
+        "image_end": "0x2337",
+        "mlkem_keygen_overlay": "0x1800",
+        "poc_high_start": "0x3600",
+        "poc_k_end": "0x3400",
+        "poc_k_extension_end": "0x3600",
+        "poc_k_extension_start": "0x3400",
+        "poc_k_start": "0x1800",
+        "poly_acc": "0x3200",
+        "poly_s": "0x3000"
+      }
+    },
+    "symmetric": {
+      "bytes": 6142,
+      "image_sha256": "3ba29e3246f69e56d53da8b389a22d9f3dc125ffef33c395ccb7e403720d1ff0",
+      "rounded_bytes": 6144,
+      "sectors": 12,
+      "symbols": {
+        "sym_high_state_base": "0x3600",
+        "sym_high_state_end": "0x3c2e",
+        "sym_k_work_base": "0x3000",
+        "sym_k_work_end": "0x33f8",
+        "sym_low_runtime_clear_end": "0x355d",
+        "sym_low_runtime_clear_start": "0x3510",
+        "sym_overlay_end": "0x2ffe",
+        "sym_overlay_header": "0x1800"
+      }
+    }
+  },
+  "schema": "seed-tls13-poc-k14-variant-v1",
+  "scope": "offline optional K14 phase implementation; no 86Box run",
+  "status": "pass",
+  "unchanged_high_security_start": "0x3600"
+}

@@ -1,0 +1,197 @@
+{
+  "schema": 1,
+  "scope": "isolated ML-KEM-768 dominant-kernel feasibility spike; not product code",
+  "source": {
+    "assembly": "tools/crypto-bench/tls13-spike/mlkem768_kernels_bench.asm",
+    "assembly_sha256": "28c4c96d5903db10f9b279af458dfc2657f05d1e1bc0c6d6550b6a8e3ae3d0e4",
+    "checker": "tools/crypto-bench/tls13-spike/mlkem768_kernels_check.py",
+    "checker_sha256": "7186a374f4f9a0e43bdbd19991a74b039e7ab35d8807242b39e69ed2a2e7457a"
+  },
+  "commands": {
+    "correctness_and_size": "python3 tools/crypto-bench/tls13-spike/mlkem768_kernels_check.py",
+    "original_8088_timing": "python3 tools/crypto-bench/tls13-spike/run_8088.py --asm tools/crypto-bench/tls13-spike/mlkem768_kernels_bench.asm --timeout 300"
+  },
+  "timing_environment": {
+    "machine": "IBM PC 5150",
+    "cpu": "8088",
+    "cpu_hz": 4772728,
+    "installed_ram_kib": 64,
+    "dynarec": false,
+    "timer_tick_seconds": 0.0549254,
+    "note": "64 KiB permits BIOS entry; the image itself is statically checked below the 16 KiB 0x4000 ceiling."
+  },
+  "correctness": {
+    "target_done_after_check": true,
+    "target_check": "0001",
+    "full_byte_unicorn_oracles": {
+      "keccak_f1600_zero_state": "pass",
+      "forward_ntt": "pass",
+      "inverse_ntt": "pass",
+      "polynomial_basemul": "pass",
+      "mlkem_native_mulcache_k3_dot": "pass",
+      "provisional_path_kernel_proxy": "pass",
+      "remaining_path_kernel_proxy": "pass"
+    },
+    "checksums": {
+      "keccak_f1600_zero_state": "8637",
+      "forward_ntt": "8080",
+      "inverse_ntt": "01D8",
+      "polynomial_basemul": "C638",
+      "mlkem_native_mulcache_k3_dot": "15B7",
+      "provisional_path_kernel_proxy": "6603",
+      "remaining_path_kernel_proxy": "6603"
+    }
+  },
+  "measured_8088": {
+    "keccak_f1600": {
+      "ticks": 8,
+      "seconds": 0.4394
+    },
+    "forward_ntt": {
+      "ticks": 3,
+      "seconds": 0.1648
+    },
+    "inverse_ntt": {
+      "ticks": 5,
+      "seconds": 0.2746
+    },
+    "reference_polynomial_basemul": {
+      "ticks": 1,
+      "seconds": 0.0549
+    },
+    "two_mulcache_builds_plus_five_k3_dots": {
+      "ticks": 13,
+      "seconds": 0.714
+    },
+    "provisional_path_synthetic_kernel_proxy": {
+      "ticks": 27,
+      "seconds": 1.483,
+      "semantic_scope": "dominant-kernel multiset associated with K-PKE.Decrypt plus G(m' || H(ek)); no candidate output",
+      "keccak_f1600": 1,
+      "forward_ntt": 3,
+      "inverse_ntt": 1,
+      "dynamic_vector_cache_builds": 1,
+      "k3_dot_products": 1
+    },
+    "remaining_path_synthetic_kernel_proxy": {
+      "ticks": 171,
+      "seconds": 9.3922,
+      "semantic_scope": "remaining Keccak/lattice multiset; serialization, compare, selection, and standard output are omitted",
+      "keccak_f1600": 16,
+      "forward_ntt": 3,
+      "inverse_ntt": 4,
+      "dynamic_vector_cache_builds": 1,
+      "k3_dot_products": 4
+    },
+    "conventional_minimum_dominant_kernels": {
+      "ticks": 415,
+      "seconds": 22.794,
+      "keccak_f1600": 44,
+      "forward_ntt": 6,
+      "inverse_ntt": 5,
+      "mulcache_builds": 2,
+      "k3_dot_products": 5,
+      "matrix_rejection_extra_permutations": "zero or more"
+    },
+    "self_precomputed_matrix_dominant_kernels": {
+      "ticks": 198,
+      "seconds": 10.8752,
+      "keccak_f1600": 17,
+      "forward_ntt": 6,
+      "inverse_ntt": 5,
+      "mulcache_builds": 2,
+      "k3_dot_products": 5,
+      "matrix_cache_bytes": 4608,
+      "external_provisioning": false,
+      "implemented": false
+    }
+  },
+  "standards_scope": {
+    "cca_reencryption": "included in operation multiset",
+    "implicit_rejection_J": "included as nine Keccak-f permutations",
+    "constant_time_ciphertext_compare": "required but not timed",
+    "validity_work_may_be_deferred": false,
+    "secret_key_hash_check": {
+      "keccak_f1600": 9,
+      "scheduled": "pre-TCP"
+    },
+    "self_precomputation": "Architectural scenario only: a future 8088 path would generate its own key and deterministic public A^T matrix before TCP. This benchmark substitutes fixtures and does not implement keygen, matrix generation, media I/O, or cache integrity.",
+    "speculate_then_commit": {
+      "status": "research-only, non-FIPS at client Finished",
+      "provisional_candidate_may_authorize": [
+        "TLS client Finished",
+        "a credential-free liveness request"
+      ],
+      "provisional_candidate_must_not_authorize": [
+        "API credentials",
+        "product data",
+        "ticket trust or persistence",
+        "session trust"
+      ],
+      "commit_gate": "Server Finished is a separate provisional pre-Finished gate. Promotion additionally requires a real selected ML-KEM secret, re-encryption, constant-time c-prime == c, J, implicit-rejection selection, provisional/selected-secret equality, TLS key/IV re-derivation, and pinned server authentication."
+    },
+    "omitted_from_dominant_kernel_timing": [
+      "hash absorb and extract byte work",
+      "ciphertext and key unpack/decompression",
+      "CBD noise conversion",
+      "polynomial add and reduce",
+      "ciphertext compression/serialization",
+      "constant-time 1088-byte compare and key selection",
+      "matrix-cache floppy I/O",
+      "zeroization"
+    ]
+  },
+  "size": {
+    "flat_benchmark_image_bytes": 7992,
+    "loaded_extent_bytes": 8192,
+    "load_start": "0x1000",
+    "load_end": "0x2f38",
+    "within_16k_ceiling": true,
+    "kernel_code_bytes": 1537,
+    "keccak_code_bytes": 481,
+    "lattice_code_bytes": 1056,
+    "immutable_code_and_constants_bytes": 3088,
+    "writable_benchmark_fixture_bytes": 4904,
+    "keccak_scratch_bytes": 488,
+    "mulcache_k3_fixture_bytes": 4352,
+    "calculated_matrix_cache_bytes_for_future_local_media": 4608,
+    "maximum_measured_kernel_stack_bytes_including_return": 22,
+    "fips203_object_sizes": {
+      "public_key_bytes": 1184,
+      "secret_key_bytes": 2400,
+      "ciphertext_bytes": 1088,
+      "shared_secret_bytes": 32
+    },
+    "integration_note": "The fixture keeps all K=3 operands resident for a clean timing oracle. The 7992-byte content occupies [0x1000,0x2f38), while the loader reads 16 sectors through 0x3000. A 16 KiB product path would have to implement and integrity-bind streaming/overlays; its integrated peak is not measured."
+  },
+  "feasibility": {
+    "nominal_remainder_after_compressed_flight_critical_hkdf_and_provisional_proxy_seconds": 5.1683,
+    "portable_speedup_required_before_omitted_work": 1.942,
+    "relaxed_8_second_speedup_required_before_omitted_work": 1.3594,
+    "relaxed_9_second_speedup_required_before_omitted_work": 1.2084,
+    "strict_5_6_second_fit_credible": false,
+    "relaxed_8_to_9_second_fit": "research-plausible only after a full hand-optimized implementation; not demonstrated",
+    "provisional_path_synthetic_dominant_kernel_proxy_seconds": 1.483,
+    "provisional_candidate_fit": "unknown until a standards-complete candidate implementation, representative KAT timing distribution, and integrated TLS path exist",
+    "remaining_path_synthetic_dominant_kernel_proxy_seconds": 9.3922,
+    "remaining_validation_fit_with_liveness": "unknown; byte/FO operations, cache I/O, and target integration are omitted",
+    "timing_sample_scope": "Each value is one N=1 BIOS-tick observation on synthetic fixtures; tick quantization and operand-dependent 8088 IMUL timing prevent treating it as a bound.",
+    "reason": "The isolated dominant kernels justify an integrated experiment. They neither produce a provisional candidate nor perform standards-complete decapsulation, so they do not yet establish a pre- or post-Finished fit."
+  },
+  "optimization_comparator": {
+    "source": "https://github.com/KMU-CSE/PJT_MSP430_KECCAK_KYBER_DILITHIUM",
+    "commit": "5f096a9c78676681cce0177311766054550adcc0",
+    "platform": "16-bit MSP430F67791",
+    "published_ref_to_asm_ratios": {
+      "keccak_f1600": 1.5655,
+      "forward_ntt": 2.3439,
+      "inverse_ntt": 3.4904,
+      "pointwise_multiply": 3.0981,
+      "kyber768_full_decapsulation": 1.6227
+    },
+    "optimistic_transplanted_primitive_ratio_kernel_seconds": 6.1341,
+    "full_decapsulation_ratio_projection_kernel_seconds": 6.702,
+    "warning": "These are not 8088 measurements or bounds. The MSP430 lattice assembly uses a dedicated hardware multiplier absent on the 8088; even the optimistic projection exceeds the strict 5.6-second remainder before omitted work."
+  },
+  "conclusion": "A future same-machine matrix precomputation path is worth implementing and would preserve the no-external-machine invariant. The cached dominant-kernel proxy already totals 10.8752 seconds before omitted work, so standards-complete ML-KEM-768 decapsulation is not credible inside the observed first-handshake span with this portable approach. The 1.4830- and 9.3922-second rows are synthetic kernel proxies, not candidate/validation implementations. They justify only an integrated, adversarial, representative-KAT experiment; provisional use would remain outside FIPS decapsulation."
+}

@@ -1,0 +1,27 @@
+{
+  "done": true,
+  "elapsed_wall_seconds": 31.458,
+  "timeout_seconds": 120.0,
+  "serial_path": "build/crypto-bench/tls13-16k/bench.serial.txt",
+  "serial_text": "HKCRIT N=1 dt=24 ck=B988\nVCRIT N=1 dt=0 ck=0001\nHKFULL N=1 dt=47 ck=2D5F\nVFULL N=1 dt=0 ck=0001\nHKHOT N=1 dt=42 ck=2D5F\nVHOT N=1 dt=0 ck=0001\nDONE\n",
+  "emulator_stdout_bytes": 5900,
+  "machine": {
+    "model": "IBM PC 5150",
+    "cpu": "8088",
+    "cpu_hz": 4772728,
+    "installed_ram_kib": 16,
+    "dynarec": false,
+    "entry": "ROM BASIC sidecar"
+  },
+  "source": "tools/crypto-bench/tls13-spike/hkdf_bench.asm",
+  "source_sha256": "727d6c12551c2ac366409e3927b20dcb7fa9e7de9c737f170b478d48198fa5b9",
+  "image_bytes": 3796,
+  "image_sha256": "2c0d6266efc4e1f8c1e9f4fe8eb774e8769f0d432f9e740c91dd4e1302497e0a",
+  "image_sectors": 8,
+  "load_start": "0x1000",
+  "loaded_end": "0x2000",
+  "bootstrap_start": "0x3a00",
+  "ram_top": "0x4000",
+  "stack_guard_bytes": 256,
+  "command": "python3 tools/crypto-bench/tls13-spike/run_8088_16k.py --asm tools/crypto-bench/tls13-spike/hkdf_bench.asm"
+}

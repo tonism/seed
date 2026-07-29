@@ -1,0 +1,55 @@
+{
+  "schema": "seed-tls13-delta-loader-v1",
+  "source": "tools/crypto-bench/tls13-poc/delta_loader.asm",
+  "source_sha256": "5a6f34171e5cc006eb62c23a63305d49ad888ad4908bd2b2daafa43cd5ebff44",
+  "image_bytes": 146,
+  "load_range": "0x0f00..0x0f92",
+  "transcript_handoff_end": "0x0dab",
+  "destination_range_for_12_sectors": "0x1800..0x3000",
+  "geometry": {
+    "8spt_1head": {
+      "worst_8_sector_calls": 2,
+      "worst_12_sector_calls": 3
+    },
+    "9spt_2head": {
+      "worst_8_sector_calls": 2,
+      "worst_12_sector_calls": 3
+    },
+    "18spt_2head": {
+      "worst_8_sector_calls": 2,
+      "worst_12_sector_calls": 2
+    }
+  },
+  "multi_sector_rejection_fallback": {
+    "reset_calls": 1,
+    "subsequent_single_sector_reads": 8
+  },
+  "zero_count": {
+    "carry": true,
+    "int13_calls": 0,
+    "destination_unchanged": true
+  },
+  "invalid_geometry": {
+    "zero_spt": {
+      "carry": true,
+      "int13_calls": 0,
+      "destination_unchanged": true
+    },
+    "zero_heads": {
+      "carry": true,
+      "int13_calls": 0,
+      "destination_unchanged": true
+    }
+  },
+  "gates": [
+    "cpu_8086_assembly",
+    "never_cross_track",
+    "never_cross_64KiB_DMA_boundary",
+    "exact_loaded_bytes",
+    "register_and_stack_return",
+    "single_sector_fallback",
+    "zero_count_fails_before_int13",
+    "zero_geometry_fails_before_divide_or_int13",
+    "active_driver_0x1600..0x1800_untouched"
+  ]
+}

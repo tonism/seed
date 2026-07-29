@@ -1,0 +1,94 @@
+{
+  "adapter": {
+    "content_bytes": 293,
+    "entry": "0x321a",
+    "header": {
+      "auth_status": "0x3c9a",
+      "auth_verify_slot": "0x1800",
+      "digest": "0x3c30",
+      "entry": "0x321a",
+      "generation": "0x3c2e",
+      "image_bytes": 293,
+      "issuer_end": "0x3672",
+      "issuer_start": "0x3600",
+      "signature": "0x3c52",
+      "signature_len": "0x3c50",
+      "version": 1
+    },
+    "origin": "0x3200",
+    "sector_count": 1,
+    "sector_slack_bytes": 219,
+    "sha256": "c35e06e2a78a92102e1ece6dcaabd56f87b7c506587f7eb966226f47bbfaaaa8",
+    "static": {
+      "caller_selectable_calls": 0,
+      "credential_or_media_literals": [],
+      "decoded_code_bytes": 171,
+      "decoded_instructions": 64,
+      "fixed_auth_table_call": "0x3225",
+      "fixed_auth_table_calls": 1,
+      "interrupt_or_port_io_count": 0
+    }
+  },
+  "auth": {
+    "actual_entry_table_slot": "0x1800",
+    "actual_live_compact_image_sha256": "f748e3a3a591558830305fe553623f3ab81d0f8e71ea00384ace2391986db346",
+    "digest": "0x3c30",
+    "forged_status_cannot_bypass_full_p256": true,
+    "generation": "0x4a31",
+    "generation_source": "0x3c2e",
+    "legacy_status_preserved": "0x3c9a",
+    "signature": "0x3c52",
+    "signature_length": "0x3c50"
+  },
+  "composition": {
+    "credential_loader_callback": "0x1580",
+    "credential_unlock": true,
+    "exact_16k_map": true,
+    "gate_authorization": true,
+    "gate_entry": "0x1812",
+    "gate_image_sha256": "3cee46ddc7aeba9ef8c651b78d0b2da686406bf20a80d154331cd2b8528d863e",
+    "live_no_ticket_commit": true,
+    "old_compact_status_not_required_by_gate": true
+  },
+  "hostile_case_count": 12,
+  "hostile_cases": {
+    "forged_lone_auth_status_altered_digest": "rejected_and_clear",
+    "forged_lone_auth_status_altered_signature": "rejected_and_clear",
+    "malformed_signature_length": "rejected_and_clear",
+    "rog3_lone_lp1_status": "rejected",
+    "rog3_stale_checksummed_generation": "rejected",
+    "rog3_torn_checksum": "rejected",
+    "rog3_torn_digest": "rejected",
+    "rog3_torn_leaf": "rejected",
+    "rog3_torn_magic": "rejected",
+    "rog3_torn_magic_inverse": "rejected",
+    "stale_complete_lp1_invalid_auth": "rejected_and_clear",
+    "zero_generation": "rejected_before_auth_and_clear"
+  },
+  "limits": [
+    "LP1 provenance is enforced by the fixed phase graph and the adapter rerunning P-256; the public torn-write checksum is not an arbitrary-RAM-attacker MAC."
+  ],
+  "publication": {
+    "authenticated_digest": "0x364e..0x366e",
+    "bytes": 114,
+    "checksum_a": "0x366e",
+    "checksum_b": "0x3670",
+    "exact_object_sha256": "75563c7ce09e5978f202cc2bffae90a5c6aaac23fcaa5dab4eb42ac27db97f39",
+    "generation": "0x360a",
+    "leaf_x": "0x360e..0x362e",
+    "leaf_y": "0x362e..0x364e",
+    "magic": "LP1!",
+    "profile": "0x360c",
+    "profile_value": "0x003f",
+    "range": "0x3600..0x3672",
+    "status": "0x3600",
+    "status_written_last": true
+  },
+  "schema": "seed-tls13-auth-p256-publication-adapter-v1",
+  "sources": {
+    "adapter": "784b21fd99c35a9e39b6b22fc3ea271029682815959a889f3b6a94b7806249bd",
+    "checker": "c9b1a1eb6e7c9200e021670b1ace6d0deb8880ce5e779bb464e0d0a003bb2c81",
+    "readme": "7a15c8fb406eb477b9df7acc54fa6499085898f8bf942a2eb8cc22878e29b16f"
+  },
+  "status": "pass"
+}

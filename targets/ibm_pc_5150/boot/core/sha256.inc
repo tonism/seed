@@ -5,6 +5,15 @@
 ; Chosen over r4_v42 (4.64x) because it fits the 16K K window in 15 sectors with NO golf;
 ; r4_v42 needed a fragile 74 B crypto golf for the last ~0.3x. See notes/old/build12-layout-redesign-attempts.md.
 
+%ifnmacro SHA256_FINISH_DIAGNOSTIC_MARK 1
+%macro SHA256_FINISH_DIAGNOSTIC_MARK 1
+%endmacro
+%endif
+%ifnmacro SHA256_HMAC_DIAGNOSTIC_MARK 1
+%macro SHA256_HMAC_DIAGNOSTIC_MARK 1
+%endmacro
+%endif
+
 sha256_init:
     push ds
     pop es
@@ -55,6 +64,7 @@ sha256_finish:
     push di
     push es
     mov [sha256_digest_ptr], di
+    SHA256_FINISH_DIAGNOSTIC_MARK 'I'
     mov ax, [sha256_len_low]
     mov dx, [sha256_len_high]
     xor bx, bx
@@ -71,6 +81,7 @@ sha256_finish:
 
     mov al, 0x80
     call sha256_append_padding_byte
+    SHA256_FINISH_DIAGNOSTIC_MARK 'J'
     cmp byte [sha256_block_len], 56
     jbe .pad_to_56
 .pad_to_64:
@@ -89,6 +100,7 @@ sha256_finish:
     call sha256_append_padding_byte
     jmp .pad_to_56
 .write_length:
+    SHA256_FINISH_DIAGNOSTIC_MARK 'K'
     mov bx, sha256_block
     add bx, 56
     mov ax, [sha256_bit_len3]
@@ -100,6 +112,7 @@ sha256_finish:
     mov ax, [sha256_bit_len0]
     call sha256_store_be16_at_bx
     call sha256_process_block
+    SHA256_FINISH_DIAGNOSTIC_MARK 'L'
     mov byte [sha256_block_len], 0
 
     push ds
@@ -116,6 +129,7 @@ sha256_finish:
     stosw
     add si, 4
     loop .write_digest
+    SHA256_FINISH_DIAGNOSTIC_MARK 'M'
     pop es
     pop di
     pop si
@@ -209,7 +223,9 @@ hmac_prepare_current_key_context:
     push si
     push di
     push es
+    SHA256_HMAC_DIAGNOSTIC_MARK 'N'
     call sha256_save_context
+    SHA256_HMAC_DIAGNOSTIC_MARK 'O'
     cmp word [hmac_key_len], sha256_block_size
     ja .failed
     push ds
@@ -222,6 +238,7 @@ hmac_prepare_current_key_context:
     mov cx, sha256_block_size
     mov al, 0x5c
     rep stosb
+    SHA256_HMAC_DIAGNOSTIC_MARK 'P'
     mov si, [hmac_key_ptr]
     mov cx, [hmac_key_len]
     mov bx, hmac_ipad
@@ -244,6 +261,7 @@ hmac_prepare_current_key_context:
     inc bx
     loop .xor_opad
 .hash_ipad:
+    SHA256_HMAC_DIAGNOSTIC_MARK 'Q'
     call sha256_init
     mov si, hmac_ipad
     mov cx, sha256_block_size
@@ -252,6 +270,7 @@ hmac_prepare_current_key_context:
     mov di, hmac_prepared_inner_state
     mov cx, 16
     rep movsw
+    SHA256_HMAC_DIAGNOSTIC_MARK 'R'
     call sha256_init
     mov si, hmac_opad
     mov cx, sha256_block_size
@@ -260,6 +279,7 @@ hmac_prepare_current_key_context:
     mov di, hmac_prepared_outer_state
     mov cx, 16
     rep movsw
+    SHA256_HMAC_DIAGNOSTIC_MARK 'S'
     clc
     jmp .done_prepare
 .failed:
@@ -268,6 +288,7 @@ hmac_prepare_current_key_context:
     pushf
     call sha256_restore_context
     popf
+    SHA256_HMAC_DIAGNOSTIC_MARK 'T'
     pop es
     pop di
     pop si
@@ -283,7 +304,9 @@ hmac_sha256_prepared:
     push si
     push di
     push es
+    SHA256_HMAC_DIAGNOSTIC_MARK 'U'
     call sha256_save_context
+    SHA256_HMAC_DIAGNOSTIC_MARK 'V'
     call hmac_load_prepared_inner
     mov si, [hmac_data1_ptr]
     mov cx, [hmac_data1_len]
@@ -293,6 +316,7 @@ hmac_sha256_prepared:
     call sha256_update
     mov di, hmac_inner_digest
     call sha256_finish
+    SHA256_HMAC_DIAGNOSTIC_MARK 'W'
 
     call hmac_load_prepared_outer
     mov si, hmac_inner_digest
@@ -300,10 +324,12 @@ hmac_sha256_prepared:
     call sha256_update
     mov di, [hmac_output_ptr]
     call sha256_finish
+    SHA256_HMAC_DIAGNOSTIC_MARK 'X'
     clc
     pushf
     call sha256_restore_context
     popf
+    SHA256_HMAC_DIAGNOSTIC_MARK 'Y'
     pop es
     pop di
     pop si

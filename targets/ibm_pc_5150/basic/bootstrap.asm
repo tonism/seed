@@ -34,6 +34,12 @@ sector_size equ 512
 floppy_sectors_per_track equ 8
 core_end equ core_offset + (SEED_CORE_SECTORS * sector_size)
 
+%ifdef BASIC_TIMER_IRET
+%if (BASIC_TIMER_IRET < core_offset) || (BASIC_TIMER_IRET >= core_end)
+%error "BASIC timer IRET must reside in the loaded resident core"
+%endif
+%endif
+
 start:
     cli
     xor ax, ax
@@ -67,6 +73,17 @@ start:
     add bx, sector_size
     dec bp
     jnz .read_next
+
+%ifdef BASIC_TIMER_IRET
+    ; ROM BASIC owns INT 1Ch while its workspace exists.  Seed reclaims that
+    ; workspace, so leave the callback no opportunity to interpret Seed bytes
+    ; as BASIC's data segment.  The selected byte is a permanent IRET in the
+    ; already-loaded resident nucleus.  Publish the complete vector atomically
+    ; and keep interrupts disabled for the core entry, which begins under CLI.
+    cli
+    mov word [0x0070], BASIC_TIMER_IRET
+    mov word [0x0072], 0
+%endif
 
     mov ax, SEED_RAM_TOP
     mov bx, basic_boot_magic_bx

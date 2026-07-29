@@ -1,0 +1,212 @@
+{
+  "artifacts": {
+    "checker": "cert_parser_check.py",
+    "checker_sha256": "cf59d231395c3b311d2cfd830faf9eeb7e7308e905d94204d6fe338d2dd95709",
+    "hash_image_sha256": "cc599ee841f949ae8b08c61ccaec2b1f3d44b96fc302008da97cb2677f06d309",
+    "hash_sha256_source": "cert_parser_sha256.inc",
+    "hash_sha256_source_sha256": "fcdb49fc9020905b6e187d561282a4d2fd80d610fa3e3fddf0315378eecb92db",
+    "hash_source": "cert_hash_overlay.asm",
+    "hash_source_sha256": "dd3d0bde5dbe4c40b3d241d204bcf1772ce133cdc326ca89bc4df6a208990e2b",
+    "parser_image_sha256": "e9dfffda91da19ddfc4cdeede3b8786baa090e290622ccb0f592cab26f4563f9",
+    "parser_p256_source": "cert_parser_p256.inc",
+    "parser_p256_source_sha256": "db8edec582f61a12a21a480c2ed1c4225f9c726212031c8d49f36c0de0785721",
+    "parser_source": "cert_parser_overlay.asm",
+    "parser_source_sha256": "b435432cc1f9e6f2d11f8f7e5e2932ea70fb8fb5b26157e9ff6b75178dbde005",
+    "symmetric_k14_image_sha256": "3ba29e3246f69e56d53da8b389a22d9f3dc125ffef33c395ccb7e403720d1ff0",
+    "symmetric_source": "tls13_sym_overlay.asm",
+    "symmetric_source_sha256": "2593b0fd3d0395d42db88be22b79e4903666b422b4b9f67787a9d583663a2d6a",
+    "time_image_sha256": "4e7c57259e3969de53c936e3b0f525dede9d82bbbe34e03be32487350d0c61e2",
+    "time_source": "cert_time_overlay.asm",
+    "time_source_sha256": "755b6fd0c810c82aece767cea1a5f67e60371c97bb699ddb7f604a50485521d4"
+  },
+  "fixture": {
+    "certificate_handshake_bytes": 2495,
+    "certificate_signature_der_bytes": 71,
+    "certificate_verify_bytes": 78,
+    "chain_der_bytes": [
+      675,
+      894
+    ],
+    "cv_signature_der_bytes": 70,
+    "leaf_der_bytes": 903,
+    "tbs_bytes": 813
+  },
+  "gates": {
+    "canonical_tbs_tamper_forwarded_as_changed_digest": true,
+    "certificate_prefix_rejections": 2495,
+    "certificate_verify_rejections": 85,
+    "default_k14_byte_identity": true,
+    "der_profile_rejections": 21,
+    "direct_hash_clear_invalidates_consumed_seal": true,
+    "direction_flag_entry_hardening": true,
+    "existing_symmetric_io_window_reused": true,
+    "failed_leaf_and_cv_reentry_invalidate_profiles": true,
+    "failed_transcript_replacement_invalidates_status": true,
+    "framing_rejections": 17,
+    "hash_clear_direction_flag_hardening": true,
+    "hash_phase_one_shot_consumption": true,
+    "inclusive_validity_boundaries": true,
+    "live_capture_reset_preserves_symmetric_handshake_band": true,
+    "memory_sentinels_and_low_zeroization": true,
+    "nic_receive_frame_preserved": true,
+    "pre_elevated_time_profile_fails_closed_before_status_checks": true,
+    "trusted_time_comparator_rejections": 17,
+    "valid_chunk_patterns": [
+      [
+        384
+      ],
+      [
+        383
+      ],
+      [
+        1
+      ],
+      [
+        2,
+        3,
+        5,
+        7,
+        11,
+        13,
+        127,
+        384
+      ]
+    ],
+    "x509_finish_establishes_and_preserves_es": true
+  },
+  "instruction_counts_not_cycles": {
+    "hash_phase": 215664,
+    "time_phase": 679,
+    "valid_parser_by_chunk_pattern": {
+      "1": 121897,
+      "2,3,5,7,11,13,127,384": 89982,
+      "383": 89553,
+      "384": 89553
+    }
+  },
+  "layout": {
+    "arena_floor": "0x3e40",
+    "attempt_cache_start": "0x3b9c",
+    "hash_image_content_bytes": 2045,
+    "hash_image_rounded_sectors": 4,
+    "hash_work_end": "0x0edc",
+    "k14_phase_owned_reclaimed_space_preserved": [
+      "0x3400",
+      "0x3600"
+    ],
+    "leaf_capture": [
+      "0x08c0",
+      "0x0cc0",
+      1024
+    ],
+    "nic_receive_frame_preserved": [
+      "0x0700",
+      "0x08b7"
+    ],
+    "output_end": "0x3790",
+    "parser_image_content_bytes": 2696,
+    "parser_image_rounded_sectors": 6,
+    "parser_stream_state_start": "0x0cc0",
+    "parser_x509_state_start": "0x0d00",
+    "stack_high_water_bytes": 40,
+    "tentative_decrypted_plaintext_window": [
+      "0x39a5",
+      "0x3b25",
+      384
+    ],
+    "time_image_content_bytes": 335,
+    "time_image_rounded_sectors": 1
+  },
+  "limits": [
+    "No trusted clock source is claimed. The comparator only elevates the profile when its caller supplies an already-trusted normalized UTC value.",
+    "No certificate signature or CertificateVerify equation is checked in this parser phase; issuer_auth owns both.",
+    "Only an uncompressed TLS 1.3 Certificate handshake is accepted.",
+    "The leaf is capped at 1024 bytes, the whole Certificate body at 4096 bytes, each discarded chain certificate at 2048 bytes, per-entry extensions at 1024 bytes, and chain entries after the leaf at four.",
+    "The fixed profile accepts exactly P-256 ECDSA/SHA-256, api.openai.com, digitalSignature, serverAuth, and CA=false.",
+    "The 748-byte live-safe tentative-plaintext capture callback cannot coexist in the current K14 K window when the symmetric overlay's 1016-byte mutable K work is counted; a naive link overflows 0x3400 by 744 bytes and collides with phase-owned reclaimed space.",
+    "Relocating the callback to 0x0d00..0x0fec after HELLO transcript import is only an unproven candidate and conflicts with the live protected-flight scatter at 0x0d00..0x0eff and adjacent loader schedule beginning at 0x0f00.",
+    "The issuer_auth input ABI at 0x3ba4..0x3c53 overlaps full retained symmetric state at 0x3b40..0x3c2e by 138 bytes; the native ticket bundle may still end at 0x3c2d. Live integration must prove safe ordering or relocate one side.",
+    "Parser publication must remain quarantined until sym_open_finish authenticates the record; an AEAD-tag failure must erase the provisional leaf and stream state.",
+    "Parser outputs reuse 0x3600..0x3790, which is live symmetric handshake state until Finished/application-key transition. Integration must prove the required phase ordering before that high band is overwritten."
+  ],
+  "live_integration_gate": {
+    "coexistence_proven": false,
+    "current_symmetric_image_bytes": 6142,
+    "current_symmetric_mutable_k_work": {
+      "bytes": 1016,
+      "end": "0x33f8",
+      "start": "0x3000"
+    },
+    "free_after_symmetric_mutable_k_work_bytes": 8,
+    "issuer_input_vs_retained_symmetric_state": {
+      "issuer_input": [
+        "0x3ba4",
+        "0x3c53"
+      ],
+      "ordering_or_relocation_proven": false,
+      "overlap": [
+        "0x3ba4",
+        "0x3c2e",
+        138
+      ],
+      "retained_symmetric_state": [
+        "0x3b40",
+        "0x3c2e"
+      ]
+    },
+    "k14_code_capacity_bytes": 7168,
+    "low_memory_contract": {
+      "live_nic_receive_frame": [
+        "0x0700",
+        "0x08b7"
+      ],
+      "retired_mlkem_band_reused_for_leaf": [
+        "0x08c0",
+        "0x0cc0"
+      ],
+      "stream_state": [
+        "0x0cc0",
+        "0x0cd2"
+      ]
+    },
+    "naive_linked_k14_layout": {
+      "code_end": "0x32ea",
+      "collides_with_phase_owned_reclaimed_space": true,
+      "fits": false,
+      "mutable_work_end": "0x36e8",
+      "mutable_work_start": "0x32f0",
+      "overflow_past_0x3400_bytes": 744
+    },
+    "raw_code_only_remainder_bytes": 278,
+    "required_quarantine_order": [
+      "Feed provisional plaintext only through the bounded capture callback while the symmetric record is open.",
+      "Do not publish parser/profile output until sym_open_finish accepts the AEAD tag; erase capture state on failure.",
+      "Route and retain CertificateVerify plus the transcript boundary without overwriting live symmetric handshake state.",
+      "Finish the TLS Finished/application-key transition before reusing 0x3600..0x3790 for parser outputs.",
+      "Order or relocate issuer_auth input so 0x3ba4..0x3c53 cannot overwrite full retained symmetric state at 0x3b40..0x3c2e; the native ticket bundle may still end at 0x3c2d.",
+      "Resolve code placement: the current callback plus symmetric mutable K work does not fit below 0x3400.",
+      "Build and gate one linked K14 symmetric image; the low relocation candidate is not a coexistence proof."
+    ],
+    "standalone_capture_prefix_bytes": 748,
+    "status": "not_linked_current_k14_no_fit",
+    "unproven_low_relocation_candidate": {
+      "bytes": 748,
+      "conflict": "live protected-flight scatter owns 0x0d00..0x0eff and the adjacent loader schedule begins at 0x0f00",
+      "earliest_lifetime": "after HELLO transcript-context import",
+      "end": "0x0fec",
+      "start": "0x0d00",
+      "status": "unproven"
+    }
+  },
+  "profiles": {
+    "certificate_verify": "0x0700",
+    "issuer_auth_required_after_separate_policy": "0x003f",
+    "normalized_not_after": "20261006030417",
+    "normalized_not_before": "20260708020442",
+    "parser_earned_leaf": "0x001f",
+    "trusted_time_bit_not_earned_by_parser": "0x0020"
+  },
+  "schema": "seed-tls13-cert-parser-results-v1",
+  "scope": "isolated cpu 8086 overlays; no runtime integration and no VM run",
+  "status": "pass"
+}

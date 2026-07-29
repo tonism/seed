@@ -1,0 +1,137 @@
+{
+  "schema": "seed-tls13-auth-integrated-spike-v1",
+  "recorded_date": "2026-07-25",
+  "curated_date": "2026-07-26",
+  "replay_provenance": "The p256.inc hash was refreshed after adding an opt-in external-work layout whose default form assembles to the unchanged assembled_auth_image hash below. The current run_8088_16k.py replay-wrapper hash was refreshed after adding opt-in partial-load/start-token controls, the fixed COM FIFO launch path, and opt-in --floppy-read-only host-media protection. That option chmods the generated host floppy image to 0444, requires host write-open denial, records before/after hashes, and restores the prior mode; it is not retroactive evidence about this historical guest measurement. The default 9,790-byte authentication image still reassembles byte-identically, and the runner's assembly contract remains covered by its unit tests. The recorded 8088 timing and cadence claims remain the prior measurement and were not rerun.",
+  "scope": "isolated post-Finished leaf-under-WE1 and TLS CertificateVerify P-256 authentication on the literal 16 KiB address map; not product TLS integration",
+  "git_head": "548053dfcdfc19b12130ce418ed24f7670c45750",
+  "authority": {
+    "semantic_execution": "Unicorn executes the assembled cpu 8086 target instructions and exact fixture data",
+    "timing": "the repository's calibrated cycles8088.py model over the exact executed instruction/data trace",
+    "physical_86box_timing": false,
+    "timing_reason": "the auth image and a known-good HKDF control both launched into the same 0 Hz/no-COM1 emulator failure; no target time was inferred from either timeout",
+    "cpu_hz_for_cycle_conversion": 4772728
+  },
+  "fixture_identity": {
+    "synthetic": true,
+    "issuer": "Seed Test WE1",
+    "leaf": "deterministic test leaf",
+    "live_openai_chain_bytes_exercised": false,
+    "interpretation": "proves target ECDSA arithmetic, strict inputs, and leaf-under-issuer then CertificateVerify-under-leaf control flow; does not prove the live WE1/leaf bytes or target X.509 parsing"
+  },
+  "source_hashes": {
+    "auth_integrated_bench.asm": "741f35d59cad347743413ed3d6719af6ac6502d4faf6052a87a84eb6ff0e4478",
+    "auth_integrated_check.py": "439ea4219d67d1ee1f469c6d5586a8892e4cfa3a23e4e690deaeabfb7d1274b9",
+    "auth_integrated_cycles.py": "34eab4f29d8841271e1f5a7d78f6d19eda3dd4c19a3aaefbd0a29532b62bc4b1",
+    "auth_integrated_oracle.py": "8117428a4cfeb36d56e27b552af1780853232e4777bc9e076fcded86e1d47ba8",
+    "auth_integrated_vectors.inc": "0db8c2b64fd1e9685de0febf2aa46dcba5d28bc64e87e04d3ff5f1789bf0a843",
+    "p256.inc": "af65512f541fa68eb9595e513d35e8f7ae1985b86995772bbd9586806817a9d6",
+    "cycles8088.py": "2c9630254bf32f84f3535c59a9ad8f2b5455d22cb76908c2b085a76fa86462b3",
+    "run_8088_16k.py": "58592c8d946dea8977c99acac36d37f639175a0cb1a61f4df79c1793fc7ae022",
+    "basic_bootstrap.asm": "0e488a82b7c3598f2ba6739011b467baa62762f93cea34c0d1448e9db5752a2a",
+    "build_basic_bootstrap.py": "06d17870b0439eec2f2e2e2a2dbd0cd30d752f6bf6dee4bd75a5150b1cf7a12a",
+    "run_basic_bootstrap_86box.py": "747c9b3e11805ae817670f04e2c0f4abf873897ff52cc784468224f3c58cd49e",
+    "known_good_hkdf_control.asm": "727d6c12551c2ac366409e3927b20dcb7fa9e7de9c737f170b478d48198fa5b9",
+    "assembled_auth_image": "7bc129986458b0fdac227edefe07735b9b90aa541504a095f2fd57d0fb20321d"
+  },
+  "toolchain": {
+    "nasm": "3.01",
+    "python": "3.11.9",
+    "unicorn": "2.1.4",
+    "capstone": "5.0.7",
+    "brotli_cli": "1.2.0",
+    "openssl": "3.6.2"
+  },
+  "literal_16k_layout": {
+    "content_bytes": 9790,
+    "content_range_half_open": "0x1000..0x363e",
+    "sector_rounded_load_range_half_open": "0x1000..0x3800",
+    "rom_basic_loader_start": "0x3a00",
+    "physical_ram_ceiling": "0x4000",
+    "executable_and_header_bytes": 6948,
+    "auth_harness_executable_bytes": 1925,
+    "included_current_p256_executable_bytes": 5023,
+    "data_bytes": 2842,
+    "auth_working_bytes": 815,
+    "routine_only_unicorn_stack_high_water_bytes": 74,
+    "resumable_straus_checkpoint_bytes": 706
+  },
+  "correctness": {
+    "status": "pass",
+    "target_executed": [
+      "canonical ECDSA signature DER and 1 <= r,s < n parsing",
+      "P-256 affine coordinate range and on-curve checks",
+      "mod-n inverse and two modular multiplications per signature",
+      "on-target G, WE1, and leaf width-4 table generation",
+      "two-base Straus u1G + u2Q and x mod n comparison",
+      "leaf signature under WE1 followed by TLS CertificateVerify under the leaf"
+    ],
+    "target_negative_gates": [
+      "long-form signature length",
+      "negative r",
+      "zero r",
+      "redundant integer padding",
+      "s equal to n",
+      "signature trailing object",
+      "off-curve point",
+      "x equal to p",
+      "y equal to p"
+    ],
+    "host_only": [
+      "Brotli decompression and Certificate message parsing",
+      "canonical X.509 TBSCertificate and exact SPKI/profile/hostname parsing",
+      "TLS CertificateVerify scheme/context/transcript reconstruction",
+      "trusted fixture time for certificate validity"
+    ]
+  },
+  "executed_trace_cycle_model": {
+    "prepare_g_we1_and_points_seconds": 5.251674,
+    "leaf_under_we1_seconds": 43.066713,
+    "leaf_table_between_signatures_seconds": 2.59061,
+    "tls_certificate_verify_seconds": 43.509599,
+    "post_finished_two_signature_seconds": 89.166923,
+    "cold_total_seconds": 94.418596,
+    "unknown_mnemonics": []
+  },
+  "cadence": {
+    "head_interval_seconds": 25,
+    "checkpoint_boundary": "between complete Straus digit iterations",
+    "resumable_bytes": 706,
+    "candidate_nonyieldable_seconds": {
+      "point_validation": 0.037712,
+      "one_width4_table_generation": 2.590589,
+      "mod_n_inverse": 0.464215,
+      "one_mod_n_multiply": 0.321289,
+      "signature_parse_and_digest_load": 0.001757,
+      "two_scalar_recodes": 0.176057,
+      "one_straus_digit_iteration": 0.399051,
+      "affine_normalize_and_x_check": 0.527532
+    },
+    "longest_candidate_nonyieldable_segment": "one_width4_table_generation",
+    "longest_candidate_nonyieldable_seconds": 2.590589,
+    "each_candidate_segment_below_25_seconds": true
+  },
+  "brotli_fixture": {
+    "certificate_der_bytes": 375,
+    "certificate_body_bytes": 384,
+    "brotli_quality_5_bytes": 354,
+    "host_parent_output_cap_bytes": 4096,
+    "target_decoder_implemented": false,
+    "stock_decoder_16k_heap_claim": false
+  },
+  "interpretation": "The aggregate authentication is far above 15 seconds. The executed trace exposes candidate yield boundaries whose individually modeled spans are below 25 seconds, which supports investigating credential-free post-Finished dialogue with resumable local verification. Scheduler/resume/network integration is not implemented, and no pre-verification data becomes trusted.",
+  "remaining_gates": [
+    "repair or replace the 86Box launch path and obtain literal-configuration emulator timing",
+    "target-executed bounded Brotli decoder and Certificate/X.509/SPKI/profile parser",
+    "a self-contained trusted-time or explicit no-time certificate policy",
+    "product phase-overlay/object-lifecycle integration without overwriting the resident nucleus, K/TCP state, arena, or context",
+    "integrated keepalive scheduling and network-margin measurement",
+    "constant-time and malformed-input review beyond the current functional hostile matrix",
+    "real IBM PC timing"
+  ],
+  "reproduction": {
+    "semantic_gate": "python3 tools/crypto-bench/tls13-spike/auth_integrated_check.py",
+    "executed_trace_timing": "python3 tools/crypto-bench/tls13-spike/auth_integrated_cycles.py",
+    "literal_86box_gate_to_retry": "python3 tools/crypto-bench/tls13-spike/run_8088_16k.py --asm tools/crypto-bench/tls13-spike/auth_integrated_bench.asm --timeout 600"
+  }
+}

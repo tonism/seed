@@ -134,7 +134,7 @@ Expected first screen:
 boot loader     no marker
 hardware setup  dim "." for SEED.SYS display baseline, hardware detection, and adapter initialization
 internet prep   dim "," for network configuration and plain reachability
-secure prep     dim "o" for selected endpoint setup and TLS protocol proof
+TLS prep        dim "o" for selected endpoint setup and TLS protocol proof
 crypto prep     normal "o" on CGA/VGA, dim "o" on MDA, for ECDHE/key setup
 agent/env prep  bright "o" for API validation, model, reasoning, session, and environment setup
 no card         current marker turns red, low descending PC speaker tone, fast-typed no network card, then retry/restart
@@ -218,7 +218,8 @@ fdd_01_type = 525_1dd
 fdd_01_check_bpb = 0
 ```
 
-Build 5 was boot-tested on 86Box 5.3 build 8200 on 26 April 2026 with the CGA
+The internet-readiness checkpoint was boot-tested on 86Box 5.3 build 8200 on
+26 April 2026 with the CGA
 no-card, `vm-net-3c501`, `vm-net-3c503`, `vm-net-ne1k`, `vm-net-ne2k8`,
 `vm-net-novell-ne1k`, `vm-net-wd8003e`, and `vm-net-wd8003eb` configs. The
 no-card screen showed:
@@ -244,13 +245,13 @@ advanced to `seed build 5`. `vm-net-3c501`, `vm-net-3c503`, `vm-net-wd8003e`,
 and `vm-net-wd8003eb` preserved the non-NE handoff path, read their MACs, and
 advanced to `seed build 5`.
 
-Build 6 started on 26 April 2026. `vm-net-3c503` reached `agent?`, accepted
+The TLS/API checkpoint started on 26 April 2026. `vm-net-3c503` reached `agent?`, accepted
 `openai`, wrote `USER.CFG`, and then reached `seed build 6`. Relaunching 86Box
 directly against the already-written image skipped `agent?` and reached
 `seed build 6`. `vm-net-ne2k8` preserved the full outbound path before reaching
-`seed build 6` in the earlier Build 6 filesystem checkpoint.
+`seed build 6` in the earlier filesystem checkpoint.
 
-On 27 April 2026, the current Build 6 internet-proof checkpoint was retested
+On 27 April 2026, the current internet-proof checkpoint was retested
 with `USER.CFG` excluded from the test floppy. `vm-net-3c501`,
 `vm-net-3c503`, `vm-net-ne1k`, `vm-net-ne2k8`, `vm-net-novell-ne1k`,
 `vm-net-wd8003e`, and `vm-net-wd8003eb` all reached `agent?` after
@@ -287,7 +288,7 @@ The WD8003 profiles use `ram_addr = D0000` and `ram_size = 8192`; 86Box expects
 the shared-memory address as a five-digit physical address and the EB RAM size
 in bytes.
 
-The current Build 6 checkpoint also asks missing selected-agent fields as
+The current checkpoint also asks missing selected-agent fields as
 `server?` and `key?`. When both are required, they share one panel and Up/Down
 moves focus between them. Text fields render plain typed characters and keep
 long values on one row by showing the visible tail inside the field area. With
