@@ -308,7 +308,7 @@ def expected_receipt(item: Fixture, ticks: int) -> bytes:
     page[4:8] = NTR_INVERSE
     struct.pack_into("<HHH", page, 8, ticks & 0xFFFF, ticks >> 16, 0)
     page[NTR_DIGEST : NTR_DIGEST + 32] = hashlib.sha256(
-        NTR_MAGIC + page[8:14] + item.native_ticket
+        NTR_MAGIC + page[8:14] + item.native_ticket[:-1]
     ).digest()
     page[NTR_INV_STATUS] = 0x5A
     page[NTR_STATUS] = 0xA5
@@ -760,17 +760,89 @@ def post_controller_gate(
     existing = ROOT / "build/crypto-bench/tls13-live-k15/live_post_controller.bin"
     if existing.exists() and legacy != existing.read_bytes():
         raise AssertionError("receipt-disabled post controller is not byte-stable")
-    if len(legacy) != 1012 or len(hooked) != 1024:
+    if len(legacy) != 971 or len(hooked) != 1024:
         raise AssertionError("post-controller slot geometry drifted")
 
     commit = 0x0900 + LIVE.listing_label_offset(
         hooked_listing, "post_check_commit"
+    )
+    plaintext_parser = 0x0900 + LIVE.listing_label_offset(
+        hooked_listing, "post_process_plaintext"
     )
     edge = 0x0900 + LIVE.listing_label_offset(
         hooked_listing, ".resume_receipt_edge"
     )
     if not commit < edge < 0x0D00:
         raise AssertionError("NTR1 edge is not inside exact commit control flow")
+
+    def run_plaintext(
+        plaintext: bytes,
+        *,
+        head_state: int = 0,
+        ticket: int = 1,
+        http_total: int = 0,
+    ) -> tuple[bool, int]:
+        uc = Uc(UC_ARCH_X86, UC_MODE_16)
+        uc.mem_map(0, RAM_BYTES)
+        uc.mem_write(0, bytes(RAM_BYTES))
+        uc.mem_write(0x0900, hooked)
+        uc.mem_write(HEAD_BUFFER, plaintext)
+        uc.mem_write(0x3C39, struct.pack("<H", len(plaintext)))
+        uc.mem_write(0x3C41, bytes((head_state, ticket)))
+        uc.mem_write(0x3C43, struct.pack("<H", http_total))
+        uc.mem_write(STACK_TOP - 2, struct.pack("<H", RETURN_SENTINEL))
+        uc.mem_write(RETURN_SENTINEL, b"\xF4")
+        for register in (
+            UC_X86_REG_CS,
+            UC_X86_REG_DS,
+            UC_X86_REG_ES,
+            UC_X86_REG_SS,
+        ):
+            uc.reg_write(register, 0)
+        uc.reg_write(UC_X86_REG_SP, STACK_TOP - 2)
+        uc.reg_write(UC_X86_REG_IP, plaintext_parser)
+        uc.reg_write(UC_X86_REG_EFLAGS, 2)
+        uc.emu_start(plaintext_parser, RETURN_SENTINEL, count=100_000)
+        if uc.reg_read(UC_X86_REG_IP) & 0xFFFF != RETURN_SENTINEL:
+            raise AssertionError("post plaintext parser did not return")
+        accepted = not bool(uc.reg_read(UC_X86_REG_EFLAGS) & 1)
+        return accepted, uc.mem_read(0x3C41, 1)[0]
+
+    accepted, state = run_plaintext(b"\x01\x00\x15")
+    if not accepted or state != 2:
+        raise AssertionError(
+            "exact authenticated ticket+close_notify did not publish state 2"
+        )
+    alert_negatives = (
+        ("no-ticket", b"\x01\x00\x15", 0, 0, 0),
+        ("fatal-level", b"\x02\x00\x15", 0, 1, 0),
+        ("wrong-description", b"\x01\x5a\x15", 0, 1, 0),
+        ("wrong-inner-type", b"\x01\x00\x17", 0, 1, 0),
+        ("wrong-length", b"\x01\x00\x00\x15", 0, 1, 0),
+        ("partial-http", b"\x01\x00\x15", 0, 1, 1),
+        ("duplicate-close", b"\x01\x00\x15", 2, 1, 0),
+    )
+    for label, plaintext, head_state, ticket, http_total in alert_negatives:
+        accepted, _state = run_plaintext(
+            plaintext,
+            head_state=head_state,
+            ticket=ticket,
+            http_total=http_total,
+        )
+        if accepted:
+            raise AssertionError(
+                f"hostile ticket-close parser case {label} was accepted"
+            )
+    accepted, state = run_plaintext(
+        b"\x01\x00\x15",
+        head_state=1,
+        ticket=1,
+        http_total=64,
+    )
+    if not accepted or state != 1:
+        raise AssertionError(
+            "exact close after completed fresh HEAD changed its liveness state"
+        )
 
     class Edge:
         def __init__(self) -> None:
@@ -849,9 +921,9 @@ def post_controller_gate(
     for values in (
         (header_pos, head, ticket)
         for header_pos in (0, 1)
-        for head in (0, 1)
+        for head in (0, 1, 2, 3)
         for ticket in (0, 1)
-        if (header_pos, head, ticket) != (0, 1, 1)
+        if (header_pos, head, ticket) not in ((0, 1, 1), (0, 2, 1))
     ):
         edge_machine = Edge()
         if edge_machine.call(
@@ -872,19 +944,39 @@ def post_controller_gate(
     if bytes(edge_machine.uc.mem_read(0x3510, 0x4D)) != bytes(0x4D):
         raise AssertionError("NTR1 edge reached K14 mutable/persistent state")
 
-    for zero_fail, load_fail in ((True, False), (False, True)):
-        edge_machine = Edge()
-        edge_machine.zero_fail = zero_fail
-        edge_machine.load_fail = load_fail
-        terminal = edge_machine.call(header_pos=0, head=1, ticket=1)
-        if terminal != PERSIST_FAIL:
-            raise AssertionError("NTR1 edge failure did not fail closed")
+    ticket_close_machine = Edge()
+    terminal = ticket_close_machine.call(header_pos=0, head=2, ticket=1)
+    if terminal != RECEIPT_ORIGIN:
+        raise AssertionError(
+            "authenticated ticket+close_notify boundary did not enter NTR1"
+        )
+    if ticket_close_machine.loads != [(RECEIPT_KEY, HEAD_BUFFER)]:
+        raise AssertionError(
+            "ticket+close_notify edge exposed a mutable key/destination"
+        )
+
+    for head in (1, 2):
+        for zero_fail, load_fail in ((True, False), (False, True)):
+            edge_machine = Edge()
+            edge_machine.zero_fail = zero_fail
+            edge_machine.load_fail = load_fail
+            terminal = edge_machine.call(header_pos=0, head=head, ticket=1)
+            if terminal != PERSIST_FAIL:
+                raise AssertionError("NTR1 edge failure did not fail closed")
 
     return {
         "legacy_bytes": len(legacy),
         "hooked_bytes": len(hooked),
         "legacy_byte_stable": True,
+        "fresh_head_boundary": True,
+        "ticket_close_boundary": True,
+        "other_head_states_rejected": [0, 3],
+        "ticket_close_parser_positive": "01 00 15",
+        "ticket_close_parser_negatives": [
+            label for label, *_rest in alert_negatives
+        ],
         "commit_entry": commit,
+        "plaintext_parser": plaintext_parser,
         "receipt_edge": edge,
     }
 
@@ -903,8 +995,8 @@ def main() -> None:
                 "RESUME_RECEIPT_SHA256_INIT": SHA_INIT,
                 "RESUME_RECEIPT_SHA256_UPDATE": SHA_UPDATE,
                 "RESUME_RECEIPT_SHA256_FINISH": SHA_FINISH,
-                "RESUME_RECEIPT_NE_BUF_LOAD": NE_WRITE,
-                "RESUME_RECEIPT_NE_BUF_READ": NE_READ,
+                "RESUME_RECEIPT_VAULT_WRITE": NE_WRITE,
+                "RESUME_RECEIPT_VAULT_READ": NE_READ,
                 "RESUME_RECEIPT_FO_KEY": FO_KEY,
                 "RESUME_RECEIPT_PERSIST_FAIL": PERSIST_FAIL,
             },
@@ -998,6 +1090,10 @@ def main() -> None:
             bytes([LIFECYCLE_PREFILL])
             * (LIFECYCLE_END - LIFECYCLE_DIGEST),
         )
+        # The real receipt edge runs while the retained ticket is provisional
+        # TICKET_ONLY (1).  Exact-pin authentication later publishes
+        # LIVE_TICKET (2) status-last before operation 10 validates it.
+        machine.write(TICKET_TAIL + 44, b"\x01")
         fo_tail_state = machine.read(TICKET_TAIL + 45, 1)
         terminal = machine.run_receipt()
         if terminal != FO_ENTRY:
@@ -1022,9 +1118,11 @@ def main() -> None:
             )
         if (
             machine.read(RECEIPT_BUILD, 238)
-            != item.identity + item.ticket_tail + fo_tail_state
+            != item.identity + item.ticket_tail[:-1] + b"\x01" + fo_tail_state
         ):
-            raise AssertionError("NTR1 did not reconstruct original FO ticket hold")
+            raise AssertionError(
+                "NTR1 did not reconstruct the identity/metadata FO ticket hold"
+            )
 
         receipt_faults = 0
         for kind in ("write", "read", "tamper"):
@@ -1035,6 +1133,7 @@ def main() -> None:
                     item=item,
                     clocks=((ticks, 0),),
                 )
+                failed.write(TICKET_TAIL + 44, b"\x01")
                 getattr(failed, f"fail_{kind}_calls", None)
                 if kind == "write":
                     failed.fail_write_calls.add(call)
@@ -1060,6 +1159,12 @@ def main() -> None:
             bridge=receipt_hash,
             lifecycle=lifecycle,
         )
+        provisional_nst = Machine(
+            lifecycle, origin=LIFECYCLE_ORIGIN, item=item
+        )
+        provisional_nst.write(TICKET_TAIL + 44, b"\x01")
+        install_receipt(provisional_nst, receipt_page)
+        provisional_nst.call(10, expect_success=False)
 
         bridge_fault_cases = 0
         for failed_load in (
@@ -1317,6 +1422,11 @@ def main() -> None:
                 "readbacks": 2,
                 "fault_cases": receipt_faults,
                 "status_last": True,
+                "digest_ticket_material_bytes": 44,
+                "provisional_to_live_ticket_transition_executed": True,
+                "ticket_status_excluded_from_digest_and_required_separately": True,
+                "fo_identity_metadata_hold_bytes": 238,
+                "fo_controller_completes_hold_with_psk": True,
                 "tx_restored": True,
                 "pre_auth_lifecycle_span": "0x3c76..0x3c9a",
                 "pre_auth_lifecycle_span_preserved": True,

@@ -78,13 +78,15 @@ CARD_RESERVED_PAGES = tuple(
 )
 CARD_WARM_CLEAR_PAGES = CARD_RESERVED_PAGES[1:]
 
-TICKET_HOLD = (0x0700, 0x07EE)
-EXPECTED_K = (0x07EE, 0x080E)
+TICKET_HOLD = (0x0700, 0x080E)
+EXPECTED_K = (0x080E, 0x082E)
+FO_KERNEL_HOLD_END = 0x0830
 LOW_HANDOFFS = (0x0D00, 0x0E00)
 HIGH_CIPHERTEXT = (0x3600, 0x3A40)
 HIGH_MESSAGE = (0x3A40, 0x3A60)
 HIGH_G_Z = (0x3B9C, 0x3BFC)
 TICKET_PSK = (0x38B0, 0x38D0)
+TICKET_IDENTITY_TAIL = (0x3B40, 0x3C2E)
 IDENTITY_TAIL = 0x0E00
 IDENTITY_CV_END = IDENTITY_TAIL + 80
 IDENTITY_CV_PTR = 0x0EC0
@@ -654,6 +656,68 @@ def run_near_call(
     return bool(machine.uc.reg_read(UC_X86_REG_EFLAGS) & 1)
 
 
+def test_complete_ticket_restore(build: Path) -> dict[str, object]:
+    """Execute the exact post-FO restore of PSK, identity, and metadata."""
+
+    controller = (build / "live_fo_controller.bin").read_bytes()
+    listing = build / "live_fo_controller.lst"
+    park = label_address(listing, "fo_park_ticket_psk", FO_CONTROLLER)
+    restore = label_address(listing, "fo_restore_ticket_hold", FO_CONTROLLER)
+    machine = Emulator()
+    machine.uc.mem_write(FO_CONTROLLER, controller)
+
+    psk = bytes((index * 29 + 7) & 0xFF for index in range(32))
+    identity_tail = bytes(
+        (index * 17 + 11) & 0xFF
+        for index in range(TICKET_IDENTITY_TAIL[1] - TICKET_IDENTITY_TAIL[0])
+    )
+    parked = identity_tail + psk
+    if len(parked) != TICKET_HOLD[1] - TICKET_HOLD[0]:
+        raise AssertionError("complete native ticket hold geometry drifted")
+    machine.uc.mem_write(TICKET_HOLD[0], identity_tail)
+    machine.uc.mem_write(TICKET_PSK[0], psk)
+    machine.uc.mem_write(TICKET_HOLD[0] + len(identity_tail), b"\xA5" * len(psk))
+    if run_near_call(machine, park):
+        raise AssertionError("native ticket PSK park returned carry")
+    if bytes(machine.uc.mem_read(TICKET_HOLD[0], len(parked))) != parked:
+        raise AssertionError("FO controller did not complete the native ticket hold")
+
+    machine.uc.mem_write(TICKET_PSK[0], b"\xA5" * len(psk))
+    machine.uc.mem_write(
+        TICKET_IDENTITY_TAIL[0], b"\x5A" * len(identity_tail)
+    )
+    expected_k = bytes((index * 13 + 3) & 0xFF for index in range(32))
+    guard = b"\xC3\x3C"
+    machine.uc.mem_write(EXPECTED_K[0], expected_k)
+    machine.uc.mem_write(EXPECTED_K[1], guard)
+
+    if run_near_call(machine, restore):
+        raise AssertionError("complete native ticket restore returned carry")
+    if bytes(machine.uc.mem_read(TICKET_PSK[0], len(psk))) != psk:
+        raise AssertionError("post-FO restore omitted or changed ticket PSK")
+    if (
+        bytes(machine.uc.mem_read(TICKET_IDENTITY_TAIL[0], len(identity_tail)))
+        != identity_tail
+    ):
+        raise AssertionError("post-FO restore changed ticket identity/metadata")
+    if bytes(machine.uc.mem_read(TICKET_HOLD[0], len(parked))) != parked:
+        raise AssertionError("post-FO restore mutated its parked ticket source")
+    if bytes(machine.uc.mem_read(EXPECTED_K[0], len(expected_k))) != expected_k:
+        raise AssertionError("complete ticket hold overlaps independent K prime")
+    if bytes(machine.uc.mem_read(EXPECTED_K[1], len(guard))) != guard:
+        raise AssertionError("complete ticket/K hold crossed the kernel guard")
+
+    return {
+        "parked_ticket": "0x0700..0x080e",
+        "ticket_bytes": len(parked),
+        "psk_restored": "0x38b0..0x38d0",
+        "identity_metadata_restored": "0x3b40..0x3c2e",
+        "expected_k_preserved": "0x080e..0x082e",
+        "kernel_guard_preserved": "0x082e..0x0830",
+        "status": "pass",
+    }
+
+
 def strict_der_signature(size: int) -> bytes:
     """Build a canonical P-256-sized DER signature of 70, 71, or 72 bytes."""
 
@@ -857,6 +921,16 @@ def test_preconnect_entropy_lifetime(
         BOOT_CONTROLLER,
     )
     phases = phase_map(manifest)
+    product_info = manifest.get("product_input")
+    if not isinstance(product_info, dict):
+        raise AssertionError("secure manifest lacks product-input metadata")
+    tcp_close_cached_entry = int(
+        str(product_info.get("tcp_close_cached_entry")), 0
+    )
+    if not 0x0900 <= tcp_close_cached_entry < 0x0F00:
+        raise AssertionError(
+            "secure manifest cached TCP close escaped the C phase window"
+        )
     checkpoint = manifest.get("secure_fo_checkpoint")
     cleanup_meta = (
         checkpoint.get("preconnect_failure_cleanup")
@@ -1161,7 +1235,7 @@ def test_preconnect_entropy_lifetime(
             RES_PREPARE_INTERNET: prepare_internet,
             0x0700: endpoint,
             0x0900: tcp,
-            0x0941: tcp,
+            tcp_close_cached_entry: tcp,
             NE_BUF_READ: card_read,
             NE_BUF_LOAD: direct_card_write,
             0x3400: transitioned_to_hello,
@@ -2381,6 +2455,7 @@ def main() -> None:
             build, manifest
         ),
         "fo_oracle": run_fo_oracle(build),
+        "complete_ticket_restore": test_complete_ticket_restore(build),
         "identity_tail_boundaries": test_identity_tail_boundaries(build),
         "fo_cleanup_lifetimes": test_fo_cleanup_lifetimes(build),
         "duplicate_mismatch": test_duplicate_mismatch(build, manifest),
@@ -2423,6 +2498,7 @@ def main() -> None:
     )
     print("  destructive-overlay entropy lifetime + duplicate compare PASS")
     print("  unchanged K14 FO oracle + ticket-PSK sentinel PASS")
+    print("  complete 270-byte native ticket park/restore + guard PASS")
     print("  FO success/failure resumption-tail cleanup lifetimes PASS")
     print("  real-SHA CV79/CV80 identity-tail boundary regression PASS")
     print("  duplicate mismatch + callback bounds fail closed PASS")

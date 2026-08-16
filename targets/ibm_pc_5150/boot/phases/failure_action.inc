@@ -2,6 +2,8 @@
 %error "PHASE_BASE must name the containing phase start label"
 %endif
 
+%include "phases/warm_restart_scrub.inc"
+
 %macro phase_call_res 1
     db 0xe8
     dw %1 - (low_scratch_start + ($ - PHASE_BASE) + 2)
@@ -27,7 +29,7 @@ failure_action_phase:
     call .type_net_code
 .retry_prompt:
     call .newline
-    call .newline                              ; blank line below the system message / previous prompt
+    call .newline
     mov si, low_scratch_start + (retry_question_text - PHASE_BASE)
     mov bl, 0x07
     call .print_msg
@@ -70,8 +72,7 @@ failure_action_phase:
 .do_retry:
     ret
 .do_restart:
-    mov word [0x0472], 0x1234
-    jmp 0xffff:0x0000                           ; warm reboot
+    jmp failure_action_warm_restart
 
 .option_line:                                  ; al = digit, si = label -> newline + "N. label" (normal)
     push ax                                     ; .newline clobbers al -- save the digit
@@ -309,4 +310,7 @@ failure_action_phase_speaker_off:
     out 0x61, al
     ret
 
+seed_warm_restart_scrub failure_action_warm_restart, low_scratch_start
+
+%unmacro seed_warm_restart_scrub 2
 %unmacro phase_call_res 1

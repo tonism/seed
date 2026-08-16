@@ -186,7 +186,7 @@ def run() -> dict[str, object]:
     mutable_work = coexistence["current_symmetric_mutable_k_work"]
     naive_layout = coexistence["naive_linked_k14_layout"]
     expected_coexistence = {
-        "current_symmetric_image_bytes": 6142,
+        "current_symmetric_image_bytes": 6144,
         "current_symmetric_mutable_k_work": {
             "start": "0x3000",
             "end": "0x33f8",

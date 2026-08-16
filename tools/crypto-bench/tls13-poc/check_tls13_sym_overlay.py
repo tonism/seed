@@ -22,7 +22,14 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
-from unicorn import Uc, UcError, UC_ARCH_X86, UC_HOOK_MEM_WRITE, UC_MODE_16
+from unicorn import (
+    Uc,
+    UcError,
+    UC_ARCH_X86,
+    UC_HOOK_CODE,
+    UC_HOOK_MEM_WRITE,
+    UC_MODE_16,
+)
 from unicorn.x86_const import (
     UC_X86_REG_AX,
     UC_X86_REG_BX,
@@ -166,6 +173,23 @@ def _load_integrated_oracle():
 
 O = _load_integrated_oracle()
 BASE = O.BASE
+
+
+def _load_cycle_model():
+    path = ROOT / "tools/crypto-bench/cycles8088.py"
+    spec = importlib.util.spec_from_file_location(
+        "seed_tls13_sym_cycles8088", path
+    )
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot load {path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+CYCLES8088 = _load_cycle_model()
+HEAD_CYCLE_CEILING = 1_325_000
 
 
 @dataclass(frozen=True)
@@ -408,6 +432,46 @@ class Overlay:
         self.write(IO_BASE, tag)
         self.call(7, si=IO_BASE, expect_success=not bad_tag)
         return bytes(plaintext)
+
+
+def measure_head_cycles(image: bytes, header: Header) -> dict[str, int]:
+    """Pin the compact ChaCha rotate win on one exact application record."""
+
+    vm = Overlay(image, header)
+    model = CYCLES8088.Cycle8088()
+    instruction_count = 0
+
+    def trace(uc: Uc, address: int, size: int, user_data: object) -> None:
+        nonlocal instruction_count
+        instruction_count += 1
+        model.hook(uc, address, size, user_data)
+
+    vm.uc.hook_add(UC_HOOK_CODE, trace)
+    vm.call(0)
+    vm.write(CLIENT_APP_KEY, bytes(range(32)))
+    vm.write(CLIENT_APP_IV, bytes(range(12)))
+    vm.write(CLIENT_APP_SEQ, b"\0" * 8)
+    cycles_before = model.cycles
+    instructions_before = instruction_count
+    record_len, _ = vm.call(11)
+    model.finish()
+    cycles = model.cycles - cycles_before
+    instructions = instruction_count - instructions_before
+    if record_len != 72:
+        raise AssertionError(
+            f"cycle-gated HEAD record is {record_len} bytes, expected 72"
+        )
+    if cycles > HEAD_CYCLE_CEILING:
+        raise AssertionError(
+            f"HEAD cycle model regressed to {cycles:,}, "
+            f"ceiling is {HEAD_CYCLE_CEILING:,}"
+        )
+    return {
+        "head_record_bytes": record_len,
+        "cycles": cycles,
+        "cycle_ceiling": HEAD_CYCLE_CEILING,
+        "instructions": instructions,
+    }
 
 
 def build_image(output: Path, listing: Path, *, shared_secret_len: int = 64) -> bytes:
@@ -1536,6 +1600,7 @@ def run_gate(image: bytes, header: Header) -> dict[str, object]:
             digest_guard,
         )
 
+    head_cycles = measure_head_cycles(image, header)
     sectors = (len(image) + 511) // 512
     return {
         "kind": "deterministic_unicorn_tls13_symmetric_overlay_gate",
@@ -1588,6 +1653,7 @@ def run_gate(image: bytes, header: Header) -> dict[str, object]:
             "high_span_bytes": header.high_end - header.high_start,
             "arena_slack_bytes": header.arena_floor - header.high_end,
         },
+        "performance": head_cycles,
         "coverage": {
             "critical_schedule": True,
             "arbitrary_mss_chunk_stream_open": True,
@@ -1604,6 +1670,7 @@ def run_gate(image: bytes, header: Header) -> dict[str, object]:
             "raw_hmac_pad_prepared_state_hkdf_lifetime_alias": True,
             "failed_resumed_import_preserves_finished_state": True,
             "credential_free_head": True,
+            "compact_chacha_rotate_cycle_ceiling": True,
             "bounded_ticket_192": True,
             "ticket_psk": True,
             "psk_dhe_resumption_binder": True,

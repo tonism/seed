@@ -12,6 +12,13 @@
 %endmacro
 
 agent_request_phase:
+%ifdef TLS13_PRODUCT_TLS13
+    ; Product TLS 1.3 is OpenAI-only and the secure route deliberately
+    ; overwrites the original seed-config scratch.  prepare_agent_path has
+    ; already validated the selected interface and copied model/key into the
+    ; reconnect-safe cache, so every cold, restored-ENV, and reconnect request
+    ; follows the same source path.
+%else
     cmp byte [handoff_addr + handoff_status], handoff_status_ready
     je .session_ready
     ; A RECONNECT (reconnect_retries<3) reuses the cold connect's cached config: seed_* was read on the
@@ -21,15 +28,91 @@ agent_request_phase:
     jb .session_ready
     call .selected_agent_is_openai
     jc .failed
+%endif
 .session_ready:
-    call .build_openai_request
-    jc .failed
-    clc
-    ret
+    jmp .build_openai_request
+%ifndef TLS13_PRODUCT_TLS13
 .failed:
     stc
     ret
+%endif
 
+%ifdef TLS13_PRODUCT_TLS13
+; The 16 KiB path streams request sources after the R phase has been replaced
+; above 0x0900 by X.  Keep these entries in R's surviving first sector.  The
+; inputs entry deliberately ignores stale boot-time dialogue metadata. R
+; recomputes it, then X performs the full check immediately before its first
+; TLS record. Larger/far tiers retain their existing 32-bit stream geometry.
+.validate_stream_bounds:
+    call .validate_stream_inputs
+    jc .bounds_done
+    jnz .validate_product_prefix       ; non-16K tier: ZF=0 from the RAM-top compare
+    mov ax, [dialogue_cnt + 2]
+    or ax, ax
+    jnz .bounds_failed
+    mov ax, [dialogue_cnt]
+    or ax, ax
+    jz .bounds_ok
+    mov dx, [dialogue_off]
+    cmp dx, chat_context_start
+    jb .bounds_failed
+    add dx, ax
+    jc .bounds_failed
+    cmp dx, chat_context_end
+    ja .bounds_failed
+.bounds_ok:
+    jmp short .validate_product_prefix
+.bounds_done:
+    ret
+.bounds_failed:
+    stc
+    ret
+
+; Every X-phase first record is the HTTP prefix R just built in the fixed
+; request body.  tls_build_application_data_record caps the length, but its
+; source pointer is otherwise trusted; reject a stale pointer (or an empty
+; prefix) before it can disclose an arbitrary resident-memory slice.
+.validate_product_prefix:
+    cmp word [tls_app_plain_ptr], api_request_plain + tls_record_header_len
+    jne .bounds_failed
+    mov ax, [tls_app_len]
+    dec ax
+    cmp ax, api_request_plain_len
+    cmc                                  ; CF=0 only for original length 1..440
+    ret
+
+.validate_stream_inputs:
+    cmp word [handoff_addr + handoff_ram_top], basic_sidecar_stack_top_16k
+    jne .bounds_bypass
+    cmp word [prompt_tools_size], tools_schema_max_len
+    ja .bounds_failed
+    cmp word [prompt_id_size], 512
+    ja .bounds_failed
+    cmp word [prompt_compact_size], 512
+    ja .bounds_failed
+    cmp word [chat_context_len_var], chat_context_len
+    jne .bounds_failed
+    mov ax, [chat_context_used]
+    cmp ax, chat_context_len
+    ja .bounds_failed
+    cmp [note_len], ax
+    ja .bounds_failed
+    mov ax, [far_log_seg_var]
+    or ax, [far_flushed_len]
+    or ax, [far_flushed_len + 2]
+    or ax, [far_flushed_esc]
+    or ax, [far_flushed_esc + 2]
+    jnz .bounds_failed
+    ret                                 ; zero OR leaves CF=0/ZF=1 to the full entry
+.bounds_bypass:
+    ret                                 ; >16K compare already left CF=0, ZF=0
+
+%if ($ - PHASE_BASE) > (net_setup_phase_start - low_scratch_start)
+%error "16K request stream validator is outside R's X-surviving sector"
+%endif
+%endif
+
+%ifndef TLS13_PRODUCT_TLS13
 .selected_agent_is_openai:
     cmp byte [seed_agent_id], 'o'
     jne .selected_failed
@@ -50,24 +133,25 @@ agent_request_phase:
 .selected_failed:
     stc
     ret
+%endif
 
 .build_openai_request:
-    mov word [api_response_pending_len], 0
-    mov byte [api_stream_state], 0
-    mov byte [api_stream_delta_match], 0
-    mov byte [api_stream_seen], 0
-    mov byte [api_stream_text_seen], 0
-    mov byte [api_stream_prompt_len], 0
-    mov byte [api_stream_completed], 0
-    mov byte [esc_stop], 0               ; Build 11 ESC: per-turn reset of the graceful-stop flag (the int 9
-                                         ; hook sets it during a render; cleared here before the next render)
-    mov byte [api_http_state], 0
-    mov byte [api_http_header_match], 0
+    ; These response fields are deliberately paired in the arena. Clear the
+    ; five adjacent pairs as words: R has a hard three-sector ceiling, and the
+    ; saved bytes fund the required application/json request header without
+    ; taking memory from the 16 KiB arena/context contract.
+    xor ax, ax
+    mov [api_response_pending_len], ax
+    mov [api_stream_text_seen], ax       ; also api_stream_prompt_len
+    mov [api_stream_state], ax           ; also api_stream_delta_match
+    mov [api_stream_seen], ax            ; also api_stream_completed
+    mov [api_http_state], ax             ; also api_http_header_match
+    mov [esc_stop], al                   ; per-turn graceful-stop reset
     cmp byte [handoff_addr + handoff_status], handoff_status_ready
     je .build_ready_openai_request
-    mov byte [dpi_input_len_byte], 0
-    mov byte [dpi_prompt_marker_row], 0
-    mov byte [api_stream_event_ready], 0
+    mov [dpi_input_len_byte], al
+    mov [dpi_prompt_marker_row], al
+    mov [api_stream_event_ready], al
     call .build_openai_body
     jc .request_failed
     push ds
@@ -86,6 +170,9 @@ agent_request_phase:
     call agent_request_phase_append_crlf_to_buffer
     mov si, PHASE_LOAD_ADDR + (http_auth_bearer_text - PHASE_BASE)
     call agent_request_phase_append_z_to_buffer
+%ifdef TLS13_PRODUCT_TLS13
+    jmp .reuse_key
+%else
     cmp byte [handoff_addr + handoff_status], handoff_status_ready
     je .reuse_key
     cmp byte [reconnect_retries], 3          ; reconnect: seed_key is handshake-clobbered -> use the cache
@@ -93,6 +180,7 @@ agent_request_phase:
     mov si, seed_key
     call agent_request_phase_append_z_to_buffer
     jmp .key_done
+%endif
 .reuse_key:
     mov si, chat_key_cache
     mov cx, seed_key_len
@@ -131,6 +219,10 @@ agent_request_phase:
     clc
     ret
 .build_ready_openai_request:
+%ifdef TLS13_PRODUCT_TLS13
+    call .validate_stream_inputs
+    jc .request_failed
+%endif
     ; Build 11 #4 note-as-memory: if the PRIOR pass was a compaction (compacting_msg still 1 from it,
     ; not yet reset below), the summary just captured into chat_context IS the new memory note - record
     ; its length so THIS (real) pass sends [0..note_len) in "instructions" and the live dialogue
@@ -240,6 +332,9 @@ agent_request_phase:
     mov [dialogue_off], si
     mov [dialogue_cnt], ax
     mov [dialogue_cnt + 2], dx
+%ifdef TLS13_PRODUCT_TLS13
+.dialogue_bounds_ready:
+%endif
     ; Per-request window store cap (read by agent_response/.emit_char): full window normally, halved
     ; on a compaction pass so the captured summary can never exceed 50% -> the post-summary window
     ; stays under the 75% trigger and the endpoint loop runs at most twice.
@@ -373,6 +468,9 @@ agent_request_phase:
     mov di, fs_sector_buffer
     mov si, PHASE_LOAD_ADDR + (api_json_model_text - PHASE_BASE)
     call agent_request_phase_append_z_to_buffer
+%ifdef TLS13_PRODUCT_TLS13
+    jmp .reuse_model
+%else
     cmp byte [handoff_addr + handoff_status], handoff_status_ready
     je .reuse_model
     cmp byte [reconnect_retries], 3          ; reconnect: seed_model is handshake-clobbered -> use the cache
@@ -380,6 +478,7 @@ agent_request_phase:
     mov si, seed_model
     call agent_request_phase_append_z_to_buffer
     jmp .model_done
+%endif
 .reuse_model:
     mov si, chat_model_cache
     mov cx, seed_model_len
@@ -636,7 +735,9 @@ http_openai_path_text db '/v1/responses', 0
 http_version_text db ' HTTP/1.1', 13, 10, 0
 http_host_text db 'Host:', 0
 http_auth_bearer_text db 'Authorization:Bearer ', 0
-http_content_length_text db 'Content-Length:', 0
+; OpenAI's Responses endpoint consumes JSON. Combine the immutable media-type
+; and length fields so the existing append call emits both with no code growth.
+http_content_length_text db 'Content-Type:application/json', 13, 10, 'Content-Length:', 0
 agent_request_host_openai_text db 'api.openai.com', 0
 api_json_model_text db '{"model":"', 0
 api_json_model_text_len equ $ - api_json_model_text - 1
@@ -712,10 +813,8 @@ agent_request_phase_append_z_bounded_to_buffer:
     ret
 
 agent_request_phase_append_crlf_to_buffer:
-    mov al, 13
-    stosb
-    mov al, 10
-    stosb
+    mov ax, 0x0a0d
+    stosw
     ret
 
 %unmacro phase_call_res 1

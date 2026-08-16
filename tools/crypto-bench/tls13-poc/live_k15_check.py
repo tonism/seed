@@ -26,13 +26,17 @@ from pathlib import Path
 from unicorn import (
     UC_ARCH_X86,
     UC_HOOK_CODE,
+    UC_HOOK_INSN,
     UC_HOOK_INTR,
     UC_HOOK_MEM_WRITE,
     UC_MODE_16,
     Uc,
 )
 from unicorn.x86_const import (
+    UC_X86_INS_IN,
+    UC_X86_INS_OUT,
     UC_X86_REG_AX,
+    UC_X86_REG_BP,
     UC_X86_REG_BX,
     UC_X86_REG_CX,
     UC_X86_REG_DI,
@@ -49,6 +53,7 @@ from unicorn.x86_const import (
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
+CONTROLLERS_SOURCE = HERE / "live_k15_controllers.asm"
 DEFAULT_BUILD = ROOT / "build/crypto-bench/tls13-live-k15"
 DEFAULT_IDENTITY_BUILD = ROOT / "build/crypto-bench/tls13-live-identity"
 ATTEMPT6_BUILD = ROOT / "build/crypto-bench/tls13-live-k15-attempt6"
@@ -84,6 +89,7 @@ POST_RECORD_PLAIN_MAX = (
     + POST_SCATTER_HIGH_END
     - POST_SCATTER_HIGH
 )
+POST_PEER_CLOSED = 0x3C40
 POST_HEAD_COMPLETE = 0x3C41
 POST_TICKET_MILESTONE = 0x3C42
 POST_HTTP_TOTAL = 0x3C43
@@ -121,17 +127,32 @@ PERSISTENT_SERVICES = K14_RUNTIME_END
 PERSISTENT_SERVICES_LIMIT = K14_EXTENSION_END
 PRODUCT_POOL_START = 0x3E40
 PRODUCT_POOL_END = 0x3F00
+PRODUCT_RECONNECT_TELEMETRY_START = 0x3CA0
+PRODUCT_RECONNECT_TELEMETRY_END = 0x3CA7
 TCP_REMOTE_ACK = 0x06F1
 TCP_LOCAL_SEQ = 0x06ED
+TCP_TX_FRAME = 0x0700
+TCP_WINDOW_WORD = TCP_TX_FRAME + 34 + 14
+TCP_CHECKSUM_WORD = TCP_TX_FRAME + 34 + 16
 TCP_RX_PTR = 0x0FE2
 TCP_RX_LEN = 0x0FE4
+RES_LOAD_PHASE = 0x10C4
+RES_BUILD_TCP_FRAME = 0x13E2
 PARSE_TCP_PAYLOAD = 0x1522
+HANDOFF_BOOT_DRIVE = 0x060A
+POST_LOAD_ATTEMPT_LIMIT = 3
+POST_LOAD_TRAMPOLINE = 0x0700
+POST_LOAD_TRAMPOLINE_LIMIT = 0x0800
+POST_LOAD_PARTIAL_SECOND_BYTES = 496
+NIC_VT_TRANSMIT = 0x15DF
 NIC_VT_RECEIVE = 0x15E1
 NIC_VT_RX_FALLBACK = 0x15E3
 NE_RX_SAMPLE_COUNT = 0x06D5
 RX_BUFFER = 0x0700
 RX_BUFFER_END = 0x08B6
 BIOS_TICK = 0x046C
+HISTORICAL_DEADLINE_TICKS = 273
+TIMING_FIRST_TICK = 0x0100
 NST_EARLY_DATA_EXTENSION = b"\x00\x2a\x00\x04\x00\x00\x38\x00"
 NST_LIVE_UNKNOWN_EXTENSION = b"\x3a\x3a\x00\x00"
 NST_LIVE_EXTENSIONS = NST_EARLY_DATA_EXTENSION + NST_LIVE_UNKNOWN_EXTENSION
@@ -269,8 +290,16 @@ class Machine:
         self.failed = False
         self.done = False
         self.sym_initialized = False
+        self.io_writes: list[tuple[int, int, int]] = []
         self.post_sym_writes: list[tuple[int, int, int]] = []
+        self.interrupt_handlers: dict[int, object] = {}
         self.uc.hook_add(UC_HOOK_CODE, self._dispatch)
+        self.uc.hook_add(
+            UC_HOOK_INSN, self._in, None, 1, 0, UC_X86_INS_IN
+        )
+        self.uc.hook_add(
+            UC_HOOK_INSN, self._out, None, 1, 0, UC_X86_INS_OUT
+        )
         self.uc.hook_add(UC_HOOK_MEM_WRITE, self._write)
         self.uc.hook_add(UC_HOOK_INTR, self._interrupt)
 
@@ -293,12 +322,34 @@ class Machine:
                 (machine.reg_read(UC_X86_REG_IP) & 0xFFFF, address, size)
             )
 
-    def _interrupt(self, _machine: Uc, intno: int, _user) -> None:
+    def _interrupt(self, machine: Uc, intno: int, _user) -> None:
+        handler = self.interrupt_handlers.get(intno)
+        if handler is not None:
+            handler(machine)
+            return
         if intno != 0x10:
             raise AssertionError(f"unexpected real-mode interrupt {intno:#x}")
 
+    def _in(self, _machine: Uc, port: int, size: int, _user) -> int:
+        if port == 0x03FD and size == 1:
+            return 0x20
+        raise AssertionError(f"unexpected IN port={port:#06x} size={size}")
+
+    def _out(
+        self,
+        _machine: Uc,
+        port: int,
+        size: int,
+        value: int,
+        _user,
+    ) -> None:
+        self.io_writes.append((port, size, value & ((1 << (size * 8)) - 1)))
+
     def call_handler(self, address: int, handler) -> None:
         self.handlers[address] = handler
+
+    def interrupt_handler(self, intno: int, handler) -> None:
+        self.interrupt_handlers[intno] = handler
 
     def fail_handler(self, address: int) -> None:
         def failed(machine: Uc) -> None:
@@ -328,6 +379,67 @@ def parse_phase(manifest: dict[str, object], name: str) -> dict[str, object]:
             assert isinstance(phase, dict)
             return phase
     raise AssertionError(f"manifest lacks {name}")
+
+
+def assemble_deadline_controller(
+    build: Path,
+    manifest: dict[str, object],
+    *,
+    timing_diagnostic: bool,
+) -> bytes:
+    services = manifest["persistent_services"]
+    if not isinstance(services, dict):
+        raise AssertionError("manifest lacks persistent services")
+    defines = [
+        "LIVE_K15_PROTECTED_CONTROLLER",
+        "LIVE_K15_PRODUCT_MODE",
+        f"LIVE_K15_PERSIST_FAIL={services['fail']}",
+        f"LIVE_K15_PERSIST_EMIT={services['emit']}",
+        f"LIVE_K15_PERSIST_ZERO_WINDOW={services['zero_window']}",
+        f"LIVE_K15_PERSIST_TRANSITION={services['transition']}",
+        (
+            "LIVE_K15_POST_CONTROLLER_KEY="
+            f"0x{parse_key(manifest, 'post_controller'):04x}"
+        ),
+    ]
+    if timing_diagnostic:
+        defines.append("LIVE_K15_TIMING_DIAGNOSTIC")
+    output = build / (
+        "protected-deadline-diagnostic.bin"
+        if timing_diagnostic
+        else "protected-deadline-clean.bin"
+    )
+    listing = output.with_suffix(".lst")
+    command = [
+        "nasm",
+        "-f",
+        "bin",
+        f"-I{ROOT}/",
+        f"-I{HERE}/",
+        f"-I{ROOT / 'targets/ibm_pc_5150/boot'}/",
+        f"-I{ROOT / 'targets/ibm_pc_5150/boot/tls13'}/",
+    ]
+    for define in defines:
+        command.extend(["-D", define])
+    command.extend(
+        [
+            "-l",
+            str(listing),
+            "-o",
+            str(output),
+            str(CONTROLLERS_SOURCE),
+        ]
+    )
+    subprocess.run(command, cwd=ROOT, check=True)
+    image = output.read_bytes()
+    phase = parse_phase(manifest, "protected_controller")
+    reserved = int(phase["sectors"]) * 512
+    if len(image) > reserved:
+        raise AssertionError(
+            "deadline parity controller exceeds the product phase slot: "
+            f"{len(image)} > {reserved}"
+        )
+    return image
 
 
 def listing_label_address(listing: Path, label: str, origin: int) -> int:
@@ -538,10 +650,16 @@ def validate_identity_manifest(
     if not isinstance(phases, list):
         raise AssertionError("identity manifest lacks phase ledger")
     names = [phase.get("name") for phase in phases if isinstance(phase, dict)]
+    secure_checkpoint = manifest.get("secure_fo_checkpoint")
+    secure_fo = (
+        isinstance(secure_checkpoint, dict)
+        and secure_checkpoint.get("enabled") is True
+    )
     required_names = (
         "protected_controller",
         "post_controller",
         "sym",
+        *(("fo_controller", "fo") if secure_fo else ()),
         "auth_controller",
         "auth_track_pad",
         "auth",
@@ -566,6 +684,7 @@ def validate_identity_manifest(
     protected = parse_phase(manifest, "protected_controller")
     post = parse_phase(manifest, "post_controller")
     sym = parse_phase(manifest, "sym")
+    auth_predecessor = parse_phase(manifest, "fo") if secure_fo else sym
     auth_controller = parse_phase(manifest, "auth_controller")
     auth = parse_phase(manifest, "auth")
     expected_geometry = {
@@ -574,9 +693,24 @@ def validate_identity_manifest(
         "auth_controller": (AUTH_CONTROLLER_ADDR, 1, 512),
         "auth": (AUTH_IMAGE_ADDR, 13, 13 * 512),
     }
+    if secure_fo:
+        expected_geometry.update(
+            {
+                "fo_controller": (0x2400, 1, 512),
+                "fo": (0x1800, 6, 6 * 512),
+            }
+        )
     for name, phase in (
         ("protected_controller", protected),
         ("post_controller", post),
+        *(
+            (
+                ("fo_controller", parse_phase(manifest, "fo_controller")),
+                ("fo", parse_phase(manifest, "fo")),
+            )
+            if secure_fo
+            else ()
+        ),
         ("auth_controller", auth_controller),
         ("auth", auth),
     ):
@@ -588,10 +722,13 @@ def validate_identity_manifest(
         ):
             raise AssertionError(f"identity {name} geometry drifted")
     if (
-        int(sym["start_sector"]) + int(sym["sectors"])
+        int(auth_predecessor["start_sector"])
+        + int(auth_predecessor["sectors"])
         != int(auth_controller["start_sector"])
     ):
-        raise AssertionError("identity auth controller does not follow symmetric phase")
+        raise AssertionError(
+            "identity auth controller does not follow its final crypto phase"
+        )
     if not (
         int(auth_controller["start_sector"])
         + int(auth_controller["sectors"])
@@ -709,6 +846,7 @@ def validate_identity_manifest(
         "auth_image_sector_load": (
             f"0x{auth_image_start:04x}..0x{auth_load_end:04x}"
         ),
+        "auth_predecessor": "fo" if secure_fo else "sym",
         "persistent_caller_disjoint": True,
         "auth_absolute_lba": auth_lba,
         "auth_sectors": int(auth["sectors"]),
@@ -929,6 +1067,7 @@ def test_hello(
         "zero_window": 0x0510,
         "relocate_pending": 0x0512,
         "fragment_prehashed": 0x0514,
+        "nic_fallback": 0x0516,
     }
     table = [0] * 14
     table[0] = stubs["fresh"]
@@ -975,6 +1114,24 @@ def test_hello(
     initial_ack = 0x12345678
     machine.uc.mem_write(TCP_REMOTE_ACK, initial_ack.to_bytes(4, "big"))
     receive_index = 0
+    fallback_calls = 0
+
+    def publish_receive(machine_uc: Uc) -> bool:
+        nonlocal receive_index
+        if receive_index >= len(frames):
+            return False
+        payload = frames[receive_index]
+        receive_index += 1
+        machine_uc.mem_write(RX_BUFFER, payload)
+        write_word(machine_uc, TCP_RX_PTR, RX_BUFFER)
+        write_word(machine_uc, TCP_RX_LEN, len(payload))
+        ack = int.from_bytes(machine_uc.mem_read(TCP_REMOTE_ACK, 4), "big")
+        machine_uc.mem_write(
+            TCP_REMOTE_ACK,
+            ((ack + len(payload)) & 0xFFFFFFFF).to_bytes(4, "big"),
+        )
+        write_word(machine_uc, BIOS_TICK, 0x0100 + receive_index)
+        return True
 
     def ok(machine_uc: Uc) -> None:
         return_call(machine_uc)
@@ -1133,24 +1290,25 @@ def test_hello(
     machine.call_handler(0x13BF, tcp_send)
 
     def tcp_receive(machine_uc: Uc) -> None:
-        nonlocal receive_index
-        if receive_index >= len(frames):
+        if not publish_receive(machine_uc):
             return_call(machine_uc, carry=True)
             return
-        payload = frames[receive_index]
-        receive_index += 1
-        machine_uc.mem_write(RX_BUFFER, payload)
-        write_word(machine_uc, TCP_RX_PTR, RX_BUFFER)
-        write_word(machine_uc, TCP_RX_LEN, len(payload))
-        ack = int.from_bytes(machine_uc.mem_read(TCP_REMOTE_ACK, 4), "big")
-        machine_uc.mem_write(
-            TCP_REMOTE_ACK,
-            ((ack + len(payload)) & 0xFFFFFFFF).to_bytes(4, "big"),
-        )
-        write_word(machine_uc, BIOS_TICK, 0x0100 + receive_index)
         return_call(machine_uc)
 
     machine.call_handler(0x14ED, tcp_receive)
+
+    def nic_fallback(machine_uc: Uc) -> None:
+        nonlocal fallback_calls
+        fallback_calls += 1
+        # Alternate successful fast-driver publication with the carry-set
+        # default so this one trace executes both controller branches.
+        if fallback_calls & 1 and publish_receive(machine_uc):
+            return_call(machine_uc)
+            return
+        return_call(machine_uc, carry=True)
+
+    write_word(machine.uc, NIC_VT_RX_FALLBACK, stubs["nic_fallback"])
+    machine.call_handler(stubs["nic_fallback"], nic_fallback)
 
     def tcp_ack(machine_uc: Uc) -> None:
         nonlocal acknowledgements
@@ -1218,6 +1376,8 @@ def test_hello(
         "coalesced_protected_tail_bytes": len(protected_tail),
         "zero_window_ack": f"0x{zero_ack:08x}",
         "ordinary_ack_calls": acknowledgements,
+        "driver_fast_receive_calls": fallback_calls,
+        "driver_fast_and_resident_receive_paths": True,
         "feed_clobbered_si_cx_dx": True,
         "client_prefix_stage": (
             f"0x{HELLO_TX_STAGE_START:04x}.."
@@ -1633,12 +1793,25 @@ def test_protected(
     protected_controller: bytes,
     manifest: dict[str, object],
     *,
+    post_controller: bytes | None = None,
+    finished_elapsed_ticks: int = HISTORICAL_DEADLINE_TICKS,
+    expected_timing_marker: str | None = None,
     fail_head_send: bool = False,
     compatibility_ccs_count: int = 1,
     coalesced_tail: bytes = b"",
     later_frame_tail: bytes = b"",
     expected_shape_failure: str | None = None,
+    post_load_failures: int = 0,
+    expect_post_load_failure: bool = False,
 ) -> dict[str, object]:
+    if not 0 <= finished_elapsed_ticks <= 0xFFFF:
+        raise AssertionError(
+            f"invalid Finished elapsed tick fixture: {finished_elapsed_ticks}"
+        )
+    if expected_timing_marker not in (None, "d", "l"):
+        raise AssertionError(
+            "timing marker must be None, 'd', or 'l'"
+        )
     machine = Machine(protected_controller, entry=PROTECTED_CONTROLLER_ADDR)
     low = manifest["persistent_services"]
     assert isinstance(low, dict)
@@ -1646,6 +1819,65 @@ def test_protected(
     low_fail = int(low["fail"], 0)
     zero_window = int(low["zero_window"], 0)
     transition = int(low["transition"], 0)
+    mode = manifest.get("mode")
+    product_mode = (
+        isinstance(mode, dict) and mode.get("product") is True
+    )
+    if post_load_failures < 0:
+        raise AssertionError("post-controller load failure count is negative")
+    if (post_load_failures or expect_post_load_failure) and not product_mode:
+        raise AssertionError(
+            "post-controller disk retry fixture requires product mode"
+        )
+    if expect_post_load_failure:
+        if post_load_failures != POST_LOAD_ATTEMPT_LIMIT:
+            raise AssertionError(
+                "persistent post-controller load fixture must fail all "
+                f"{POST_LOAD_ATTEMPT_LIMIT} attempts"
+            )
+    elif post_load_failures >= POST_LOAD_ATTEMPT_LIMIT:
+        raise AssertionError(
+            "successful post-controller load fixture exceeds the bounded "
+            "attempt limit"
+        )
+    post_phase_image: bytes | None = None
+    partial_post_phase_bytes = 0
+    if product_mode:
+        if post_controller is None:
+            raise AssertionError(
+                "product protected-controller gate requires the actual "
+                "post-controller phase"
+            )
+        post_phase = parse_phase(manifest, "post_controller")
+        post_phase_sectors = int(post_phase["sectors"])
+        post_phase_bytes = int(post_phase["bytes"])
+        post_phase_destination = int(str(post_phase["destination"]), 0)
+        if (
+            post_phase_sectors != 2
+            or post_phase_bytes != len(post_controller)
+            or post_phase["sha256"]
+            != hashlib.sha256(post_controller).hexdigest()
+            or post_phase_destination != POST_CONTROLLER_ADDR
+            or post_phase_bytes > post_phase_sectors * 512
+        ):
+            raise AssertionError(
+                "post-controller artifact/manifest geometry drifted"
+            )
+        post_phase_image = post_controller.ljust(
+            post_phase_sectors * 512,
+            b"\0",
+        )
+        partial_post_phase_bytes = (
+            512 + POST_LOAD_PARTIAL_SECOND_BYTES
+        )
+        if not (
+            512
+            < partial_post_phase_bytes
+            < len(post_phase_image)
+        ):
+            raise AssertionError(
+                "partial second-sector failure fixture is not partial"
+            )
     machine.fail_handler(low_fail)
 
     stubs = {
@@ -1658,6 +1890,7 @@ def test_protected(
         "nic_fallback": 0x052C,
         "derive_client_application": 0x052E,
         "build_head": 0x0530,
+        "nic_transmit": 0x0532,
     }
     table = [0] * 18
     table[4] = stubs["open_begin"]
@@ -1670,6 +1903,8 @@ def test_protected(
     machine.uc.mem_write(0x1820, struct.pack("<18H", *table))
     write_word(machine.uc, NIC_VT_RECEIVE, stubs["nic_receive"])
     write_word(machine.uc, NIC_VT_RX_FALLBACK, stubs["nic_fallback"])
+    if product_mode:
+        write_word(machine.uc, NIC_VT_TRANSMIT, stubs["nic_transmit"])
     before_guard = bytes([0xC3]) * (PROTECTED_CONTROLLER_ADDR - RX_BUFFER_END)
     after_guard = bytes([0x3C]) * (
         PROTECTED_LOW_GUARD_END - PROTECTED_CONTROLLER_END
@@ -1734,6 +1969,10 @@ def test_protected(
     build_head_called = False
     zero_window_calls = 0
     transitioned: tuple[int, int] | None = None
+    phase_load_attempts: list[tuple[int, int]] = []
+    phase_load_continuations: list[int] = []
+    disk_reset_calls: list[tuple[int, int]] = []
+    post_controller_loaded = False
     queued_receive_calls = 0
     queued_parse_calls = 0
     queued_payloads = [later_frame_tail] if later_frame_tail else []
@@ -1741,9 +1980,17 @@ def test_protected(
     current_queued_payload: bytes | None = None
     initial_seq = bytes.fromhex("01234567")
     machine.uc.mem_write(TCP_LOCAL_SEQ, initial_seq)
+    boot_drive = 1
+    if product_mode:
+        machine.uc.mem_write(HANDOFF_BOOT_DRIVE, bytes((boot_drive,)))
 
-    write_word(machine.uc, 0x3CA0, 0x0100)
-    write_word(machine.uc, 0x3CA2, 0x0103)
+    finished_tick = (
+        TIMING_FIRST_TICK + finished_elapsed_ticks
+    ) & 0xFFFF
+    app_ready_tick = (finished_tick + 12) & 0xFFFF
+    head_return_tick = (finished_tick + 19) & 0xFFFF
+    write_word(machine.uc, 0x3CA0, TIMING_FIRST_TICK)
+    write_word(machine.uc, 0x3CA2, (TIMING_FIRST_TICK + 3) & 0xFFFF)
 
     def tcp_receive(machine_uc: Uc) -> None:
         nonlocal receive_index
@@ -1860,7 +2107,7 @@ def test_protected(
     def derive_client_application(machine_uc: Uc) -> None:
         nonlocal derive_client_called
         derive_client_called = True
-        write_word(machine_uc, BIOS_TICK, 0x011B)
+        write_word(machine_uc, BIOS_TICK, app_ready_tick)
         return_call(machine_uc)
 
     machine.call_handler(
@@ -1900,9 +2147,9 @@ def test_protected(
             return
         add_tcp_seq(machine_uc, TCP_LOCAL_SEQ, count)
         if len(send_attempts) == 1:
-            write_word(machine_uc, BIOS_TICK, 0x010F)
+            write_word(machine_uc, BIOS_TICK, finished_tick)
         elif len(send_attempts) == 2:
-            write_word(machine_uc, BIOS_TICK, 0x0122)
+            write_word(machine_uc, BIOS_TICK, head_return_tick)
         return_call(machine_uc)
 
     machine.call_handler(0x13BF, tcp_send)
@@ -1920,18 +2167,127 @@ def test_protected(
         zero_window_calls += 1
         return_call(machine_uc)
 
-    machine.call_handler(zero_window, send_zero_window)
+    if product_mode:
+        def build_zero_window_frame(machine_uc: Uc) -> None:
+            write_word(machine_uc, TCP_WINDOW_WORD, 0x0001)
+            write_word(machine_uc, TCP_CHECKSUM_WORD, 0x2468)
+            return_call(machine_uc)
 
-    def phase_transition(machine_uc: Uc) -> None:
-        nonlocal transitioned
-        transitioned = (
-            machine_uc.reg_read(UC_X86_REG_AX) & 0xFFFF,
-            machine_uc.reg_read(UC_X86_REG_BX) & 0xFFFF,
+        def transmit_zero_window(machine_uc: Uc) -> None:
+            if (
+                word(machine_uc, TCP_WINDOW_WORD) != 0
+                or word(machine_uc, TCP_CHECKSUM_WORD) != 0x2469
+            ):
+                raise AssertionError(
+                    "inlined product zero-window frame/checksum drifted"
+                )
+            send_zero_window(machine_uc)
+
+        machine.call_handler(
+            RES_BUILD_TCP_FRAME,
+            build_zero_window_frame,
         )
-        machine.done = True
-        machine_uc.emu_stop()
+        machine.call_handler(
+            stubs["nic_transmit"],
+            transmit_zero_window,
+        )
+    else:
+        machine.call_handler(zero_window, send_zero_window)
 
-    machine.call_handler(transition, phase_transition)
+    expected_post_load = (
+        parse_key(manifest, "post_controller"),
+        POST_CONTROLLER_ADDR,
+    )
+
+    if product_mode:
+        def load_post_controller(machine_uc: Uc) -> None:
+            nonlocal post_controller_loaded
+            assert post_phase_image is not None
+            request = (
+                machine_uc.reg_read(UC_X86_REG_AX) & 0xFFFF,
+                machine_uc.reg_read(UC_X86_REG_BX) & 0xFFFF,
+            )
+            phase_load_attempts.append(request)
+            if request != expected_post_load:
+                raise AssertionError(
+                    "post-controller retry changed phase key/destination: "
+                    f"expected={expected_post_load!r} actual={request!r}"
+                )
+            if len(phase_load_attempts) > POST_LOAD_ATTEMPT_LIMIT:
+                raise AssertionError(
+                    "post-controller phase load exceeded the bounded "
+                    f"{POST_LOAD_ATTEMPT_LIMIT}-attempt contract"
+                )
+            sp = machine_uc.reg_read(UC_X86_REG_SP) & 0xFFFF
+            continuation = word(machine_uc, sp)
+            phase_load_continuations.append(continuation)
+            if not (
+                POST_LOAD_TRAMPOLINE
+                <= continuation
+                < POST_LOAD_TRAMPOLINE_LIMIT
+            ):
+                raise AssertionError(
+                    "post-controller phase load continuation is not in "
+                    "safe low scratch: "
+                    f"0x{continuation:04x}"
+                )
+            should_fail = (
+                expect_post_load_failure
+                or len(phase_load_attempts) <= post_load_failures
+            )
+            if should_fail:
+                # Model a first sector that completed and a second sector
+                # whose DMA reached through the retired in-place caller
+                # before BIOS reported failure.  Only the relocated 0x0700
+                # continuation is therefore safe to retry.
+                machine_uc.mem_write(
+                    POST_CONTROLLER_ADDR,
+                    post_phase_image[:partial_post_phase_bytes],
+                )
+                return_call(machine_uc, carry=True)
+                return
+            machine_uc.mem_write(
+                POST_CONTROLLER_ADDR,
+                post_phase_image,
+            )
+            post_controller_loaded = True
+            return_call(machine_uc)
+
+        machine.call_handler(RES_LOAD_PHASE, load_post_controller)
+
+        def disk_reset(machine_uc: Uc) -> None:
+            ax = machine_uc.reg_read(UC_X86_REG_AX) & 0xFFFF
+            dl = machine_uc.reg_read(UC_X86_REG_DX) & 0xFF
+            disk_reset_calls.append((ax, dl))
+            if ax != 0 or dl != boot_drive:
+                raise AssertionError(
+                    "post-controller retry escaped the BIOS reset contract: "
+                    f"AX={ax:04x} DL={dl:02x}"
+                )
+            set_carry(machine_uc, False)
+
+        machine.interrupt_handler(0x13, disk_reset)
+
+        def post_controller_entry(machine_uc: Uc) -> None:
+            nonlocal transitioned
+            if not post_controller_loaded:
+                return
+            transitioned = phase_load_attempts[-1]
+            machine.done = True
+            machine_uc.emu_stop()
+
+        machine.call_handler(POST_CONTROLLER_ADDR, post_controller_entry)
+    else:
+        def phase_transition(machine_uc: Uc) -> None:
+            nonlocal transitioned
+            transitioned = (
+                machine_uc.reg_read(UC_X86_REG_AX) & 0xFFFF,
+                machine_uc.reg_read(UC_X86_REG_BX) & 0xFFFF,
+            )
+            machine.done = True
+            machine_uc.emu_stop()
+
+        machine.call_handler(transition, phase_transition)
 
     def emit(machine_uc: Uc) -> None:
         pointer = machine_uc.reg_read(UC_X86_REG_SI) & 0xFFFF
@@ -1939,11 +2295,156 @@ def test_protected(
         emitted.append(text)
         return_call(machine_uc)
 
-    machine.call_handler(low_emit, emit)
+    if not product_mode:
+        machine.call_handler(low_emit, emit)
     machine.sym_initialized = True
     machine.run()
+    reconnect_telemetry_writes = [
+        (ip, address, size)
+        for ip, address, size in machine.post_sym_writes
+        if ranges_overlap(
+            (address, address + size),
+            (
+                PRODUCT_RECONNECT_TELEMETRY_START,
+                PRODUCT_RECONNECT_TELEMETRY_END,
+            ),
+        )
+    ]
+    if (
+        product_mode
+        and expected_timing_marker is None
+        and reconnect_telemetry_writes
+    ):
+        raise AssertionError(
+            "authoritative protected controller wrote the resident "
+            "reconnect/telemetry overlap: "
+            f"{reconnect_telemetry_writes!r}"
+        )
+    observed_finished_elapsed_ticks = (
+        finished_elapsed_ticks
+        if product_mode and expected_timing_marker is None
+        else (
+            word(machine.uc, 0x3CA4) - word(machine.uc, 0x3CA0)
+        )
+        & 0xFFFF
+    )
     output = "".join(emitted)
+    uart_bytes = bytes(
+        value
+        for port, size, value in machine.io_writes
+        if port == 0x03F8 and size == 1
+    )
+    unexpected_io = [
+        item
+        for item in machine.io_writes
+        if not (item[0] == 0x03F8 and item[1] == 1)
+    ]
+    if unexpected_io:
+        raise AssertionError(
+            f"protected controller used unexpected diagnostic I/O: "
+            f"{unexpected_io!r}"
+        )
+    expected_uart = {
+        None: b"",
+        "d": b"d",
+        "l": b"l",
+    }[expected_timing_marker]
+    if uart_bytes != expected_uart:
+        raise AssertionError(
+            "protected timing trace drifted: "
+            f"expected={expected_uart!r} actual={uart_bytes!r}"
+        )
+
+    def external_behavior() -> dict[str, object]:
+        return {
+            "send_attempts": [
+                {
+                    "sequence": sequence.hex(),
+                    "payload": payload.hex(),
+                }
+                for sequence, payload in send_attempts
+            ],
+            "wait_ticks": list(wait_calls),
+            "zero_window_calls": zero_window_calls,
+            "transition": (
+                None
+                if transitioned is None
+                else [transitioned[0], transitioned[1]]
+            ),
+            "post_controller_load_attempts": [
+                {
+                    "key": f"0x{key:04x}",
+                    "destination": f"0x{destination:04x}",
+                }
+                for key, destination in phase_load_attempts
+            ],
+            "post_controller_load_continuations": [
+                f"0x{continuation:04x}"
+                for continuation in phase_load_continuations
+            ],
+            "partial_second_sector_bytes": (
+                POST_LOAD_PARTIAL_SECOND_BYTES
+                if phase_load_attempts
+                and (post_load_failures or expect_post_load_failure)
+                else 0
+            ),
+            "disk_reset_calls": [
+                {"ax": f"0x{ax:04x}", "drive": drive}
+                for ax, drive in disk_reset_calls
+            ],
+            "emitted": output,
+            "final_tcp_sequence": bytes(
+                machine.uc.mem_read(TCP_LOCAL_SEQ, 4)
+            ).hex(),
+            "client_application_write_key_derived": derive_client_called,
+            "head_built": build_head_called,
+            "failed": machine.failed,
+            "done": machine.done,
+        }
+
+    def assert_post_load_contract(
+        *,
+        expected_attempts: int,
+        expected_resets: int,
+    ) -> None:
+        if not product_mode:
+            return
+        if phase_load_attempts != [expected_post_load] * expected_attempts:
+            raise AssertionError(
+                "post-controller phase-load attempts drifted: "
+                f"expected={[expected_post_load] * expected_attempts!r} "
+                f"actual={phase_load_attempts!r}"
+            )
+        if (
+            len(phase_load_continuations) != expected_attempts
+            or any(
+                not (
+                    POST_LOAD_TRAMPOLINE
+                    <= continuation
+                    < POST_LOAD_TRAMPOLINE_LIMIT
+                )
+                for continuation in phase_load_continuations
+            )
+            or (
+                phase_load_continuations
+                and len(set(phase_load_continuations)) != 1
+            )
+        ):
+            raise AssertionError(
+                "post-controller phase-load continuation escaped the "
+                "single relocated low-scratch call site: "
+                f"{phase_load_continuations!r}"
+            )
+        expected_reset_calls = [(0, boot_drive)] * expected_resets
+        if disk_reset_calls != expected_reset_calls:
+            raise AssertionError(
+                "post-controller BIOS reset attempts drifted: "
+                f"expected={expected_reset_calls!r} "
+                f"actual={disk_reset_calls!r}"
+            )
+
     if expected_shape_failure is not None:
+        assert_post_load_contract(expected_attempts=0, expected_resets=0)
         if not machine.failed or machine.done:
             raise AssertionError(
                 f"{expected_shape_failure} was not rejected: "
@@ -1990,6 +2491,7 @@ def test_protected(
             "status": "rejected",
         }
     if fail_head_send:
+        assert_post_load_contract(expected_attempts=0, expected_resets=0)
         if not machine.failed or machine.done:
             raise AssertionError("HEAD-send failure did not fail closed")
         if (
@@ -2007,10 +2509,87 @@ def test_protected(
             raise AssertionError("HEAD-send failure escaped past liveness boundary")
         return {
             "negative": "head-send-failure",
+            "finished_elapsed_ticks": finished_elapsed_ticks,
+            "historical_deadline_met": (
+                finished_elapsed_ticks <= HISTORICAL_DEADLINE_TICKS
+            ),
             "finished_transmit_bytes": len(finished_record),
             "head_transmit_bytes": len(head_record),
+            "timing_uart": uart_bytes.decode("ascii"),
+            "external_behavior": external_behavior(),
             "status": "rejected",
         }
+    if expect_post_load_failure:
+        assert_post_load_contract(
+            expected_attempts=POST_LOAD_ATTEMPT_LIMIT,
+            expected_resets=POST_LOAD_ATTEMPT_LIMIT - 1,
+        )
+        assert post_phase_image is not None
+        if not machine.failed or machine.done or transitioned is not None:
+            raise AssertionError(
+                "persistent post-controller load failure did not fail closed: "
+                f"failed={machine.failed} done={machine.done} "
+                f"transition={transitioned!r}"
+            )
+        if (
+            len(send_attempts) != 2
+            or wait_calls != [1]
+            or zero_window_calls != 1
+            or not derive_client_called
+            or not build_head_called
+        ):
+            raise AssertionError(
+                "persistent post-controller load failure escaped its "
+                "post-HEAD boundary"
+            )
+        if (
+            bytes(
+                machine.uc.mem_read(
+                    POST_CONTROLLER_ADDR,
+                    partial_post_phase_bytes,
+                )
+            )
+            != post_phase_image[:partial_post_phase_bytes]
+        ):
+            raise AssertionError(
+                "persistent failure did not exercise the partial "
+                "second-sector overwrite"
+            )
+        return {
+            "negative": "persistent-post-controller-load-failure",
+            "phase_load_attempts": len(phase_load_attempts),
+            "bios_reset_attempts": len(disk_reset_calls),
+            "attempt_limit": POST_LOAD_ATTEMPT_LIMIT,
+            "phase_key": f"0x{expected_post_load[0]:04x}",
+            "destination": f"0x{expected_post_load[1]:04x}",
+            "relocated_continuation": (
+                f"0x{phase_load_continuations[0]:04x}"
+            ),
+            "partial_second_sector_bytes": (
+                POST_LOAD_PARTIAL_SECOND_BYTES
+            ),
+            "failed_through_persistent_service": True,
+            "external_behavior": external_behavior(),
+            "status": "rejected",
+        }
+    assert_post_load_contract(
+        expected_attempts=post_load_failures + 1,
+        expected_resets=post_load_failures,
+    )
+    if product_mode:
+        assert post_phase_image is not None
+        if (
+            bytes(
+                machine.uc.mem_read(
+                    POST_CONTROLLER_ADDR,
+                    len(post_phase_image),
+                )
+            )
+            != post_phase_image
+        ):
+            raise AssertionError(
+                "successful post-controller phase load is not byte exact"
+            )
     if machine.failed or not machine.done:
         raise AssertionError(
             "SYM/Finished controller reached the low fail path: "
@@ -2057,19 +2636,19 @@ def test_protected(
     ).to_bytes(4, "big")
     if bytes(machine.uc.mem_read(TCP_LOCAL_SEQ, 4)) != expected_final_seq:
         raise AssertionError("post-Finished TCP sequence drifted")
-    output_lines = [line.strip() for line in output.splitlines()]
+    output_lines = [
+        line.strip() for line in output.splitlines() if line.strip()
+    ]
     if (
-        "DEADLINE PASS" not in output_lines
-        or "HEAD TX" not in output_lines
+        output_lines != ([] if product_mode else ["HEAD TX"])
+        or "DEADLINE PASS" in output_lines
+        or "DEADLINE LATE" in output_lines
         or any(line.startswith("T F/A/H=") for line in output_lines)
         or "PASS" in output_lines
         or "RESULT" in output_lines
     ):
         raise AssertionError(f"pre-canary timing milestone drifted: {output!r}")
-    expected_transition = (
-        parse_key(manifest, "post_controller"),
-        POST_CONTROLLER_ADDR,
-    )
+    expected_transition = expected_post_load
     if (
         not derive_client_called
         or not build_head_called
@@ -2143,17 +2722,172 @@ def test_protected(
         "finished_transmit_attempts": 1,
         "head_transmit_bytes": len(head_record),
         "head_transmit_attempts": 1,
-        "tx_tick_after_send_return": word(machine.uc, 0x3CA4) == 0x010F,
-        "app_ready_tick": f"0x{word(machine.uc, 0x3CA6):04x}",
-        "head_return_tick": f"0x{word(machine.uc, 0x3CA8):04x}",
+        "finished_elapsed_ticks": observed_finished_elapsed_ticks,
+        "historical_deadline_ticks": HISTORICAL_DEADLINE_TICKS,
+        "historical_deadline_met": (
+            finished_elapsed_ticks <= HISTORICAL_DEADLINE_TICKS
+        ),
+        "timing_uart": uart_bytes.decode("ascii"),
+        "external_behavior": external_behavior(),
         "post_sym_extension_writes": 0,
         "client_application_write_key_derived": True,
         "head_before_zero_window_and_cold_load": True,
         "post_controller_transition": "0x0900",
+        "post_controller_load_attempts": len(phase_load_attempts),
+        "post_controller_bios_resets": len(disk_reset_calls),
+        "post_controller_attempt_limit": POST_LOAD_ATTEMPT_LIMIT,
+        "post_controller_relocated_continuation": (
+            None
+            if not phase_load_continuations
+            else f"0x{phase_load_continuations[0]:04x}"
+        ),
+        "post_controller_partial_second_sector_bytes": (
+            POST_LOAD_PARTIAL_SECOND_BYTES
+            if post_load_failures
+            else 0
+        ),
         "post_sym_persistent_service_writes": 0,
         "product_arena_context_writes": 0,
+        "resident_reconnect_telemetry_overlap_writes": len(
+            reconnect_telemetry_writes
+        ),
         "rx_and_upper_sentinels": "pass",
         "terminal": output,
+        "status": "pass",
+    }
+
+
+def test_deadline_observation_parity(
+    manifest: dict[str, object],
+    post_controller: bytes,
+) -> dict[str, object]:
+    """Prove the historical tick observation cannot change TLS behavior."""
+
+    # This helper deliberately assembles LIVE_K15_PRODUCT_MODE even when the
+    # supplied base is a standalone PoC manifest.  Make the execution model
+    # match that assembled controller without changing the caller's manifest.
+    product_manifest = copy.deepcopy(manifest)
+    mode = product_manifest.get("mode")
+    if not isinstance(mode, dict):
+        mode = {}
+        product_manifest["mode"] = mode
+    mode["product"] = True
+
+    with tempfile.TemporaryDirectory(
+        prefix="seed-live-k15-deadline-parity-"
+    ) as raw:
+        build = Path(raw)
+        clean = assemble_deadline_controller(
+            build, product_manifest, timing_diagnostic=False
+        )
+        timing_diagnostic = assemble_deadline_controller(
+            build, product_manifest, timing_diagnostic=True
+        )
+
+        clean_at = test_protected(
+            clean,
+            product_manifest,
+            post_controller=post_controller,
+            finished_elapsed_ticks=HISTORICAL_DEADLINE_TICKS,
+        )
+        clean_late = test_protected(
+            clean,
+            product_manifest,
+            post_controller=post_controller,
+            finished_elapsed_ticks=HISTORICAL_DEADLINE_TICKS + 1,
+        )
+        diagnostic_at = test_protected(
+            timing_diagnostic,
+            product_manifest,
+            post_controller=post_controller,
+            finished_elapsed_ticks=HISTORICAL_DEADLINE_TICKS,
+            expected_timing_marker="d",
+        )
+        diagnostic_late = test_protected(
+            timing_diagnostic,
+            product_manifest,
+            post_controller=post_controller,
+            finished_elapsed_ticks=HISTORICAL_DEADLINE_TICKS + 1,
+            expected_timing_marker="l",
+        )
+        late_head_failure = test_protected(
+            clean,
+            product_manifest,
+            post_controller=post_controller,
+            finished_elapsed_ticks=HISTORICAL_DEADLINE_TICKS + 1,
+            fail_head_send=True,
+        )
+        post_load_retry = test_protected(
+            clean,
+            product_manifest,
+            post_controller=post_controller,
+            post_load_failures=1,
+        )
+        post_load_persistent_failure = test_protected(
+            clean,
+            product_manifest,
+            post_controller=post_controller,
+            post_load_failures=POST_LOAD_ATTEMPT_LIMIT,
+            expect_post_load_failure=True,
+        )
+
+    behaviors = {
+        "clean_at_273": clean_at["external_behavior"],
+        "clean_late_274": clean_late["external_behavior"],
+        "diagnostic_at_273": diagnostic_at["external_behavior"],
+        "diagnostic_late_274": diagnostic_late["external_behavior"],
+    }
+    baseline = behaviors["clean_at_273"]
+    drifted = [
+        name for name, behavior in behaviors.items() if behavior != baseline
+    ]
+    if drifted:
+        raise AssertionError(
+            "deadline observation changed non-UART behavior: "
+            f"{drifted!r}"
+        )
+    late_failure_behavior = late_head_failure["external_behavior"]
+    if (
+        clean_at["finished_elapsed_ticks"] != HISTORICAL_DEADLINE_TICKS
+        or clean_late["finished_elapsed_ticks"]
+        != HISTORICAL_DEADLINE_TICKS + 1
+        or clean_at["historical_deadline_met"] is not True
+        or clean_late["historical_deadline_met"] is not False
+        or clean_at["resident_reconnect_telemetry_overlap_writes"] != 0
+        or clean_late["resident_reconnect_telemetry_overlap_writes"] != 0
+        or diagnostic_at["timing_uart"] != "d"
+        or diagnostic_late["timing_uart"] != "l"
+        or late_head_failure["status"] != "rejected"
+        or late_failure_behavior["transition"] is not None
+        or late_failure_behavior["zero_window_calls"] != 0
+    ):
+        raise AssertionError(
+            "deadline boundary classification/failure contract drifted"
+        )
+    return {
+        "historical_deadline_ticks": HISTORICAL_DEADLINE_TICKS,
+        "untraced_boundary_ticks": [
+            clean_at["finished_elapsed_ticks"],
+            clean_late["finished_elapsed_ticks"],
+        ],
+        "timing_diagnostic_boundary_markers": {
+            "273": diagnostic_at["timing_uart"],
+            "274": diagnostic_late["timing_uart"],
+        },
+        "identical_non_uart_behavior": True,
+        "authoritative_reconnect_telemetry_overlap": {
+            "range": (
+                f"0x{PRODUCT_RECONNECT_TELEMETRY_START:04x}.."
+                f"0x{PRODUCT_RECONNECT_TELEMETRY_END - 1:04x}"
+            ),
+            "protected_writes_at_273": 0,
+            "protected_writes_at_274": 0,
+        },
+        "late_head_send_failure": late_head_failure,
+        "post_controller_load_retry": post_load_retry,
+        "post_controller_load_persistent_failure_negative": (
+            post_load_persistent_failure
+        ),
         "status": "pass",
     }
 
@@ -2557,12 +3291,14 @@ def test_identity_auth_transition(
     post_listing: Path,
     crypto_controller: bytes,
     persistent_services: bytes,
+    fo_controller: bytes,
+    fo_image: bytes,
     auth_controller: bytes,
     auth_listing: Path,
     auth_image: bytes,
     manifest: dict[str, object],
 ) -> dict[str, object]:
-    """Execute post commit through both disk loads and the auth result branch."""
+    """Execute post commit through secure FO and the auth result branch."""
 
     services = manifest["persistent_services"]
     assert isinstance(services, dict)
@@ -2581,6 +3317,57 @@ def test_identity_auth_transition(
         raise AssertionError(
             "identity transition cannot bind persistent caller to crypto image"
         )
+    checkpoint = manifest.get("secure_fo_checkpoint")
+    if not isinstance(checkpoint, dict) or checkpoint.get("enabled") is not True:
+        raise AssertionError(
+            "identity transition gate requires the manifest-declared secure FO route"
+        )
+    phase_transitions = checkpoint.get("phase_transitions")
+    fo_kernel = checkpoint.get("fo_kernel")
+    card_vault = checkpoint.get("card_vault")
+    driver = checkpoint.get("packaged_driver")
+    if (
+        not isinstance(phase_transitions, dict)
+        or phase_transitions.get("fo_controller") != "0x2400..0x2600"
+        or phase_transitions.get("fo_kernel_loader") != "resident 0x10c4"
+        or phase_transitions.get("auth_controller") != "0x3200"
+        or phase_transitions.get("auth_loader_after_fo")
+        != "resident 0x10c4 via low trampoline"
+        or phase_transitions.get("delta_loader_dead_after_fo") is not True
+        or not isinstance(fo_kernel, dict)
+        or fo_kernel.get("runtime") != "0x1800..0x2400 padded"
+        or fo_kernel.get("requires_status") != "CF=0, AX=1"
+        or fo_kernel.get("requires_selected_k_matches_provisional") is not True
+        or not isinstance(card_vault, dict)
+        or card_vault.get("handoff_a") != "0x7e00..0x7f00"
+        or card_vault.get("handoff_b") != "0x7f00..0x8000"
+        or card_vault.get("duplicates_compared_before_scatter") is not True
+        or not isinstance(driver, dict)
+    ):
+        raise AssertionError("secure FO predecessor manifest contract drifted")
+
+    fo_controller_phase = parse_phase(manifest, "fo_controller")
+    fo_phase = parse_phase(manifest, "fo")
+    if (
+        int(str(fo_controller_phase["destination"]), 0) != 0x2400
+        or int(str(fo_phase["destination"]), 0) != 0x1800
+        or int(fo_controller_phase["bytes"]) != len(fo_controller)
+        or int(fo_phase["bytes"]) != len(fo_image)
+        or fo_controller_phase["sha256"]
+        != hashlib.sha256(fo_controller).hexdigest()
+        or fo_phase["sha256"] != hashlib.sha256(fo_image).hexdigest()
+    ):
+        raise AssertionError("secure FO predecessor artifact binding drifted")
+
+    ne_buf_load = int(str(driver.get("remote_dma_write")), 0)
+    ne_buf_read = int(str(driver.get("remote_dma_read")), 0)
+    if (
+        ne_buf_load != 0x1724
+        or ne_buf_read != 0x175B
+        or driver.get("byte_identical") is not True
+    ):
+        raise AssertionError("secure FO predecessor driver ABI drifted")
+
     if (
         len(auth_controller) > AUTH_CONTROLLER_END - AUTH_CONTROLLER_ADDR
         or len(auth_image) != AUTH_IMAGE_BYTES
@@ -2611,6 +3398,16 @@ def test_identity_auth_transition(
     auth_phase = parse_phase(manifest, "auth")
     expected_loads = (
         (
+            CORE_START_LBA + int(fo_controller_phase["start_sector"]),
+            int(fo_controller_phase["sectors"]),
+            0x2400,
+        ),
+        (
+            CORE_START_LBA + int(fo_phase["start_sector"]),
+            int(fo_phase["sectors"]),
+            0x1800,
+        ),
+        (
             CORE_START_LBA + int(auth_controller_phase["start_sector"]),
             int(auth_controller_phase["sectors"]),
             AUTH_CONTROLLER_ADDR,
@@ -2621,9 +3418,16 @@ def test_identity_auth_transition(
             AUTH_IMAGE_ADDR,
         ),
     )
+    phase_events = (
+        "load-fo-controller",
+        "load-fo-kernel",
+        "load-auth-controller",
+        "load-auth-image",
+    )
 
     def run_case(
         controller: bytes,
+        predecessor: bytes,
         *,
         expect_self_overwrite: bool,
     ) -> dict[str, object]:
@@ -2654,6 +3458,25 @@ def test_identity_auth_transition(
         pending_returns: list[int] = []
         pass_pointer: int | None = None
         self_overwrite: dict[str, object] | None = None
+        fo_kernel_calls = 0
+        fo_card_reads: list[tuple[int, int]] = []
+        fo_card_writes: list[tuple[int, int]] = []
+
+        handoff = bytes((index * 29 + 7) & 0xFF for index in range(128))
+        card = {
+            0x7E00: bytearray(
+                handoff
+                + bytes((index * 11 + 3) & 0xFF for index in range(128))
+            ),
+            0x7F00: bytearray(
+                handoff
+                + bytes((index * 17 + 5) & 0xFF for index in range(128))
+            ),
+        }
+        card_tails = {
+            page: bytes(value[128:])
+            for page, value in card.items()
+        }
 
         zero_window = int(str(services["zero_window"]), 0)
         emit = int(str(services["emit"]), 0)
@@ -2667,8 +3490,18 @@ def test_identity_auth_transition(
 
         def emit_handler(machine_uc: Uc) -> None:
             pointer = machine_uc.reg_read(UC_X86_REG_SI) & 0xFFFF
-            emitted.append(read_z(machine_uc, pointer))
-            events.append("auth-begin")
+            text = read_z(machine_uc, pointer)
+            emitted.append(text)
+            event = {
+                "\r\nFO BEGIN\r\n": "fo-begin",
+                "\r\nKEM VALID\r\n": "kem-valid",
+                "\r\nAUTH BEGIN\r\n": "auth-begin",
+            }.get(text)
+            if event is None:
+                machine.failed = True
+                machine_uc.emu_stop()
+                return
+            events.append(event)
             return_call(machine_uc)
 
         machine.call_handler(emit, emit_handler)
@@ -2676,8 +3509,14 @@ def test_identity_auth_transition(
 
         def load_phase(machine_uc: Uc) -> None:
             nonlocal self_overwrite
-            absolute_lba = machine_uc.reg_read(UC_X86_REG_AX) & 0xFFFF
-            sectors = machine_uc.reg_read(UC_X86_REG_CX) & 0xFFFF
+            load_index = len(loads)
+            if load_index >= len(expected_loads):
+                machine.failed = True
+                machine_uc.emu_stop()
+                return
+            phase_key = machine_uc.reg_read(UC_X86_REG_AX) & 0xFFFF
+            sectors = phase_key >> 8
+            absolute_lba = CORE_START_LBA + (phase_key & 0xFF)
             destination = machine_uc.reg_read(UC_X86_REG_BX) & 0xFFFF
             pending_return = word(
                 machine_uc,
@@ -2693,11 +3532,29 @@ def test_identity_auth_transition(
             )
             return_overlap = load_range[0] <= pending_return < load_range[1]
 
-            if len(loads) == 1:
-                payload = auth_controller.ljust(sectors * 512, b"\0")
-                machine_uc.mem_write(destination, payload)
-                events.append("load-auth-controller")
-                if caller_overlap or return_overlap:
+            expected = expected_loads[load_index]
+            legacy_auth_destination = (
+                expect_self_overwrite
+                and load_index == 2
+                and load[:2] == expected[:2]
+                and destination == 0x3400
+            )
+            if load != expected and not legacy_auth_destination:
+                machine.failed = True
+                machine_uc.emu_stop()
+                return
+
+            payload = (
+                predecessor,
+                fo_image,
+                auth_controller,
+                auth_image,
+            )[load_index].ljust(sectors * 512, b"\0")
+            machine_uc.mem_write(destination, payload)
+            events.append(phase_events[load_index])
+
+            if caller_overlap or return_overlap:
+                if legacy_auth_destination:
                     self_overwrite = {
                         "destination": f"0x{destination:04x}",
                         "load_end": f"0x{load_range[1]:04x}",
@@ -2715,26 +3572,62 @@ def test_identity_auth_transition(
                     machine.done = True
                     machine_uc.emu_stop()
                     return
-            elif len(loads) == 2:
-                payload = auth_image.ljust(sectors * 512, b"\0")
-                machine_uc.mem_write(destination, payload)
-                events.append("load-auth-image")
-                if caller_overlap or return_overlap:
-                    machine.failed = True
-                    machine_uc.emu_stop()
-                    return
-            else:
-                machine.failed = True
-                machine_uc.emu_stop()
-                return
-
-            if load != expected_loads[len(loads) - 1]:
                 machine.failed = True
                 machine_uc.emu_stop()
                 return
             return_call(machine_uc)
 
-        machine.call_handler(DELTA_LOADER_ADDR, load_phase)
+        machine.call_handler(RES_LOAD_PHASE, load_phase)
+
+        def fo_card_read_handler(machine_uc: Uc) -> None:
+            source = machine_uc.reg_read(UC_X86_REG_BX) & 0xFFFF
+            count = machine_uc.reg_read(UC_X86_REG_CX) & 0xFFFF
+            destination = machine_uc.reg_read(UC_X86_REG_DI) & 0xFFFF
+            page = 0x7E00 if source < 0x7F00 else 0x7F00
+            offset = source - page
+            if page not in card or offset < 0 or offset + count > len(card[page]):
+                machine.failed = True
+                machine_uc.emu_stop()
+                return
+            machine_uc.mem_write(
+                destination,
+                bytes(card[page][offset : offset + count]),
+            )
+            fo_card_reads.append((source, count))
+            return_call(machine_uc)
+
+        machine.call_handler(ne_buf_read, fo_card_read_handler)
+
+        def fo_card_write_handler(machine_uc: Uc) -> None:
+            page = machine_uc.mem_read(0x06CB, 1)[0] << 8
+            count = machine_uc.reg_read(UC_X86_REG_BP) & 0xFFFF
+            source = machine_uc.reg_read(UC_X86_REG_SI) & 0xFFFF
+            if page not in card or count != 128:
+                machine.failed = True
+                machine_uc.emu_stop()
+                return
+            card[page][:count] = machine_uc.mem_read(source, count)
+            fo_card_writes.append((page, count))
+            return_call(machine_uc)
+
+        machine.call_handler(ne_buf_load, fo_card_write_handler)
+
+        def fo_kernel_handler(machine_uc: Uc) -> None:
+            nonlocal fo_kernel_calls
+            if (
+                bytes(machine_uc.mem_read(0x3A40, 32)) != handoff[:32]
+                or bytes(machine_uc.mem_read(0x07EE, 32)) != handoff[32:64]
+                or bytes(machine_uc.mem_read(0x3B9C, 96)) != handoff[32:]
+            ):
+                machine.failed = True
+                machine_uc.emu_stop()
+                return
+            fo_kernel_calls += 1
+            events.append("fo-kernel")
+            machine_uc.reg_write(UC_X86_REG_AX, 1)
+            return_call(machine_uc)
+
+        machine.call_handler(0x1800, fo_kernel_handler)
 
         def auth_overlay_handler(machine_uc: Uc) -> None:
             events.append("auth-overlay")
@@ -2752,17 +3645,32 @@ def test_identity_auth_transition(
             machine_uc.emu_stop()
 
         machine.call_handler(auth_emit, auth_emit_handler)
+        machine.uc.mem_write(0x06CB, b"\x40")
         machine.run(count=100_000)
 
         if expect_self_overwrite:
             if (
                 machine.failed
                 or not machine.done
-                or len(loads) != 1
+                or len(loads) != 3
                 or self_overwrite is None
                 or not self_overwrite["persistent_caller_overlap"]
-                or not self_overwrite["pending_return_overwritten"]
+                or self_overwrite["pending_return_overwritten"]
                 or not self_overwrite["persistent_bytes_changed"]
+                or fo_kernel_calls != 1
+                or fo_card_reads != [(0x7E00, 128), (0x7F00, 128)]
+                or fo_card_writes != [(0x7E00, 128), (0x7F00, 128)]
+                or any(any(card[page][:128]) for page in card)
+                or any(
+                    bytes(card[page][128:]) != card_tails[page]
+                    for page in card
+                )
+                or emitted
+                != [
+                    "\r\nFO BEGIN\r\n",
+                    "\r\nKEM VALID\r\n",
+                    "\r\nAUTH BEGIN\r\n",
+                ]
             ):
                 raise AssertionError(
                     "legacy 0x3400 auth transition did not reproduce "
@@ -2770,7 +3678,8 @@ def test_identity_auth_transition(
                 )
             return {
                 "legacy_destination": "0x3400",
-                "executed_through_delta_load": True,
+                "executed_through_resident_load": True,
+                "secure_fo_predecessor_executed": True,
                 "self_overwrite": self_overwrite,
                 "status": "rejected",
             }
@@ -2781,6 +3690,15 @@ def test_identity_auth_transition(
             or self_overwrite is not None
             or tuple(loads) != expected_loads
             or pending_returns[0] != int(str(services["transition"]), 0) + 3
+            or fo_kernel_calls != 1
+            or fo_card_reads != [(0x7E00, 128), (0x7F00, 128)]
+            or fo_card_writes != [(0x7E00, 128), (0x7F00, 128)]
+            or any(any(card[page][:128]) for page in card)
+            or any(
+                bytes(card[page][128:]) != card_tails[page]
+                for page in card
+            )
+            or machine.uc.mem_read(0x06CB, 1) != b"\x40"
             or bytes(
                 machine.uc.mem_read(service_start, service_end - service_start)
             )
@@ -2800,17 +3718,29 @@ def test_identity_auth_transition(
             )
             != product_guard
             or pass_pointer != expected_pass_pointer
-            or emitted != ["\r\nAUTH BEGIN\r\n"]
+            or emitted
+            != [
+                "\r\nFO BEGIN\r\n",
+                "\r\nKEM VALID\r\n",
+                "\r\nAUTH BEGIN\r\n",
+            ]
         ):
             raise AssertionError(
                 "identity auth transition/load/link gate drifted: "
                 f"failed={machine.failed} done={machine.done} "
                 f"loads={loads!r} pending={pending_returns!r} "
+                f"fo_kernel={fo_kernel_calls} reads={fo_card_reads!r} "
+                f"writes={fo_card_writes!r} "
                 f"pass_pointer={pass_pointer!r} expected={expected_pass_pointer:#x} "
                 f"events={events!r} emitted={emitted!r}"
             )
         expected_events = (
             "zero-window",
+            "load-fo-controller",
+            "fo-begin",
+            "load-fo-kernel",
+            "fo-kernel",
+            "kem-valid",
             "auth-begin",
             "load-auth-controller",
             "load-auth-image",
@@ -2822,19 +3752,38 @@ def test_identity_auth_transition(
                 f"identity auth transition ordering drifted: {events!r}"
             )
         return {
-            "auth_controller_load": {
+            "fo_controller_load": {
                 "absolute_lba": loads[0][0],
                 "sectors": loads[0][1],
                 "destination": f"0x{loads[0][2]:04x}",
                 "pending_return": f"0x{pending_returns[0]:04x}",
             },
-            "auth_image_load": {
+            "fo_kernel_load": {
                 "absolute_lba": loads[1][0],
                 "sectors": loads[1][1],
                 "destination": f"0x{loads[1][2]:04x}",
+                "pending_return": f"0x{pending_returns[1]:04x}",
+            },
+            "auth_controller_load": {
+                "absolute_lba": loads[2][0],
+                "sectors": loads[2][1],
+                "destination": f"0x{loads[2][2]:04x}",
+                "pending_return": f"0x{pending_returns[2]:04x}",
+            },
+            "auth_image_load": {
+                "absolute_lba": loads[3][0],
+                "sectors": loads[3][1],
+                "destination": f"0x{loads[3][2]:04x}",
                 "executable_end": f"0x{AUTH_IMAGE_END:04x}",
                 "sector_load_end": f"0x{AUTH_IMAGE_LOAD_END:04x}",
-                "pending_return": f"0x{pending_returns[1]:04x}",
+                "pending_return": f"0x{pending_returns[3]:04x}",
+            },
+            "secure_fo_predecessor": {
+                "kernel_calls": fo_kernel_calls,
+                "card_reads": fo_card_reads,
+                "card_writes": fo_card_writes,
+                "initial_handoff_halves_zeroized": True,
+                "resumption_handoff_halves_preserved": True,
             },
             "linked_pass_pointer": f"0x{pass_pointer:04x}",
             "persistent_caller_preserved": True,
@@ -2842,20 +3791,28 @@ def test_identity_auth_transition(
             "status": "pass",
         }
 
-    good = run_case(post_controller, expect_self_overwrite=False)
+    good = run_case(
+        post_controller,
+        fo_controller,
+        expect_self_overwrite=False,
+    )
     legacy_pattern = b"\xBB\x00\x32"
     positions = [
         offset
-        for offset in range(len(post_controller))
-        if post_controller.startswith(legacy_pattern, offset)
+        for offset in range(len(fo_controller))
+        if fo_controller.startswith(legacy_pattern, offset)
     ]
     if len(positions) != 1:
         raise AssertionError(
-            "cannot isolate post auth-controller destination immediate"
+            "cannot isolate secure FO auth-controller destination immediate"
         )
-    legacy_post = bytearray(post_controller)
-    legacy_post[positions[0] + 2] = 0x34
-    legacy = run_case(bytes(legacy_post), expect_self_overwrite=True)
+    legacy_fo = bytearray(fo_controller)
+    legacy_fo[positions[0] + 2] = 0x34
+    legacy = run_case(
+        post_controller,
+        bytes(legacy_fo),
+        expect_self_overwrite=True,
+    )
     return {
         "kind": "identity_auth_transition_self_overwrite_gate",
         "good": good,
@@ -2871,6 +3828,13 @@ def test_identity_protected_capture(
     fixture: dict[str, object],
 ) -> dict[str, object]:
     """Execute the authenticated 117-byte capture against attempt-6 shape."""
+
+    mode = manifest.get("mode")
+    product_mode = isinstance(mode, dict) and mode.get("product") is True
+    secure_fo = manifest.get("secure_fo_checkpoint")
+    secure_fo_enabled = (
+        isinstance(secure_fo, dict) and secure_fo.get("enabled") is True
+    )
 
     direct = {
         name: listing_label_address(sym_listing, name, 0x1800)
@@ -2954,6 +3918,7 @@ def test_identity_protected_capture(
             "derive_client_application": 0x056E,
             "nic_receive": 0x0570,
             "nic_fallback": 0x0572,
+            "nic_transmit": 0x0574,
         }
         table = [0] * 18
         table[2] = stubs["transcript_update"]
@@ -2967,6 +3932,8 @@ def test_identity_protected_capture(
         machine.uc.mem_write(0x1820, struct.pack("<18H", *table))
         write_word(machine.uc, NIC_VT_RECEIVE, stubs["nic_receive"])
         write_word(machine.uc, NIC_VT_RX_FALLBACK, stubs["nic_fallback"])
+        if product_mode:
+            write_word(machine.uc, NIC_VT_TRANSMIT, stubs["nic_transmit"])
 
         before_guard = bytes([0xC3]) * (
             PROTECTED_CONTROLLER_ADDR - RX_BUFFER_END
@@ -3018,6 +3985,7 @@ def test_identity_protected_capture(
         emitted: list[str] = []
         send_attempts: list[bytes] = []
         transition: tuple[int, int] | None = None
+        product_post_controller_loaded = False
         zero_window_calls = 0
         open_finish_calls = 0
         queued_receive_calls = 0
@@ -3277,6 +4245,10 @@ def test_identity_protected_capture(
         def tcp_send(machine_uc: Uc) -> None:
             pointer = machine_uc.reg_read(UC_X86_REG_SI) & 0xFFFF
             count = machine_uc.reg_read(UC_X86_REG_CX) & 0xFFFF
+            if "sha-finish" in events:
+                raise AssertionError(
+                    "identity CV digest was constructed before credential-free HEAD"
+                )
             send_attempts.append(bytes(machine_uc.mem_read(pointer, count)))
             events.append(
                 "send-client-finished"
@@ -3300,6 +4272,7 @@ def test_identity_protected_capture(
         def nic_receive(machine_uc: Uc) -> None:
             nonlocal queued_receive_calls
             queued_receive_calls += 1
+            events.append(f"queued-receive-{queued_receive_calls}")
             write_word(machine_uc, NE_RX_SAMPLE_COUNT, 0)
             return_call(machine_uc)
 
@@ -3325,25 +4298,88 @@ def test_identity_protected_capture(
 
         machine.call_handler(emit_entry, emit)
 
-        def zero_window(machine_uc: Uc) -> None:
+        def send_zero_window(machine_uc: Uc) -> None:
             nonlocal zero_window_calls
+            if "sha-finish" in events:
+                raise AssertionError(
+                    "identity CV digest was constructed before the zero-window edge"
+                )
             zero_window_calls += 1
             events.append("zero-window")
             return_call(machine_uc)
 
-        machine.call_handler(zero_window_entry, zero_window)
+        if product_mode:
+            def build_zero_window_frame(machine_uc: Uc) -> None:
+                write_word(machine_uc, TCP_WINDOW_WORD, 0x0001)
+                write_word(machine_uc, TCP_CHECKSUM_WORD, 0x2468)
+                return_call(machine_uc)
 
-        def transition_handler(machine_uc: Uc) -> None:
-            nonlocal transition
-            transition = (
-                machine_uc.reg_read(UC_X86_REG_AX) & 0xFFFF,
-                machine_uc.reg_read(UC_X86_REG_BX) & 0xFFFF,
+            def transmit_zero_window(machine_uc: Uc) -> None:
+                if (
+                    word(machine_uc, TCP_WINDOW_WORD) != 0
+                    or word(machine_uc, TCP_CHECKSUM_WORD) != 0x2469
+                ):
+                    raise AssertionError(
+                        "identity inlined product zero-window frame/checksum drifted"
+                    )
+                send_zero_window(machine_uc)
+
+            machine.call_handler(
+                RES_BUILD_TCP_FRAME,
+                build_zero_window_frame,
             )
-            events.append("post-controller-transition")
-            machine.done = True
-            machine_uc.emu_stop()
+            machine.call_handler(
+                stubs["nic_transmit"],
+                transmit_zero_window,
+            )
+        else:
+            machine.call_handler(zero_window_entry, send_zero_window)
 
-        machine.call_handler(transition_entry, transition_handler)
+        expected_transition = (
+            parse_key(manifest, "post_controller"),
+            POST_CONTROLLER_ADDR,
+        )
+        if product_mode:
+            def load_post_controller(machine_uc: Uc) -> None:
+                nonlocal product_post_controller_loaded
+                request = (
+                    machine_uc.reg_read(UC_X86_REG_AX) & 0xFFFF,
+                    machine_uc.reg_read(UC_X86_REG_BX) & 0xFFFF,
+                )
+                if request != expected_transition:
+                    raise AssertionError(
+                        "identity product post-controller load drifted: "
+                        f"expected={expected_transition!r} actual={request!r}"
+                    )
+                product_post_controller_loaded = True
+                return_call(machine_uc)
+
+            def product_post_controller_entry(machine_uc: Uc) -> None:
+                nonlocal transition
+                if not product_post_controller_loaded:
+                    return
+                transition = expected_transition
+                events.append("post-controller-transition")
+                machine.done = True
+                machine_uc.emu_stop()
+
+            machine.call_handler(RES_LOAD_PHASE, load_post_controller)
+            machine.call_handler(
+                POST_CONTROLLER_ADDR,
+                product_post_controller_entry,
+            )
+        else:
+            def transition_handler(machine_uc: Uc) -> None:
+                nonlocal transition
+                transition = (
+                    machine_uc.reg_read(UC_X86_REG_AX) & 0xFFFF,
+                    machine_uc.reg_read(UC_X86_REG_BX) & 0xFFFF,
+                )
+                events.append("post-controller-transition")
+                machine.done = True
+                machine_uc.emu_stop()
+
+            machine.call_handler(transition_entry, transition_handler)
 
         def fail(machine_uc: Uc) -> None:
             events.append("fail")
@@ -3481,10 +4517,6 @@ def test_identity_protected_capture(
                 f"identity transcript boundary drifted: "
                 f"{list(map(len, transcript_updates))!r}"
             )
-        expected_transition = (
-            parse_key(manifest, "post_controller"),
-            POST_CONTROLLER_ADDR,
-        )
         if transition != expected_transition or zero_window_calls != 1:
             raise AssertionError(
                 f"identity post-controller transition drifted: {transition!r}"
@@ -3499,6 +4531,10 @@ def test_identity_protected_capture(
             "derive-client-application",
             "send-head",
             "zero-window",
+            "sha-save",
+            "sha-init",
+            "sha-finish",
+            "sha-restore",
             "post-controller-transition",
         )
         positions = [events.index(event) for event in required_order]
@@ -3507,9 +4543,14 @@ def test_identity_protected_capture(
         if (
             len(send_attempts) != 2
             or send_attempts != [finished_record, head_record]
-            or queued_receive_calls != 1
+            or queued_receive_calls != (2 if secure_fo_enabled else 1)
         ):
-            raise AssertionError("identity Finished/HEAD dialogue drifted")
+            raise AssertionError(
+                "identity Finished/HEAD dialogue drifted: "
+                f"send_lengths={list(map(len, send_attempts))!r} "
+                f"send_match={send_attempts == [finished_record, head_record]} "
+                f"queued_receive_calls={queued_receive_calls} events={events!r}"
+            )
         return {
             "fragmented_wire_bytes": len(wire),
             "fragmented_frames": len(frames),
@@ -3522,6 +4563,8 @@ def test_identity_protected_capture(
             "compact_signature_sha256": hashlib.sha256(
                 compact_signature[:compact_length]
             ).hexdigest(),
+            "cv_digest_computed_after_credential_free_head": True,
+            "cv_digest_computed_after_zero_window": True,
             "status_before_auth_overlay": compact_status,
             "post_controller_transition": {
                 "key": f"0x{transition[0]:04x}",
@@ -3555,6 +4598,10 @@ def test_post_finished(
     record_order: str = "ticket-http",
     reject_tag_index: int | None = None,
     authenticated_alert: bytes | None = None,
+    ticket_then_alert: bytes | None = None,
+    allow_ticket_close: bool = False,
+    partial_http_before_alert: bool = False,
+    record_after_alert: bool = False,
     oversized_record: bool = False,
     wrong_inner_type: str | None = None,
     split_http: bool = False,
@@ -3646,9 +4693,22 @@ def test_post_finished(
             + tag
         )
 
+    if authenticated_alert is not None and ticket_then_alert is not None:
+        raise AssertionError("post-Finished alert fixtures are mutually exclusive")
+    if (partial_http_before_alert or record_after_alert) and ticket_then_alert is None:
+        raise AssertionError("ticket alert modifiers require ticket_then_alert")
+
     if authenticated_alert is not None:
         plaintext_records = [authenticated_alert + b"\x15"]
         case = "alert"
+    elif ticket_then_alert is not None:
+        plaintext_records = [ticket_plain]
+        if partial_http_before_alert:
+            plaintext_records.append(b"HTTP/1.1 " + b"\x17")
+        plaintext_records.append(ticket_then_alert + b"\x15")
+        if record_after_alert:
+            plaintext_records.append(response + b"\x17")
+        case = "ticket-then-alert"
     elif authenticated_key_update:
         plaintext_records = [b"\x18\x00\x00\x01\x00\x16"]
         case = "authenticated-key-update"
@@ -3777,12 +4837,14 @@ def test_post_finished(
     def tcp_ack(machine_uc: Uc) -> None:
         nonlocal ack_calls
         ack_calls += 1
+        ordered_events.append("window-open")
         return_call(machine_uc)
 
     machine.call_handler(0x13A6, tcp_ack)
 
     def tcp_receive(machine_uc: Uc) -> None:
         nonlocal receive_index
+        ordered_events.append("tcp-receive")
         if receive_index >= len(frames):
             return_call(machine_uc, carry=True)
             return
@@ -3870,15 +4932,16 @@ def test_post_finished(
     machine.run()
     output = "".join(emitted)
 
-    if derive_server_calls != 1 or ordered_events[:2] != [
+    if derive_server_calls != 1 or ordered_events[:3] != [
         "derive-server",
-        "flush",
+        "window-open",
+        "tcp-receive",
     ]:
         raise AssertionError(
             f"deferred server-key ordering drifted: {ordered_events!r}"
         )
-    if flush_calls != 1:
-        raise AssertionError("post-Finished zero-window recovery drifted")
+    if flush_calls != 0:
+        raise AssertionError("post-Finished path performed a raw NIC flush")
     if (
         bytes(machine.uc.mem_read(PRODUCT_POOL_START, len(product_pool_guard)))
         != product_pool_guard
@@ -3982,6 +5045,71 @@ def test_post_finished(
                 else "authenticated-other-alert"
             ),
             "classification": "level-byte-accepted/type-checked/fail-closed",
+            "status": "rejected",
+        }
+    if ticket_then_alert is not None:
+        exact_close = (
+            ticket_then_alert == b"\x01\x00"
+            and allow_ticket_close
+            and not partial_http_before_alert
+            and not record_after_alert
+        )
+        if exact_close:
+            required_markers = ("TICKET", "CANARY COMMIT", "PASS", "RESULT")
+            if machine.failed or not machine.done:
+                raise AssertionError(
+                    "ticket-bearing close_notify did not reach provisional "
+                    f"transition: output={output!r}"
+                )
+            if any(marker not in output for marker in required_markers):
+                raise AssertionError(
+                    "ticket-bearing close_notify milestone protocol drifted: "
+                    f"{output!r}"
+                )
+            if "HEAD OK" in output:
+                raise AssertionError(
+                    "ticket-bearing close_notify falsely claimed fresh HEAD liveness"
+                )
+            if (
+                parsed_tickets != list(tickets)
+                or machine.uc.mem_read(POST_PEER_CLOSED, 1) != b"\x00"
+                or machine.uc.mem_read(POST_HEAD_COMPLETE, 1) != b"\x02"
+                or word(machine.uc, POST_HTTP_TOTAL) != 0
+            ):
+                raise AssertionError(
+                    "ticket-bearing close_notify provisional state drifted"
+                )
+            return {
+                "boundary": "authenticated-ticket-plus-close-notify",
+                "fresh_head_complete": False,
+                "downstream_resumed_liveness_required": True,
+                "authenticated_ticket_messages": len(parsed_tickets),
+                "milestones": list(required_markers),
+                "status": "pass",
+            }
+        if not machine.failed or machine.done:
+            raise AssertionError(
+                f"hostile ticket alert fixture did not fail closed: {case}"
+            )
+        if "HEAD OK" in output or "CANARY COMMIT" in output:
+            raise AssertionError(
+                "hostile ticket alert fixture reached a liveness/transition milestone"
+            )
+        return {
+            "negative": (
+                "ticket-then-fatal-alert"
+                if ticket_then_alert != b"\x01\x00"
+                else (
+                    "partial-http-then-ticket-close"
+                    if partial_http_before_alert
+                    else (
+                        "record-after-ticket-close"
+                        if record_after_alert
+                        else "ticket-close-without-resumption-receipt"
+                    )
+                )
+            ),
+            "tentative_ticket_retained_without_authority": bool(parsed_tickets),
             "status": "rejected",
         }
     if nst_extension_negative is not None:
@@ -4449,7 +5577,7 @@ def test_post_finished_real_k14_aead(
             raise AssertionError(
                 f"real K14 open wrote a retained boundary: {forbidden_writes[:8]!r}"
             )
-        if derive_server_calls != 1 or flush_calls != 1 or ack_calls < 1:
+        if derive_server_calls != 1 or flush_calls != 0 or ack_calls < 1:
             raise AssertionError(
                 "real K14 post-controller setup/fragment progression drifted"
             )
@@ -4541,8 +5669,27 @@ def main() -> None:
             "post-socket authentication handoff"
         ),
     )
+    parser.add_argument(
+        "--protected-only",
+        action="store_true",
+        help=(
+            "with --identity, gate only the authenticated protected-flight "
+            "capture/Finished/HEAD boundary; the product generic-vault auth "
+            "transition is owned by the separate product-route gate"
+        ),
+    )
+    parser.add_argument(
+        "--deadline-only",
+        action="store_true",
+        help=(
+            "run only the clean/diagnostic 273/274-tick source-parity gate; "
+            "used by the product pack gate"
+        ),
+    )
     parser.add_argument("--json-out", type=Path)
     args = parser.parse_args()
+    if args.protected_only and not args.identity:
+        parser.error("--protected-only requires --identity")
     selected_build = args.build_dir or (
         DEFAULT_IDENTITY_BUILD if args.identity else DEFAULT_BUILD
     )
@@ -4563,15 +5710,18 @@ def main() -> None:
         "delta": build / "live_delta_loader.bin",
     }
     if args.identity:
-        required.update(
-            {
-                "sym_listing": build / "sym_k14.lst",
+        required["sym_listing"] = build / "sym_k14.lst"
+        if not args.protected_only:
+            required.update(
+                {
                 "post_listing": build / "live_post_controller.lst",
+                "fo_controller": build / "live_fo_controller.bin",
+                "fo": build / "fo_tail_live.bin",
                 "auth_controller": build / "live_auth_controller.bin",
                 "auth_listing": build / "live_auth_controller.lst",
                 "auth": build / "auth_p256_live.bin",
-            }
-        )
+                }
+            )
     missing = [str(path) for path in required.values() if not path.is_file()]
     if missing:
         raise SystemExit(
@@ -4585,19 +5735,63 @@ def main() -> None:
         for phase in manifest.get("live_phases", [])
         if isinstance(phase, dict)
     }
+    deadline_observation_parity = test_deadline_observation_parity(
+        manifest,
+        required["post"].read_bytes(),
+    )
+    if args.deadline_only:
+        result = {
+            "schema": "seed-tls13-k14-deadline-observation-v1",
+            "passed": True,
+            "build": str(build),
+            "protected_phase": parse_phase(
+                manifest, "protected_controller"
+            ),
+            "deadline_observation_parity": deadline_observation_parity,
+            "vm_or_network_launched": False,
+        }
+        output = args.json_out
+        if output is not None:
+            output.write_text(
+                json.dumps(result, indent=2) + "\n",
+                encoding="utf-8",
+            )
+        print("live TLS 1.3 deadline observation gate: PASS")
+        print(
+            "  273/274 ticks clean/diagnostic non-UART behavior identical; "
+            "late HEAD-send fails closed"
+        )
+        print(
+            "  post-controller partial-second-sector failure returns through "
+            "0x0700 scratch, resets, and retries successfully; "
+            f"all {POST_LOAD_ATTEMPT_LIMIT} attempts failing reaches the "
+            "persistent fail path"
+        )
+        print("  VM/network launch=NOT PERFORMED")
+        if output is not None:
+            print(f"  result={output}")
+        return
     if args.identity:
         identity_manifest = validate_identity_manifest(manifest)
         identity_manifest_negatives = identity_manifest_negative_controls(
             manifest
         )
         artifact_bindings = {}
-        for artifact_name, phase_name in (
+        artifact_phases = [
             ("protected", "protected_controller"),
-            ("post", "post_controller"),
             ("sym", "sym"),
-            ("auth_controller", "auth_controller"),
-            ("auth", "auth"),
-        ):
+        ]
+        if not args.protected_only:
+            artifact_phases.extend(
+                [
+                    ("post", "post_controller"),
+                    ("fo_controller", "fo_controller"),
+                    ("fo", "fo"),
+                    ("auth_controller", "auth_controller"),
+                    ("auth", "auth"),
+                ]
+            )
+        for artifact_name, phase_name in artifact_phases:
             data = required[artifact_name].read_bytes()
             phase = parse_phase(manifest, phase_name)
             digest = hashlib.sha256(data).hexdigest()
@@ -4618,11 +5812,68 @@ def main() -> None:
             manifest,
             attempt6,
         )
+        if args.protected_only:
+            mode = manifest.get("mode")
+            product_mode = (
+                isinstance(mode, dict) and mode.get("product") is True
+            )
+            result = {
+                "schema": "seed-tls13-k14-protected-identity-v1",
+                "passed": True,
+                "scope": (
+                    "offline Unicorn authenticated protected-flight capture, "
+                    "Finished, credential-free HEAD, zero-window, and deferred "
+                    "CertificateVerify digest boundary; later product generic-"
+                    "vault FO/auth is covered by check_k14_product_route.py"
+                ),
+                "product_mode": product_mode,
+                "identity_manifest": identity_manifest,
+                "identity_manifest_negative_controls": (
+                    identity_manifest_negatives
+                ),
+                "artifact_bindings": artifact_bindings,
+                "attempt6_oracle": {
+                    "pcap": str(ATTEMPT6_PCAP.relative_to(ROOT)),
+                    "pcap_sha256": attempt6["pcap_sha256"],
+                    "protected_record_sha256": attempt6[
+                        "protected_record_sha256"
+                    ],
+                    "message_lengths": attempt6["message_lengths"],
+                    "host_signature_verified": attempt6[
+                        "host_signature_verified"
+                    ],
+                },
+                "protected_identity_capture": protected_identity,
+                "deadline_observation_parity": deadline_observation_parity,
+                "later_product_auth_gate": (
+                    "tools/crypto-bench/tls13-product/"
+                    "check_k14_product_route.py"
+                ),
+                "vm_or_network_launched": False,
+            }
+            output = args.json_out or (
+                build / "protected_identity_controller_check.json"
+            )
+            output.write_text(
+                json.dumps(result, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            print("live TLS 1.3 protected identity boundary gate: PASS")
+            print(
+                "  AEAD -> transcript snapshot -> Finished/HEAD/zero-window -> "
+                "deferred CV digest -> post-controller transition PASS"
+            )
+            print("  later generic-vault FO/auth=SEPARATE PRODUCT-ROUTE GATE")
+            print("  VM/network launch=NOT PERFORMED")
+            print(f"  result={output}")
+            return
         auth_transition = test_identity_auth_transition(
             required["post"].read_bytes(),
             required["post_listing"],
             required["crypto"].read_bytes(),
             required["persistent"].read_bytes(),
+            required["fo_controller"].read_bytes(),
+            required["fo"].read_bytes(),
             required["auth_controller"].read_bytes(),
             required["auth_listing"],
             required["auth"].read_bytes(),
@@ -4653,6 +5904,7 @@ def main() -> None:
             },
             "protected_identity_capture": protected_identity,
             "auth_transition": auth_transition,
+            "deadline_observation_parity": deadline_observation_parity,
         }
         output = args.json_out or build / "identity_controller_check.json"
         output.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
@@ -4666,8 +5918,12 @@ def main() -> None:
             "bad tag/scheme/length fail closed PASS"
         )
         print(
-            "  AEAD -> transcript snapshot -> Finished/HEAD -> "
-            "post-controller transition ordering PASS"
+            "  AEAD -> transcript snapshot -> Finished/HEAD/zero-window -> "
+            "deferred CV digest -> post-controller transition ordering PASS"
+        )
+        print(
+            "  historical deadline observation=273/274 ticks; "
+            "clean/diagnostic non-UART behavior identical PASS"
         )
         print(
             "  auth controller=0x3200; auth executable ends=0x31c0; "
@@ -4842,6 +6098,33 @@ def main() -> None:
         manifest,
         authenticated_alert=b"\x01\x00",
     )
+    post_ticket_close_without_receipt = test_post_finished(
+        required["post"].read_bytes(),
+        manifest,
+        ticket_then_alert=b"\x01\x00",
+    )
+    post_ticket_fatal_alert = test_post_finished(
+        required["post"].read_bytes(),
+        manifest,
+        ticket_then_alert=b"\x02\x00",
+    )
+    post_ticket_wrong_close = test_post_finished(
+        required["post"].read_bytes(),
+        manifest,
+        ticket_then_alert=b"\x01\x5a",
+    )
+    post_ticket_partial_http_close = test_post_finished(
+        required["post"].read_bytes(),
+        manifest,
+        ticket_then_alert=b"\x01\x00",
+        partial_http_before_alert=True,
+    )
+    post_ticket_close_trailing_record = test_post_finished(
+        required["post"].read_bytes(),
+        manifest,
+        ticket_then_alert=b"\x01\x00",
+        record_after_alert=True,
+    )
     post_other_alert = test_post_finished(
         required["post"].read_bytes(),
         manifest,
@@ -4864,6 +6147,7 @@ def main() -> None:
         "hello_oversized_stage_negative": hello_oversized,
         "candidate_to_protected_transition": crypto_result,
         "extension_reload_sentinel_negative": sentinel_negative,
+        "deadline_observation_parity": deadline_observation_parity,
         "protected_flight_and_finished": protected_result,
         "protected_flight_real_k14_aead_quarantine": protected_real_k14_aead,
         "protected_flight_without_compatibility_ccs": protected_without_ccs,
@@ -4892,6 +6176,17 @@ def main() -> None:
         "post_finished_nst_extension_negatives": post_nst_extension_negatives,
         "post_finished_key_update_negative": post_key_update,
         "post_finished_close_notify_negative": post_close_notify,
+        "post_finished_ticket_close_without_receipt_negative": (
+            post_ticket_close_without_receipt
+        ),
+        "post_finished_ticket_fatal_alert_negative": post_ticket_fatal_alert,
+        "post_finished_ticket_wrong_close_negative": post_ticket_wrong_close,
+        "post_finished_ticket_partial_http_close_negative": (
+            post_ticket_partial_http_close
+        ),
+        "post_finished_ticket_close_trailing_record_negative": (
+            post_ticket_close_trailing_record
+        ),
         "post_finished_other_alert_negative": post_other_alert,
     }
     output = args.json_out or build / "controller_check.json"
@@ -4909,6 +6204,16 @@ def main() -> None:
         f"{protected_result['finished_transmit_attempts']} + "
         f"{protected_result['head_transmit_bytes']}B HEAD; "
         "client-app derive/HEAD/zero-window/cold-load PASS"
+    )
+    print(
+        "  post-controller cold load=first failure/reset/retry PASS; "
+        f"{POST_LOAD_ATTEMPT_LIMIT}/{POST_LOAD_ATTEMPT_LIMIT} failures "
+        "reach persistent fail closed PASS"
+    )
+    print(
+        "  historical deadline observation=273/274 ticks; "
+        "clean/diagnostic non-UART behavior identical; "
+        "late HEAD-send fails closed PASS"
     )
     print(
         "  protected real K14 AEAD quarantine="
@@ -4945,7 +6250,10 @@ def main() -> None:
         "duplicate early_data/bad length/truncation/type/extra bytes rejected PASS"
     )
     print("  authenticated unsupported KeyUpdate=fail closed PASS")
-    print("  authenticated alert level/type classification=fail closed PASS")
+    print(
+        "  receipt-disabled ticket+close_notify, no-ticket/fatal/"
+        "wrong-description/partial-HTTP/trailing-record alerts fail closed PASS"
+    )
     print(
         "  critical track-batched loader=0x0f00..0x0f91; "
         "candidate/sym/protected loads PASS"

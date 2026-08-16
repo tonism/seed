@@ -80,6 +80,17 @@ exchange_early_head_payload    equ \
 exchange_hello_handoff         equ 0x0d00
 exchange_k_prime_hold          equ 0x08c0
 exchange_spent_hold            equ exchange_k_prime_hold + 32
+; The accepted resumed record, client Finished, and fixed HEAD use at most
+; 68, 58, and 72 bytes respectively at sym_io.  Preserve the already-sealed
+; 26-byte EOED immediately after that live prefix while the full symmetric
+; image retires the overlapping 0x2c00 vault-access lease.
+exchange_sym_io                equ 0x39a0
+exchange_sym_io_live_bytes     equ 72
+exchange_early_eoed_hold       equ \
+    exchange_sym_io + exchange_sym_io_live_bytes
+exchange_early_eoed_hold_end   equ \
+    exchange_early_eoed_hold + resume_early_eoed_len
+exchange_ticket_identity_start equ 0x3b40
 exchange_post_stage            equ 0x2400
 exchange_restore_transition    equ 0x0e00
 exchange_rx_feed_max           equ 384
@@ -88,6 +99,9 @@ exchange_resumed_reject_bytes  equ 64
 exchange_resumed_wire_max      equ 74
 exchange_wire_valid            equ 0xa5
 exchange_wire_valid_inverse    equ 0x5a
+exchange_handoff_nic_base      equ 0x060e
+exchange_handoff_nic_family    equ 0x0610
+exchange_family_3c501          equ 4
 
 %macro exchange_diagnostic 1
 %ifdef RESUME_EXCHANGE_DIAGNOSTIC
@@ -106,6 +120,19 @@ exchange_wire_valid_inverse    equ 0x5a
 %endif
 %if RESUME_EXCHANGE_LIFECYCLE_END != resume_vault_lifecycle_end
 %error "EXCHANGE lifecycle end differs from shared RVL1 contract"
+%endif
+%if exchange_early_eoed_hold < \
+    exchange_sym_io + exchange_resumed_record_bytes
+%error "EXCHANGE EOED hold overlaps the authenticated resumed record"
+%endif
+%if exchange_early_eoed_hold < exchange_sym_io + 58
+%error "EXCHANGE EOED hold overlaps client Finished"
+%endif
+%if exchange_early_eoed_hold < exchange_sym_io + 72
+%error "EXCHANGE EOED hold overlaps the fixed HEAD"
+%endif
+%if exchange_early_eoed_hold_end > exchange_ticket_identity_start
+%error "EXCHANGE EOED hold reaches retained ticket identity"
 %endif
 
 %ifdef RESUME_EXCHANGE_BROKER
@@ -257,6 +284,9 @@ resume_exchange_broker_end:
 %ifndef RESUME_EXCHANGE_CONNECT_ENTRY
 %error "EXCHANGE TX requires the resolved cached-connect entry"
 %endif
+%ifndef RESUME_EXCHANGE_CONNECT_PRIME
+%error "EXCHANGE TX requires the resolved 3c501 receive-prime entry"
+%endif
 %ifndef RESUME_EXCHANGE_TCP_SEND
 %error "EXCHANGE TX requires resident TCP send"
 %endif
@@ -305,6 +335,12 @@ resume_exchange_tx_entry:
     ; BROKER preloaded the connector beyond the eight-sector HELLO image.  It
     ; cannot touch HELLO's low state or 0x30c0+ SHA work.  Open TCP only now,
     ; with the complete ClientHello transcript context ready for exact replay.
+    mov al, [exchange_handoff_nic_family]
+    cmp al, exchange_family_3c501
+    jne .connect
+    mov bx, [exchange_handoff_nic_base]
+    call RESUME_EXCHANGE_CONNECT_PRIME
+.connect:
     call RESUME_EXCHANGE_CONNECT_ENTRY
     jc resume_exchange_tx_failed
     exchange_diagnostic 'h'
@@ -379,10 +415,10 @@ resume_exchange_tx_entry:
     ; The eight-sector HELLO image ends at 0x2800, while its live transcript
     ; SHA work begins at 0x30c0.  Borrow two preloaded symmetric sectors at
     ; 0x2800..0x2bff for RX: loading at 0x3000 would destroy the transcript
-    ; before ServerHello is fed, and POST's checked ten-sector SYM reload
-    ; repairs the complete borrowed span before sym_init.  RX installs its
-    ; retired-frame transition only after the complete server flight is
-    ; captured.
+    ; before ServerHello is fed.  POST reloads the complete twelve-sector
+    ; symmetric image before sym_init, both repairing that span and retiring
+    ; the overlapping vault-access lease.  RX installs its retired-frame
+    ; transition only after the complete server flight is captured.
     mov ax, RESUME_EXCHANGE_RX_KEY
     mov bx, RESUME_EXCHANGE_RX_ORIGIN
     mov dx, RESUME_EXCHANGE_LOAD_PHASE
@@ -885,8 +921,8 @@ resume_exchange_crypto_entry:
 
     ; Stage POST outside the candidate and retained K14 bands.  Candidate
     ; returns to its prefix at 0x2400; that prefix copies only the measured
-    ; symmetric continuation to 0x3400 before the ten-sector SYM load
-    ; destroys 0x2400..0x2bff.  Loading a padded sector directly at 0x3400
+    ; symmetric continuation to 0x3400 before the complete SYM load destroys
+    ; 0x2400..0x2fff.  Loading a padded sector directly at 0x3400
     ; would overwrite 0x3510..0x35ff, while staging at 0x0d00 would destroy
     ; the resumed transcript handoff needed by sym_import.
     mov ax, RESUME_EXCHANGE_POST_KEY
@@ -961,7 +997,7 @@ resume_exchange_crypto_end:
 %elifdef RESUME_EXCHANGE_POST
 
 %ifndef RESUME_EXCHANGE_SYM_RESTORE_KEY
-%error "EXCHANGE post requires the checked symmetric-prefix restore"
+%error "EXCHANGE post requires the complete symmetric-image restore"
 %endif
 %ifndef RESUME_EXCHANGE_SYM_INIT
 %error "EXCHANGE post requires resolved symmetric init"
@@ -986,7 +1022,7 @@ resume_exchange_crypto_end:
 %endif
 
 ; POST always starts at 0x2400 so its staged architecture survives the
-; symmetric-prefix load.  Its position-independent suffix is copied to
+; complete symmetric-image load.  Its position-independent suffix is copied to
 ; 0x3400 first; calls outside that suffix therefore use absolute targets.
 %macro exchange_post_external_call 1
     mov dx, %1
@@ -1043,11 +1079,27 @@ resume_exchange_post_entry:
     jc resume_exchange_post_failed
     exchange_diagnostic 's'
 
-    ; The normal SYM restore occupies 0x1800..0x27ff, but RX temporarily owns
-    ; the preloaded tail beginning at 0x2800.  EXCHANGE therefore restores
-    ; every symmetric sector borrowed by RX.  No byte executing at 0x2400 may
-    ; survive that load, so copy the complete position-independent suffix plus
-    ; its local terminal failure path to the ordinary 0x3400 slot first.
+    ; Candidate is complete and its 0x0700 publication buffer is dead, while
+    ; PREPARE's 0x2c00 vault-access lease is still live.  Reread the sealed
+    ; EOED from c's quarantined NIC-RAM suffix into 0x0740 and validate it
+    ; before the complete symmetric restore retires that access callback.
+    mov bx, resume_card_c + resume_card_c_len
+    mov cx, resume_early_eoed_len
+    mov di, 0x0740
+    call RESUME_EXCHANGE_NE_BUF_READ
+    jc resume_exchange_post_failed
+    cmp byte [0x0740], 0x17
+    jne resume_exchange_post_failed
+    cmp word [0x0741], 0x0303
+    jne resume_exchange_post_failed
+    cmp word [0x0743], 0x1500
+    jne resume_exchange_post_failed
+
+    ; The complete SYM restore occupies 0x1800..0x2fff: RX temporarily owns
+    ; 0x2800..0x2bff and PREPARE's retired vault-access lease owns
+    ; 0x2c00..0x2fff.  No byte executing at 0x2400 may survive that load, so
+    ; copy the complete position-independent suffix plus its local terminal
+    ; failure path to the ordinary 0x3400 slot first.
     push ds
     pop es
     mov si, resume_exchange_post_relocated_source
@@ -1064,6 +1116,10 @@ resume_exchange_post_entry:
     mov cx, resume_exchange_restore_transition_end - \
         resume_exchange_restore_transition_source
     rep movsb
+    ; The bridge preserves CX across the phase load because the loader may
+    ; clobber it.  Seed the exact measured copy length here; the two REP copies
+    ; above both retire with CX=0.
+    mov cx, RESUME_EXCHANGE_RESTORE_BYTES
     mov dx, 0x3400
     jmp dx
 
@@ -1112,6 +1168,12 @@ resume_exchange_post_relocated_source:
     mov bx, 0x1800
     exchange_post_external_call RESUME_EXCHANGE_LOAD_PHASE
     jc resume_exchange_post_failed
+%ifdef RESUME_EXCHANGE_SYM_TAIL_KEY
+    mov ax, RESUME_EXCHANGE_SYM_TAIL_KEY
+    mov bx, 0x2e00
+    exchange_post_external_call RESUME_EXCHANGE_LOAD_PHASE
+    jc resume_exchange_post_failed
+%endif
     exchange_diagnostic 't'
     exchange_post_external_call RESUME_EXCHANGE_SYM_INIT
     jc resume_exchange_post_failed
@@ -1122,9 +1184,11 @@ resume_exchange_post_relocated_source:
     exchange_diagnostic 'v'
 
     ; Candidate cannot touch the retired receive-frame prefix below 0x08c0.
-    ; Import both volatile artifacts before the RSU1 restore reclaims and
-    ; scrubs that entire page: the PREPARE-verified early-derived secret and
-    ; the normalized protected record captured from the accepted TCP flight.
+    ; Import all volatile artifacts before the RSU1 restore reclaims and
+    ; scrubs that entire page: the PREPARE-verified early-derived secret, the
+    ; normalized protected record captured from the accepted TCP flight, and
+    ; the revalidated/pre-sealed EOED parked at 0x0740 before SYM invalidated
+    ; the vault-access callback.
     cmp byte [exchange_saved_wire_status], exchange_wire_valid
     jne resume_exchange_post_failed
     cmp byte [exchange_saved_wire_inverse], \
@@ -1146,6 +1210,10 @@ resume_exchange_post_relocated_source:
     mov si, exchange_saved_wire
     mov di, RESUME_EXCHANGE_SYM_IO
     mov cx, exchange_resumed_record_bytes / 2
+    rep movsw
+    mov si, 0x0740
+    mov di, exchange_early_eoed_hold
+    mov cx, resume_early_eoed_len / 2
     rep movsw
 
     mov si, exchange_k_prime_hold

@@ -92,10 +92,14 @@ resume_vault_lifecycle_restored_inverse equ 0x3c
 ; ticket receipt.  The digest is
 ;
 ;   SHA256("NTR1" || tick_lo || tick_hi || day ||
-;          PSK[32] || identity[192] || ticket_tail[45])
+;          PSK[32] || identity[192] || ticket_tail[0:44])
 ;
 ; where all words are the native little-endian RAM representation.  The first
-; complete DMA image has zero inverse/status and is read back exactly.  The
+; 44 ticket-tail bytes are immutable ticket material.  The physically final
+; byte is the deliberately mutable TICKET_ONLY/LIVE_TICKET status marker; it
+; is excluded from the digest and validated independently as LIVE_TICKET by
+; the post-auth lifecycle worker after its status-last promotion.
+; The first complete DMA image has zero inverse/status and is read back exactly.  The
 ; second complete image has 0x5a/0xa5 at 0xfe/0xff, so ascending remote DMA
 ; writes the valid status physically last, and is also read back exactly.
 resume_receipt_magic          equ 0x00
@@ -116,6 +120,7 @@ resume_receipt_inverse_word0  equ 0xabb1
 resume_receipt_inverse_word1  equ 0xcead
 resume_receipt_status_valid   equ 0xa5
 resume_receipt_status_valid_inverse equ 0x5a
+resume_receipt_ticket_material_len equ resume_vault_ticket_tail_len - 1
 
 ; PREPARE's host-only lifecycle binding.  This lies immediately after RSU1's
 ; receipt/attempt/FO state and below reconnect state.  NONE and WRITING are

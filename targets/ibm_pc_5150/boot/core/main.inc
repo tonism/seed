@@ -23,6 +23,30 @@
     call load_core_sectors_at
 %endmacro
 
+; The private TLS 1.3 pack-generation core physically omits the K14 pack at
+; sector 45.  It is never booted, but its resident callback nucleus must be
+; byte-identical to the final link.  Encode post-pack phase keys against their
+; final positions in that one build while leaving the base's phase metadata
+; and physical suffix untouched for the pack builder.
+%ifdef TLS13_PRODUCT_TLS13
+%ifdef TLS13_PRODUCT_PACK_BASE
+%define TLS13_POST_PACK_PHASE_BIAS TLS13_K14_PRODUCT_PACK_SECTORS
+%else
+%define TLS13_POST_PACK_PHASE_BIAS 0
+%endif
+%else
+%define TLS13_POST_PACK_PHASE_BIAS 0
+%endif
+
+%define post_pack_phase_key(phase_start,phase_end) \
+    ((((phase_end - phase_start + 511) / 512) << 8) | \
+    (((phase_start - $$) / 512) + TLS13_POST_PACK_PHASE_BIAS))
+
+%macro call_post_pack_core_phase 2
+    mov ax, post_pack_phase_key(%1, %2)
+    call run_core_phase
+%endmacro
+
 start:
     cli
     mov bp, runtime_stack_top
@@ -51,8 +75,8 @@ hal_start:
     call_core_phase core_hardware_setup_phase_start, core_hardware_setup_phase_end
     pushf
     ; Draw the banner once, after display + CPU-class setup and before driver/network setup.
-    ; The pre-286 "insecure" warning is therefore independent of later success/failure paths.
-    call_core_phase core_splash_phase_start, core_splash_phase_end
+    ; The pre-286 security note is therefore independent of later success/failure paths.
+    call_post_pack_core_phase core_splash_phase_start, core_splash_phase_end
     popf
     jc network_error
     call_core_phase core_driver_load_phase_start, core_driver_load_phase_end
@@ -65,31 +89,38 @@ hal_start:
     call prepare_internet_path
     jc network_setup_error
 
+%ifdef TLS13_PRODUCT_TLS13
+    ; Product TLS 1.3 routes own all time acquisition needed by their security
+    ; boundary.  Preserve the old six-byte call site's extent so the resident
+    ; callback ABI and K14's fixed phase keys do not move.
+    times 6 nop
+%else
     ; Build 12 task#7: 286-only network-time sync -- set the CMOS RTC for the recertify validity gate,
     ; right after the internet is up and BEFORE the first connect, so the clock is established
     ; out-of-band (not from the connection it authenticates). The phase self-gates on 286 and fails
     ; open; CF here is irrelevant (the next op is a mov), so no result handling is needed.
     run_net_phase core_ntp_setup_phase_start, core_ntp_setup_phase_end
+%endif
 
     call prepare_agent_path
     jc agent_setup_error
     mov byte [handoff_addr + handoff_status], handoff_status_ready
 
-    ; Build 12 (32K floppy-free loop): preload the chat-loop working set — phases (incl. K) AND the
-    ; streamed IDENTITY/COMPACT prompts — into the high cache, now that agents_cfg has set the prompt
-    ; clusters. No-op on 16K (tier-gated). After this the chat loop reads no floppy per turn. Runs once
-    ; here per cold bring-up (and on a retry loop back through hal_start), before the first request.
+    ; Preload the chat-loop working set after route setup. The 286 parent also
+    ; snapshots this immutable set before crypto and restores it from RAM on
+    ; reconnect; this cold-start call remains the common K14/non-product setup
+    ; point. After it, the normal 32K+ chat loop reads no floppy per turn.
     call preload_loop_cache
 
 chat_loop:
     ; Native tools run before DPI from resident code. tool_call loads at 0x0700 so it must not be
     ; loaded by DPI itself (also 0x0700); doing that overwrote DPI and could skip the prompt.
-    call_core_phase core_tool_phase_start, core_tool_phase_end
+    call_post_pack_core_phase core_tool_phase_start, core_tool_phase_end
     cmp byte [tool_helper_pending], 0
     je .tool_helper_done
-    call_core_phase core_tool_memory_phase_start, core_tool_memory_phase_end
+    call_post_pack_core_phase core_tool_memory_phase_start, core_tool_memory_phase_end
 .tool_helper_done:
-    call_core_phase core_dpi_phase_start, core_dpi_phase_end
+    call_post_pack_core_phase core_dpi_phase_start, core_dpi_phase_end
     call prepare_agent_endpoint_path
     ; Build 10 soft-fail: a chat turn ALWAYS returns to DPI. prepare_agent_endpoint_path tries reuse
     ; then a reconnect; if it still fails the user just re-asks (a fresh attempt) instead of hitting
@@ -133,7 +164,7 @@ load_core_sectors_at:
     ; from RAM instead of reading the floppy. On 16K loop_cache_count is 0 (the preload is skipped and
     ; the cache region does not exist), so this is bypassed and every load hits the floppy as before.
     cmp word [loop_cache_count], 0
-    je .floppy
+    jle .floppy
     push ax
     push cx
     push si
@@ -232,36 +263,33 @@ preload_loop_cache:
     add bx, cx
     jmp .next
 .commit:
-    mov ax, di
-    sub ax, loop_cache_table
-    shr ax, 1
-    shr ax, 1                  ; ax = phase entry count
+    mov ax, loop_cache_max_entries
     push ax                    ; commit it AFTER the prompt preloads, so they floppy-fill (count still 0)
-    ; Build 12 incr 3: preload the normal-turn IDENTITY prompt into its fixed top-of-cache slot
-    ; (agents_cfg, which ran before this preload's new call site, set the cluster + size). With
-    ; loop_cache_count still 0, load_core_sectors_at floppy-fills. The prompt LBA is read as a 1-sector
-    ; load whose data-area offset is cluster - fat_first_data_cluster. COMPACT is rare and streams from
-    ; floppy so the local-history receive phase can keep its second sector.
-    mov ax, [prompt_id_cluster]
-    mov cx, [prompt_id_size]
+    ; Preload the normal-turn IDENTITY prompt and tools schema after route setup. Both secure roots may
+    ; use/wipe the 32K high band, so agents_cfg only discovers their full 16-bit FAT clusters; it cannot
+    ; safely populate these caches earlier. COMPACT is rare and deliberately streams from floppy.
+    mov si, prompt_id_cluster
     mov bx, prompt_id_cache
     call .preload_one_prompt
-    ; Build 12 native tool calling: the tools schema is preloaded into tools_cache by the agents_cfg
-    ; PHASE (not here) -- the resident nucleus is full, and agents_cfg already finds the cluster and runs
-    ; after ram_top is set, so it does the one-sector load into tools_cache on the loop-cache tiers.
+    mov si, prompt_tools_cluster
+    mov bx, tools_cache
+    call .preload_one_prompt
     pop ax
     mov [loop_cache_count], ax  ; phase cache live; the prompt cache is gated on loop_cache_count > 0 too
     pop es
 .done:
     ret
 .preload_one_prompt:
-    ; ax = cluster, cx = byte size, bx = cache slot. Read the one prompt sector if the file exists
-    ; (size > 0); a missing prompt (size 0) leaves the slot unused — its stream is empty regardless.
-    or cx, cx
+    ; si -> {cluster,size}, bx = cache slot. Prompt clusters are full 16-bit FAT values and may lie
+    ; beyond SEED.SYS sector 255, so do not encode them in load_core_sectors_at's AL phase key.
+    ; agents_cfg publishes cluster 0 for a missing file; that leaves the unused cache slot untouched.
+    mov ax, [si]
+    or ax, ax
     jz .pp_done
-    sub ax, fat_first_data_cluster
-    mov ah, 1                  ; ah = 1 sector; al = data-area offset (prompts sit well within 8 bits)
-    call load_core_sectors_at
+    add ax, fat_data_start_lba - fat_first_data_cluster
+    call read_abs_sector
+    ; Keep the resident nucleus and every fixed TLS callback at their established addresses.
+    nop
 .pp_done:
     ret
 
@@ -272,10 +300,7 @@ agent_resolve_prompt_source:
     cmp word [loop_cache_count], 0
     je .floppy
     cmp ax, [prompt_id_cluster]
-    je .id
-    cmp ax, [prompt_compact_cluster]
     jne .floppy
-    jmp .floppy
 .id:
     mov si, prompt_id_cache
     clc
@@ -284,13 +309,29 @@ agent_resolve_prompt_source:
     add ax, fat_data_start_lba - fat_first_data_cluster
     mov bx, tls_rx_copy
     call read_abs_sector
-    jc .fail
+    jc .done
     mov si, tls_rx_copy
     clc
+.done:
     ret
-.fail:
-    stc
+
+%ifdef TLS13_PRODUCT_TLS13
+; Return AL=0 for the cold booting status and AL=1 for ready/chat, and publish
+; the matching ESC gate.  prepare_agent_endpoint_path immediately suppresses
+; the gate while a secure route owns volatile MDA state; later calls restore it.
+tls13_product_route_mode:
+    mov al, [handoff_addr + handoff_status]
+    shr al, 1                           ; booting=1 -> 0, ready=3 -> 1
+    mov [dpi_reached], al
+    ; Product success tail-jumps here, so consume the region's spare byte to
+    ; make that return a guaranteed CF=0.
+    clc
     ret
+%else
+    times 10 db 0
+%endif
+    ; Preserve the historical size of this resident region.  The fixed K14
+    ; callbacks below it must not move.
 
 ; The chat-loop working set, as canonical load keys (sectors<<8 | sector-offset): dpi/Y,
 ; agent_request/R, agent_api_stream/X, agent_response/T, and the K crypto window (the
@@ -299,9 +340,10 @@ agent_resolve_prompt_source:
 ; the 286 recert leaf-capture tail. Must stay <= loop_cache_max_entries; their total sectors <=
 ; loop_cache_max_sectors (build-asserted in core.asm). 0 terminates the list.
 loop_preload_list:
-    dw (((core_dpi_phase_end - core_dpi_phase_start + 511) / 512) << 8) | ((core_dpi_phase_start - $$) / 512)
-    dw (((core_agent_request_phase_end - core_agent_request_phase_start + 511) / 512) << 8) | ((core_agent_request_phase_start - $$) / 512)
-    dw (((core_agent_api_stream_phase_end - core_agent_api_stream_phase_start + 511) / 512) << 8) | ((core_agent_api_stream_phase_start - $$) / 512)
-    dw (((core_agent_response_phase_end - core_agent_response_phase_start + 511) / 512) << 8) | ((core_agent_response_phase_start - $$) / 512)
+    dw post_pack_phase_key(core_dpi_phase_start, core_dpi_phase_end)
+    dw post_pack_phase_key(core_agent_request_phase_start, core_agent_request_phase_end)
+    dw post_pack_phase_key(core_agent_api_stream_phase_start, core_agent_api_stream_phase_end)
+    dw post_pack_phase_key(core_agent_response_phase_start, core_agent_response_phase_end)
     dw (((core_link_window_end - core_link_window_start + 511) / 512) << 8) | ((core_link_window_start - $$) / 512)
+loop_preload_list_end:
     dw 0

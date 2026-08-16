@@ -74,7 +74,7 @@ RX_KEY = 0x0224
 CRYPTO_KEY = 0x0125
 CANDIDATE_KEY = 0x0526
 POST_KEY = 0x0127
-SYM_RESTORE_KEY = 0x0A28
+SYM_RESTORE_KEY = 0x0C28
 RESTORE_KEY = 0x0129
 CONTROLLER_HEAD_KEY = 0x012A
 CONTROLLER_TAIL_KEY = 0x012B
@@ -139,8 +139,13 @@ RESTORE_STAGE = 0x0700
 RESTORE_STAGE_END = 0x0900
 SYMMETRIC_LIVE_START = 0x1800
 SYMMETRIC_LIVE_END = 0x3400
+SYMMETRIC_IMAGE_END = 0x3000
 SYMMETRIC_RX_TAIL_START = 0x2800
 SYMMETRIC_RX_TAIL_END = 0x2C00
+RETIRED_ACCESS_START = 0x2C00
+RETIRED_ACCESS_END = SYMMETRIC_IMAGE_END
+EARLY_EOED_HOLD = SYM_IO + 72
+RETAINED_TICKET_IDENTITY = 0x3B40
 
 FRAGMENT_POINTERS = (
     TX_PAYLOAD,
@@ -436,10 +441,10 @@ def validate_images(images: Images) -> None:
     if (
         RX_KEY >> 8 != 2
         or CRYPTO_KEY >> 8 != 1
-        or SYM_RESTORE_KEY >> 8 != 10
+        or SYM_RESTORE_KEY >> 8 != 12
     ):
         raise AssertionError(
-            "EXCHANGE RX/CRYPTO/SYM keys do not encode 2/1/10 sectors"
+            "EXCHANGE RX/CRYPTO/SYM keys do not encode 2/1/12 sectors"
         )
     if not images.post or len(images.post) > 0x0200:
         raise AssertionError("EXCHANGE staged POST exceeds one sector")
@@ -449,6 +454,17 @@ def word_sum(value: bytes) -> int:
     if len(value) & 1:
         raise ValueError("word checksum requires an even byte count")
     return sum(struct.unpack(f"<{len(value) // 2}H", value)) & 0xFFFF
+
+
+def symmetric_image_fixture() -> bytes:
+    """Return the exact twelve-sector image installed by the loader model."""
+
+    image = bytearray(
+        (0x53 + index * 23) & 0xFF
+        for index in range(SYMMETRIC_IMAGE_END - SYMMETRIC_LIVE_START)
+    )
+    image[SYM_INIT - SYMMETRIC_LIVE_START] = 0xC3
+    return bytes(image)
 
 
 def make_fixture() -> Fixture:
@@ -640,6 +656,8 @@ def run(
     fail_early_send: bool = False,
     fail_early_page_read: bool = False,
     fail_eoed_read: bool = False,
+    fail_eoed_carry_read: bool = False,
+    corrupt_eoed_carry: bool = False,
     fail_rx_load: bool = False,
     fail_zero_window: bool = False,
     fail_connect_load: bool = False,
@@ -675,7 +693,13 @@ def run(
         (0x6B + index * 29) & 0xFF
         for index in range(SYMMETRIC_RX_TAIL_END - SYMMETRIC_RX_TAIL_START)
     )
+    symmetric_image = symmetric_image_fixture()
+    retired_access_lease = bytes(
+        (0xA9 + index * 37) & 0xFF
+        for index in range(RETIRED_ACCESS_END - RETIRED_ACCESS_START)
+    )
     machine.mem_write(SYMMETRIC_RX_TAIL_START, symmetric_rx_tail)
+    machine.mem_write(RETIRED_ACCESS_START, retired_access_lease)
     machine.mem_write(OUTER_TRANSITION, fixture.outer_transition)
     services = (
         LOAD_PHASE,
@@ -847,6 +871,13 @@ def run(
         destination = uc.reg_read(UC_X86_REG_BX) & 0xFFFF
         events.append(f"load:{key:04x}:{destination:04x}")
         if key == RESTORE_KEY:
+            if (uc.reg_read(UC_X86_REG_CX) & 0xFFFF) != len(
+                images.restore
+            ):
+                raise AssertionError(
+                    "restore transition did not carry its exact measured "
+                    "copy length"
+                )
             symmetric_before_restore = bytes(
                 uc.mem_read(
                     SYMMETRIC_LIVE_START,
@@ -1027,22 +1058,31 @@ def run(
                 )
             ) == symmetric_rx_tail:
                 raise AssertionError(
-                    "ten-sector restore did not follow an RX-clobbered tail"
+                    "twelve-sector restore did not follow an RX-clobbered tail"
                 )
-            # The real ten-sector load covers 0x1800..0x2bff and therefore
-            # destroys POST's 0x2400 source while repairing RX's borrowed
-            # sectors.  Optionally poison the first eight sectors to prove
-            # control moved to 0x3400 before the load.
+            if bytes(
+                uc.mem_read(
+                    RETIRED_ACCESS_START,
+                    RETIRED_ACCESS_END - RETIRED_ACCESS_START,
+                )
+            ) != retired_access_lease:
+                raise AssertionError(
+                    "vault-access lease changed before complete SYM restore"
+                )
+            # The complete twelve-sector load covers 0x1800..0x2fff.  It
+            # destroys POST's 0x2400 source, repairs RX's borrowed sectors,
+            # and retires the overlapping 0x2c00 vault-access lease.
+            # Optionally poison the first eight sectors to prove control
+            # moved to 0x3400 before the load.
             if overwrite_sym_source:
                 uc.mem_write(0x1800, bytes([0xCC]) * 0x1000)
                 uc.ctl_remove_cache(0x1800, 0x2800)
-            uc.mem_write(SYMMETRIC_RX_TAIL_START, symmetric_rx_tail)
-            uc.mem_write(SYM_INIT, b"\xC3")
+            uc.mem_write(SYMMETRIC_LIVE_START, symmetric_image)
             uc.ctl_remove_cache(
-                SYMMETRIC_RX_TAIL_START,
-                SYMMETRIC_RX_TAIL_END,
+                SYMMETRIC_LIVE_START,
+                SYMMETRIC_IMAGE_END,
             )
-            events.append("sym:tail-restored")
+            events.append("sym:full-restored")
             set_carry(uc, False)
             return
         if key in accepted_loads:
@@ -1094,6 +1134,13 @@ def run(
         ):
             set_carry(uc, True)
             return
+        if (
+            fail_eoed_carry_read
+            and source == CARD_C + C_LEN
+            and count == EARLY_EOED_LEN
+        ):
+            set_carry(uc, True)
+            return
         if fail_private_read and source == CARD_PRIVATE and count == PRIVATE_LEN:
             set_carry(uc, True)
             return
@@ -1135,6 +1182,12 @@ def run(
             and count == 256
         ):
             value[200] ^= 1
+        if (
+            corrupt_eoed_carry
+            and destination == CARD_C + 1024
+            and count == 256
+        ):
+            value[C_LEN - 1024] ^= 1
         card[destination : destination + count] = value
         events.append(f"write:{destination:04x}:{count}")
         card_write_index += 1
@@ -1503,12 +1556,12 @@ def run(
         events.append("ticket:pre-sym-valid")
         if bytes(
             uc.mem_read(
-                SYMMETRIC_RX_TAIL_START,
-                SYMMETRIC_RX_TAIL_END - SYMMETRIC_RX_TAIL_START,
+                SYMMETRIC_LIVE_START,
+                SYMMETRIC_IMAGE_END - SYMMETRIC_LIVE_START,
             )
-        ) != symmetric_rx_tail:
+        ) != symmetric_image:
             raise AssertionError(
-                "sym_init reached an RX-corrupted preserved tail sector"
+                "sym_init did not receive the exact complete symmetric image"
             )
         uc.mem_write(0x3600, bytes(0x3C2E - 0x3600))
         if corrupt_spent_hold:
@@ -1685,6 +1738,13 @@ def main() -> None:
             len(fixture.rejected_tail),
         ) != (68, 74, 64, 70):
             raise AssertionError("accepted/rejected protected geometry drifted")
+        if not (
+            EARLY_EOED_HOLD >= SYM_IO + PROTECTED_RECORD_BYTES
+            and EARLY_EOED_HOLD >= SYM_IO + 72
+            and EARLY_EOED_HOLD + EARLY_EOED_LEN
+            <= RETAINED_TICKET_IDENTITY
+        ):
+            raise AssertionError("EXCHANGE RAM-held EOED overlaps live state")
         success = run(images, fixture)
         assert_return(success, success=True)
 
@@ -1890,6 +1950,24 @@ def main() -> None:
             label="accepted CCS",
         )
         if (
+            success.ram[
+                SYMMETRIC_LIVE_START:SYMMETRIC_IMAGE_END
+            ]
+            != symmetric_image_fixture()
+        ):
+            raise AssertionError(
+                "EXCHANGE did not leave the exact complete symmetric image live"
+            )
+        if (
+            success.ram[
+                EARLY_EOED_HOLD:EARLY_EOED_HOLD + EARLY_EOED_LEN
+            ]
+            != fixture.early_eoed
+        ):
+            raise AssertionError(
+                "EXCHANGE did not carry the validated EOED into its RAM hold"
+            )
+        if (
             success.ram[TICKET_PRESENT] != 1
             or success.ram[SPENT_HOLD] != 0
         ):
@@ -2013,6 +2091,9 @@ def main() -> None:
             "candidate:low-artifacts-intact",
             "candidate",
             f"write:{CARD_CANDIDATE_A:04x}:256",
+            f"read:{CARD_C + C_LEN:04x}:{EARLY_EOED_LEN}",
+            f"load:{SYM_RESTORE_KEY:04x}:{SYMMETRIC_LIVE_START:04x}",
+            "sym:full-restored",
             "ticket:pre-sym-valid",
             "sym:init",
             "ticket:sym-clobbered",
@@ -2625,6 +2706,30 @@ def main() -> None:
             if "candidate" in early_failure.events:
                 raise AssertionError(f"{label} reached candidate")
 
+        for label, carry_failure in (
+            (
+                "quarantined EOED carry read failure",
+                run(images, fixture, fail_eoed_carry_read=True),
+            ),
+            (
+                "quarantined EOED carry corruption",
+                run(images, fixture, corrupt_eoed_carry=True),
+            ),
+        ):
+            assert_terminal(carry_failure)
+            if (
+                "candidate" not in carry_failure.events
+                or f"read:{CARD_C + C_LEN:04x}:{EARLY_EOED_LEN}"
+                not in carry_failure.events
+                or f"load:{SYM_RESTORE_KEY:04x}:{SYMMETRIC_LIVE_START:04x}"
+                in carry_failure.events
+                or f"load:{RESTORE_KEY:04x}:{RESTORE_STAGE:04x}"
+                in carry_failure.events
+            ):
+                raise AssertionError(
+                    f"{label} escaped its pre-SYM-invalidation boundary"
+                )
+
         spent_hold_failure = run(
             images,
             fixture,
@@ -2769,9 +2874,10 @@ def main() -> None:
             "accepted/rejected coalesced excess ACK rewind; "
             "accepted required + rejected skipped pre-Finished zero-window; "
             "private->c->early->candidate/import hostile cases; "
-            "two-sector RX/one-sector CRYPTO/ten-sector SYM + RSU1 restore "
-            "guards; deferred c certification with write-failure boundary; "
-            "SYM source-overwrite transition)"
+            "two-sector RX/one-sector CRYPTO/twelve-sector SYM + RSU1 "
+            "restore guards; exact RAM-held EOED carry; deferred c "
+            "certification with write-failure boundary; complete-SYM "
+            "source/access-overwrite transition)"
         )
 
 

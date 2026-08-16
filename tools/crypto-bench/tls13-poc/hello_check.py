@@ -25,12 +25,15 @@ from pathlib import Path
 from unicorn import (
     UC_ARCH_X86,
     UC_HOOK_CODE,
+    UC_HOOK_INSN,
     UC_HOOK_MEM_WRITE,
     UC_MODE_16,
     Uc,
     UcError,
 )
 from unicorn.x86_const import (
+    UC_X86_INS_IN,
+    UC_X86_INS_OUT,
     UC_X86_REG_AX,
     UC_X86_REG_BX,
     UC_X86_REG_CS,
@@ -90,7 +93,6 @@ RAM_END = 0x4000
 RETURN_SENTINEL = 0x0500
 MSS = 384
 
-RES_WAIT_TICKS = 0x11E5
 RES_TCP_ACK = 0x13A6
 RES_BUILD_TCP_FRAME = 0x13E2
 RES_TCP_ADD_CX_TO_SEQ = 0x14DA
@@ -98,6 +100,7 @@ NIC_VT_TRANSMIT = 0x15DF
 NIC_VT_RECEIVE = 0x15E1
 FAKE_TRANSMIT = 0x0200
 FAKE_RECEIVE = 0x0210
+HANDOFF_NIC_BASE = 0x060E
 HANDOFF_NIC_FAMILY = 0x0610
 HANDOFF_IP = 0x061C
 NE_RX_SAMPLE_COUNT = 0x06D5
@@ -108,14 +111,30 @@ TCP_LOCAL_SEQ = 0x06ED
 TCP_REMOTE_ACK = 0x06F1
 TCP_SOURCE_PORT = 0x06F9
 TCP_OFFSET = 34
+FAMILY_3C501 = 4
+EL1_RX_CMD = 0x06
+EL1_RCVPTR = 0x0A
+EL1_RX_CMD_GOOD = 0x80
 
 HOST = b"api.openai.com"
 TLS13_CIPHER = b"\x13\x03"
 TLS13_VERSION = b"\x03\x04"
 LEGACY_VERSION = b"\x03\x03"
 HYBRID_GROUP = 0x11EC
+FIXED_X25519_U9 = b"\x09" + b"\x00" * 31
+DYNAMIC_X25519_INPUT = 0x4000
+RFC7748_ALICE_SCALAR = bytes.fromhex(
+    "77076d0a7318a57d3c16c17251b26645"
+    "df4c2f87ebc0992ab177fba51db92c2a"
+)
+RFC7748_ALICE_PUBLIC = bytes.fromhex(
+    "8520f0098930a754748b7ddcb43ef75a"
+    "0dbf3a0d26381af4eba4a98eaa9b4e6a"
+)
 FRESH_CLIENT_LEN = 1376
 FRESH_TICKET_CLIENT_LEN = FRESH_CLIENT_LEN + 6
+PRODUCT_RECORD_SIZE_LIMIT = 2048
+PRODUCT_EXTENSION_LEN = 6
 FRESH_SERVER_LEN = 1210
 RESUMED_SERVER_LEN = 1216
 HRR_RANDOM = bytes.fromhex(
@@ -238,6 +257,48 @@ def deterministic(label: bytes, length: int) -> bytes:
     return hashlib.shake_256(b"Seed integrated TLS 1.3|" + label).digest(length)
 
 
+def x25519_public_from_scalar(scalar: bytes) -> bytes:
+    """Independent RFC 7748 Montgomery ladder for X25519(scalar, u=9)."""
+
+    if len(scalar) != 32:
+        raise ValueError("X25519 scalar must be 32 bytes")
+    clamped = bytearray(scalar)
+    clamped[0] &= 248
+    clamped[31] &= 127
+    clamped[31] |= 64
+    scalar_value = int.from_bytes(clamped, "little")
+    prime = (1 << 255) - 19
+    x1 = 9
+    x2, z2 = 1, 0
+    x3, z3 = x1, 1
+    swap = 0
+    for bit in range(254, -1, -1):
+        scalar_bit = (scalar_value >> bit) & 1
+        swap ^= scalar_bit
+        if swap:
+            x2, x3 = x3, x2
+            z2, z3 = z3, z2
+        swap = scalar_bit
+        a = (x2 + z2) % prime
+        aa = (a * a) % prime
+        b = (x2 - z2) % prime
+        bb = (b * b) % prime
+        e = (aa - bb) % prime
+        c = (x3 + z3) % prime
+        d = (x3 - z3) % prime
+        da = (d * a) % prime
+        cb = (c * b) % prime
+        x3 = ((da + cb) ** 2) % prime
+        z3 = (x1 * ((da - cb) ** 2)) % prime
+        x2 = (aa * bb) % prime
+        z2 = (e * (aa + 121665 * e)) % prime
+    if swap:
+        x2, x3 = x3, x2
+        z2, z3 = z3, z2
+    result = (x2 * pow(z2, prime - 2, prime)) % prime
+    return result.to_bytes(32, "little")
+
+
 def hkdf_expand_label(
     secret: bytes, label: bytes, context: bytes, length: int = 32
 ) -> bytes:
@@ -267,13 +328,22 @@ def resumption_binder(psk: bytes, truncated_client_hello: bytes) -> bytes:
     ).digest()
 
 
-def base_extensions(ek: bytes) -> bytes:
+def base_extensions(
+    ek: bytes,
+    *,
+    x25519_share: bytes = FIXED_X25519_U9,
+    record_size_limit: int | None = None,
+) -> bytes:
     if len(ek) != EK_LEN:
         raise ValueError("bad ML-KEM public-key length")
+    if len(x25519_share) != 32:
+        raise ValueError("bad X25519 client-share length")
+    if record_size_limit is not None and not 64 <= record_size_limit <= 16385:
+        raise ValueError("record_size_limit is outside the RFC 8449 range")
     server_name = u16(1 + 2 + len(HOST)) + b"\x00" + u16(len(HOST)) + HOST
-    exchange = ek + b"\x09" + b"\x00" * 31
+    exchange = ek + x25519_share
     key_share_entry = u16(HYBRID_GROUP) + u16(len(exchange)) + exchange
-    return b"".join(
+    result = b"".join(
         (
             extension(0, server_name),
             extension(43, b"\x02" + TLS13_VERSION),
@@ -281,9 +351,11 @@ def base_extensions(ek: bytes) -> bytes:
             extension(13, u16(2) + b"\x04\x03"),
             extension(27, b"\x02\x00\x02"),
             extension(51, u16(len(key_share_entry)) + key_share_entry),
-            extension(21, b"\x00" * 14),
         )
     )
+    if record_size_limit is not None:
+        result += extension(28, u16(record_size_limit))
+    return result + extension(21, b"\x00" * 14)
 
 
 def client_body_prefix(
@@ -312,14 +384,22 @@ def build_fresh_client(
     session_id: bytes,
     *,
     request_ticket: bool = False,
+    x25519_share: bytes = FIXED_X25519_U9,
+    record_size_limit: int | None = None,
 ) -> tuple[bytes, bytes]:
-    extensions = base_extensions(ek)
+    extensions = base_extensions(
+        ek,
+        x25519_share=x25519_share,
+        record_size_limit=record_size_limit,
+    )
     if request_ticket:
         extensions += extension(45, b"\x01\x01")
     message = handshake(1, client_body_prefix(random, session_id, extensions))
     expected_len = (
         FRESH_TICKET_CLIENT_LEN if request_ticket else FRESH_CLIENT_LEN
     )
+    if record_size_limit is not None:
+        expected_len += PRODUCT_EXTENSION_LEN
     if len(message) != expected_len:
         raise AssertionError(f"fresh ClientHello length drifted: {len(message)}")
     record = b"\x16\x03\x01" + u16(len(message)) + message
@@ -333,6 +413,10 @@ def build_resumed_client(
     identity: bytes,
     age: bytes,
     psk: bytes,
+    *,
+    early_data: bool = False,
+    x25519_share: bytes = FIXED_X25519_U9,
+    record_size_limit: int | None = None,
 ) -> tuple[bytes, bytes, bytes, bytes]:
     if not 1 <= len(identity) <= TICKET_MAX:
         raise ValueError("ticket identity outside overlay bound")
@@ -342,8 +426,13 @@ def build_resumed_client(
     binder_placeholder = u16(33) + b"\x20" + b"\x00" * 32
     psk_extension = extension(41, identities + binder_placeholder)
     extensions = (
-        base_extensions(ek)
+        base_extensions(
+            ek,
+            x25519_share=x25519_share,
+            record_size_limit=record_size_limit,
+        )
         + extension(45, b"\x01\x01")
+        + (extension(42, b"") if early_data else b"")
         + psk_extension
     )
     placeholder = handshake(
@@ -354,7 +443,16 @@ def build_resumed_client(
     truncated = placeholder[:-35]
     binder = resumption_binder(psk, truncated)
     message = placeholder[:-32] + binder
-    expected_len = 1429 + len(identity)
+    expected_len = (
+        1429
+        + len(identity)
+        + (4 if early_data else 0)
+        + (
+            PRODUCT_EXTENSION_LEN
+            if record_size_limit is not None
+            else 0
+        )
+    )
     if len(message) != expected_len:
         raise AssertionError(
             f"resumed ClientHello length drifted: {len(message)}"
@@ -454,6 +552,25 @@ def client_extensions(message: bytes) -> list[tuple[int, bytes]]:
     if offset + extensions_len != len(body):
         raise AssertionError("ClientHello extension length mismatch")
     return parse_extensions(body[offset:])
+
+
+def client_hybrid_exchange(message: bytes) -> bytes:
+    shares = [body for kind, body in client_extensions(message) if kind == 51]
+    if len(shares) != 1:
+        raise AssertionError("ClientHello must contain one key_share extension")
+    vector = shares[0]
+    if len(vector) < 6 or int.from_bytes(vector[:2], "big") != len(vector) - 2:
+        raise AssertionError("ClientHello key_share vector geometry drifted")
+    group = int.from_bytes(vector[2:4], "big")
+    exchange_len = int.from_bytes(vector[4:6], "big")
+    exchange = vector[6:]
+    if (
+        group != HYBRID_GROUP
+        or exchange_len != EK_LEN + 32
+        or len(exchange) != exchange_len
+    ):
+        raise AssertionError("ClientHello hybrid entry geometry drifted")
+    return exchange
 
 
 def load_integrated_oracle():
@@ -630,6 +747,10 @@ class CachedConnectOverlay(Overlay):
         self.ack_calls = 0
         self.wait_calls = 0
         self.receive_calls = 0
+        self.pit_latch_writes = 0
+        self._pit_read_index = 0
+        self.el1_prime_writes: list[tuple[int, int]] = []
+        self.el1_prime_events: list[tuple[str, int, int]] = []
 
         self.write(NIC_VT_TRANSMIT, FAKE_TRANSMIT.to_bytes(2, "little"))
         self.write(NIC_VT_RECEIVE, FAKE_RECEIVE.to_bytes(2, "little"))
@@ -642,7 +763,6 @@ class CachedConnectOverlay(Overlay):
         self.write(0x046C, (0x1234).to_bytes(2, "little"))
 
         shim_addresses = (
-            RES_WAIT_TICKS,
             RES_TCP_ACK,
             RES_BUILD_TCP_FRAME,
             RES_TCP_ADD_CX_TO_SEQ,
@@ -652,6 +772,65 @@ class CachedConnectOverlay(Overlay):
         for address in shim_addresses:
             self.write(address, b"\xC3")
         self.uc.hook_add(UC_HOOK_CODE, self._shim)
+        self.uc.hook_add(
+            UC_HOOK_INSN, self._pit_in, None, 1, 0, UC_X86_INS_IN
+        )
+        self.uc.hook_add(
+            UC_HOOK_INSN, self._io_out, None, 1, 0, UC_X86_INS_OUT
+        )
+
+    def _pit_in(self, _uc: Uc, port: int, size: int, _data: object) -> int:
+        nic_base = self.word(HANDOFF_NIC_BASE)
+        if (
+            self.read(HANDOFF_NIC_FAMILY, 1)[0] == FAMILY_3C501
+            and port == nic_base
+            and size == 1
+        ):
+            value = 0x20
+            self.el1_prime_events.append(("in", port, value))
+            return value
+        if port != 0x40 or size != 1:
+            raise AssertionError(
+                f"cached connector unexpected IN port={port:04x} size={size}"
+            )
+        # Three latched samples exercise the hardest starting boundary:
+        # ffff -> f000 (still counting down) -> ff00 (reload observed).
+        stream = (0xFF, 0xFF, 0x00, 0xF0, 0x00, 0xFF)
+        phase = self._pit_read_index % len(stream)
+        value = stream[phase]
+        self._pit_read_index += 1
+        if phase == len(stream) - 1:
+            self.wait_calls += 1
+        return value
+
+    def _io_out(
+        self,
+        _uc: Uc,
+        port: int,
+        size: int,
+        value: int,
+        _data: object,
+    ) -> None:
+        if port == 0x43 and size == 1 and value == 0:
+            self.pit_latch_writes += 1
+            return
+        nic_base = self.word(HANDOFF_NIC_BASE)
+        expected_el1 = {
+            nic_base + EL1_RCVPTR: 0,
+            nic_base + EL1_RX_CMD: EL1_RX_CMD_GOOD,
+        }
+        if (
+            self.read(HANDOFF_NIC_FAMILY, 1)[0] == FAMILY_3C501
+            and size == 1
+            and expected_el1.get(port) == value
+        ):
+            self.el1_prime_writes.append((port, value))
+            self.el1_prime_events.append(("out", port, value))
+            return
+        raise AssertionError(
+            "cached connector unexpected OUT "
+            f"port={port:04x} size={size} value={value:02x}"
+        )
 
     def _set_carry(self, value: bool) -> None:
         flags = self.uc.reg_read(UC_X86_REG_EFLAGS)
@@ -660,9 +839,10 @@ class CachedConnectOverlay(Overlay):
         )
 
     def _valid_synack(self, *, reset: bool = False) -> bytes:
-        frame = bytearray(54)
+        frame = bytearray(60)
         frame[12:14] = b"\x08\x00"
         frame[14] = 0x45
+        frame[16:18] = b"\x00\x28"
         frame[23] = 6
         frame[26:30] = self.read(TCP_TARGET_IP, 4)
         frame[30:34] = self.read(HANDOFF_IP, 4)
@@ -733,10 +913,6 @@ class CachedConnectOverlay(Overlay):
         elif address == RES_TCP_ACK:
             self.ack_calls += 1
             self._set_carry(self.ack_failure)
-        elif address == RES_WAIT_TICKS:
-            self.wait_calls += 1
-
-
 @dataclass(frozen=True)
 class Fixture:
     ek: bytes
@@ -804,8 +980,10 @@ def feed_server(
     cuts: tuple[int, ...] = (1, 2, 17, 383, 64, 7, 251),
     *,
     expect_success: bool = True,
+    begin: bool = True,
 ) -> bool:
-    vm.call(5)
+    if begin:
+        vm.call(5)
     offset = 0
     cut_index = 0
     rejected = False
@@ -861,7 +1039,12 @@ def assert_equal(name: str, actual: bytes | int, expected: bytes | int) -> None:
         raise AssertionError(f"{name}: {actual!r} != {expected!r}")
 
 
-def assert_k14_write_set(vm: Overlay, header: Header) -> None:
+def assert_k14_write_set(
+    vm: Overlay,
+    header: Header,
+    *,
+    extra_allowed: tuple[tuple[int, int], ...] = (),
+) -> None:
     if not K14:
         return
     allowed = (
@@ -874,7 +1057,7 @@ def assert_k14_write_set(vm: Overlay, header: Header) -> None:
         (header.sha_start, header.sha_end),
         (CLIENT_RANDOM, header.attempt_end),
         (STACK_GUARD, RAM_END),
-    )
+    ) + extra_allowed
     escaped = [
         (address, size)
         for address, size in vm.emulated_writes
@@ -1520,7 +1703,6 @@ def resident_symbol_addresses() -> dict[str, int]:
     """Reassemble the current core and resolve the connector's resident ABI."""
 
     names = (
-        "wait_ticks",
         "ne_transmit_tcp_ack",
         "build_tcp_segment_frame",
         "tcp_add_cx_to_seq",
@@ -1537,6 +1719,8 @@ def resident_symbol_addresses() -> dict[str, int]:
                 "bin",
                 "-w-pp-macro-redef-multi",
                 "-DLOADER_SECTORS=4",
+                "-DTLS13_PRODUCT_TLS13=1",
+                "-DTLS13_PRODUCT_PACK_BASE=1",
                 "-I",
                 str(ROOT / "targets/ibm_pc_5150/boot") + "/",
                 "-I",
@@ -1819,9 +2003,680 @@ def run_fresh_ticket_request_gate(fixture: Fixture) -> dict[str, object]:
     }
 
 
+def assert_product_record_size_limit(
+    message: bytes, *, label: str
+) -> list[tuple[int, bytes]]:
+    extensions = client_extensions(message)
+    limits = [body for kind, body in extensions if kind == 28]
+    assert_equal(f"{label} record_size_limit count", len(limits), 1)
+    assert_equal(
+        f"{label} record_size_limit value",
+        limits[0],
+        u16(PRODUCT_RECORD_SIZE_LIMIT),
+    )
+    kinds = [kind for kind, _ in extensions]
+    assert_equal(
+        f"{label} record_size_limit precedes padding",
+        kinds.index(28) + 1,
+        kinds.index(21),
+    )
+    return extensions
+
+
+def run_product_record_size_limit_gate(
+    fixture: Fixture, research_image: bytes
+) -> dict[str, object]:
+    """Exercise the exact fresh and resumed 8088 product define sets."""
+
+    expected_research_sha256 = (
+        "ec0d3ac22de79c8238369de6685c2890b5f06c758b3310b9d837cd9c11e4b865"
+        if K14
+        else "dd83fa8212c5358f4e252bb1a03a1477ed810f23af633c461d0d7abf89080f1d"
+    )
+    assert_equal(
+        "default research image remains byte-identical",
+        hashlib.sha256(research_image).hexdigest(),
+        expected_research_sha256,
+    )
+
+    fresh_defines = (
+        "TLS13_PRODUCT_TLS13",
+        "HELLO_FRESH_ONLY",
+        "HELLO_CACHED_CONNECT",
+        "HELLO_FRESH_TICKET_REQUEST",
+    )
+    fresh_image = assemble(*fresh_defines)
+    fresh_header = parse_header(fresh_image)
+    verify_static_header(fresh_image, fresh_header, expected_entries=14)
+    fresh_message, fresh_record = build_fresh_client(
+        fixture.ek,
+        fixture.random,
+        fixture.session,
+        request_ticket=True,
+        record_size_limit=PRODUCT_RECORD_SIZE_LIMIT,
+    )
+    fresh_extensions = assert_product_record_size_limit(
+        fresh_message, label="product fresh"
+    )
+    assert_equal(
+        "product fresh ticket mode remains final",
+        fresh_extensions[-1],
+        (45, b"\x01\x01"),
+    )
+    assert_equal(
+        "product fresh has no pre_shared_key",
+        sum(kind == 41 for kind, _ in fresh_extensions),
+        0,
+    )
+    assert_equal(
+        "product fresh handshake body length",
+        int.from_bytes(fresh_message[1:4], "big"),
+        len(fresh_message) - 4,
+    )
+    assert_equal(
+        "product fresh record payload length",
+        int.from_bytes(fresh_record[3:5], "big"),
+        len(fresh_message),
+    )
+
+    fresh_vm = Overlay(fresh_image, fresh_header)
+    seed_inputs(fresh_vm, fixture)
+    fresh_vm.call(0)
+    fresh_emitted, fresh_fragments = drain_client(fresh_vm, fixture.ek)
+    assert_equal("product fresh record", fresh_emitted, fresh_record)
+    assert_equal(
+        "product fresh fragment geometry",
+        fresh_fragments,
+        [147, 384, 384, 384, 32, 62],
+    )
+    fresh_vm.call(4)
+    fresh_replay, fresh_replay_fragments = drain_client(
+        fresh_vm, fixture.ek
+    )
+    assert_equal("product fresh replay", fresh_replay, fresh_record)
+    assert_equal(
+        "product fresh replay fragments",
+        fresh_replay_fragments,
+        fresh_fragments,
+    )
+    fresh_server = build_server(
+        fixture.session, fixture.ciphertext, fixture.server_x, resumed=False
+    )
+    feed_server(fresh_vm, fresh_server)
+    fresh_transcript = fresh_message + fresh_server
+    assert_equal(
+        "product fresh transcript digest",
+        fresh_vm.read(HELLO_DIGEST, 32),
+        hashlib.sha256(fresh_transcript).digest(),
+    )
+    verify_transcript_handoff(fresh_vm, fresh_transcript)
+
+    resumed_defines = (
+        "TLS13_PRODUCT_TLS13",
+        "HELLO_RESUMED_ONLY",
+        "HELLO_RESUMED_EARLY_DATA",
+    )
+    resumed_image = assemble(*resumed_defines)
+    resumed_header = parse_header(resumed_image)
+    verify_static_header(resumed_image, resumed_header, expected_entries=15)
+    (
+        resumed_message,
+        resumed_record,
+        resumed_truncated,
+        resumed_binder,
+    ) = build_resumed_client(
+        fixture.ek,
+        fixture.random,
+        fixture.session,
+        fixture.identity,
+        fixture.age,
+        fixture.psk,
+        early_data=True,
+        record_size_limit=PRODUCT_RECORD_SIZE_LIMIT,
+    )
+    resumed_extensions = assert_product_record_size_limit(
+        resumed_message, label="product resumed"
+    )
+    assert_equal(
+        "product resumed mandatory extension suffix",
+        [kind for kind, _ in resumed_extensions[-3:]],
+        [45, 42, 41],
+    )
+    assert_equal(
+        "product resumed psk_dhe_ke",
+        resumed_extensions[-3][1],
+        b"\x01\x01",
+    )
+    assert_equal(
+        "product resumed early_data body",
+        resumed_extensions[-2][1],
+        b"",
+    )
+    assert_equal(
+        "product resumed binder",
+        resumed_binder,
+        resumption_binder(fixture.psk, resumed_truncated),
+    )
+    assert_equal(
+        "product resumed binder placement",
+        resumed_extensions[-1][1][-32:],
+        resumed_binder,
+    )
+    assert_equal(
+        "product resumed handshake body length",
+        int.from_bytes(resumed_message[1:4], "big"),
+        len(resumed_message) - 4,
+    )
+    assert_equal(
+        "product resumed record payload length",
+        int.from_bytes(resumed_record[3:5], "big"),
+        len(resumed_message),
+    )
+
+    resumed_vm = Overlay(resumed_image, resumed_header)
+    seed_inputs(resumed_vm, fixture)
+    resumed_vm.call(1)
+    resumed_emitted, resumed_fragments = drain_client(
+        resumed_vm, fixture.ek
+    )
+    assert_equal("product resumed record", resumed_emitted, resumed_record)
+    assert_equal(
+        "product resumed fragment geometry",
+        resumed_fragments,
+        [147, 384, 384, 384, 32, 74, len(fixture.identity), 39],
+    )
+    resumed_vm.call(4)
+    resumed_replay, resumed_replay_fragments = drain_client(
+        resumed_vm, fixture.ek
+    )
+    assert_equal("product resumed replay", resumed_replay, resumed_record)
+    assert_equal(
+        "product resumed replay fragments",
+        resumed_replay_fragments,
+        resumed_fragments,
+    )
+    resumed_server = build_server(
+        fixture.session, fixture.ciphertext, fixture.server_x, resumed=True
+    )
+    feed_server(resumed_vm, resumed_server)
+    resumed_transcript = resumed_message + resumed_server
+    assert_equal(
+        "product resumed transcript digest",
+        resumed_vm.read(HELLO_DIGEST, 32),
+        hashlib.sha256(resumed_transcript).digest(),
+    )
+    verify_transcript_handoff(resumed_vm, resumed_transcript)
+
+    for label, image in (
+        ("fresh", fresh_image),
+        ("resumed", resumed_image),
+    ):
+        if len(image) > 8 * 512:
+            raise AssertionError(
+                f"product {label} HELLO exceeds its eight-sector slot"
+            )
+    assert_k14_write_set(fresh_vm, fresh_header)
+    assert_k14_write_set(resumed_vm, resumed_header)
+    return {
+        "define": "TLS13_PRODUCT_TLS13",
+        "offered_record_size_limit": PRODUCT_RECORD_SIZE_LIMIT,
+        "wire_extension_hex": "001c00020800",
+        "server_echo_required": False,
+        "local_authenticated_receive_bound_independent": True,
+        "default_research_image_sha256": expected_research_sha256,
+        "default_research_image_preserved": True,
+        "fresh_define_set": "+".join(fresh_defines),
+        "fresh_client_handshake_bytes": len(fresh_message),
+        "fresh_record_bytes": len(fresh_record),
+        "fresh_fragments": fresh_fragments,
+        "fresh_image_bytes": len(fresh_image),
+        "fresh_eight_sector_headroom_bytes": 8 * 512 - len(fresh_image),
+        "fresh_image_sha256": hashlib.sha256(fresh_image).hexdigest(),
+        "resumed_define_set": "+".join(resumed_defines),
+        "resumed_client_handshake_bytes": len(resumed_message),
+        "resumed_record_bytes": len(resumed_record),
+        "resumed_fragments": resumed_fragments,
+        "resumed_binder_sha256": hashlib.sha256(
+            resumed_binder
+        ).hexdigest(),
+        "resumed_image_bytes": len(resumed_image),
+        "resumed_eight_sector_headroom_bytes": (
+            8 * 512 - len(resumed_image)
+        ),
+        "resumed_image_sha256": hashlib.sha256(resumed_image).hexdigest(),
+        "gates": [
+            "single_record_size_limit_offer",
+            "record_size_limit_2048_wire_value",
+            "handshake_and_record_lengths",
+            "fresh_and_resumed_exact_replay",
+            "independent_resumption_binder",
+            "pre_shared_key_remains_final",
+            "fresh_and_resumed_transcript_context_handoff",
+            "cpu_8086_assembly",
+            "eight_sector_product_slots",
+            "default_research_image_byte_identity",
+        ],
+    }
+
+
+def run_dynamic_x25519_gate(fixture: Fixture) -> dict[str, object]:
+    """Bind one target-derived public share into fresh and resumed product CH."""
+
+    derived_share = x25519_public_from_scalar(RFC7748_ALICE_SCALAR)
+    assert_equal(
+        "independent RFC 7748 Alice public share",
+        derived_share,
+        RFC7748_ALICE_PUBLIC,
+    )
+    changed_scalar = hashlib.sha256(
+        b"Seed TLS 1.3 286 changed X25519 scalar"
+    ).digest()
+    changed_share = x25519_public_from_scalar(changed_scalar)
+    if (
+        not any(derived_share)
+        or not any(changed_share)
+        or changed_share == derived_share
+    ):
+        raise AssertionError("dynamic X25519 fixtures are not independent")
+
+    fresh_defines = (
+        "TLS13_PRODUCT_TLS13",
+        "HELLO_FRESH_ONLY",
+        "HELLO_CACHED_CONNECT",
+        "HELLO_FRESH_TICKET_REQUEST",
+    )
+    resumed_defines = (
+        "TLS13_PRODUCT_TLS13",
+        "HELLO_RESUMED_ONLY",
+        "HELLO_RESUMED_EARLY_DATA",
+    )
+    expected_default_hashes = (
+        {
+            "fresh": (
+                "e6a7eeaa84cbf4615411918c6f30aa38de0faa839932711c70c44ddcd9ce82a2"
+            ),
+            "resumed": (
+                "51fb6039637d3a96de606f38a8a9121fc6c655e9efa7b429f67d95f34d157369"
+            ),
+        }
+        if K14
+        else {
+            "fresh": (
+                "36eb4985dd369d2121da69fe553aca21dcd4d9f93cfba7491b7ad492817c6a55"
+            ),
+            "resumed": (
+                "9feb8bc16b87d3e361fc4a4f6fbf42a2c79ff483cc5b7c2e6395717c00fd2c47"
+            ),
+        }
+    )
+    default_images = {
+        "fresh": assemble(*fresh_defines),
+        "resumed": assemble(*resumed_defines),
+    }
+    for mode, default_image in default_images.items():
+        assert_equal(
+            f"default product {mode} HELLO remains byte-identical",
+            hashlib.sha256(default_image).hexdigest(),
+            expected_default_hashes[mode],
+        )
+
+    dynamic_defines = {
+        "fresh": fresh_defines + ("HELLO_DYNAMIC_X25519",),
+        "resumed": resumed_defines + ("HELLO_DYNAMIC_X25519",),
+    }
+    images = {
+        mode: assemble(*defines)
+        for mode, defines in dynamic_defines.items()
+    }
+    headers = {
+        mode: parse_header(image)
+        for mode, image in images.items()
+    }
+    verify_static_header(images["fresh"], headers["fresh"], expected_entries=14)
+    verify_static_header(
+        images["resumed"], headers["resumed"], expected_entries=15
+    )
+    fresh_sectors = (len(images["fresh"]) + 511) // 512
+    resumed_sectors = (len(images["resumed"]) + 511) // 512
+    assert_equal("dynamic fresh HELLO sector extent", fresh_sectors, 8)
+    assert_equal("dynamic resumed HELLO sector extent", resumed_sectors, 9)
+    assert_equal(
+        "default resumed HELLO sector extent",
+        (len(default_images["resumed"]) + 511) // 512,
+        8,
+    )
+    assert_equal("dynamic X25519 input", DYNAMIC_X25519_INPUT, RAM_END)
+    if DYNAMIC_X25519_INPUT + 32 > 0x4200:
+        raise AssertionError("dynamic X25519 input reaches 286 module overlay")
+
+    fresh_server = build_server(
+        fixture.session, fixture.ciphertext, fixture.server_x, resumed=False
+    )
+    resumed_server = build_server(
+        fixture.session, fixture.ciphertext, fixture.server_x, resumed=True
+    )
+    extra_write = (
+        (DYNAMIC_X25519_INPUT, DYNAMIC_X25519_INPUT + 32),
+    )
+
+    def exercise(
+        *,
+        mode: str,
+        share: bytes,
+        rewrite_byte: int,
+    ) -> dict[str, object]:
+        resumed = mode == "resumed"
+        image = images[mode]
+        header = headers[mode]
+        if resumed:
+            message, record, truncated, binder = build_resumed_client(
+                fixture.ek,
+                fixture.random,
+                fixture.session,
+                fixture.identity,
+                fixture.age,
+                fixture.psk,
+                early_data=True,
+                x25519_share=share,
+                record_size_limit=PRODUCT_RECORD_SIZE_LIMIT,
+            )
+            extensions = assert_product_record_size_limit(
+                message, label="dynamic-X25519 product resumed"
+            )
+            assert_equal(
+                "dynamic resumed mandatory extension suffix",
+                [kind for kind, _ in extensions[-3:]],
+                [45, 42, 41],
+            )
+            assert_equal(
+                "dynamic resumed binder",
+                binder,
+                resumption_binder(fixture.psk, truncated),
+            )
+            assert_equal(
+                "dynamic resumed binder placement",
+                extensions[-1][1][-32:],
+                binder,
+            )
+            fragments_expected = [
+                147,
+                384,
+                384,
+                384,
+                32,
+                74,
+                len(fixture.identity),
+                39,
+            ]
+            server = resumed_server
+            entry = 1
+        else:
+            message, record = build_fresh_client(
+                fixture.ek,
+                fixture.random,
+                fixture.session,
+                request_ticket=True,
+                x25519_share=share,
+                record_size_limit=PRODUCT_RECORD_SIZE_LIMIT,
+            )
+            truncated = b""
+            binder = b""
+            extensions = assert_product_record_size_limit(
+                message, label="dynamic-X25519 product fresh"
+            )
+            assert_equal(
+                "dynamic fresh ticket mode remains final",
+                extensions[-1],
+                (45, b"\x01\x01"),
+            )
+            fragments_expected = [147, 384, 384, 384, 32, 62]
+            server = fresh_server
+            entry = 0
+
+        assert_equal(
+            f"independent dynamic {mode} hybrid exchange",
+            client_hybrid_exchange(message),
+            fixture.ek + share,
+        )
+        if client_hybrid_exchange(message)[-32:] == FIXED_X25519_U9:
+            raise AssertionError(f"dynamic {mode} silently used fixed u=9")
+
+        vm = Overlay(image, header)
+        seed_inputs(vm, fixture)
+        psk_before = vm.read(TICKET_PSK, 32)
+        vm.write(DYNAMIC_X25519_INPUT, share)
+        vm.call(entry)
+        assert_equal(
+            f"dynamic {mode} input scrubbed after snapshot",
+            vm.read(DYNAMIC_X25519_INPUT, 32),
+            b"\x00" * 32,
+        )
+        if resumed:
+            assert_equal(
+                "dynamic resumed input did not alias ticket PSK",
+                vm.read(TICKET_PSK, 32),
+                psk_before,
+            )
+        state = vm.read(
+            header.state_start, header.state_end - header.state_start
+        )
+        snapshot_offset = state.find(share)
+        if snapshot_offset < 0 or state.find(
+            share, snapshot_offset + 1
+        ) >= 0:
+            raise AssertionError(
+                f"dynamic {mode} snapshot is absent or ambiguous"
+            )
+        snapshot_address = header.state_start + snapshot_offset
+
+        # The controller no longer owns the handoff after begin.  A hostile
+        # rewrite cannot affect binder output, a pending fragment, or replay.
+        vm.write(DYNAMIC_X25519_INPUT, bytes([rewrite_byte]) * 32)
+        emitted, fragments = drain_client(vm, fixture.ek)
+        assert_equal(f"dynamic {mode} exact record", emitted, record)
+        assert_equal(
+            f"dynamic {mode} fragment geometry",
+            fragments,
+            fragments_expected,
+        )
+        assert_equal(
+            f"dynamic {mode} emitted share",
+            client_hybrid_exchange(emitted[5:])[-32:],
+            share,
+        )
+        vm.call(4)
+        replay, replay_fragments = drain_client(vm, fixture.ek)
+        assert_equal(f"dynamic {mode} exact replay", replay, record)
+        assert_equal(
+            f"dynamic {mode} replay fragments",
+            replay_fragments,
+            fragments,
+        )
+
+        vm.call(5)
+        assert_equal(
+            f"dynamic {mode} snapshot scrubbed at ServerHello begin",
+            vm.read(snapshot_address, 32),
+            b"\x00" * 32,
+        )
+        feed_server(vm, server, begin=False)
+        transcript = message + server
+        transcript_digest = hashlib.sha256(transcript).digest()
+        assert_equal(
+            f"dynamic {mode} transcript digest",
+            vm.read(HELLO_DIGEST, 32),
+            transcript_digest,
+        )
+        verify_transcript_handoff(vm, transcript)
+        assert_k14_write_set(
+            vm,
+            header,
+            extra_allowed=extra_write,
+        )
+        return {
+            "message": message,
+            "record": record,
+            "truncated": truncated,
+            "binder": binder,
+            "fragments": fragments,
+            "transcript_digest": transcript_digest,
+        }
+
+    derived = {
+        mode: exercise(mode=mode, share=derived_share, rewrite_byte=0xA6)
+        for mode in ("fresh", "resumed")
+    }
+    changed = {
+        mode: exercise(mode=mode, share=changed_share, rewrite_byte=0x5C)
+        for mode in ("fresh", "resumed")
+    }
+    for mode in ("fresh", "resumed"):
+        if changed[mode]["record"] == derived[mode]["record"]:
+            raise AssertionError(
+                f"changed X25519 share did not change {mode} ClientHello"
+            )
+        if (
+            changed[mode]["transcript_digest"]
+            == derived[mode]["transcript_digest"]
+        ):
+            raise AssertionError(
+                f"changed X25519 share did not bind the {mode} transcript"
+            )
+    if changed["resumed"]["truncated"] == derived["resumed"]["truncated"]:
+        raise AssertionError("changed share did not bind resumed truncation")
+    if changed["resumed"]["binder"] == derived["resumed"]["binder"]:
+        raise AssertionError("changed share did not bind resumed PSK binder")
+
+    for mode, entry in (("fresh", 0), ("resumed", 1)):
+        zero = Overlay(images[mode], headers[mode])
+        seed_inputs(zero, fixture)
+        psk_before = zero.read(TICKET_PSK, 32)
+        zero.write(DYNAMIC_X25519_INPUT, b"\x00" * 32)
+        zero.call(entry, expect_success=False)
+        assert_equal(
+            f"all-zero {mode} X25519 input remains scrubbed",
+            zero.read(DYNAMIC_X25519_INPUT, 32),
+            b"\x00" * 32,
+        )
+        assert_equal(
+            f"all-zero {mode} X25519 status",
+            zero.read(STATUS, 1),
+            b"\x00",
+        )
+        if mode == "resumed":
+            assert_equal(
+                "all-zero resumed input did not touch ticket PSK",
+                zero.read(TICKET_PSK, 32),
+                psk_before,
+            )
+        zero.call(2, expect_success=False)
+        assert_k14_write_set(
+            zero,
+            headers[mode],
+            extra_allowed=extra_write,
+        )
+
+    resumed_raw_delta = (
+        len(images["resumed"]) - len(default_images["resumed"])
+    )
+    resumed_sector_delta = (
+        resumed_sectors
+        - ((len(default_images["resumed"]) + 511) // 512)
+    )
+    return {
+        "define": "HELLO_DYNAMIC_X25519",
+        "define_sets": {
+            mode: "+".join(defines)
+            for mode, defines in dynamic_defines.items()
+        },
+        "abi": {
+            "input": "0000:4000..401f",
+            "reserved_controller_scratch": "0000:4000..41ff",
+            "bytes": 32,
+            "producer": "286 root after RFC 7748 X25519 keygen",
+            "consumers": ["hello_fresh_begin", "hello_resumed_begin"],
+            "ticket_psk_independent_at": "0000:3bdc..3bfb",
+            "all_zero_rejected": True,
+            "input_scrubbed_after_snapshot": True,
+            "snapshot_frozen_through_binder_send_and_replay": True,
+            "snapshot_scrubbed_at_server_begin": True,
+            "header_or_entry_added": False,
+        },
+        "rfc7748_vector": "Alice X25519 public share",
+        "rfc7748_public_share": derived_share.hex(),
+        "changed_share": changed_share.hex(),
+        "default_product_images": {
+            mode: {
+                "sha256": expected_default_hashes[mode],
+                "byte_identity_preserved": True,
+            }
+            for mode in ("fresh", "resumed")
+        },
+        "dynamic_images": {
+            mode: {
+                "bytes": len(images[mode]),
+                "sectors": (
+                    (len(images[mode]) + 511) // 512
+                ),
+                "last_sector_headroom_bytes": (
+                    ((len(images[mode]) + 511) // 512) * 512
+                    - len(images[mode])
+                ),
+                "sha256": hashlib.sha256(images[mode]).hexdigest(),
+            }
+            for mode in ("fresh", "resumed")
+        },
+        "resumed_extent_cost": {
+            "raw_image_delta_bytes": resumed_raw_delta,
+            "phase_extent_delta_sectors": resumed_sector_delta,
+            "seed_sys_and_floppy_delta_bytes": resumed_sector_delta * 512,
+            "fat12_160k_cluster_delta": resumed_sector_delta,
+            "fat12_sectors_per_cluster": 1,
+        },
+        "wire": {
+            "fresh_client_handshake_bytes": len(
+                derived["fresh"]["message"]
+            ),
+            "fresh_fragments": derived["fresh"]["fragments"],
+            "fresh_transcript_sha256": derived["fresh"][
+                "transcript_digest"
+            ].hex(),
+            "resumed_client_handshake_bytes": len(
+                derived["resumed"]["message"]
+            ),
+            "resumed_fragments": derived["resumed"]["fragments"],
+            "resumed_binder_sha256": hashlib.sha256(
+                derived["resumed"]["binder"]
+            ).hexdigest(),
+            "resumed_transcript_sha256": derived["resumed"][
+                "transcript_digest"
+            ].hex(),
+            "changed_resumed_binder_sha256": hashlib.sha256(
+                changed["resumed"]["binder"]
+            ).hexdigest(),
+        },
+        "gates": [
+            "independent_rfc7748_montgomery_ladder",
+            "known_rfc7748_alice_public_vector",
+            "exact_fresh_and_resumed_product_client_hello",
+            "controller_input_fixed_at_0000_4000",
+            "ticket_psk_does_not_alias_dynamic_input",
+            "all_zero_fresh_and_resumed_inputs_rejected",
+            "controller_input_scrubbed_after_snapshot",
+            "post_begin_input_rewrite_cannot_change_binder_or_wire",
+            "changed_valid_share_binds_resumed_truncation_and_binder",
+            "changed_valid_share_binds_fresh_and_resumed_transcripts",
+            "snapshot_scrubbed_at_server_begin",
+            "fresh_and_resumed_exact_replay",
+            "default_fresh_and_resumed_product_image_byte_identity",
+            "header_and_entry_counts_unchanged",
+            "fresh_eight_sector_and_resumed_nine_sector_extents",
+        ],
+    }
+
+
 def run_cached_connect_gate() -> dict[str, object]:
     expected_resident = {
-        "wait_ticks": RES_WAIT_TICKS,
         "ne_transmit_tcp_ack": RES_TCP_ACK,
         "build_tcp_segment_frame": RES_BUILD_TCP_FRAME,
         "tcp_add_cx_to_seq": RES_TCP_ADD_CX_TO_SEQ,
@@ -1952,12 +2807,43 @@ def run_cached_connect_gate() -> dict[str, object]:
     assert_equal("RST|SYN|ACK rejected before valid frame", hostile.wait_calls, 1)
     assert_equal("hostile connector ACK count", hostile.ack_calls, 1)
 
+    el1 = CachedConnectOverlay(
+        image,
+        header,
+        receive_actions=("empty", "empty", "valid"),
+    )
+    el1.write(HANDOFF_NIC_BASE, (0x0280).to_bytes(2, "little"))
+    el1.write(HANDOFF_NIC_FAMILY, bytes([FAMILY_3C501]))
+    el1.call(9)
+    assert_equal(
+        "3c501 pre-SYN receive prime",
+        el1.el1_prime_writes,
+        [(0x028A, 0), (0x0286, EL1_RX_CMD_GOOD)],
+    )
+    assert_equal(
+        "3c501 status-read/rearm ordering",
+        el1.el1_prime_events,
+        [
+            ("in", 0x0280, 0x20),
+            ("out", 0x028A, 0),
+            ("out", 0x0286, EL1_RX_CMD_GOOD),
+        ],
+    )
+    assert_equal("3c501 interrupt-masked wait", el1.wait_calls, 1)
+    assert_equal("3c501 primed SYN-ACK accepted", el1.ack_calls, 1)
+    assert_equal("3c501 bounded receive cap", el1.word(NE_RX_READ_LIMIT), 96)
+
     timeout = CachedConnectOverlay(
         image, header, receive_actions=("empty",)
     )
     timeout.call(9, expect_success=False)
     assert_equal("cached connector bounded retries", len(timeout.transmit_calls), 3)
     assert_equal("cached connector bounded waits", timeout.wait_calls, 12)
+    assert_equal(
+        "cached connector PIT latches",
+        timeout.pit_latch_writes,
+        timeout.wait_calls * 3,
+    )
     assert_equal("cached connector timeout no ACK", timeout.ack_calls, 0)
 
     ack_failure = CachedConnectOverlay(
@@ -1984,17 +2870,30 @@ def run_cached_connect_gate() -> dict[str, object]:
         "sector_count": sector_bytes // 512,
         "bytes_free_in_eight_sector_prefix": 4096 - len(image),
         "resident_calls": {
-            "wait_ticks": hex(RES_WAIT_TICKS),
             "tcp_ack": hex(RES_TCP_ACK),
             "build_tcp_segment_frame": hex(RES_BUILD_TCP_FRAME),
             "tcp_add_cx_to_seq": hex(RES_TCP_ADD_CX_TO_SEQ),
             "nic_vt_transmit": hex(NIC_VT_TRANSMIT),
             "nic_vt_receive": hex(NIC_VT_RECEIVE),
         },
+        "interrupt_independent_wait": {
+            "counter": "PIT channel 0",
+            "counter_port": "0x40",
+            "latch_port": "0x43",
+            "slice": "one observed down-counter wrap",
+            "bios_tick_dependency": False,
+            "works_with_interrupts_masked": True,
+        },
         "gates": [
             "cached_target_success",
             "MSS_384_SYN_shape",
             "same_port_and_ISN_retransmit",
+            "interrupt_masked_PIT_wait_progress",
+            "initial_ffff_counter_sample_progress",
+            "no_BIOS_tick_wait_dependency",
+            "3c501_receive_status_read_before_rearm",
+            "3c501_receive_primed_before_SYN",
+            "3c501_primed_SYNACK_accepted",
             "RST_SYNACK_rejected",
             "three_attempt_timeout",
             "final_ACK_failure_propagated",
@@ -2026,6 +2925,10 @@ def run() -> dict[str, object]:
     run_zeroize_gate(image, header, fixture)
     fresh_only = run_fresh_only_gate(fixture)
     fresh_ticket_request = run_fresh_ticket_request_gate(fixture)
+    product_record_size_limit = run_product_record_size_limit_gate(
+        fixture, image
+    )
+    dynamic_x25519 = run_dynamic_x25519_gate(fixture)
     cached_connect = run_cached_connect_gate()
 
     occupied = (
@@ -2097,6 +3000,8 @@ def run() -> dict[str, object]:
         "wire": modes,
         "fresh_only_variant": fresh_only,
         "fresh_ticket_request_variant": fresh_ticket_request,
+        "product_record_size_limit_variant": product_record_size_limit,
+        "dynamic_x25519_variant": dynamic_x25519,
         "cached_target_connector": cached_connect,
         "gates": {
             "fresh_matches_existing_integrated_formula": True,

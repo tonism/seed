@@ -9,9 +9,10 @@ post_auth_cached_connect:  one sector at 0x2400
 post_auth_resumed_hello:   eight sectors at 0x1800
 ```
 
-The first is the `RHC1` cold cached-target connector. Its three-entry table
-contains connect, zero-window ACK, and window-update helpers. It runs while the
-symmetric overlay and binder are still resident.
+The first is the `RHC1` cold cached-target connector. Its four-entry table
+contains connect, zero-window ACK, window-update, and a caller-gated 3c501
+receive-prime helper. It runs while the symmetric overlay and binder are still
+resident.
 
 The second is the existing `T13HEL01` overlay compiled with:
 

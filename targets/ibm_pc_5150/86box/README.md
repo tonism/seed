@@ -1,5 +1,9 @@
 # 86Box Harness Notes
 
+The TLS 1.3 routes are integrated and under validation. Earlier TLS 1.2
+checkpoints are recorded in `docs/builds.md`; they are not current expected
+screens or security evidence.
+
 86Box is installed on this machine through Homebrew Cask, with the official
 86Box ROM repository cloned to:
 
@@ -122,6 +126,10 @@ memory, EMS, 286 HMA/native extended memory, and 386 unreal mode. Literal 24 KiB
 IBM PC profiles in 86Box stop in POST with a memory-size error before ROM BASIC.
 Faster ad hoc profiles are not part of the normal workflow.
 
+The conforming TLS floor is a separate exact gate: 6 MHz 286 and 512 KiB
+conventional RAM. A larger `vm-net-286` pass exercises later memory reach but
+does not prove that floor.
+
 The 86Box NIC inventory for this target is tracked in:
 
 ```text
@@ -140,9 +148,9 @@ agent/env prep  bright "o" for API validation, model, reasoning, session, and en
 no card         current marker turns red, low descending PC speaker tone, fast-typed no network card, then retry/restart
 no driver       current marker turns red, low descending PC speaker tone, fast-typed driver setup failed, then retry/restart
 question        phase-colored blinking marker, low PC speaker attention tone, bright fast-typed prompt ending with ?
-agent question  agent? with SEED/AGENTS.CFG entries or built-in big-three fallback when SEED/USER.CFG has no valid agent choice
-field question  server? and/or key? with cursor shown only while typing; Up/Down moves field focus
-splash         seed build banner; red insecure warning on pre-286, hidden on 286+
+agent question  OpenAI config/key question when SEED/USER.CFG has no valid value
+field question  key? with cursor shown only while typing
+splash         seed build banner; gray security note on 8088, hidden on 286+
 success         dim "." -> dim "," -> dim "o" -> normal "o" -> bright "o" -> Default Prompt Interface
 ```
 
@@ -218,89 +226,53 @@ fdd_01_type = 525_1dd
 fdd_01_check_bpb = 0
 ```
 
-The internet-readiness checkpoint was boot-tested on 86Box 5.3 build 8200 on
-26 April 2026 with the CGA
-no-card, `vm-net-3c501`, `vm-net-3c503`, `vm-net-ne1k`, `vm-net-ne2k8`,
-`vm-net-novell-ne1k`, `vm-net-wd8003e`, and `vm-net-wd8003eb` configs. The
-no-card screen showed:
+## Current validation contract
+
+The driver/NIC work is a stable regression surface. Every TLS 1.3 run must
+still prove the selected adapter, station address, driver metadata/load, DHCP,
+DNS, ARP, TCP, and established no-card/no-driver failure behavior.
+
+For the 8088 profile:
 
 ```text
-. no network card
-retry
-restart
+profile      original 4.77 MHz, exactly 16 KiB, dynarec off
+entry        ROM BASIC sidecar
+media        host/read-only Seed image
+wire         fresh TLS 1.3 Finished near the deadline, credential-free HEAD,
+             full FO + dated exact-leaf/CV, status-last credential unlock
+result       authenticated OpenAI response, live-session reuse, one bounded reconnect
+matrix       seven original-speed ISA NIC profiles; CGA and MDA vault cases
 ```
 
-The `.` marker is rendered in the error color. On MDA, the error is expected to render bright because monochrome adapters do
-not have red. The no-card path also plays the low failure tone through the PC
-speaker using the PIT rather than the BIOS bell. Retry returns to the hardware
-setup phase without rereading floppy sectors; restart performs a warm machine restart.
-`vm-net-ne1k`, `vm-net-ne2k8`, and `vm-net-novell-ne1k` showed the adapter
-prompt when needed, accepted their NE family, initialized packet hardware,
-checked the receive-ring read path, sent DHCPDISCOVER, and performed a bounded
-filtered DHCPOFFER wait. When an offer was available, Seed sent DHCPREQUEST and
-performed a bounded DHCPACK wait before sending ARP for the DHCP-provided DNS
-server, resolving DNS, selecting and ARPing the TCP next
-hop, and receiving a TCP SYN-ACK. All three outbound-gated NE paths
-advanced to `seed build 5`. `vm-net-3c501`, `vm-net-3c503`, `vm-net-wd8003e`,
-and `vm-net-wd8003eb` preserved the non-NE handoff path, read their MACs, and
-advanced to `seed build 5`.
+For the 286 conforming route:
 
-The TLS/API checkpoint started on 26 April 2026. `vm-net-3c503` reached `agent?`, accepted
-`openai`, wrote `USER.CFG`, and then reached `seed build 6`. Relaunching 86Box
-directly against the already-written image skipped `agent?` and reached
-`seed build 6`. `vm-net-ne2k8` preserved the full outbound path before reaching
-`seed build 6` in the earlier filesystem checkpoint.
+```text
+profile      6 MHz 286, 512 KiB conventional RAM
+wire 1       candidate-hybrid acquisition, verified protected flight/server
+             Finished, client Finished + credential-free HEAD, authenticated
+             HTTP response and tentative NewSessionTicket
+offline      full FO compare, platform-UTC date, WE1/hostname/purpose/leaf/CV,
+             target tables, and status-last ticket promotion
+wire 2       no-0RTT PSK-DHE resumption with independent X25519MLKEM768 keys,
+             real binder, selected_identity=0, full decap, strict EE->Finished
+result       client Finished before credential publication, authenticated
+             OpenAI response, reuse and one bounded reconnect
+```
 
-On 27 April 2026, the current internet-proof checkpoint was retested
-with `USER.CFG` excluded from the test floppy. `vm-net-3c501`,
-`vm-net-3c503`, `vm-net-ne1k`, `vm-net-ne2k8`, `vm-net-novell-ne1k`,
-`vm-net-wd8003e`, and `vm-net-wd8003eb` all reached `agent?` after
-DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, and TCP
-SYN-ACK.
+Both gates require pcap plus the relevant screenshot/screen oracle. A PoC,
+offline KAT, larger/faster profile, or an earlier TLS 1.2 result does not
+substitute for the exact-floor product run. 86Box also receives zero entropy
+credit; physical-floppy characterization remains open for the 8088 route and
+physical RTC/PIT characterization remains open for the 286 route.
 
-On 30 April 2026, `vm-net-ne2k8` reached `seed build 6` after completing the
-current direct OpenAI TLS 1.2 path through encrypted server Finished
-verification. The current TLS compatibility path is P-256
-ECDHE-ECDSA-CHACHA20-POLY1305 without extended master secret.
-On 1 May 2026, original-speed 4.77 MHz `vm-net-ne2k8` completed the direct
-OpenAI Responses request/response proof and displayed the returned `ok`.
-On 4 May 2026, the 64 KiB baseline was retested before memory-slimming work:
-`vm-net-3c503`, `vm-net-ne1k`, `vm-net-ne2k8`, `vm-net-novell-ne1k`,
-`vm-net-wd8003e`, and `vm-net-wd8003eb` reached `seed build 6` and displayed
-`ok`; `vm-net-3c501` failed at agent setup and was carried as the open
-valid-profile failure for the next slimming pass. On 7 May 2026, after the
-32 KiB stack and resident-image reductions, that failure was repaired and
-representative family profiles
-`vm-net-ne2k8`, `vm-net-3c501`, `vm-net-3c503`, and `vm-net-wd8003e` all
-completed the direct OpenAI Responses request/response proof, displayed the
-returned `ok`, and reached `seed build 6`. Retest individual profiles when
-changing TLS timing or shared packet code.
+Use:
 
-The 16 KiB path uses `tools/run-basic-bootstrap-86box.py`
-to force ROM BASIC entry and inject the generated sidecar helper while
-`make inspect` enforces the 16 KiB packed-memory layout. Before the compact
-helper release, that path
-reached returned `ok` on `vm-net-ne2k8`, `vm-net-3c501`, `vm-net-3c503`, and
-`vm-net-wd8003e`. The released short hex `DATA` helper was then smoke-tested
-through returned `ok` on `vm-net-ne2k8`.
+```sh
+tools/run-basic-bootstrap-86box.py --profile vm-net-ne2k8
+tools/run-86box.sh vm-net-ne2k8
+```
 
-The WD8003 profiles use `ram_addr = D0000` and `ram_size = 8192`; 86Box expects
-the shared-memory address as a five-digit physical address and the EB RAM size
-in bytes.
-
-The current checkpoint also asks missing selected-agent fields as
-`server?` and `key?`. When both are required, they share one panel and Up/Down
-moves focus between them. Text fields render plain typed characters and keep
-long values on one row by showing the visible tail inside the field area. With
-valid saved `USER.CFG`, `vm-net-ne2k8` was also tested on 27 April 2026 through
-selected-agent DNS resolution and TCP 443 SYN-ACK reachability before reaching
-`seed build 6`. If `SEED/AGENTS.CFG` is missing or invalid, the agent menu falls
-back to built-in `openai`, `anthropic`, and `google`.
-
-On 29 April 2026, `vm-net-ne2k8` reached `seed build 6` after deriving the
-TLS master secret and ChaCha20-Poly1305 client/server write keys and IVs from
-the ECDHE pre-master secret.
-
-On 28 April 2026, the boot layout was split into a reserved FAT12 loader plus
-root runtime file. The no-card `vm` profile reached the red `"."` failure state,
-and `vm-net-3c501` reached `seed build 6` from the file-backed runtime.
+The full command list, pcap isolation rules, current offline TLS 1.3 gates,
+and NIC matrix are in [`../../../docs/testing.md`](../../../docs/testing.md).
+Dated driver and release evidence is kept only in
+[`../../../docs/builds.md`](../../../docs/builds.md).

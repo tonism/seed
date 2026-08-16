@@ -246,6 +246,15 @@ hardware_setup_phase_display:
     mov word [far_log_seg_var], far_log_seg
     mov bx, 1024
     mul bx                                        ; dx:ax = conv_KB * 1024 = conv_top (bytes)
+%ifdef TLS13_PRODUCT_TLS13
+    ; The standards-conforming 286 controller stages its compressed pack,
+    ; crypto modules, and authenticated working set at the top of conventional
+    ; RAM.  Keep the BDA and handoff true-top facts intact; only the far
+    ; arena/context ceiling is lowered.  A 286 below the product 512 KiB floor
+    ; receives no reservation because its route fails closed before bootstrap
+    ; load and is never allowed to downgrade into K14.
+    call hardware_setup_tls13_far_ceiling
+%endif
     mov [far_arena_top], ax
     mov [far_arena_top + 2], dx
     mov ax, (((core_ext_layout_phase_end - core_ext_layout_phase_start + 511) / 512) << 8) | ((core_ext_layout_phase_start - $$) / 512)
@@ -983,6 +992,22 @@ hardware_setup_ems_layout:
     jnz .ems_ctxshift
     mov [ems_ctx_page], ax                        ; page number (< 256)
     ret
+
+%ifdef TLS13_PRODUCT_TLS13
+; in/out DX:AX = true/usable conventional ceiling.  This leaf is separately
+; executable by the product layout gate so the 8088, sub-floor 286, 512 KiB,
+; and 640 KiB boundaries cannot drift behind a host-side reimplementation.
+hardware_setup_tls13_far_ceiling:
+    test word [handoff_addr + handoff_flags], handoff_flag_cpu_286plus
+    jz .done
+    cmp word [0x0413], 512
+    jb .done
+    sub ax, TLS13_286_PRODUCT_CONVENTIONAL_RESERVE & 0xffff
+    sbb dx, TLS13_286_PRODUCT_CONVENTIONAL_RESERVE >> 16
+.done:
+    clc
+    ret
+%endif
 
 activate_pnp_nic_card:
     mov ax, (((core_pnp_activate_phase_end - core_pnp_activate_phase_start + 511) / 512) << 8) | ((core_pnp_activate_phase_start - $$) / 512)

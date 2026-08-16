@@ -1,14 +1,18 @@
 ; Exact fresh-boundary native-ticket receipt for same-boot TLS 1.3 resumption.
 ;
 ; The post-Finished controller stages this measured image outside K14 and
-; exact-copies it to 0x3400 only after an authenticated HEAD response and the
-; first retained NST have both completed at a TLS-record boundary.  K14's
-; SHA-256 code and exact 0x3000..0x33f8 primitive-work interval are therefore
-; still resident; its ChaCha/Poly1305 record subspan is 0x32af..0x33f8.  The
-; worker publishes NTR1 to card page 0x73 with a zero-status write/readback
-; followed by a status-last write/readback, restores the ordinary TX page
-; after every DMA write, prepares the existing FO ticket hold, and cold-enters
-; FO.
+; exact-copies it to 0x3400 only after the first retained NST plus either an
+; authenticated HEAD response or exact authenticated close_notify have
+; completed at a TLS-record boundary.  The close path remains provisional
+; until the existing resumed route proves authenticated HEAD liveness.  K14's
+; SHA-256 code remains resident below 0x3000.  The receipt first completes its
+; digest using K14's 0x3000..0x33f8 primitive-work interval, then replaces
+; retired symmetric code with the measured generic-vault lifecycle phase.
+; That phase rebuilds every raw-epoch page tag and publishes checked mode
+; status-last before its checked access entries publish NTR1.  Receipt calls
+; therefore cannot target either a stale access leaf or ordinary access while
+; the deadline raw epoch is still active.  The worker prepares the existing FO
+; ticket hold and cold-enters FO.
 ;
 ; It deliberately occupies at most 0x110 bytes so 0x3510+ K14 mutable work and
 ; 0x355d+ persistent failure services remain untouched.
@@ -30,17 +34,25 @@ org 0x3400
 %ifndef RESUME_RECEIPT_SHA256_FINISH
 %error "native-ticket receipt worker requires resident K14 SHA finish"
 %endif
-%ifndef RESUME_RECEIPT_NE_BUF_LOAD
-%error "native-ticket receipt worker requires guarded NE2000 DMA write"
+%ifndef RESUME_RECEIPT_VAULT_WRITE
+%error "native-ticket receipt worker requires a checked vault write"
 %endif
-%ifndef RESUME_RECEIPT_NE_BUF_READ
-%error "native-ticket receipt worker requires guarded NE2000 DMA read"
+%ifndef RESUME_RECEIPT_VAULT_READ
+%error "native-ticket receipt worker requires a checked vault read"
 %endif
 %ifndef RESUME_RECEIPT_FO_KEY
 %error "native-ticket receipt worker requires the fixed FO controller phase"
 %endif
 %ifndef RESUME_RECEIPT_PERSIST_FAIL
 %error "native-ticket receipt worker requires the persistent failure service"
+%endif
+%ifdef RESUME_RECEIPT_VAULT_LIFECYCLE_KEY
+%ifndef RESUME_RECEIPT_VAULT_LIFECYCLE_STAGE
+%error "product receipt requires its post-digest vault-lifecycle stage"
+%endif
+%ifndef RESUME_RECEIPT_VAULT_REBIND_RAW
+%error "product receipt requires the raw-to-checked rebind entry"
+%endif
 %endif
 
 %include "post_auth_resume_vault.inc"
@@ -54,7 +66,6 @@ ticket_psk                equ 0x38b0
 ticket_identity           equ 0x3b40
 ticket_nonce              equ 0x3c00
 ticket_present            equ 0x3c2c
-ticket_tail_len           equ 45
 fo_ticket_hold_len        equ 238
 bios_ticks_day_hi         equ 0x0018
 bios_ticks_day_lo         equ 0x00b0
@@ -122,10 +133,29 @@ receipt_worker_tick_ok:
     mov cx, resume_vault_identity_len
     call RESUME_RECEIPT_SHA256_UPDATE
     mov si, ticket_nonce
-    mov cx, ticket_tail_len
+    mov cx, resume_receipt_ticket_material_len
     call RESUME_RECEIPT_SHA256_UPDATE
     mov di, receipt_build + resume_receipt_digest
     call RESUME_RECEIPT_SHA256_FINISH
+
+%ifdef RESUME_RECEIPT_VAULT_LIFECYCLE_KEY
+    ; SHA-256 has now retired its symmetric code/work.  Load the full lifecycle
+    ; only here, rebuild every raw page tag, and publish checked mode status-
+    ; last before either ordinary receipt access.  The lifecycle's own write
+    ; and read entries remain resident for both NTR1 write/readback passes.
+    mov ax, RESUME_RECEIPT_VAULT_LIFECYCLE_KEY
+    mov bx, RESUME_RECEIPT_VAULT_LIFECYCLE_STAGE
+    call resident_load_phase
+    jc receipt_worker_failed
+    call RESUME_RECEIPT_VAULT_REBIND_RAW
+    jc receipt_worker_failed
+    ; The lifecycle entry deliberately leaves ES mapped to the active video
+    ; backend.  Ordinary access preserves its incoming segment registers, so
+    ; restore the flat product segment before the conventional readback
+    ; comparison below.
+    push ds
+    pop es
+%endif
 
     ; First prove the complete invalid image, then publish validity physically
     ; last through the second ascending full-page DMA and prove that image.
@@ -137,9 +167,9 @@ receipt_worker_tick_ok:
         resume_receipt_status_valid
     call receipt_write_verify
     jc receipt_worker_failed
-
-    ; Preserve the exact existing FO input contract after receipt scratch has
-    ; retired, then replace FO's controller slot and enter it.
+    ; Preserve the existing identity/metadata FO input contract after receipt
+    ; scratch has retired.  The FO controller parks the still-live 32-byte PSK
+    ; in the immediately following reserved hold before destructive work.
     mov si, ticket_identity
     mov di, receipt_build
     mov cx, fo_ticket_hold_len / 2
@@ -165,14 +195,14 @@ receipt_write_verify:
     mov si, receipt_build
     mov bp, 256
     mov bx, [handoff_nic_base]
-    call RESUME_RECEIPT_NE_BUF_LOAD
+    call RESUME_RECEIPT_VAULT_WRITE
     pop ax
     mov [ne_tx_start], ah
     jc .done
     mov bx, resume_card_vault_head
     mov cx, 256
     mov di, receipt_readback
-    call RESUME_RECEIPT_NE_BUF_READ
+    call RESUME_RECEIPT_VAULT_READ
     jc .done
     mov si, receipt_build
     mov di, receipt_readback

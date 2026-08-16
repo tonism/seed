@@ -37,9 +37,12 @@ then fast-type a minimal `retry` / `restart` menu.
 sectors. `restart` performs a warm machine restart through BIOS.
 
 The splash is a short boot banner drawn after the display and CPU class are
-known, before driver loading and network setup. Its pre-286 `insecure` warning
-is red on color adapters and hidden on 286+ machines. No driver validation,
-network negotiation, key setup, or environment setup happens during the splash.
+known, before driver loading and network setup. The 8088 adds `security note`
+in the same neutral gray as the build number; the line is hidden on 286+
+machines. It points to the documented 8088 credential-release and assurance
+boundary, not fewer product capabilities or an active failure. No driver
+validation, network negotiation, key setup, or environment setup happens
+during the splash.
 
 Menus use color to indicate selection. The selected item uses the active prompt
 color; inactive items use the dim prompt color. Do not add marker glyphs solely
@@ -52,16 +55,30 @@ the question. If no suitable driver is present, the hardware phase fails as
 `driver setup failed` and follows the same retry/restart menu as other fatal
 hardware setup errors.
 
-Agent setup uses a drill-down panel stack under one bright topic prompt. The
+Agent setup uses a drill-down panel stack under one bright topic prompt. OpenAI
+is the only current provider. The
 active panel keeps the selected row bright and inactive rows dim. When a
 selection opens the next panel, the selected value slides left and the selected
 agent's required fields appear to its right. `Enter` submits the current form.
 `Esc` closes the current panel and slides the selected value back to the
 previous menu. Opening a child panel does not play a new attention tone.
 
-When an agent needs more than one typed value, those values stay on the same
-panel. For LiteLLM, `server?` and `key?` appear together; Up and Down move
-field focus, and typed characters edit the focused field.
+When a form needs more than one typed value, those values stay on the same
+panel. Up and Down move field focus, and typed characters edit the focused
+field.
+
+On the 286 conforming profile, certificate validity uses a coherent, valid BIOS
+RTC as the platform UTC clock without an interactive question. An invalid RTC
+prevents that profile; it must fail closed rather than downgrade to the 8088
+profile.
+
+During the 16 KiB MDA TLS route, Seed temporarily disables MDA output and
+redirects one-column scanout to a zero quarantine while the public-object
+vault owns the only video page. No BIOS text, scrolling, screen restore, or
+direct video write is allowed until the vault is scrubbed and ordinary
+page-zero/80-column output is restored. Seed then redraws the UI. A screen of
+binary or random glyphs is vault exposure and an acceptance failure, never a
+transitional UI state.
 
 Text fields, including `key?`, render plain typed characters. Long values stay
 inside the field row by showing the visible tail without wrapping.
@@ -72,7 +89,10 @@ The cursor stays hidden unless a field is actively accepting typed input.
 
 After boot, Seed renders a model greeting and takes prompts at a `>` marker. User input
 shows in bright text and streamed model responses in normal text; turns reuse one live TLS
-session.
+session. If a human no-text request needs the one permitted fresh reconnect,
+Seed shows one dim `> reconnect` status. A second failure reports
+`> reconnect failed`. A tool continuation or partially rendered answer is
+never replayed.
 
 When the rolling conversation window fills, Seed compacts it: a dim status line,
 fast-typed like the boot banner, reads `compacting context`. The one-line recap the model

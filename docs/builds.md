@@ -15,7 +15,7 @@ Seed's loading marker has four semantic states plus the boot splash:
 ```text
 none         boot sector, loader, SEED.SYS load
 "." dark     hardware then internet: SEED.SYS entry, display baseline, hardware detection, adapter init, handoff, then IP configuration, DNS, and reachability proof
-"o" dark     TLS handshake: selected endpoint setup and the TLS 1.2 handshake
+"o" dark     TLS handshake: selected endpoint setup and the selected TLS 1.3 route
 "o" normal   local crypto: TLS key schedule and key-material derivation
 "o" bright   agent/environment: API validation, model/session, and environment handoff
 splash       boot banner after display/CPU-class setup; no driver or network validation happens here
@@ -45,8 +45,8 @@ build 12  capability-tiered layout (one runtime file, NIC HAL, 32K cached chat l
           auto-recertify)
 build 13  SEED.SYS runtime rename, SEED/ directory layout, optional external
           SEED/DRIVERS/*.DRV NIC files with metadata-based selection, splash before
-          driver loading, external LEAF.DER refresh, and full current 86Box Ethernet
-          adapter coverage except modem/PLIP
+          driver loading, immutable TLS 1.3 trust objects, and full current 86Box
+          Ethernet adapter coverage except modem/PLIP
 ```
 
 Builds 1–4 are the boot-presentation and hardware-setup milestones listed above; the substantive
@@ -193,8 +193,8 @@ build switches    INCLUDE_NIC_DRIVERS=0 omits all drivers; INCLUDE_NIC_DRIVER_NE
 FAT12 builder     nested 8.3 directory support for the scoped runtime layout
 splash order      draw the CPU-class splash before driver loading/failure handling
 floppy policy     startup reads only; user save/config writes only when requested
-leaf DER          ship SEED/LEAF.DER as the fast-path leaf file; verify it against
-                  WR1 before pre-socket adoption, refresh it after verified re-pin
+TLS trust         no SEED/LEAF.DER in the TLS 1.3 image; immutable exact-leaf
+                  and WE1 objects plus volatile same-boot RAM state
 NE.DRV            shared NE/DP8390 driver validated on 16-bit NE2000 and Novell NE2000
 NE PnP            RTL8019AS and DE-220P ISA PnP activation, then shared NE.DRV
 NE PCI            RTL8029AS PCI BIOS discovery, then shared NE.DRV
@@ -238,6 +238,65 @@ representative driver-family coverage reached DPI and returned `ok` across
 3c501, 3c503, NE ISA PnP/PCI, WD8013EBT, PCnet ISA/ISA+/Racal/VLB/onboard,
 DEC 21040/21143 Tulip, RTL8139C+, EPIC/100, and MCA NE/WD profiles.
 
+### TLS 1.3 replacement — integration under validation
+
+The same build replaces, rather than retains beside, the TLS 1.2 product path.
+There is still one self-selecting `SEED.SYS` and one floppy:
+
+```text
+provider          OpenAI/api.openai.com only
+8088 floor        4.77 MHz, 16 KiB; bounded Seed boundary, effective
+                  ML-KEM-only KEX, deferred FO and exact-leaf/CV proof
+286 floor         6 MHz, 512 KiB; fully conforming X25519MLKEM768,
+                  WE1/hostname/UTC-validity/CV authentication
+286 route         provisional acquisition + credential-free HEAD/NST;
+                  offline full FO/X.509/CV promotion; final no-0RTT PSK-DHE
+                  resumption with independent hybrid keys and strict EE->Finished
+286 pre-TCP       12-sector symmetric image, with the 8088 raw-writer tail
+                  replaced by the canonical SHA tail and its already-canonical
+                  state operand verified;
+                  complemented early-derived value; 4,608-byte / nine-polynomial
+                  public ML-KEM matrix; all status-last, one-shot, and fail-closed
+286 6 MHz timing  matrix 45 ticks / 2.4716 s outside TCP; cached full FO
+                  43 / 2.3618 s versus uncached 88 / 4.8334 s; serialized
+                  CPU windows acquisition 162 / 8.8979 s and final resumption
+                  168 / 9.2275 s
+286 live gate     read-only exact-floor fresh/resumed/reconnect/resumed pcap;
+                  four deadlines 8.8928 / 8.6282 / 8.9562 / 8.6448 s;
+                  authenticated VIOLET response and DPI return
+8088 live gate    read-only exact-floor four-flow captures pass on all seven
+                  original-speed ISA profiles; worst interval 13.3708 s;
+                  authenticated response, reuse, and bounded reconnect
+failure/visual    hostile/torn/abort gates pass; CGA/MDA active-hold and
+                  post-restore screens are clean; no-card/no-driver menus pass
+read-only         target-generated private state; cold phases and packs read
+                  from floppy; no writable scratch, leaf cache, or helper host
+reconnect         one fresh same-request retry only for a human no-text failure;
+                  no replay after text or for tool continuations
+resident          four sectors / 2,048 bytes, unchanged
+SEED.SYS          150,016 bytes / 293 sectors in the current integration image
+8088 pack         130 cold sectors at file sectors 45..174
+286 tail          82 sectors at file sectors 212..293; 44-sector module pack
+286 RAM reserve   top 64 KiB conventional; 512 KiB floor leaves 192 KiB arena
+                  and 192 KiB context under the current 50/50 split
+FAT budget        293 runtime + 15 auxiliary sectors use 308/309 data sectors;
+                  one free one-sector cluster is the required packaging guard,
+                  so usable runtime sector-growth headroom is zero
+16/32 KiB pool    96/96-byte and 224/224-byte arena/context contracts unchanged
+```
+
+The integrated source is now a working emulator checkpoint: exact-floor live
+pcaps, authenticated responses, reuse/reconnect, tamper/failure, the 8088
+NIC regression matrix, read-only media, and CGA/MDA lifecycle gates pass. Do
+not mark the release/security qualification complete until representative
+physical floppy and RTC/PIT entropy sources are characterized and deadline
+margin has more cold-boot/provider-edge repetition. The cache timing above is
+tick-aligned structural evidence; the live pcaps remain the wire evidence.
+The tracked hashes, exact timing rows, evidence boundaries, and remaining
+release gates are frozen in
+[`acceptance_checkpoint.json`](../tools/crypto-bench/tls13-product/acceptance_checkpoint.json);
+the large raw pcaps and screenshots remain ignored build artifacts.
+
 ## Forward-looking ideas
 
 Not yet built. Completed untagged Build 12 items are no longer listed here;
@@ -246,6 +305,11 @@ their details belong in the focused docs linked from the Build 12 section.
 Polish:
 
 ```text
+TLS activity accounting - after the TLS 1.3 paths freeze for a release
+  candidate, remeasure cold boot-to-DPI on both exact floors and refresh the
+  architecture activity graphs with CPU, floppy, network wait, offline proof,
+  and live deadline spans kept distinct. Do not freeze those numbers while the
+  integration schedule is still changing.
 render-phase room - free a safe 2-sector render phase for glyph mapping and future renderer work;
   likely by tightening the RX read window. This touches receive/handshake behavior, so it needs
   handshake and multi-NIC re-validation.
@@ -256,12 +320,18 @@ apostrophe glyph - the model's occasional curly apostrophe (UTF-8) renders as CP
 Bigger bets and research:
 
 ```text
+conforming TLS on the 4.77 MHz 8088 - post-Build 13 research curiosity, not a
+  milestone dependency. The measured server-dependent X25519 operation is
+  45.75 s and must precede Finished inside the provider's observed ~15 s
+  connection window. Revisit only if a credible variable-base X25519
+  breakthrough, provider-supported conforming KEM-only group or longer
+  handshake window, or target-local accelerator changes that boundary. More
+  RAM alone does not solve it; the path must remain self-contained and
+  read-only, with trusted time and physical entropy addressed as well.
 full TCP retransmit - unacked-byte buffer, RTO timers, ACK tracking, and receive reordering.
 receive-side loss tolerance - wait longer for server retransmits under heavy download loss, balanced
   against slower failure on a genuinely dead link.
 render-rate optimization - improve very long replies without weakening ACK/render pacing.
-ECDSA contingency - scoped but unbuilt; only needed if the RSA leaf disappears from the 286 profile.
-TLS 1.3 - a cleaner handshake; research-stage.
 64-bit host memory - long mode / no-BIOS path reaching beyond 386-era memory tiers.
 ```
 
@@ -278,7 +348,10 @@ Any tagged build should keep these properties green:
 32 KiB direct boot reaches DPI
 memory/tool gates match the advertised tier caps
 supported NIC matrix is documented or explicitly scoped
-security limits are stated honestly
+8088 and 286 conforming TLS claims remain distinct and honest
+OpenAI is the only product provider route
+no TLS 1.2 fallback or mutable leaf file is packaged
+bounded reconnect never replays tools or partially rendered responses
 one write-protected 160 KiB FAT12 floppy image remains the recovery boundary
 one visible SEED.SYS remains the root runtime artifact
 external NIC driver files remain under SEED/DRIVERS/

@@ -77,18 +77,26 @@ def build_basic(args: argparse.Namespace) -> None:
             args.hex_chunk_size,
         )
     else:
+        checksum = sum(data)
+        last_addr = args.load_addr + len(data) - 1
         lines = [
             f"10 CLEAR ,{args.clear_top}",
-            "20 DEF SEG=0",
+            "20 DEF SEG=0:S=0",
             (
                 f"30 FOR A={args.load_addr} "
-                f"TO {args.load_addr + len(data) - 1}"
+                f"TO {last_addr}"
             ),
             "40 READ B",
-            "50 POKE A,B",
+            "50 POKE A,B:S=S+B",
             "60 NEXT A",
-            f"70 DEF USR0={args.load_addr}",
-            "80 A=USR0(0)",
+            (
+                f"65 T=0:FOR A={args.load_addr} TO {last_addr}:"
+                "T=T+PEEK(A):NEXT A"
+            ),
+            f"70 IF S={checksum} AND T={checksum} THEN 80",
+            '75 PRINT "TYPE ERROR":END',
+            f"80 DEF USR0={args.load_addr}",
+            "90 A=USR0(0)",
         ]
         lines.extend(data_lines(data, 100, args.bytes_per_line))
     args.output.write_bytes(("\r\n".join(lines) + "\r\n").encode("ascii"))

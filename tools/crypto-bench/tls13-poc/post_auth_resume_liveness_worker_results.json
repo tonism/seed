@@ -2,9 +2,9 @@
   "schema": 1,
   "gate": "real_k14_resumed_liveness_mode_low",
   "geometry": {
-    "bytes": 1022,
+    "bytes": 989,
     "sectors": 2,
-    "executable_bytes": 1022,
+    "executable_bytes": 989,
     "mode_low_window_bytes": 1536,
     "state_bytes": 48
   },
@@ -41,8 +41,6 @@
     "missing_spent_ticket_marker",
     "unspent_early_ticket_marker",
     "wrong_operation",
-    "nic_receive_failure",
-    "retransmit_flush_bound",
     "window_ack_failure",
     "tcp_receive_failure",
     "fragment_ack_failure",
@@ -53,7 +51,7 @@
     "partial_tls_tag",
     "authenticated_partial_http_then_tcp_end"
   ],
-  "hostile_case_count": 30,
+  "hostile_case_count": 28,
   "claims": [
     "real K14 ChaCha20-Poly1305 authenticates every TLS record",
     "HTTP/NST parsing begins only after tag success",
@@ -61,6 +59,7 @@
     "liveness requires and preserves the spent normal-only ticket marker 1",
     "authenticated HTTP 425 is rejected across TLS/TCP fragmentation",
     "TLS headers, ciphertext, tags, HTTP fields, and CRLFCRLF may cross arbitrary TCP/TLS seams",
+    "window-open precedes receive without discarding an already-queued exact-sequence response",
     "window-open and every fully consumed TCP fragment are ACKed",
     "failure scrubs quarantine/parser state and returns only to fixed 0x0f30"
   ]

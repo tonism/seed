@@ -9,9 +9,9 @@
 
 ; Build 12 UI unification: the cold-phased banner. Clear the screen and draw the banner as pure NEWLINE
 ; FLOW at the top (no absolute rows), printed INSTANTLY (fast-type animation retired): blank line, the
-; "seed build NN" splash (centered at seed_col), an 8088-only "insecure" line, then a blank line. The
+; "seed build NN" splash (centered at seed_col), an 8088-only security note, then a blank line. The
 ; cursor is left BELOW the banner so the greeting + the whole chat terminal flow from there. On a 286+
-; the "insecure" line (and its newline) is skipped, so everything shifts up a row on its own.
+; the note line (and its newline) is skipped, so everything shifts up a row on its own.
 splash_phase:
     mov ax, 0x0600                             ; clear the whole screen (rows 0..24)
     mov bh, 0x07
@@ -34,21 +34,22 @@ splash_phase:
     mov si, low_scratch_start + (build_text - PHASE_BASE)
     call .print_z
     call .newline                              ; end the splash line
-    ; Build 12 286 secure tier (Decision 3): on a pre-286 (8088-class) machine the channel is NOT secure
-    ; -- no real key agreement, no cert authentication ("encrypted, not secure"). Warn with a red
-    ; "insecure" line, right-aligned so its tail lines up with the "seed build NN" tail above. HIDDEN on a
-    ; 286+ (real ECDHE + RSA-cert channel): the line is skipped entirely, so the terminal starts a row
-    ; higher. The honest contrast only makes sense now that the secure tier exists.
+    ; The TLS 1.3 product keeps an honest visible distinction between its
+    ; documented 8088 Seed boundary ("security note") and the fully
+    ; standards-conforming 286 profile.  This is an informational label in the
+    ; build-number gray, not the retired key-leakage warning.  Legacy builds
+    ; retain their original "insecure" wording.  The note is right-aligned
+    ; under "seed build NN".
     test word [handoff_addr + handoff_flags], handoff_flag_cpu_286plus
-    jnz .secure_no_warning
+    jnz .no_security_note
     mov al, [seed_col]
-    add al, insecure_warning_col_offset
+    add al, security_note_col_offset
     mov [cursor_col], al
-    mov bl, [error_attr]                       ; red (bright red on CGA) -- a warning, not just dim
-    mov si, low_scratch_start + (insecure_text - PHASE_BASE)
+    mov bl, [build_attr]                       ; same neutral gray as the build number
+    mov si, low_scratch_start + (security_note_text - PHASE_BASE)
     call .print_z
-    call .newline                              ; end the insecure line
-.secure_no_warning:
+    call .newline                              ; end the security-note line
+.no_security_note:
     call .newline                              ; blank line below the banner; cursor begins the terminal
     clc
     ret
@@ -71,11 +72,15 @@ seed_text db 'seed', 0
 ; Two-digit build number (Build 10+). Single '0'+N broke at 10 ('0'+10 = ':').
 build_text db 'build ', '0' + (build_number / 10), '0' + (build_number % 10)
 build_text_end db 0
-; The pre-286 "insecure" warning (Decision 3). Right-aligned under "seed build NN": the top line is
-; seed(4) + ' '(1) + "build NN"; offset = that length minus "insecure"'s, so the tails line up. The
-; equate auto-tracks the build-number width.
-insecure_text db 'insecure'
-insecure_text_end db 0
-insecure_warning_col_offset equ (seed_len + 1 + (build_text_end - build_text)) - (insecure_text_end - insecure_text)
+; Right-align the pre-286 security note under "seed build NN".  The equate
+; auto-tracks both the build-number width and the selected text.
+security_note_text:
+%ifdef TLS13_PRODUCT_TLS13
+    db 'security note'
+%else
+    db 'insecure'
+%endif
+security_note_text_end db 0
+security_note_col_offset equ (seed_len + 1 + (build_text_end - build_text)) - (security_note_text_end - security_note_text)
 
 %unmacro phase_call_res 1

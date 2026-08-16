@@ -25,6 +25,11 @@
 %endif
 
 tcp_connect_phase:
+    ; Product C is the first endpoint phase on a cold TLS 1.3 route, and the
+    ; 286 root/symmetric overlays erase the legacy E-owned endpoint scratch
+    ; before every fresh route.  Seed the immutable OpenAI HTTPS port here on
+    ; every invocation so both cold connect and cached reopen are self-contained.
+    mov word [tcp_dest_port_word], tcp_port_https_word
     ; ESC-panic NIC safety (Build 11): a Ctrl+ESC longjmp can fire mid-DP8390 receive, leaving
     ; the command register on page 1 or remote-DMA stalled. ne_cmd_start_nodma forces a clean
     ; DP8390 state before the flush/SYN below. Do not apply this to non-DP8390 drivers: RTL8139
@@ -42,7 +47,15 @@ tcp_connect_phase:
     out dx, al
 .nic_clean:
     cmp byte [handoff_addr + handoff_status], handoff_status_ready
+    jne .cold_resolve
+    ; READY also describes a restored DPI environment.  ENV deliberately does
+    ; not persist DNS/ARP/TCP state, so READY alone cannot authorize the
+    ; cached reopen path: after restore the target IP and next-hop MAC are
+    ; boot-zeroed.  CONNECTED is published only after a completed handshake
+    ; and remains the same-boot cache-validity witness for bounded reconnect.
+    cmp byte [handoff_addr + handoff_net_status], net_status_tcp_connected
     je tcp_reopen_cached_target
+.cold_resolve:
     ; COLD path (no live session). NTP and recertify retries can both leave stale
     ; frames ahead of the first endpoint ARP reply, so flush before resolving.
     call ne_flush_receive_frames
@@ -417,11 +430,21 @@ ne_transmit_arp_request:
 .done:
     ret
 
+; The 286 root stage deliberately occupies 3400..3bff, including the legacy
+; dns_qname/dns_tx_len scratch. DNS framing must therefore be self-contained
+; in this phase. The current product is OpenAI-only, so keep its exact wire
+; QNAME immutable here; agent_endpoint still builds dns_qname for consumers
+; whose lifetime ends before that one-way root load.
+tcp_product_dns_qname_len equ 16
+tcp_product_dns_frame_len equ \
+    eth_header_len + ipv4_header_len + udp_header_len + \
+    dns_payload_base_len + tcp_product_dns_qname_len
+
 ne_transmit_dns_query:
     call build_dns_query_frame
 
     mov si, ne_tx_frame
-    mov cx, [dns_tx_len]
+    mov cx, tcp_product_dns_frame_len
     call [nic_vt_transmit]
     jc .done
     mov byte [handoff_addr + handoff_net_status], net_status_dns_query_sent
@@ -491,9 +514,8 @@ build_dns_query_frame:
 
     mov ax, 0x0045
     stosw
-    mov al, [dns_qname_len]
-    xor ah, ah
-    add ax, ipv4_header_len + udp_header_len + dns_payload_base_len
+    mov ax, ipv4_header_len + udp_header_len + dns_payload_base_len + \
+        tcp_product_dns_qname_len
     xchg al, ah
     stosw
     xor ax, ax
@@ -516,9 +538,8 @@ build_dns_query_frame:
     stosw
     mov ax, 0x3500
     stosw
-    mov al, [dns_qname_len]
-    xor ah, ah
-    add ax, udp_header_len + dns_payload_base_len
+    mov ax, udp_header_len + dns_payload_base_len + \
+        tcp_product_dns_qname_len
     xchg al, ah
     stosw
     xor ax, ax
@@ -534,9 +555,8 @@ build_dns_query_frame:
     stosw
     stosw
     stosw
-    mov si, dns_qname
-    mov cl, [dns_qname_len]
-    xor ch, ch
+    mov si, PHASE_LOAD_ADDR + (tcp_product_dns_qname - PHASE_BASE)
+    mov cx, tcp_product_dns_qname_len
     rep movsb
     mov ax, 0x0100
     stosw
@@ -591,9 +611,8 @@ parse_arp_reply:
     ret
 
 parse_dns_response:
-    mov al, [dns_qname_len]
-    xor ah, ah
-    add ax, dns_payload_offset + 12 + 4 + 16
+    mov ax, dns_payload_offset + 12 + 4 + 16 + \
+        tcp_product_dns_qname_len
     cmp word [ne_rx_sample_count], ax
     jb .not_response
     cmp word [ne_tx_frame + 12], 0x0008
@@ -635,8 +654,7 @@ parse_dns_response:
     je .not_response
 
     mov si, ne_tx_frame + dns_payload_offset + 12
-    mov bl, [dns_qname_len]
-    xor bh, bh
+    mov bx, tcp_product_dns_qname_len
     add si, bx
     add si, 4
 .answer:
@@ -693,6 +711,9 @@ dns_skip_name:
 .done:
     clc
     ret
+
+tcp_product_dns_qname:
+    db 3, 'api', 6, 'openai', 3, 'com', 0
 
 parse_tcp_synack:
     cmp word [ne_rx_sample_count], tcp_offset + 20

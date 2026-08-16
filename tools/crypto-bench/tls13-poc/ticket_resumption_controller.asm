@@ -68,7 +68,6 @@ cpu 8086
 %error "deferred live resumption requires the fixed zero-window ACK"
 %endif
 %endif
-
 section .resume_low start=0 vstart=RESUME_CONTROLLER_ORIGIN align=1
 
 resume_header:

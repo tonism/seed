@@ -52,9 +52,12 @@ CARD_WRITE = 0x1220
 FO_COMPLETE = 0x1100
 
 CONTROLLER_KEY = 0x0330
+ACCESS_KEY = 0x0233
+ACCESS_STAGE = 0x2C00
 FO_KEY = 0x0665
-SYM_KEY = 0x0855
-RECOVERY_KEY = 0x012F
+SYM_KEY = 0x0C55
+OBSOLETE_RECOVERY_KEY = 0x012F
+OBSOLETE_RECOVERY_STAGE = 0x3400
 RSU_HEAD_KEY = 0x0170
 RSU_TAIL_KEY = 0x0171
 SUPERVISOR_KEY = 0x0272
@@ -63,8 +66,8 @@ RECOVERY_FAIL = 0x35D9
 NIC_BASE = 0x060E
 NE_TX_START = 0x06CB
 FO_ENTRY = 0x1800
-PERSISTENT_START = 0x3510
-PERSISTENT_END = 0x3600
+ABORT_CAPSULE_START = 0x3510
+ABORT_CAPSULE_END = 0x3600
 
 RSU_LOW_START = 0x0900
 RSU_LOW_BYTES = 544
@@ -107,6 +110,8 @@ TICKET_PRESENT = 0x3C2C
 EXPECTED_K = 0x0700
 FO_MESSAGE = 0x3A40
 FO_CANDIDATE_G = 0x3B9C
+SYM_START = 0x1800
+SYM_END = 0x3000
 
 COMMON_DEFINES = (
     f"RESUME_FO_LOAD_PHASE=0x{LOAD_PHASE:04x}",
@@ -153,7 +158,7 @@ class Fixture:
     ek: bytes
     c: bytes
     candidate: bytes
-    persistent: bytes
+    abort_capsule: bytes
     psk: bytes
     identity: bytes
     ticket_tail: bytes
@@ -172,8 +177,10 @@ class Result:
     card: bytes
     events: tuple[str, ...]
     reached_sentinel: bool
-    terminal_recovery: bool
-    terminal_halt: bool
+    terminal_abort: bool
+    recovery_load_attempts: int
+    protected_writes: tuple[tuple[int, int], ...]
+    hlt_addresses: tuple[int, ...]
 
 
 def set_carry(machine: Uc, enabled: bool) -> None:
@@ -248,7 +255,6 @@ def build_images(directory: Path) -> Images:
             f"RESUME_FO_KERNEL_KEY=0x{FO_KEY:04x}",
             f"RESUME_FO_KERNEL_ENTRY=0x{FO_ENTRY:04x}",
             f"RESUME_FO_SYM_RESTORE_KEY=0x{SYM_KEY:04x}",
-            f"RESUME_FO_RECOVERY_KEY=0x{RECOVERY_KEY:04x}",
             f"RESUME_FO_RECOVERY_FAIL=0x{RECOVERY_FAIL:04x}",
             f"RESUME_FO_RSU_HEAD_KEY=0x{RSU_HEAD_KEY:04x}",
             f"RESUME_FO_RSU_TAIL_KEY=0x{RSU_TAIL_KEY:04x}",
@@ -275,6 +281,8 @@ def build_images(directory: Path) -> Images:
         "resume-fo-broker",
         (
             "RESUME_FO_BROKER",
+            f"RESUME_FO_VAULT_ACCESS_KEY=0x{ACCESS_KEY:04x}",
+            f"RESUME_FO_VAULT_ACCESS_STAGE=0x{ACCESS_STAGE:04x}",
             f"RESUME_FO_CONTROLLER_KEY=0x{CONTROLLER_KEY:04x}",
             f"RESUME_FO_CONTROLLER_ENTRY=0x{CONTROLLER_ORIGIN:04x}",
         ),
@@ -313,8 +321,37 @@ def validate_images(images: Images) -> None:
         version, size, linked, entry = struct.unpack_from("<4H", image, 6)
         if (version, size, linked, entry) != (1, len(image), origin, origin):
             raise AssertionError(f"{label} measured header drifted")
-    if len(padded(images.controller)) != 3 * 512:
-        raise AssertionError("controller is not an exact three-sector phase")
+    if len(padded(images.controller, 3)) != 3 * 512:
+        raise AssertionError("controller does not fit its three-sector phase")
+    if (
+        CONTROLLER_KEY >> 8 != 3
+        or ACCESS_KEY >> 8 != 2
+        or SYM_KEY >> 8 != 12
+    ):
+        raise AssertionError(
+            "FO controller/access/SYM keys do not encode 3/2/12 sectors"
+        )
+
+
+def validate_source_contract() -> None:
+    source = SOURCE.read_text()
+    if "RESUME_FO_RECOVERY_KEY" in source:
+        raise AssertionError("FO worker reintroduced the obsolete recovery load")
+    for line_number, line in enumerate(source.splitlines(), start=1):
+        statement = line.split(";", 1)[0].strip().lower()
+        if ":" in statement:
+            statement = statement.split(":", 1)[1].strip()
+        if statement == "hlt" or statement.startswith("hlt "):
+            raise AssertionError(
+                f"FO worker reintroduced HLT at source line {line_number}"
+            )
+
+
+def symmetric_image_fixture() -> bytes:
+    return bytes(
+        (0x6D + index * 31) & 0xFF
+        for index in range(SYM_END - SYM_START)
+    )
 
 
 def word_sum(value: bytes) -> int:
@@ -328,9 +365,9 @@ def make_fixture() -> Fixture:
     candidate = bytes(
         (0x41 + index * 23) & 0xFF for index in range(128)
     )
-    persistent = bytes(
+    abort_capsule = bytes(
         (0x63 + index * 17) & 0xFF
-        for index in range(PERSISTENT_END - PERSISTENT_START)
+        for index in range(ABORT_CAPSULE_END - ABORT_CAPSULE_START)
     )
     psk = bytes((0x85 + index * 9) & 0xFF for index in range(32))
     identity = bytes((0xA1 + index * 5) & 0xFF for index in range(192))
@@ -360,7 +397,7 @@ def make_fixture() -> Fixture:
         ek,
         c,
         candidate,
-        persistent,
+        abort_capsule,
         psk,
         identity,
         bytes(ticket_tail),
@@ -375,13 +412,11 @@ def run(
     *,
     invalid_lifecycle: bool = False,
     corrupt_candidate: bool = False,
-    corrupt_backup: bool = False,
     corrupt_public: bool = False,
     wrong_selected: bool = False,
-    fail_post_backup_read: bool = False,
+    fail_wipe_readback: bool = False,
     fail_wipe: bool = False,
     fail_load_key: int | None = None,
-    fail_recovery_load: bool = False,
     host_ticket_marker: int = 1,
     card_ticket_marker: int = 2,
 ) -> Result:
@@ -389,6 +424,11 @@ def run(
     machine.mem_map(0, RAM_BYTES)
     machine.mem_write(0, bytes([0xCC]) * RAM_BYTES)
     machine.mem_write(BROKER_ORIGIN, padded(images.broker, 1))
+    symmetric_image = symmetric_image_fixture()
+    access_image = bytes(
+        (0xB7 + index * 43) & 0xFF for index in range(2 * 512)
+    )
+    machine.mem_write(SYM_START, symmetric_image)
     for address in (
         LOAD_PHASE,
         CARD_READ,
@@ -400,7 +440,7 @@ def run(
         machine.mem_write(address, b"\xC3")
     machine.mem_write(NIC_BASE, struct.pack("<H", 0x300))
     machine.mem_write(NE_TX_START, b"\x40")
-    machine.mem_write(PERSISTENT_START, fixture.persistent)
+    machine.mem_write(ABORT_CAPSULE_START, fixture.abort_capsule)
     machine.mem_write(TICKET_PRESENT, bytes([host_ticket_marker]))
     machine.mem_write(
         LIFECYCLE_GENERATION,
@@ -417,7 +457,6 @@ def run(
         word_sum(fixture.ek),
     ) + b"\x5a\xa5"
     machine.mem_write(CANDIDATE_GENERATION, publication)
-    machine.mem_write(RETURN_SENTINEL, b"\xF4")
     machine.mem_write(
         STACK_TOP - 2,
         struct.pack("<H", RETURN_SENTINEL),
@@ -445,35 +484,65 @@ def run(
 
     rsu_head = padded(images.rsu[:512], 1)
     rsu_tail = padded(images.rsu[512:], 1)
-    recovery = bytearray(512)
-    recovery[RECOVERY_FAIL - 0x3400] = 0xC3
     phases = {
+        ACCESS_KEY: access_image,
         CONTROLLER_KEY: padded(images.controller, 3),
         FO_KEY: padded(images.fo_stub, 6),
-        SYM_KEY: bytes([0x6D]) * (8 * 512),
+        SYM_KEY: symmetric_image,
         RSU_HEAD_KEY: rsu_head,
         RSU_TAIL_KEY: rsu_tail,
         SUPERVISOR_KEY: images.supervisor,
-        RECOVERY_KEY: bytes(recovery),
     }
     events: list[str] = []
     reached_sentinel = False
-    terminal_recovery = False
-    terminal_halt = False
+    terminal_abort = False
+    recovery_load_attempts = 0
+    protected_writes: list[tuple[int, int]] = []
+    hlt_addresses: list[int] = []
     fo_started = False
-    page7e_writes = 0
+    sym_restored = False
 
     def loader(uc: Uc, *_args: object) -> None:
+        nonlocal recovery_load_attempts, sym_restored
         key = uc.reg_read(UC_X86_REG_AX) & 0xFFFF
         destination = uc.reg_read(UC_X86_REG_BX) & 0xFFFF
         events.append(f"load:{key:04x}:{destination:04x}")
         if (
-            key == fail_load_key
-            or (key == RECOVERY_KEY and fail_recovery_load)
+            key == OBSOLETE_RECOVERY_KEY
+            or destination == OBSOLETE_RECOVERY_STAGE
         ):
+            recovery_load_attempts += 1
+        if key == fail_load_key:
             set_carry(uc, True)
             uc.reg_write(UC_X86_REG_DX, 0xDEAD)
             return
+        if key == ACCESS_KEY:
+            if destination != ACCESS_STAGE:
+                raise AssertionError("FO access phase was repinned at wrong address")
+            if bytes(
+                uc.mem_read(ACCESS_STAGE, len(access_image))
+            ) != symmetric_image[
+                ACCESS_STAGE - SYM_START:
+                ACCESS_STAGE - SYM_START + len(access_image)
+            ]:
+                raise AssertionError(
+                    "FO access repin did not begin from complete live SYM"
+                )
+        if key == CONTROLLER_KEY and bytes(
+            uc.mem_read(ACCESS_STAGE, len(access_image))
+        ) != access_image:
+            raise AssertionError(
+                "FO controller loaded before exact access repin"
+            )
+        if key == SYM_KEY:
+            if destination != SYM_START:
+                raise AssertionError("complete FO SYM restored at wrong address")
+            if bytes(
+                uc.mem_read(ACCESS_STAGE, len(access_image))
+            ) != access_image:
+                raise AssertionError(
+                    "complete FO SYM restore did not retire a live access lease"
+                )
         image = phases.get(key)
         if image is None:
             set_carry(uc, True)
@@ -481,35 +550,40 @@ def run(
             return
         uc.mem_write(destination, image)
         uc.ctl_remove_cache(destination, destination + len(image))
+        if key == SYM_KEY:
+            sym_restored = True
         set_carry(uc, False)
         uc.reg_write(UC_X86_REG_DX, 0xDEAD)
 
     def card_read(uc: Uc, *_args: object) -> None:
+        if sym_restored or bytes(
+            uc.mem_read(ACCESS_STAGE, len(access_image))
+        ) != access_image:
+            raise AssertionError("FO card read escaped its fresh access lease")
         source = uc.reg_read(UC_X86_REG_BX) & 0xFFFF
         count = uc.reg_read(UC_X86_REG_CX) & 0xFFFF
         destination = uc.reg_read(UC_X86_REG_DI) & 0xFFFF
         events.append(f"read:{source:04x}:{count}")
-        if fail_post_backup_read and fo_started and source == CARD_CANDIDATE_A:
+        if fail_wipe_readback and fo_started and source == CARD_CANDIDATE_A:
             set_carry(uc, True)
             return
         uc.mem_write(destination, bytes(card[source : source + count]))
         set_carry(uc, False)
 
     def card_write(uc: Uc, *_args: object) -> None:
-        nonlocal page7e_writes
+        if sym_restored or bytes(
+            uc.mem_read(ACCESS_STAGE, len(access_image))
+        ) != access_image:
+            raise AssertionError("FO card write escaped its fresh access lease")
         page = bytes(uc.mem_read(NE_TX_START, 1))[0]
         destination = page << 8
         source = uc.reg_read(UC_X86_REG_SI) & 0xFFFF
         count = uc.reg_read(UC_X86_REG_BP) & 0xFFFF
-        if destination == CARD_CANDIDATE_A:
-            page7e_writes += 1
         events.append(f"write:{destination:04x}:{count}")
-        if fail_wipe and destination == CARD_CANDIDATE_A and page7e_writes == 3:
+        if fail_wipe and destination == CARD_CANDIDATE_A:
             set_carry(uc, True)
             return
         card[destination : destination + count] = uc.mem_read(source, count)
-        if corrupt_backup and page7e_writes == 2:
-            card[destination + 17] ^= 1
         set_carry(uc, False)
 
     def fo_begin(uc: Uc, *_args: object) -> None:
@@ -517,8 +591,8 @@ def run(
         fo_started = True
         events.append("fo:begin")
         uc.mem_write(0x0830, bytes([0xF1]) * (0x0FD0 - 0x0830))
-        uc.mem_write(0x3000, bytes([0xF2]) * (0x3600 - 0x3000))
-        uc.ctl_remove_cache(0x3000, 0x3600)
+        uc.mem_write(0x3000, bytes([0xF2]) * (0x3400 - 0x3000))
+        uc.ctl_remove_cache(0x3000, 0x3400)
 
     def fo_complete(uc: Uc, *_args: object) -> None:
         selected = bytearray(fixture.candidate[32:64])
@@ -528,14 +602,24 @@ def run(
         events.append("fo:complete")
         set_carry(uc, False)
 
-    def recovery_fail_hook(uc: Uc, *_args: object) -> None:
-        nonlocal terminal_recovery
-        terminal_recovery = True
-        events.append("terminal:recovery")
+    def terminal_abort_hook(uc: Uc, *_args: object) -> None:
+        nonlocal terminal_abort
+        terminal_abort = True
+        events.append("terminal:abort")
         uc.emu_stop()
 
     def sentinel(uc: Uc, *_args: object) -> None:
         nonlocal reached_sentinel
+        if fo_started and (
+            not sym_restored
+            or bytes(
+                uc.mem_read(SYM_START, SYM_END - SYM_START)
+            )
+            != symmetric_image
+        ):
+            raise AssertionError(
+                "normal liveness return preceded exact complete SYM restore"
+            )
         reached_sentinel = True
         uc.emu_stop()
 
@@ -552,42 +636,74 @@ def run(
         elif size == 1 and address == FO_STATUS:
             events.append(f"publish:status:{value & 0xff:02x}")
 
+    def protected_write(
+        uc: Uc,
+        _access: int,
+        address: int,
+        size: int,
+        _value: int,
+        _user_data: object,
+    ) -> None:
+        if (
+            address < ABORT_CAPSULE_END
+            and address + size > ABORT_CAPSULE_START
+        ):
+            protected_writes.append((address, size))
+            uc.emu_stop()
+
+    intercepted = {
+        LOAD_PHASE,
+        CARD_READ,
+        CARD_WRITE,
+        FO_COMPLETE,
+        RECOVERY_FAIL,
+        RETURN_SENTINEL,
+    }
+
+    def instruction_guard(uc: Uc, address: int, *_args: object) -> None:
+        if (
+            address not in intercepted
+            and bytes(uc.mem_read(address, 1)) == b"\xf4"
+        ):
+            hlt_addresses.append(address)
+            uc.emu_stop()
+
     for address, callback in (
         (LOAD_PHASE, loader),
         (CARD_READ, card_read),
         (CARD_WRITE, card_write),
         (FO_ENTRY, fo_begin),
         (FO_COMPLETE, fo_complete),
-        (RECOVERY_FAIL, recovery_fail_hook),
+        (RECOVERY_FAIL, terminal_abort_hook),
         (RETURN_SENTINEL, sentinel),
     ):
         machine.hook_add(UC_HOOK_CODE, callback, begin=address, end=address)
+    machine.hook_add(UC_HOOK_CODE, instruction_guard)
     machine.hook_add(
         UC_HOOK_MEM_WRITE,
         publication_write,
         begin=FO_INVERSE,
         end=FO_STATUS,
     )
+    machine.hook_add(UC_HOOK_MEM_WRITE, protected_write)
 
     try:
         machine.emu_start(BROKER_ORIGIN, RAM_BYTES, count=2_000_000)
     except UcError as exc:
         ip = machine.reg_read(UC_X86_REG_IP) & 0xFFFF
-        # CLI/HLT is the deliberate final fallback when recovery media fails.
-        if fail_recovery_load and 0x2400 <= ip < 0x2A00:
-            terminal_halt = True
-        else:
-            raise AssertionError(
-                f"resumption FO faulted at {ip:#06x}; events={events!r}"
-            ) from exc
-    if (
-        fail_recovery_load
-        and not reached_sentinel
-        and not terminal_recovery
-        and f"load:{RECOVERY_KEY:04x}:3400" in events
-    ):
-        # Unicorn treats the deliberate CLI/HLT fallback as a clean stop.
-        terminal_halt = True
+        raise AssertionError(
+            f"resumption FO faulted at {ip:#06x}; events={events!r}"
+        ) from exc
+    abort_capsule = bytes(
+        machine.mem_read(
+            ABORT_CAPSULE_START,
+            ABORT_CAPSULE_END - ABORT_CAPSULE_START,
+        )
+    )
+    if abort_capsule != fixture.abort_capsule:
+        raise AssertionError(
+            "resident 0x3510..0x35ff abort capsule changed"
+        )
     flags = machine.reg_read(UC_X86_REG_EFLAGS)
     return Result(
         ax=machine.reg_read(UC_X86_REG_AX) & 0xFFFF,
@@ -599,13 +715,32 @@ def run(
         card=bytes(card),
         events=tuple(events),
         reached_sentinel=reached_sentinel,
-        terminal_recovery=terminal_recovery,
-        terminal_halt=terminal_halt,
+        terminal_abort=terminal_abort,
+        recovery_load_attempts=recovery_load_attempts,
+        protected_writes=tuple(protected_writes),
+        hlt_addresses=tuple(hlt_addresses),
     )
 
 
+def assert_execution_contract(result: Result) -> None:
+    if result.protected_writes:
+        raise AssertionError(
+            "FO path wrote resident 0x3510..0x35ff abort state: "
+            f"{result.protected_writes!r}"
+        )
+    if result.recovery_load_attempts:
+        raise AssertionError(
+            "FO failure attempted an obsolete recovery-phase load"
+        )
+    if result.hlt_addresses:
+        raise AssertionError(
+            f"FO path executed HLT at {result.hlt_addresses!r}"
+        )
+
+
 def assert_normal(result: Result, *, success: bool) -> None:
-    if not result.reached_sentinel or result.terminal_recovery:
+    assert_execution_contract(result)
+    if not result.reached_sentinel or result.terminal_abort:
         raise AssertionError("FO did not return through the normal RSU1 edge")
     if result.sp != STACK_TOP or result.es != 0x0010 or result.df:
         raise AssertionError("FO normal return ABI drifted")
@@ -617,16 +752,18 @@ def assert_normal(result: Result, *, success: bool) -> None:
 
 
 def assert_terminal(result: Result) -> None:
+    assert_execution_contract(result)
     if result.reached_sentinel:
         raise AssertionError("post-FO failure returned through overwritten RSU1")
-    if not (result.terminal_recovery or result.terminal_halt):
-        raise AssertionError("post-FO failure missed both terminal recovery paths")
+    if not result.terminal_abort:
+        raise AssertionError("post-FO failure missed the direct abort entry")
     if result.ram[FO_STATUS] != 0:
         raise AssertionError("terminal FO failure published valid status")
 
 
 def main() -> None:
     with tempfile.TemporaryDirectory(prefix="seed-resume-fo-") as name:
+        validate_source_contract()
         images = build_images(Path(name))
         validate_images(images)
         fixture = make_fixture()
@@ -641,8 +778,13 @@ def main() -> None:
         ) + b"\x5a\xa5"
         if success.ram[FO_GENERATION : FO_STATUS + 1] != expected_publication:
             raise AssertionError("FO proof publication differs from fresh ek/c")
-        if success.ram[PERSISTENT_START:PERSISTENT_END] != fixture.persistent:
-            raise AssertionError("K14 extension state was not restored exactly")
+        if (
+            success.ram[ABORT_CAPSULE_START:ABORT_CAPSULE_END]
+            != fixture.abort_capsule
+        ):
+            raise AssertionError(
+                "resident abort capsule was not preserved exactly"
+            )
         if success.ram[TICKET_PSK : TICKET_PSK + 32] != fixture.psk:
             raise AssertionError("tentative ticket PSK was not restored")
         if success.ram[TICKET_IDENTITY : TICKET_IDENTITY + 192] != fixture.identity:
@@ -660,7 +802,7 @@ def main() -> None:
         if success.card[CARD_TICKET_MARKER] != 2:
             raise AssertionError("canonical card ticket marker was not preserved")
         if any(success.card[CARD_CANDIDATE_A:CARD_TAIL]):
-            raise AssertionError("retired candidate/K14-backup page was not wiped")
+            raise AssertionError("retired candidate page was not wiped")
 
         low = images.rsu[:RSU_LOW_BYTES]
         prefix_start = RSU_LOW_BYTES
@@ -693,9 +835,11 @@ def main() -> None:
             raise AssertionError("retired m' survived normal return")
 
         required_order = (
-            "write:7e00:256",
+            f"load:{ACCESS_KEY:04x}:{ACCESS_STAGE:04x}",
+            f"load:{CONTROLLER_KEY:04x}:{CONTROLLER_ORIGIN:04x}",
             "fo:begin",
             "fo:complete",
+            "write:7e00:256",
             f"load:{RSU_TAIL_KEY:04x}:3000",
             f"load:{SUPERVISOR_KEY:04x}:3000",
             f"load:{SYM_KEY:04x}:1800",
@@ -704,12 +848,14 @@ def main() -> None:
         )
         positions = [success.events.index(event) for event in required_order]
         if positions != sorted(positions) or len(set(positions)) != len(positions):
-            raise AssertionError("FO backup/restore/status order drifted")
+            raise AssertionError("FO restore/wipe/status order drifted")
+        if success.events.count("write:7e00:256") != 1:
+            raise AssertionError("retired candidate page was not wiped once")
 
         for kwargs in (
             {"invalid_lifecycle": True},
             {"corrupt_candidate": True},
-            {"corrupt_backup": True},
+            {"fail_load_key": ACCESS_KEY},
         ):
             rejected = run(images, fixture, **kwargs)
             assert_normal(rejected, success=False)
@@ -730,17 +876,35 @@ def main() -> None:
 
         terminal_cases = (
             {"corrupt_public": True},
-            {"wrong_selected": True},
-            {"fail_post_backup_read": True},
+            {"fail_wipe_readback": True},
             {"fail_wipe": True},
             {"fail_load_key": RSU_TAIL_KEY},
             {"fail_load_key": RSU_HEAD_KEY},
             {"fail_load_key": SUPERVISOR_KEY},
-            {"fail_load_key": SYM_KEY},
         )
         for kwargs in terminal_cases:
             failed = run(images, fixture, **kwargs)
             assert_terminal(failed)
+
+        controller_failure = run(images, fixture, wrong_selected=True)
+        assert_terminal(controller_failure)
+        if controller_failure.events[-2:] != (
+            "fo:complete",
+            "terminal:abort",
+        ):
+            raise AssertionError(
+                "controller post-FO failure did not jump directly to abort"
+            )
+
+        low_failure = run(images, fixture, fail_load_key=SYM_KEY)
+        assert_terminal(low_failure)
+        if low_failure.events[-2:] != (
+            f"load:{SYM_KEY:04x}:{SYM_START:04x}",
+            "terminal:abort",
+        ):
+            raise AssertionError(
+                "low-transition restore failure did not jump directly to abort"
+            )
 
         for card_ticket_marker in (0, 1, 3, 0xFF):
             failed = run(
@@ -750,19 +914,13 @@ def main() -> None:
             )
             assert_terminal(failed)
 
-        halted = run(
-            images,
-            fixture,
-            wrong_selected=True,
-            fail_recovery_load=True,
-        )
-        assert_terminal(halted)
-
         print(
             "post-auth resumption deferred-FO worker gate: PASS "
             f"(broker={len(images.broker)} controller={len(images.controller)} "
-            "bytes; host marker 1/card marker 2 plus "
-            "real clobber/backup/RSU/sym/recovery hostile cases)"
+            "bytes; exact two-sector access repin before callbacks; "
+            "complete twelve-sector SYM before liveness; host marker 1/card "
+            "marker 2; immutable 0x3510..0x35ff abort capsule; direct "
+            "controller/low aborts with zero recovery loads and no HLT)"
         )
 
 

@@ -67,7 +67,6 @@ SUCCESS_PREFIX_MARKERS = (
     "preflight cache",
     "offline keygen",
     "live connect",
-    DEADLINE_MARKER,
     HEAD_TX_MARKER,
 )
 SECURE_SUCCESS_PREFIX_MARKERS = (
@@ -77,7 +76,6 @@ SECURE_SUCCESS_PREFIX_MARKERS = (
     "preflight cache",
     "offline keygen",
     "live connect",
-    DEADLINE_MARKER,
     HEAD_TX_MARKER,
 )
 SUCCESS_POST_HEAD_ORDERS = (
@@ -794,7 +792,9 @@ def run_live(
     serial_path.parent.mkdir(parents=True, exist_ok=True)
     serial_path.write_text(serial_text, encoding="utf-8")
     status = terminal_status(serial_text)
-    deadline_marker_seen = DEADLINE_MARKER in exact_lines(serial_text)
+    historical_deadline_marker_seen = (
+        DEADLINE_MARKER in exact_lines(serial_text)
+    )
     if secure:
         completion_markers = (
             HEAD_TX_MARKER,
@@ -871,7 +871,8 @@ def run_live(
         "start_timeout_seconds": start_timeout,
         "timeout_hit": timeout_hit,
         "terminal_status": status,
-        "deadline_marker_seen": deadline_marker_seen,
+        "deadline_marker_seen": historical_deadline_marker_seen,
+        "runtime_deadline_marker_required": False,
         "canary_markers_seen": canary_markers_seen,
         "identity_checkpoint": identity,
         "secure_fo_checkpoint": secure,
@@ -924,7 +925,6 @@ def run_live(
         "success_markers_ordered": success_markers_ordered,
         "guest_passed": (
             status == PASS_MARKER
-            and deadline_marker_seen
             and canary_markers_seen
             and success_markers_ordered
         ),

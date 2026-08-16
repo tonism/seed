@@ -20,11 +20,30 @@ agent_api_stream_phase:
     je .ready_tail
     ; Cold greeting: the banner is already drawn (early, at hal_start), so nothing to draw here -- the
     ; greeting just flows from the current cursor (below the banner / config). No absolute positioning.
+%ifdef TLS13_PRODUCT_TLS13
+    ; TLS 1.2 sent this already-built cold request from its handshake probe.
+    ; The TLS 1.3 route publishes a clean application channel instead, so the
+    ; normal stream phase owns the first encrypted request just like every
+    ; later turn.
+    phase_call_res (low_scratch_start + agent_request_phase.validate_product_prefix - core_agent_request_phase_start)
+    jc .failed
+    phase_call_res tls_prepare_3c501_receive
+    phase_call_res tls_send_application_data_current_seq
+    jc .failed
+%endif
     jmp .done
 
 .ready_tail:
+%ifdef TLS13_PRODUCT_TLS13
+    ; R's first sector survives X's 0x0900..0x0eff overlay.  Repeat its exact
+    ; 16K source validator here, after request construction and before any TLS
+    ; send, so stale/corrupt stream metadata fails closed at the final edge.
+    phase_call_res (low_scratch_start + agent_request_phase.validate_stream_bounds - core_agent_request_phase_start)
+    jc .prefix_failed
+%else
     cmp word [tls_app_len], 0
     je .stream_chunk2
+%endif
     phase_call_res tls_prepare_3c501_receive
     phase_call_res tls_send_application_data_current_seq
     jc .prefix_failed
@@ -107,9 +126,10 @@ agent_api_stream_phase:
     call .send_app_record                     ; record B: ledger [+ note] + input-open (or targets)
     jc .prefix_failed
 .tail_build:
-    xor ax, ax
-    mov ds, ax
-    mov es, ax
+    push cs
+    pop ds
+    push cs
+    pop es
     ; Reconnect handshakes can clobber api_stream_prompt_len; the durable
     ; prompt length lives beside the retry counter in reconnect-safe state.
     mov al, [chat_resend_prompt_len]

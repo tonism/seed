@@ -491,8 +491,7 @@ fe_sq:
     adc word [fm_acc2], 0
 .accumulate:
     add bx, ax
-    adc dx, 0
-    add bp, dx
+    adc bp, dx
     adc word [fm_acc2], 0
     add si, 2
     sub di, 2
@@ -570,8 +569,7 @@ fe_mul:
     mov ax, [si]
     mul word [di]
     add bx, ax
-    adc dx, 0
-    add bp, dx
+    adc bp, dx
     adc word [fm_acc2], 0
     add si, 2
     sub di, 2

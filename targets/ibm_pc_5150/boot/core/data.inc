@@ -21,11 +21,10 @@ nic_vt_rx_fallback dw 0
 ; and records {load-request key (sectors<<8|sector-offset), cache address} here; load_core_sectors_at
 ; scans [0..loop_cache_count) and, on a key match, rep-movsw's from RAM instead of reading the floppy.
 ; count = 0 on 16K (the preload is skipped, the cache region doesn't exist) AND during the preload
-; itself (so load_core_sectors_at floppy-fills the cache), then it is set to the entry count. Resident
-; (consulted on every phase load). loop_cache_max_entries = the working set (Y/R/K/X/T/M = 6).
-loop_cache_max_entries equ 6
+; itself (so load_core_sectors_at floppy-fills the cache), then it is set to the entry count. 0xffff
+; means the 286 route has quarantined the immutable cache in its reserved RAM shadow and the low copy
+; must not be consulted yet. The five-entry lookup table lives inside that shadowed cache span.
 loop_cache_count dw 0
-loop_cache_table times (loop_cache_max_entries * 2) dw 0
 ; Build 11 never-blank reorg: the resident nucleus was full (2048/2048). Seven reconnect-safe vars
 ; that used to live here as nucleus db/dw -- chat_resend_prompt_len, chat_context_used, compact_next,
 ; compacting_msg, chat_compact_threshold, chat_context_len_var, scroll_br -- were relocated OUT of the
@@ -142,7 +141,18 @@ save_mode_leaf      equ 1
 %endif
 low_runtime_state_start equ handoff_addr + handoff_size_bytes
 sha256_state equ low_runtime_state_start
+; The 286 parent publishes a freshly validated BIOS-RTC snapshot here
+; immediately before loading the fixed 0x0700 bootstrap.  The bootstrap
+; receives DS=ES=0, DI=tls13_286_parent_rtc_publication, validates the
+; status-last pair, and copies it to the private high reservation before any
+; SHA operation can reuse this transient state.  The address is intentionally
+; below the bootstrap load span and costs no persistent arena bytes.
+tls13_286_parent_rtc_publication equ low_runtime_state_start
+tls13_286_parent_rtc_publication_bytes equ 9
 sha256_a equ sha256_state + 32
+%if tls13_286_parent_rtc_publication + tls13_286_parent_rtc_publication_bytes > sha256_a
+%error "TLS 1.3 286 parent RTC publication exceeds transient SHA state"
+%endif
 sha256_b equ sha256_a + 4
 sha256_c equ sha256_b + 4
 sha256_d equ sha256_c + 4
@@ -290,6 +300,13 @@ low_tail_state_end equ tls_current_payload_len + 2
 %if low_runtime_state_end > low_scratch_start
 %error "low runtime state overlaps phase load window"
 %endif
+%if (ne_tx_frame + tcp_payload_read_len) > agent_response_phase_load_addr
+%error "established TCP receive may overwrite the 0x0900 executable phase"
+%endif
+%if tcp_payload_read_len < \
+    (tcp_tx_frame_len + tcp_payload_offset + tcp_syn_mss)
+%error "TCP receive cap breaks the 3c501 ACK-plus-MSS fallback"
+%endif
 %if (low_sha256_k + sha256_k_len) > handoff_addr
 %error "low sha256 k table overlaps handoff block"
 %endif
@@ -330,6 +347,10 @@ api_response_text_buf equ fs_sector_buffer
 ; survives server-Finished verification, unlike fs_sector_buffer, and the
 ; current request cap keeps each request in one TLS record.
 tls_app_record_buffer equ api_request_plain
+; TLS 1.3's final inner-content-type byte aliases the first byte of this
+; handshake-only HMAC snapshot.  The record sealer runs only after the cold
+; handshake has committed application keys, so the two lifetimes cannot
+; overlap.  Keeping the alias preserves the exact 16 KiB arena/context floor.
 hmac_prepared_inner_state equ api_request_plain + tls_app_record_buffer_len
 hmac_prepared_outer_state equ hmac_prepared_inner_state + (16 * 2)
 seed_agent_id equ hmac_prepared_outer_state + (16 * 2)
@@ -630,13 +651,11 @@ chat_arena_floor_min equ 96
 chat_context_start equ chat_pool_start + chat_arena_floor_min
 chat_context_len equ 96
 chat_context_end equ chat_context_start + chat_context_len
-; Build 12 auto-recertify: the captured rotated leaf (286 secure path only) lands in the handshake-
-; transient TAIL of the 32K loop cache -- just above the P-256 module's budget end
+; Build 12 legacy auto-recertify: the captured rotated leaf lands in the handshake-transient TAIL
+; of the 32K loop cache -- just above the retired TLS 1.2 P-256 module's budget end
 ; (p256_module_load + p256_module_max_len) up to loop_cache_end. This is the MID-CHAT-SAFE home:
-;  - every 286 connect's tls_client_hello sets loop_cache_count=0, so the chat loop demand-loads its
-;    phases + prompt streams from floppy afterward; the cache content here (including
-;    prompt_id_cache, which sits in this same tail) is therefore already invalid
-;    when the capture overwrites it -- harmless;
+;  - that legacy route invalidates the cache before capture. The TLS 1.3 product route does not use
+;    this leaf slot; its cleanup restores the complete loop cache from authenticated RAM shadow;
 ;  - the LIVE CONVERSATION arena (chat_arena_start) is far below and is never touched;
 ;  - the loaded module (<= 24 sectors) ends at/below leaf_capture_buf, so it doesn't overlap either.
 ; A leaf larger than leaf_capture_max aborts the capture -> recertify fails closed. The resident caller

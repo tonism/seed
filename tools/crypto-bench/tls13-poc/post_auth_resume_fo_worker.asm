@@ -5,18 +5,17 @@
 ; 0x2400..0x29ff, restores AX=7, and tail-enters it.  The controller remains
 ; above the exact six-sector FO image and outside all FO mutable work.
 ;
-; Before FO, both 128-byte candidate copies are read and compared.  Their
-; page is then retired into an RFB1 status-last backup of 0x3510..0x35ff.
-; After FO, that backup is validated and restored before any normal return.
-; The controller also restores the tentative ticket, RSU1 scatter, and the
-; outer continuation, wipes page 0x7e, then tail-enters a low trampoline which
-; restores the eight-sector K14 symmetric image.  Only that trampoline may
+; Before FO, both 128-byte candidate copies are read and compared.  The
+; measured FO image and its working span end below 0x3400; the immutable
+; resident abort capsule at 0x3510..0x35ff is never written by this path.  The
+; controller restores the tentative ticket, RSU1 scatter, and the outer
+; continuation, wipes and verifies page 0x7e, then tail-enters a low trampoline
+; which restores the complete K14 symmetric image.  Only that trampoline may
 ; publish the FO inverse/status bytes and return to RSU1.
 ;
-; Any failure after FO begins is terminal: immutable resident_load_phase
-; reloads the known base crypto-controller sector at 0x3400 and jumps its
-; persistent fail entry.  If even that fixed recovery read fails, execution
-; halts locally.  No post-FO path returns through overwritten state.
+; Any failure after FO begins is terminal and jumps the resident persistent
+; abort entry directly.  It neither reloads a recovery phase nor falls back to
+; HLT.  No post-FO path returns through overwritten state.
 
 bits 16
 cpu 8086
@@ -42,18 +41,6 @@ cpu 8086
 %define RESUME_FO_CONTROLLER_LIMIT 0x0600
 %endif
 
-%macro resume_fo_diagnostic 1
-%ifdef RESUME_FO_DIAGNOSTIC
-    push ax
-    push dx
-    mov dx, 0x03f8
-    mov al, %1
-    out dx, al
-    pop dx
-    pop ax
-%endif
-%endmacro
-
 fo_candidate_generation       equ 0x3c66
 fo_candidate_c_sum            equ 0x3c68
 fo_candidate_ek_sum           equ 0x3c6a
@@ -73,6 +60,11 @@ fo_status                     equ 0x3c75
 %ifndef RESUME_FO_CONTROLLER_ENTRY
 %define RESUME_FO_CONTROLLER_ENTRY 0x2400
 %endif
+%ifdef RESUME_FO_VAULT_ACCESS_KEY
+%ifndef RESUME_FO_VAULT_ACCESS_STAGE
+%error "resumption FO access repin requires a fixed stage"
+%endif
+%endif
 
 org 0x3000
 
@@ -87,7 +79,6 @@ resume_fo_broker_header:
 
 resume_fo_broker_code:
     cld
-    resume_fo_diagnostic '0'
     cmp ax, 7
     jne resume_fo_broker_failed
     cmp byte [resume_vault_lifecycle_status], \
@@ -100,12 +91,19 @@ resume_fo_broker_code:
     jne resume_fo_broker_failed
     cmp byte [fo_candidate_inverse], 0x5a
     jne resume_fo_broker_failed
-    resume_fo_diagnostic '1'
+%ifdef RESUME_FO_VAULT_ACCESS_KEY
+    ; EXCHANGE restored the complete symmetric image and deliberately retired
+    ; the overlapping 0x2c00 lease.  Full symmetric work is now complete, so
+    ; pin a fresh measured access image before the first FO card callback.
+    mov ax, RESUME_FO_VAULT_ACCESS_KEY
+    mov bx, RESUME_FO_VAULT_ACCESS_STAGE
+    call RESUME_FO_LOAD_PHASE
+    jc resume_fo_broker_failed
+%endif
     mov ax, RESUME_FO_CONTROLLER_KEY
     mov bx, RESUME_FO_CONTROLLER_ENTRY
     call RESUME_FO_LOAD_PHASE
     jc resume_fo_broker_failed
-    resume_fo_diagnostic '2'
     mov ax, 7
     mov dx, RESUME_FO_CONTROLLER_ENTRY
     jmp dx
@@ -133,13 +131,10 @@ resume_fo_broker_end:
 %define RESUME_FO_KERNEL_ENTRY 0x1800
 %endif
 %ifndef RESUME_FO_SYM_RESTORE_KEY
-%error "resumption FO controller requires the eight-sector K14 restore"
-%endif
-%ifndef RESUME_FO_RECOVERY_KEY
-%error "resumption FO controller requires the base recovery sector"
+%error "resumption FO controller requires the complete K14 restore"
 %endif
 %ifndef RESUME_FO_RECOVERY_FAIL
-%error "resumption FO controller requires the recovered fail entry"
+%error "resumption FO controller requires the persistent abort entry"
 %endif
 %ifndef RESUME_FO_RSU_HEAD_KEY
 %error "resumption FO controller requires the RSU1 head key"
@@ -191,23 +186,8 @@ fo_ticket_psk                 equ 0x38b0
 fo_ticket_identity            equ 0x3b40
 fo_ticket_tail                equ 0x3c00
 fo_ticket_present             equ 0x3c2c
-fo_persistent_start           equ 0x3510
-fo_persistent_end             equ 0x3600
-fo_persistent_len             equ fo_persistent_end - fo_persistent_start
 fo_stage                      equ 0x3000
 fo_low_transition             equ 0x0d00
-
-fo_backup_magic               equ 0xf0
-fo_backup_inverse             equ 0xf4
-fo_backup_generation          equ 0xf8
-fo_backup_checksum            equ 0xfa
-fo_backup_zero                equ 0xfc
-fo_backup_inverse_status      equ 0xfe
-fo_backup_status              equ 0xff
-fo_backup_magic0              equ 0x4652       ; "RF"
-fo_backup_magic1              equ 0x3142       ; "B1"
-fo_backup_inverse0            equ 0xb9ad
-fo_backup_inverse1            equ 0xcebd
 
 resume_fo_controller_entry:
     jmp short resume_fo_controller_code
@@ -223,29 +203,25 @@ resume_fo_controller_code:
     push es
     push ds
     pop es
-    resume_fo_diagnostic '3'
     mov byte [fo_status], 0
     mov byte [fo_inverse], 0
     cmp ax, 7
     jne resume_fo_pre_failed
     call resume_fo_validate_publication
     jc resume_fo_pre_failed
-    resume_fo_diagnostic '4'
 
-    ; Verify both independently committed candidate halves before retiring
-    ; page 0x7e into the K14-state backup.
+    ; Verify both independently committed candidate halves before admitting
+    ; FO.  Page 0x7e is retired and verified zero only after proof succeeds.
     mov bx, resume_card_candidate_a
     mov cx, resume_card_candidate_len
     mov di, fo_candidate_a_buffer
     call RESUME_FO_NE_BUF_READ
     jc resume_fo_pre_failed
-    resume_fo_diagnostic '5'
     mov bx, resume_card_candidate_b
     mov cx, resume_card_candidate_len
     mov di, fo_candidate_b_buffer
     call RESUME_FO_NE_BUF_READ
     jc resume_fo_pre_failed
-    resume_fo_diagnostic '6'
     mov si, fo_candidate_a_buffer
     mov di, fo_candidate_b_buffer
     mov cx, resume_card_candidate_len / 2
@@ -258,7 +234,6 @@ resume_fo_controller_code:
     loop .candidate_compare
     or dx, dx
     jnz resume_fo_pre_failed
-    resume_fo_diagnostic '7'
 
     ; Scatter m' || K' || r' || z into the unchanged FO ABI and retain an
     ; independent expected K' in the FO kernel's preserved low ticket hold.
@@ -275,9 +250,6 @@ resume_fo_controller_code:
     mov cx, 48
     rep movsw
 
-    call resume_fo_backup_persistent
-    jc resume_fo_pre_failed
-    resume_fo_diagnostic '8'
     mov word [resume_fo_ek_seen], 0
     mov word [resume_fo_c_seen], 0
     mov word [resume_fo_ek_running_sum], 0
@@ -288,32 +260,25 @@ resume_fo_controller_code:
     mov bx, RESUME_FO_KERNEL_ENTRY
     call RESUME_FO_LOAD_PHASE
     jc resume_fo_pre_failed
-    resume_fo_diagnostic '9'
     mov bx, resume_fo_card_read_callback
     call RESUME_FO_KERNEL_ENTRY
-    resume_fo_diagnostic '!'
 
-    ; FO has now destroyed RSU1 low state and may have destroyed K14 extension
-    ; state.  No failure below this point may return normally.
+    ; FO has now destroyed RSU1 low state.  Its measured upper clobber span
+    ; ends below 0x3400, leaving the resident 0x3510..0x35ff abort capsule
+    ; intact.  No failure below this point may return normally.
     jc resume_fo_post_failed
-    resume_fo_diagnostic 'a'
     cmp ax, 1
     jne resume_fo_post_failed
-    resume_fo_diagnostic 'b'
     cmp word [resume_fo_ek_seen], resume_card_ek_len
     jne resume_fo_post_failed
-    resume_fo_diagnostic 'c'
     cmp word [resume_fo_c_seen], resume_card_c_len * 2
     jne resume_fo_post_failed
-    resume_fo_diagnostic 'd'
     mov ax, [resume_fo_ek_running_sum]
     cmp ax, [fo_candidate_ek_sum]
     jne resume_fo_post_failed
-    resume_fo_diagnostic 'e'
     mov ax, [resume_fo_c_running_sum]
     cmp ax, [fo_candidate_c_sum]
     jne resume_fo_post_failed
-    resume_fo_diagnostic 'f'
     mov si, fo_candidate_g
     mov di, fo_expected_k
     mov cx, 16
@@ -326,17 +291,11 @@ resume_fo_controller_code:
     loop .selected_compare
     or dx, dx
     jnz resume_fo_post_failed
-    resume_fo_diagnostic '@'
 
-    call resume_fo_restore_persistent
-    jc resume_fo_post_failed
-    resume_fo_diagnostic '#'
     call resume_fo_restore_ticket
     jc resume_fo_post_failed
-    resume_fo_diagnostic '$'
     call resume_fo_wipe_retired_page
     jc resume_fo_post_failed
-    resume_fo_diagnostic '%'
 
     mov ax, [fo_candidate_generation]
     mov [fo_generation], ax
@@ -347,9 +306,8 @@ resume_fo_controller_code:
 
     call resume_fo_restore_rsu
     jc resume_fo_post_failed
-    resume_fo_diagnostic '^'
 
-    ; The low trampoline survives the final eight-sector symmetric reload.
+    ; The low trampoline survives the final complete symmetric reload.
     ; It is the only normal status publication/return edge.
     mov si, resume_fo_low_transition_source
     mov di, fo_low_transition
@@ -388,115 +346,6 @@ resume_fo_validate_publication:
     je .bad
     cmp word [fo_candidate_ek_sum], 0
     je .bad
-    clc
-    ret
-.bad:
-    stc
-    ret
-
-; Page 0x7e becomes a two-pass, status-last backup of all K14 extension state
-; that FO is allowed to destroy.  Both complete page images are read back.
-resume_fo_backup_persistent:
-    xor ax, ax
-    mov di, fo_page_buffer
-    mov cx, 128
-    rep stosw
-    mov si, fo_persistent_start
-    mov di, fo_page_buffer
-    mov cx, fo_persistent_len / 2
-    rep movsw
-    mov word [fo_page_buffer + fo_backup_magic], fo_backup_magic0
-    mov word [fo_page_buffer + fo_backup_magic + 2], fo_backup_magic1
-    mov word [fo_page_buffer + fo_backup_inverse], fo_backup_inverse0
-    mov word [fo_page_buffer + fo_backup_inverse + 2], fo_backup_inverse1
-    mov ax, [fo_candidate_generation]
-    mov [fo_page_buffer + fo_backup_generation], ax
-    mov si, fo_page_buffer
-    mov cx, fo_persistent_len / 2
-    xor dx, dx
-.sum:
-    lodsw
-    add dx, ax
-    loop .sum
-    add dx, [fo_page_buffer + fo_backup_generation]
-    not dx
-    mov [fo_page_buffer + fo_backup_checksum], dx
-    mov al, 0x7e
-    mov si, fo_page_buffer
-    mov bp, 256
-    call resume_fo_card_write
-    jc .bad
-    call resume_fo_readback_page
-    jc .bad
-    mov byte [fo_page_buffer + fo_backup_inverse_status], 0x5a
-    mov byte [fo_page_buffer + fo_backup_status], 0xa5
-    mov al, 0x7e
-    mov si, fo_page_buffer
-    mov bp, 256
-    call resume_fo_card_write
-    jc .bad
-    call resume_fo_readback_page
-    ret
-.bad:
-    stc
-    ret
-
-resume_fo_readback_page:
-    mov bx, resume_card_candidate_a
-    mov cx, 256
-    mov di, fo_readback_buffer
-    call RESUME_FO_NE_BUF_READ
-    jc .done
-    mov si, fo_page_buffer
-    mov di, fo_readback_buffer
-    mov cx, 128
-    repe cmpsw
-    jne .different
-    clc
-.done:
-    ret
-.different:
-    stc
-    ret
-
-resume_fo_restore_persistent:
-    mov bx, resume_card_candidate_a
-    mov cx, 256
-    mov di, fo_page_buffer
-    call RESUME_FO_NE_BUF_READ
-    jc .bad
-    cmp word [fo_page_buffer + fo_backup_magic], fo_backup_magic0
-    jne .bad
-    cmp word [fo_page_buffer + fo_backup_magic + 2], fo_backup_magic1
-    jne .bad
-    cmp word [fo_page_buffer + fo_backup_inverse], fo_backup_inverse0
-    jne .bad
-    cmp word [fo_page_buffer + fo_backup_inverse + 2], fo_backup_inverse1
-    jne .bad
-    cmp byte [fo_page_buffer + fo_backup_status], 0xa5
-    jne .bad
-    cmp byte [fo_page_buffer + fo_backup_inverse_status], 0x5a
-    jne .bad
-    mov ax, [fo_page_buffer + fo_backup_generation]
-    cmp ax, [fo_candidate_generation]
-    jne .bad
-    cmp word [fo_page_buffer + fo_backup_zero], 0
-    jne .bad
-    mov si, fo_page_buffer
-    mov cx, fo_persistent_len / 2
-    xor dx, dx
-.sum:
-    lodsw
-    add dx, ax
-    loop .sum
-    add dx, [fo_page_buffer + fo_backup_generation]
-    not dx
-    cmp dx, [fo_page_buffer + fo_backup_checksum]
-    jne .bad
-    mov si, fo_page_buffer
-    mov di, fo_persistent_start
-    mov cx, fo_persistent_len / 2
-    rep movsw
     clc
     ret
 .bad:
@@ -735,28 +584,26 @@ resume_fo_pre_failed:
     ret
 
 resume_fo_post_failed:
-    mov ax, RESUME_FO_RECOVERY_KEY
-    mov bx, 0x3400
-    call RESUME_FO_LOAD_PHASE
-    jc resume_fo_terminal_halt
     mov dx, RESUME_FO_RECOVERY_FAIL
     jmp dx
 
-resume_fo_terminal_halt:
-    cli
-.halt:
-    hlt
-    jmp short .halt
-
 ; Copied to 0x0d00 only after RSU1 and the outer transition are restored.
-; The symmetric load destroys this controller, so failure recovery is fully
-; self-contained in the low copy.
+; The complete symmetric load destroys this controller and retires the fresh
+; FO access lease, so direct failure dispatch is fully self-contained in the
+; low copy and liveness receives byte-exact symmetric code plus immutable data.
 resume_fo_low_transition_source:
     mov ax, RESUME_FO_SYM_RESTORE_KEY
     mov bx, 0x1800
     mov dx, RESUME_FO_LOAD_PHASE
     call dx
     jc .recover
+%ifdef RESUME_FO_SYM_TAIL_KEY
+    mov ax, RESUME_FO_SYM_TAIL_KEY
+    mov bx, 0x2e00
+    mov dx, RESUME_FO_LOAD_PHASE
+    call dx
+    jc .recover
+%endif
     mov byte [fo_inverse], 0x5a
     mov byte [fo_status], 0xa5
     mov ax, 1
@@ -765,18 +612,8 @@ resume_fo_low_transition_source:
     cld
     ret
 .recover:
-    mov ax, RESUME_FO_RECOVERY_KEY
-    mov bx, 0x3400
-    mov dx, RESUME_FO_LOAD_PHASE
-    call dx
-    jc .halt
     mov dx, RESUME_FO_RECOVERY_FAIL
     jmp dx
-.halt:
-    cli
-.stopped:
-    hlt
-    jmp short .stopped
 resume_fo_low_transition_end:
 
 resume_fo_cb_object          db 0
@@ -792,9 +629,6 @@ resume_fo_controller_end:
 
 %if (resume_fo_controller_header - resume_fo_controller_entry) != 2
 %error "resumption FO controller header moved"
-%endif
-%if fo_persistent_len != 240
-%error "resumption FO persistent backup is not exactly 240 bytes"
 %endif
 %if RESUME_FO_RSU_LOW_BYTES < 512
 %error "resumption FO RSU1 head is not one complete sector"

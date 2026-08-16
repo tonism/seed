@@ -4,26 +4,33 @@
   "scope": "offline preconnect-prehashed K14 resumed-only HELLO and ninth-sector cached connector phases; no VM, network, credential, target entropy, or security credit",
   "sources": {
     "hello": "tools/crypto-bench/tls13-poc/hello_overlay.asm",
-    "hello_sha256": "dd5984b239d1335ffb50d2e37bee5a96b05c95dfc2953faad35c5ab7071b0f89",
+    "hello_sha256": "cdc1b8f5bb93c9be1edc0ab03b6cc4a5622c6b97974c858ba99d89d343bf7fa1",
     "cached_connector": "tools/crypto-bench/tls13-poc/post_auth_cached_connect.asm",
-    "cached_connector_sha256": "888e715955be5a1d10e501a79c7bfb849e68136078605a334da2a9754a4b3e26",
-    "checker_sha256": "dc653bb15818b36b3b4fdc717c8d3fe8171a457ab251d75968269f185f75785a"
+    "cached_connector_sha256": "1c3ab1d166b5b9a727bfdb95deb4473950ca9a5ca383877e4b84f1865562d857",
+    "checker_sha256": "d94ba3d34bcddb2ed3e19bfa03fada3731d584c49f6c470ac0704b2995ed7fc2"
   },
   "cached_connector": {
-    "bytes": 414,
-    "sha256": "1d5e7fd018a8b417abf59fef62f1a9446cce29bd63f3c3898147b56b761f6b08",
+    "bytes": 512,
+    "sha256": "8fee13bcdf30be5c1124ddb2f218adf26ddd5ef77c44213da46bf5c1cc912b50",
     "sectors": 1,
     "padded_bytes": 512,
-    "padded_sha256": "a050438796611f91583cace6c45f0405d16129d07397f36b05d6e62b4d7630a5",
+    "padded_sha256": "8fee13bcdf30be5c1124ddb2f218adf26ddd5ef77c44213da46bf5c1cc912b50",
     "destination": "0x2800",
     "hello_sector_ordinal": 9,
     "preloaded_after_hello_before_tx_prehash": true,
     "overwritten_by_later_rx": true,
     "header_entry_table_file_offset": 10,
     "entries": [
-      "0x2810",
-      "0x2977",
-      "0x299b"
+      "0x29cb",
+      "0x29a4",
+      "0x29c8",
+      "0x2910"
+    ],
+    "3c501_prime_entry": "0x2910",
+    "3c501_prime_order": [
+      "read_receive_status",
+      "clear_receive_pointer",
+      "restore_receive_command"
     ]
   },
   "resumed_hello": {
@@ -75,6 +82,7 @@
       "hello.entry1:resumed_begin",
       "hello.entry3:full_transcript_prehash",
       "hello.entry4:rewind",
+      "cached_phase.entry3:3c501_status_read_and_rearm",
       "cached_phase.entry0:connect",
       "hello.replay:byte_exact",
       "phase_load:rx_overwrites_cached_connector",
@@ -138,6 +146,7 @@
     "full_clienthello_prehashed_before_connect": true,
     "hello_rewound_before_connect": true,
     "cached_connector_is_ninth_sector": true,
+    "cached_connector_3c501_status_read_before_rearm": true,
     "connector_preserves_low_hello_state": true,
     "connector_preserves_sha_context": true,
     "connector_overwritten_by_later_rx": true,

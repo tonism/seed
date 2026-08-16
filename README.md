@@ -1,231 +1,181 @@
 # Seed
 
 <p align="center">
-  <img src="docs/images/seed-demo-8088.gif" width="49%" alt="A cloud model on a 16 KiB 4.77 MHz 8088 IBM PC reads the BIOS clock and works out the time from the raw timer ticks; the boot splash shows a red 'insecure' because the stock-8088 channel is encrypted but not secure. 86Box, sped up 8x.">
-  <img src="docs/images/seed-demo-286.gif" width="49%" alt="The same prompt on a 512 KiB 6 MHz 286: real ECDHE and pinned-key peer authentication under the documented no-time expiry policy, with no insecure splash; it also finishes the read-and-compute first. 86Box, sped up 8x.">
+  <img src="docs/images/seed-demo-8088.gif" width="49%" alt="An earlier 8088 Seed demo running a cloud-model tool loop on a 16 KiB 4.77 MHz IBM PC under 86Box.">
+  <img src="docs/images/seed-demo-286.gif" width="49%" alt="An earlier 286 Seed demo running the same cloud-model prompt under 86Box.">
 </p>
 
-<p align="center"><sub><b>Same prompt, typed at the same moment, on two machines from the <code>seed build 12</code> splash.</b> &nbsp; Left: 16 KiB · 4.77 MHz 8088 — <i>encrypted, not secure</i>. &nbsp; Right: 512 KiB · 6 MHz 286 — <i>real ECDHE and pinned-key peer authentication under the documented no-time expiry policy; it finishes first</i>. &nbsp; 86Box, sped up 8×.</sub></p>
+<p align="center"><sub>Earlier end-to-end agent-loop demos. The current TLS 1.3 integration described below is under validation.</sub></p>
 
-**A frontier cloud model writes 8088 machine code, ships it over the network to a
-1981 IBM PC, and runs it there — then reads the result back into its own context.**
-Seed is the 16 KiB real-mode runtime that makes that loop possible. It boots a
-4.77 MHz Intel 8088 from a 5.25-inch floppy, hand-rolls a TLS 1.2 record layer
-(ChaCha20-Poly1305, SHA-256, the full handshake state machine) to reach a cloud
-model, drops you into a chat loop, and hands that model three tools: read, write,
-and *execute* the machine's own memory. The executed programs are tiny so far — the
-validated proof is four bytes, `mov ax,0x1234; ret`, written into a RAM arena, run, and
-read back — but the loop is real end to end. Small and slow, but it works.
+**A frontier cloud model writes 8088 machine code, sends it to a 1981 IBM PC,
+runs it there, and reads the result back into its own context.** Seed is the
+boot-first real-mode runtime that makes that loop possible. One 160 KiB floppy
+contains one self-selecting `SEED.SYS`, prompt/config assets, and external NIC
+drivers. The same runtime starts a 4.77 MHz 8088 with 16 KiB or a 6 MHz 286
+with 512 KiB, reaches OpenAI over TLS 1.3, and exposes native read, write, and
+execute tools.
 
-It's a small, trusted control plane — not an OS, not a sandbox — that brings a
-memory-constrained machine to a cloud model, publishes a clear hardware and memory
-contract, then gets out of the way and leaves the rest open for user- and agent-built
-tooling. The boot floppy is the reset boundary, so recovery is always a reboot away.
+Seed is a small trusted control plane, not an OS or sandbox. It publishes its
+memory contract and leaves the remaining machine to the user and model. A
+reboot from known, preferably write-protected media is the recovery boundary.
 
-## Why it's interesting
+> **Current status.** TLS 1.3 has replaced the TLS 1.2 product path on this
+> work branch. Both CPU routes are integrated; their current-source offline,
+> fail-closed, exact-floor 86Box wire, reconnect, and screen gates pass. The
+> 8088 profile also passes the seven-profile original-speed NIC matrix.
+> Repeated provider-edge characterization and physical entropy-source
+> validation remain open, so this is not yet an unconditional secure-floor or
+> release claim.
 
-Four things make Seed unusual:
+## Why it is interesting
 
-- **A frontier model runs code on the machine.** Seed exposes native function tools
-  to read, write, and *execute* memory (`read_mem`, `write_mem`, `exec`). The model
-  can poke 8088 machine code into a free RAM arena, run it, and read the result; Seed
-  loops each result back into the model's locally-owned context with `store:false`.
-  Memory read/write calls are currently capped at 4 bytes while the native tool loop
-  is hardened. The only safety net is the reboot floppy.
-- **A TLS stack in 16 KiB.** The TLS 1.2 record path — handshake state machine,
-  SHA-256 transcript, key schedule, ChaCha20-Poly1305 record crypto, HTTP/1.1, and
-  SSE (server-sent events) streaming — fits a 16 KiB RAM budget. It works by *not*
-  keeping it all resident: a 2 KiB nucleus and a 7 KiB crypto window stay in memory,
-  while 28 other **phases** (chunks of code) stream off the floppy on demand and
-  time-share one small RAM **window**.
-- **One floppy scales past segment 0.** The same `SEED.SYS` starts at the 16 KiB
-  floor, uses a cached loop at 32 KiB, grows context and arena through far
-  conventional memory, drives EMS boards on 8088/V30-class machines, reaches 286
-  HMA/native extended memory, and uses 386 unreal mode for BIOS-compatible flat
-  high-memory access.
-- **…on a 4.77 MHz 8088.** That symmetric crypto — ChaCha20-Poly1305 and SHA-256 —
-  runs on a sub-MIPS 16-bit CPU with no crypto acceleration, using hand-tuned field
-  arithmetic, prepared HMAC pads, and an add-rotate-xor cipher that suits the part.
-  Boot to first token is seconds, not minutes.
+- **A real bare-metal agent loop.** OpenAI Responses streams text and native
+  function calls. Seed executes `read_mem`, `write_mem`, `exec`, `save_env`,
+  and `load_env`, then feeds structured results back with `store:false`.
+- **TLS 1.3 at the 16 KiB floor.** A four-sector nucleus streams cold phases
+  from a read-only floppy. Public KEM/certificate objects temporarily live in
+  a guarded video-RAM vault, not NIC RAM or a writable disk slot.
+- **One artifact, automatic profile selection.** Users do not choose an
+  architecture-specific floppy. CPU and RAM detection select the 8088 or
+  286 conforming profile inside the same `SEED.SYS`.
+- **Headroom belongs to the agent.** The floor keeps a 96-byte executable
+  arena and 96-byte context. At 32 KiB they are 224 bytes each; far
+  conventional, EMS, HMA/native extended, and unreal-mode memory grow them.
+- **Read-only and self-contained.** Private keys, entropy input, certificate
+  checks, and any same-boot ticket are produced and consumed by the target.
+  No trusted modern helper or writable floppy is required.
 
-**Status — what's real, and what isn't.** The record layer genuinely runs —
-ChaCha20-Poly1305, SHA-256, and the full TLS 1.2 handshake, over a live session. Whether
-that channel is *secure* is CPU-tiered, and the product says so honestly:
+## TLS profiles
 
-- **On a stock 8088 (4.77 MHz) it is encrypted, not secure.** A real ECDH scalar
-  multiply is ~110 s here — minutes past the server's handshake window — so the boot
-  path substitutes a stub (the server's public value becomes the premaster) and a passive
-  observer could derive the keys. The full P-256 is written and OpenSSL-checked, just
-  compiled out; it *fits* the RAM (~3.4 KB), so the wall is CPU time, not space. A pre-286
-  machine shows a red **"insecure"** on the splash to say so.
-- **On a 286 it has real key agreement and peer authentication in the current
-  tree.** The optimised
-  constant-time P-256 does a genuine ephemeral ECDHE key agreement, and the server is
-  authenticated by verifying its RSA-2048 signature against a **pinned `api.openai.com`
-  leaf key** loaded from `SEED/LEAF.DER` after WR1 validation — one in-race RSA verify,
-  which is what makes a secure handshake fit the window (8 MHz is the comfortable floor;
-  6 MHz is a knife-edge). When the leaf rotates (~90 days), the device silently re-pins —
-  it checks the freshly-presented leaf is signed by the pinned Google Trust Services CA
-  that issued it, off the handshake race, and adopts it. Writable media refreshes
-  `SEED/LEAF.DER`; read-only media can re-certify on each boot after the
-  shipped file is stale until the image is updated. DER, signature, and
-  hostname failures close. Certificate dates close only when a usable clock
-  exists; without one, the current weaker policy skips expiry checking. The
-  286 “secure” label is scoped to that documented no-time policy.
+| Floor | Route | Honest claim |
+| --- | --- | --- |
+| 4.77 MHz 8088, 16 KiB | TLS 1.3 wire protocol, SHA-256, ChaCha20-Poly1305, genuine ML-KEM-768 contribution; fixed X25519 `u=9` | bounded Seed credential-release boundary; effective ML-KEM-only and deferred authentication, not standards-conforming hybrid TLS |
+| 6 MHz 286, 512 KiB | real ML-KEM-768 + real X25519, strict WE1/leaf/time/CV authentication | fully standards-conforming TLS 1.3 `X25519MLKEM768` protocol path |
 
-Full story: [docs/architecture.md](docs/architecture.md).
+The 8088 permits only TLS handshake completion, a bounded tentative ticket,
+and the compiled credential-free HEAD probe before full Fujisaki-Okamoto
+validation and exact dated-leaf possession complete. If the fresh socket
+closes after issuing the ticket but before accepting the HEAD, Seed finishes
+its proof offline and establishes credential-free liveness with that same-boot
+ticket's resumed 0-RTT HEAD. The API key, prompt, context, redirects, and
+business request remain unreachable until status-last route promotion. The
+ticket is volatile, survives neither restart nor failed proof, and grants no
+credential access by itself.
+
+The 286 first authenticates a credential-free acquisition: candidate ML-KEM
+plus real X25519, protected-flight/Finished verification, client Finished, the
+literal HEAD, and an authenticated tentative ticket. It then completes full
+FO and strict WE1/hostname/UTC/CertificateVerify checks offline. Only a
+promoted same-boot ticket can enter the final no-0RTT PSK-DHE connection,
+which uses independent hybrid keys, a real binder, full decapsulation, and a
+strict resumed Finished before credentials become reachable. The ticket and
+PSK are volatile; there is no 0-RTT, mutable leaf file, persisted ticket, or
+no-time expiry bypass. Seed silently treats a coherent, valid PC/AT RTC as the
+platform UTC clock; invalid or out-of-range time fails the conforming profile.
+
+These protocol designs and their exact-floor emulator matrices are
+implemented and passing. Physical entropy-source characterization and
+additional provider-edge repetition remain before the validation qualifier can
+be removed. See [security.md](docs/security.md) for the precise boundary and
+open risks.
 
 ## Try it
 
-A prebuilt floppy image is on the [Releases](https://github.com/tonism/seed/releases)
-page — `seed-160k.img` (160 KB, **no API key included**).
+The product image is `build/ibm_pc_5150/floppy-160k.img` and contains **no API
+key by default**.
 
-1. **Boot it in [86Box](https://86box.net/).** Configure an IBM PC/XT-class machine
-   with **≥ 32 KB RAM** (16 KB boots, but the agent can barely remember a turn) and a
-   supported NIC (NE1000/NE2000, 3c501/3c503, or WD80x3). Mount `seed-160k.img` as
-   floppy A: and boot. The repo ships 86Box profiles — see `tools/run-86box.sh`.
-2. **Bring your own key.** On first boot Seed asks for a provider and key — pick
-   OpenAI and paste yours. If the floppy is writable, Seed saves it for next time.
-
-To **skip typing the key**, put a `USER.CFG` on the image before booting:
+1. Boot it in 86Box with a supported NIC. Use at least 32 KiB for direct BIOS
+   floppy boot; the 16 KiB floor enters through the generated ROM BASIC
+   sidecar. The conforming profile needs a 286 at 6 MHz or faster and at least
+   512 KiB conventional RAM.
+2. Enter an OpenAI API key when asked, or place a local `USER.CFG` under
+   `SEED/` before boot. OpenAI is the only current provider route.
 
 ```text
 agent openai
-model gpt-5.5
-key sk-your-openai-key
+model <model-id>
+key <scoped-openai-key>
 ```
 
-(`model` is whatever id your account can use.) Inject it with
-[mtools](https://www.gnu.org/software/mtools/):
-`mcopy -i seed-160k.img USER.CFG ::/SEED/USER.CFG` — or rebuild from source with
-`config/USER.CFG` in place.
+Persisted credentials are plaintext. A write-protected floppy protects
+recovery and immutability, not secrecy at rest. Until the physical entropy and
+remaining edge-variation acceptance gates complete, use only a scoped,
+rate-limited test key on this integration branch.
 
-> ⚠️ **Use a throwaway, rate-limited key.** On a pre-286 machine seed's channel is
-> **not secure** (the key exchange is stubbed — see Status above), so the `Authorization`
-> header is exposed to anyone on the network path — and the "Try it" steps above boot
-> exactly such a machine. Even on a secure 286, `USER.CFG` stores the key in plaintext on
-> the image. Use a disposable key with strict limits, revoke it afterward, and don't share
-> an image that has your key in it. For real key agreement and pinned-key peer
-> authentication on the current TLS 1.2 path, run Seed on a 286 or faster;
-> certificate expiry is enforced only when a usable clock exists — see
-> [System Requirements](#system-requirements).
+## System requirements
 
-## Authorship
+```text
+8088 floor         8088-compatible, 4.77 MHz; exactly 16 KiB supported
+conforming floor   286, 6 MHz; 512 KiB conventional RAM
+entry               ROM BASIC sidecar below 32 KiB; direct BIOS boot at 32 KiB+
+media               160 KiB 5.25-inch FAT12 image; read-only is supported
+video               BIOS text mode, CGA or MDA
+network             supported Ethernet adapter
+provider            OpenAI / api.openai.com
+emulator            86Box profiles provided for development and verification
+```
 
-Every line of seed's code — the 8088 assembly, the hand-rolled TLS stack, the build
-tooling — was written by AI coding agents. The build was a deliberate relay across four
-frontier models — not one-shot prompting — steered and coordinated as each hit its limits
-(Codex GPT-5.4 → Claude Code Opus 4.7 → Codex GPT-5.5 → Claude Code Opus 4.8); twice, the
-unlock was a new model landing at just the right moment. One Codex session logged 28h 25m
-of work. I worked a level up — product, architecture, and the algorithm calls, often
-proposing the approach that got us unstuck — and left the implementation to the agents.
-The model that runs *on* the machine is a frontier model too: GPT-5.5 in the demo.
+Supported current NIC families include 3c501, 3c503, NE1000/NE2000, WD80x3,
+PCnet/LANCE, DEC Tulip, RTL8139, and EPIC/100 across the documented machine
+profiles. Inactive `.DRV` files consume no resident RAM. No-card and no-driver
+machines fail through the text retry/restart path.
+
+## Current capability
+
+On the IBM PC target, Seed can:
+
+- boot the same runtime through the direct or ROM BASIC entry;
+- detect memory/CPU capabilities and load a suitable external NIC driver;
+- obtain DHCP configuration, resolve OpenAI, and connect over TCP 443;
+- dispatch to the 8088 or 286 conforming TLS 1.3 profile;
+- run a streamed, multi-turn Default Prompt Interface session;
+- maintain a model-compacted rolling context and RAM-scaled arena;
+- execute native model tools against the published flat memory ranges; and
+- save/load the user environment when writes are available, while remaining
+  fully bootable from read-only media.
+
+## Reconnect policy
+
+Seed reuses the committed TLS session. If a human request fails before any
+text appears, it retires the channel, builds exactly one fresh route,
+reconstructs the same durable prompt from the screen, and sends it once more.
+A second failure returns to the prompt. It never automatically replays a tool
+continuation or a response after visible text, because either could duplicate
+local effects.
+
+## Known limitations
+
+- The 16 KiB arena and context are intentionally tiny. More RAM changes the
+  experience dramatically.
+- The 8088 profile has an effective ML-KEM-only credential-release boundary;
+  it is not conforming hybrid TLS.
+- Its exact-leaf object is dated image provenance; without trusted runtime
+  time, the 8088 cannot independently enforce that validity interval.
+- The 286 conservative serialized CPU windows measure 8.8979 seconds for
+  acquisition and 9.2275 seconds for final resumption at the exact floor. Its
+  exact-floor four-flow live reconnect and negative-path gates pass.
+- The 8088 profile passes fresh/resumed/reconnect/resumed on all seven
+  original-speed ISA profiles, plus CGA/MDA vault and no-card/no-driver gates
+  in 86Box. Emulator results do not establish physical entropy quality.
+- Emulator timing sources receive zero entropy credit; representative physical
+  characterization of the 8088 floppy source and 286 RTC/PIT source, plus
+  health-test calibration, remain open.
+- `USER.CFG` and `ENV.DAT` are plaintext convenience state.
+- Long replies can take minutes to render on the original machine.
 
 ## How to read these docs
 
-New here? Read **[architecture.md](docs/architecture.md)** (how it works), then
-**[memory.md](docs/memory.md)** (the 16 KiB stage maps plus larger memory-profile
-examples), and stop.
-Everything else is contributor and runtime-contract reference — including the dated
-logs in `notes/`, which record how this was actually built, mistakes and all.
+Start with [architecture.md](docs/architecture.md), then
+[security.md](docs/security.md) and [memory.md](docs/memory.md).
+[crypto-feasibility.md](docs/crypto-feasibility.md) is the historical TLS 1.2
+measurement record, not the current product design. Dated implementation
+research lives under `notes/`.
 
-## System Requirements
+## Authorship
 
-**Target floor — an IBM PC 5150-class configuration.** Seed is validated in
-original-speed 86Box at 4.77 MHz with an 8088 and 16 KiB of RAM; physical IBM
-PC validation remains open. The whole agent loop is functional at this floor
-— chat, the native read/write/execute tools, and the full TLS 1.2 record layer
-— though on a pre-286 CPU the channel is encrypted, *not* secure (see the
-recommendation below).
-
-```text
-CPU       8088-compatible, 4.77 MHz  (any PC)
-RAM       16 KiB minimum through ROM BASIC sidecar entry
-          32 KiB minimum for direct BIOS floppy boot
-media     160 KiB 5.25-inch FAT12 floppy image
-video     BIOS text mode, CGA or MDA
-network   supported ISA Ethernet adapter
-emulator  86Box profiles are provided for development and verification
-```
-
-**Recommended — a 286, for current TLS 1.2 real key agreement and pinned-key
-peer authentication.** Below the 286, the current key exchange is stubbed, so
-the connection is *encrypted but not secure* — anyone on the network path can
-recover the session keys, and a pre-286 machine says so with a red
-**"insecure"** splash. A **286 or faster** runs ephemeral ECDHE plus a
-pinned-key RSA-2048 certificate verify inside the provider's handshake window:
-**8 MHz is comfortable, 6 MHz works on a knife-edge.** Certificate expiry
-still follows the documented weaker policy: it closes only when a usable clock
-exists and is skipped otherwise.
-
-> **For the current TLS 1.2 path, use a 286 or faster for real key agreement
-> and pinned-key peer authentication under that no-time expiry policy.** On
-> anything slower, treat the connection as public and use only a throwaway,
-> rate-limited key. Details in **Status** above and
-> [docs/architecture.md](docs/architecture.md).
-
-Supported network families on the current target:
-
-```text
-3Com 3c501
-3Com 3c503
-NE1000 / NE2000 compatible
-Novell NE1000 compatible
-WD8003 / WD8013 compatible
-```
-
-No-card machines fail cleanly with a text error and retry/restart choices.
-
-## Current Capability
-
-On the IBM PC 5150 target, Seed can:
-
-- start from the 160 KiB floppy image,
-- enter through direct BIOS boot on machines with enough RAM,
-- enter through a generated ROM BASIC helper on 16 KiB machines,
-- detect supported ISA Ethernet adapters,
-- acquire IPv4 configuration with DHCP and resolve hostnames with DNS,
-- open a TCP connection to the selected agent provider,
-- complete the current minimal TLS 1.2 provider path,
-- run the **chat loop** (the "Default Prompt Interface", DPI): an initial model
-  greeting, prompt input, and streamed model responses across multiple turns in
-  one boot session,
-- carry recent conversation across turns through local model-written compaction and
-  a RAM-scaled rolling window, with API requests sent as `store:false`,
-- run model-authored code in the machine's RAM: native tool calls read, write, and
-  execute flat memory addresses, and Seed feeds each result back through structured
-  `function_call_output` items; memory read/write calls are currently capped at
-  4 bytes per call,
-- save and load the local environment on writable media with native `save_env` and
-  `load_env` tools,
-- detect installed RAM and scale the conversation/context arena through far
-  conventional memory, EMS, 286 HMA/native extended memory, and 386 unreal mode,
-- use shipped `SEED/AGENTS.CFG` defaults and optional local `SEED/USER.CFG`
-  state when present, with prompts and NIC drivers under `SEED/`.
-
-## Known Limitations
-
-Seed is a working 1981-PC-class agent runtime, validated on original-speed
-86Box, with the rough edges that implies:
-
-- **Memory is tight on small machines.** The 16 KiB floor is deliberately tiny:
-  the current native-tool layout has a 96 B context window and a 96 B arena. More
-  RAM quickly changes the shape — 32 KiB gets a cached loop, conventional RAM adds
-  far arena/context, EMS adds megabytes on an 8088, and 286/386 machines move the
-  context to high memory. The smallest machines still forget oldest turns first.
-- **Reconnect after a long idle.** The TLS session is held open across a response,
-  but a long idle at the prompt lets the server close it. The next message reconnects
-  automatically — a dim `> reconnect` line, then up to three silent retries; if all
-  three lose the ~15 s handshake race it shows `> reconnect failed` and returns to the
-  prompt, where re-sending runs the reconnect loop again. Never a blank turn.
-- **Long replies render slowly.** Drawing to the text screen is the bottleneck,
-  not the network; a very long reply can take minutes to fully render.
-- **The current TLS 1.2 path is CPU-tiered.** On a stock 8088 it does no real
-  key agreement — encrypted, but not a secure channel. Pinned-key peer
-  authentication begins at the 286: real ECDHE plus a pinned-key RSA
-  certificate verify, with silent re-pinning when the leaf rotates and the
-  documented weaker no-time expiry policy. See
-  [docs/architecture.md](docs/architecture.md).
+Seed's assembly, TLS stack, and build tooling were written through a relay of
+AI coding agents under human product and architecture direction. The model
+that runs on the target is a frontier OpenAI model too.
 
 ## Build
 
@@ -254,7 +204,8 @@ floppy without them, use `make INCLUDE_NIC_DRIVERS=0`; per-driver
 `INCLUDE_NIC_DRIVER_NE`, `INCLUDE_NIC_DRIVER_WD80X3`,
 `INCLUDE_NIC_DRIVER_3C503`, `INCLUDE_NIC_DRIVER_3C501`,
 `INCLUDE_NIC_DRIVER_PCNET`, `INCLUDE_NIC_DRIVER_TULIP`, and
-`INCLUDE_NIC_DRIVER_RTL8139` switches can trim individual files.
+`INCLUDE_NIC_DRIVER_RTL8139` and `INCLUDE_NIC_DRIVER_EPIC100` switches can
+trim individual files.
 
 ## Repository Map
 
@@ -264,7 +215,7 @@ config/                        shipped AGENTS.CFG defaults and optional USER.CFG
 docs/architecture.md           how Seed works + the hardware/memory contract
 docs/memory.md                 16 KiB byte-level maps + larger memory-profile examples
 docs/builds.md                 milestone and scope history (the roadmap)
-docs/crypto-feasibility.md     why a secure handshake needs a 286 (the crypto research)
+docs/crypto-feasibility.md     historical TLS 1.2 crypto measurements
 docs/{config,networking,ui,testing}.md   config, transport, UI, and test reference
 notes/                         design notes and the dated implementation logs
 targets/ibm_pc_5150/           8088 boot sector, loader, and SEED.SYS core source

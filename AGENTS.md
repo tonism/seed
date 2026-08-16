@@ -45,11 +45,13 @@ reserved-sector FAT12 loader, FAT copies, a root directory, and file data. The
 loader reads the visible root `SEED.SYS` file's declared resident prefix
 through its FAT12 cluster chain and jumps to it at `0000:1000`. Runtime
 configuration and prompt files are shipped under the root `SEED/` directory.
-The current OpenAI RSA leaf ships as
-`SEED/LEAF.DER`; 286+ boots verify it against the baked WR1 anchor before use
-and may refresh it after verified recertification. The tracked `AGENTS.CFG`
-file is shipped as `SEED/AGENTS.CFG` when present and overrides the built-in
-`openai`, `anthropic`, and `google` agent interfaces. Optional `USER.CFG`
+TLS 1.3 trust objects are immutable program assets or same-boot RAM state:
+the 8088 profile uses an exact image-dated leaf point (with no
+trusted runtime clock at that floor) and the 286
+conforming route uses the baked WE1 P-256 issuer point. Do not package
+`SEED/LEAF.DER` or make writable media part of either trust path. The tracked
+`AGENTS.CFG` file is shipped as `SEED/AGENTS.CFG` when present; OpenAI at
+`api.openai.com` is the only current provider route. Optional `USER.CFG`
 user-local state is ignored and included as `SEED/USER.CFG` only when
 `config/USER.CFG` exists. NIC driver files are shipped as `SEED/DRIVERS/*.DRV` by default; build
 with `INCLUDE_NIC_DRIVERS=0` or per-driver `INCLUDE_NIC_DRIVER_*` switches to
@@ -86,9 +88,15 @@ the boot loader and the BASIC loader can find the same runtime image.
   entry contract. Keep tool access target-local and preserve the current ENV
   compatibility contract; do not introduce a general OS-style local-tool ABI
   unless explicitly scoped.
-- OpenAI, Anthropic, and Google define the supported agent TLS compatibility
-  surface. Extra default `AGENTS.CFG` entries may stay only if they fit the
-  same path; do not add alternate crypto paths just to keep a gateway.
+- OpenAI at `api.openai.com` is the supported agent TLS compatibility surface.
+  The bounded `AGENTS.CFG` parser may retain its multi-entry format, but
+  alternate providers/endpoints must not select another crypto path.
+- TLS 1.2 is not a product fallback. Keep the 8088 TLS 1.3 boundary
+  and the 286/512 KiB fully conforming `X25519MLKEM768` route explicit; never
+  describe the former as standards-conforming hybrid TLS.
+- Both TLS routes must remain self-contained on the target and work with a
+  write-protected floppy. Do not depend on a trusted modern helper, persisted
+  private key, writable scratch slot, or mutable leaf file.
 - 3c501, 3c503, NE1000/NE2000, and WD80x3 station-address PROM reads must stay
   non-fatal.
 - The current first packet path covers the
@@ -174,63 +182,40 @@ validation recipes, pcap wire capture (and isolating seed's traffic from the
 SLiRP-NATed host noise), and the OCR/cfg/screenshot gotchas live in
 `docs/testing.md`.
 
-Useful expected screens:
+Useful expected screens and acceptance rules:
 
-The 16 KiB checkpoint for these IBM PC 5150 profiles is expected
-to use saved `USER.CFG` when present. Use original 4.77 MHz, 16 KiB
-`vm-net-ne2k8` through the ROM BASIC sidecar harness as the compatibility gate.
-Faster ad hoc profiles are not part of the normal workflow. On 1 May 2026, all seven original-speed NIC profiles
-completed the minimal direct OpenAI Responses request/response proof and
-displayed the returned `ok`: `vm-net-3c501`, `vm-net-3c503`, `vm-net-ne1k`,
-`vm-net-ne2k8`, `vm-net-novell-ne1k`, `vm-net-wd8003e`, and
-`vm-net-wd8003eb`. On 7 May 2026, the 32 KiB slimming checkpoint passed
-representative family tests on `vm-net-ne2k8`, `vm-net-3c501`,
-`vm-net-3c503`, and `vm-net-wd8003e`, each displaying returned `ok` and
-`seed build 6`. On 10 May 2026, the ROM BASIC sidecar path reached
-returned `ok` on all seven 16 KiB NIC profiles: `vm-net-3c501`,
-`vm-net-3c503`, `vm-net-ne1k`, `vm-net-ne2k8`, `vm-net-novell-ne1k`,
-`vm-net-wd8003e`, and `vm-net-wd8003eb`; the no-card CGA and MDA profiles
-failed cleanly with no NIC.
-Retest individual profiles when changing TLS timing/shared packet code.
-The current runtime provides FAT12 `SEED/AGENTS.CFG` parsing, built-in
-fallback agent interfaces, optional `SEED/USER.CFG` persistence for selected
-agent/model/reasoning/key/endpoint values, with `server?` shown for LiteLLM's
-stored endpoint value on the same form panel as `key?`, selected-agent DNS/TCP
-443 connection, the full TLS 1.2 / application-data path (ClientHello through
-encrypted application data) documented once in
-[docs/architecture.md](docs/architecture.md), "Provider Timing Model", early TLS
-application-data send/receive carrying the Default Prompt Interface chat loop
-(model greeting, prompt input, and streamed multi-turn responses in one boot
-session) on all seven original-speed NIC profiles, and
-bright questions when
-saved values are missing or invalid; retest individual profiles when changing
-boot, filesystem, agent-prep code, or shared packet code.
+The existing TLS 1.2 original-speed results are regression history, not the
+current product claim. The TLS 1.3 integration is under validation. Do not
+update product docs from an offline gate or earlier PoC alone.
 
-```text
-vm                   red "." no network card, retry/restart menu
-vm-mda               red "." no network card, retry/restart menu
-vm-net-3c501         auto family, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, encrypted client Finished, server Finished verification, application data, Default Prompt Interface chat loop below the existing splash (model greeting, prompt input, streamed multi-turn responses)
-vm-net-3c503         MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, encrypted client Finished, server Finished verification, application data, Default Prompt Interface chat loop below the existing splash (model greeting, prompt input, streamed multi-turn responses)
-vm-net-ne1k          auto family, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, encrypted client Finished, server Finished verification, application data, Default Prompt Interface chat loop below the existing splash (model greeting, prompt input, streamed multi-turn responses)
-vm-net-ne2k8         auto family, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, encrypted client Finished, server Finished verification, application data, Default Prompt Interface chat loop below the existing splash (model greeting, prompt input, streamed multi-turn responses)
-vm-net-novell-ne1k   auto family, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, encrypted client Finished, server Finished verification, application data, Default Prompt Interface chat loop below the existing splash (model greeting, prompt input, streamed multi-turn responses)
-vm-net-wd8003e       auto family, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, encrypted client Finished, server Finished verification, application data, Default Prompt Interface chat loop below the existing splash (model greeting, prompt input, streamed multi-turn responses)
-vm-net-wd8003eb      auto family, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, encrypted client Finished, server Finished verification, application data, Default Prompt Interface chat loop below the existing splash (model greeting, prompt input, streamed multi-turn responses)
-vm-net-wd8013ebt     auto family through WD80X3.DRV, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, Default Prompt Interface chat loop below the existing splash (model greeting, prompt input, streamed response)
-vm-net-ne2kpci       PCI BIOS discovery, auto family through NE.DRV, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, Default Prompt Interface chat loop below the existing splash (model greeting, prompt input, streamed response)
-vm-net-pcnetpci      PCI BIOS discovery, auto family through PCNET.DRV, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, Default Prompt Interface chat loop below the existing splash (model greeting, prompt input, streamed response)
-vm-net-pcnetfast     PCI BIOS discovery, auto family through PCNET.DRV, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, Default Prompt Interface chat loop below the existing splash (model greeting, prompt input, streamed response)
-vm-net-pcnetisa      auto family through PCNET.DRV, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, Default Prompt Interface chat loop below the existing splash (model greeting, prompt input, streamed response)
-vm-net-pcnetracal    auto family through PCNET.DRV, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, Default Prompt Interface chat loop below the existing splash (model greeting, prompt input, streamed response)
-vm-net-pcnetisaplus  ISA PnP activation, auto family through PCNET.DRV, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, Default Prompt Interface chat loop below the existing splash (model greeting, prompt input, streamed response)
-vm-net-pcnetfast-onboard Gateway/Tomahawk onboard PCnet-FAST III through PCNET.DRV, 1.44M floppy image, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, Default Prompt Interface chat loop below the existing splash (model greeting, prompt input, streamed response)
-vm-net-dec21040      PCI BIOS discovery, auto family through TULIP.DRV, ROM MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, Default Prompt Interface chat loop below the existing splash (model greeting, prompt input, streamed response)
-vm-net-dec21140      PCI BIOS discovery, auto family through TULIP.DRV, SROM MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, Default Prompt Interface chat loop below the existing splash (model greeting, prompt input, streamed response)
-vm-net-dec21140vpc   PCI BIOS discovery, auto family through TULIP.DRV, SROM MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, Default Prompt Interface chat loop below the existing splash (model greeting, prompt input, streamed response)
-vm-net-dec21143      PCI BIOS discovery, auto family through TULIP.DRV, SROM MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, Default Prompt Interface chat loop below the existing splash (model greeting, prompt input, streamed response)
-vm-net-rtl8139       PCI BIOS discovery, auto family through RTL8139.DRV, MAC register read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, Default Prompt Interface chat loop below the existing splash (model greeting, prompt input, streamed response)
-vm-net-epic100       PCI BIOS discovery, auto family through EPIC100.DRV, MAC register read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, Default Prompt Interface chat loop below the existing splash (model greeting, prompt input, streamed response)
-```
+For the 8088 floor, use the original 4.77 MHz, exactly 16 KiB
+`vm-net-ne2k8` profile through the ROM BASIC sidecar harness. Acceptance needs
+a live pcap showing the fresh TLS 1.3 deadline phase, credential-free liveness,
+full FO and exact-leaf/CV proof, status-last credential unlock, authenticated
+OpenAI response, session reuse, and the bounded one-reconnect policy. Then
+repeat the relevant first-response/reuse/reconnect gates across the seven
+original-speed ISA NIC profiles. CGA and MDA vault lifecycles, read-only media,
+corruption/torn-state cases, and complete zeroization are mandatory.
+
+For the conforming floor, use a 6 MHz 286 with 512 KiB conventional RAM. The
+gate is CPU286+ AND BDA memory >=512 KiB. Acceptance needs a live pcap of the
+acquisition/offline-auth/independent-fresh-connection sequence, genuine
+ML-KEM-768 and X25519, WE1/hostname/UTC-validity/CV checks, client Finished
+before the provider close, authenticated OpenAI application data, reuse, and
+bounded reconnect. Exercise wrong CPU/RAM, RTC refusal/bad time, certificate,
+CV, Finished, FO, pack, and entropy failures with no downgrade.
+
+Run all current TLS 1.3 offline gates before live claims, including product
+pack/dispatch/config, public vault, application record bounds, K14 state guard,
+cold send, FAT budget, reconnect/replay, 286 module KATs and serialized timing.
+Physical floppy entropy characterization remains a separate secure-floor gate;
+86Box receives zero entropy credit.
+
+Stable driver/NIC work remains a regression surface. A TLS change must not
+alter driver metadata, selection, PROM-read non-fatal behavior, station MAC,
+DHCP/DNS/ARP/TCP, or the established no-card/no-driver retry/restart paths.
+Retest individual profiles whenever shared packet, timing, phase loading, or
+TLS application code changes.
 
 ## Commits
 

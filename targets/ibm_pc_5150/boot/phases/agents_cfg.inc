@@ -203,7 +203,9 @@ agents_cfg_phase_find_prompts:
     mov [prompt_id_size], ax
     jmp .find_compact
 .no_identity:
-    mov word [prompt_id_size], 0
+    xor ax, ax
+    mov [prompt_id_cluster], ax
+    mov [prompt_id_size], ax
 .find_compact:
     mov di, low_scratch_start + (agents_cfg_phase_compact_name - PHASE_BASE)
     call agents_cfg_phase_find_dir_file
@@ -214,7 +216,9 @@ agents_cfg_phase_find_prompts:
     mov [prompt_compact_size], ax
     jmp .find_tools
 .no_compact:
-    mov word [prompt_compact_size], 0
+    xor ax, ax
+    mov [prompt_compact_cluster], ax
+    mov [prompt_compact_size], ax
 .find_tools:
     ; Build 12 native tool calling: cache the tools schema (cluster, size), same scheme as id/compact.
     mov di, low_scratch_start + (agents_cfg_phase_tools_name - PHASE_BASE)
@@ -224,22 +228,13 @@ agents_cfg_phase_find_prompts:
     mov [prompt_tools_cluster], ax
     mov ax, [fs_file_size_low]
     mov [prompt_tools_size], ax
-    ; On a loop-cache tier (32K+) preload the schema into the resident tools_cache now, so the chat loop
-    ; streams it from RAM (floppy-free). Homed here (not the resident nucleus, which is full) -- ram_top
-    ; is already set, loop_cache_count is still 0 so load_core_sectors_at floppy-fills, and tools_cache is
-    ; a fixed one-sector address. 16K skips the resident preload and streams TOOLS from floppy per turn.
-    cmp word [handoff_addr + handoff_ram_top], ram_tier_32k_min
-    jb .tools_done
-    mov ax, [prompt_tools_cluster]
-    sub ax, fat_first_data_cluster       ; al = data-area sector offset
-    mov ah, 1                            ; tools.json is Makefile-capped to one sector
-.tools_load:
-    mov bx, tools_cache
-    phase_call_res load_core_sectors_at
-.tools_done:
+    ; Cache population belongs to preload_loop_cache after secure route setup. The 286 root wipes the
+    ; high cache band, and these ordinary FAT clusters are wider than the phase loader's 8-bit key.
     ret
 .no_tools:
-    mov word [prompt_tools_size], 0
+    xor ax, ax
+    mov [prompt_tools_cluster], ax
+    mov [prompt_tools_size], ax
     ret
 
 agents_cfg_phase_identity_name db 'IDENTITY   '

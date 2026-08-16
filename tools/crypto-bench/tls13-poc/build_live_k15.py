@@ -27,8 +27,24 @@ ROOT = HERE.parents[2]
 DEFAULT_BUILD = ROOT / "build/crypto-bench/tls13-live-k15"
 PRODUCT_BUILD = ROOT / "build/ibm_pc_5150"
 CONTROLLERS = HERE / "live_k15_controllers.asm"
+PUBLIC_VAULT_SOURCE = (
+    ROOT / "targets/ibm_pc_5150/boot/tls13/public_vault_16k.asm"
+)
+PRODUCT_CONFIG_ESCROW_SOURCE = (
+    ROOT
+    / "targets/ibm_pc_5150/boot/tls13/k14_product_config_escrow.asm"
+)
+PRODUCT_STATE_GUARD_SOURCE = (
+    ROOT
+    / "targets/ibm_pc_5150/boot/tls13/k14_product_state_guard.asm"
+)
+PRODUCT_CRITICAL_VAULT_SOURCE = (
+    ROOT
+    / "targets/ibm_pc_5150/boot/tls13/k14_product_critical_vault.asm"
+)
 SECTOR = 512
 CORE_START_LBA = 11
+BASIC_TIMER_IRET = 0x15FF
 FLOPPY_SECTORS_PER_TRACK = 8
 BASE_SECTORS = 45
 LINK_START = 0x0800
@@ -103,6 +119,22 @@ SECURE_NE_PSTOP = 0x73
 PRODUCT_NE_PSTOP = 0x80
 PACKET_IO_PSTOP_PATCH_OFFSET = 0x4081
 NIC_DRIVER_SLOT = 0x1600
+PRODUCT_VAULT_LIFECYCLE_STAGE = 0x2400
+PRODUCT_VAULT_ACCESS_STAGE = 0x2800
+PRODUCT_FO_VAULT_STAGE = 0x2800
+PRODUCT_CONFIG_ESCROW_STAGE = 0x2C00
+PRODUCT_CRITICAL_VAULT_ADDR = 0x2EE0
+PRODUCT_SYM_SHA256_K = 0x2F00
+PRODUCT_SYM_RUNTIME_TAIL_START = 0x2E00
+PRODUCT_SYM_RUNTIME_TAIL_OFFSET = PRODUCT_SYM_RUNTIME_TAIL_START - 0x1800
+PRODUCT_SYM_RUNTIME_TAIL_LEN = SECTOR
+PRODUCT_EMBEDDED_SYM_CONTROLLER_SOURCE = 0x2F80
+PRODUCT_EMBEDDED_SYM_CONTROLLER_LEN = 0x0080
+PRODUCT_SYM_CRITICAL_TAIL_LEN = 0x0120
+PRODUCT_STAGED_SHA256_INITIAL_STATE = 0x0FC2
+PRODUCT_SYM_SHA256_INITIAL_STATE = 0x2EE0
+PRODUCT_CRITICAL_SYM_RESTORE_SECTORS = 8
+PRODUCT_OFF_WINDOW_SYM_TAIL_SECTORS = 2
 
 FORBIDDEN_LITERALS = (
     b"authorization",
@@ -123,6 +155,8 @@ CANARY_HEAD_REQUEST = (
     b"Host: api.openai.com\r\n"
     b"\r\n"
 )
+
+K14_PRODUCT_ROOT_RETURN_OFFSET = 0x02F8
 
 ABI_OFFSETS = {
     "load_core_sectors_at": 0x00C4,
@@ -204,6 +238,7 @@ def assemble(
         f"-I{ROOT}/",
         f"-I{HERE}/",
         f"-I{ROOT / 'targets/ibm_pc_5150/boot'}/",
+        f"-I{ROOT / 'targets/ibm_pc_5150/boot/tls13'}/",
     ]
     for define in defines:
         command.extend(["-D", define])
@@ -221,14 +256,33 @@ def listing_label_offset(listing: Path, label: str) -> int:
     offset_pattern = re.compile(
         r"^\s*\d+\s+(?:<\d+>\s+)?([0-9A-Fa-f]{8})\s"
     )
+    candidates: list[tuple[int, int]] = []
     for index, line in enumerate(lines):
         if not label_pattern.search(line):
             continue
-        for candidate in lines[index : index + 24]:
+        # NASM keeps disabled conditional source in the listing.  Product-only
+        # failure code can therefore separate a live label from its first
+        # emitted byte by far more than a couple of dozen listing rows.  A
+        # symbol may also occur in both branches; the active definition is the
+        # occurrence nearest an emitted byte.
+        for distance, candidate in enumerate(lines[index : index + 256]):
             match = offset_pattern.search(candidate)
             if match:
-                return int(match.group(1), 16)
-        break
+                candidates.append((distance, int(match.group(1), 16)))
+                break
+    if candidates:
+        best_distance = min(distance for distance, _offset in candidates)
+        best_offsets = {
+            offset
+            for distance, offset in candidates
+            if distance == best_distance
+        }
+        if len(best_offsets) != 1:
+            raise AssertionError(
+                f"ambiguous listing label {label!r} in {listing}: "
+                f"{sorted(best_offsets)!r}"
+            )
+        return best_offsets.pop()
     raise AssertionError(f"cannot resolve listing label {label!r} in {listing}")
 
 
@@ -286,9 +340,36 @@ def parse_product_phases(core: bytes) -> dict[str, ProductPhase]:
             raise AssertionError(
                 f"Build-13 phase {tag!r} geometry drifted: {phase}"
             )
+    expected_destinations = {"E": 0x0700, "C": 0x0900}
+    for tag, destination in expected_destinations.items():
+        if phases[tag].destination != destination:
+            raise AssertionError(
+                f"Build-13 phase {tag!r} destination drifted: "
+                f"{phases[tag].destination:#x} != {destination:#x}"
+            )
     if phases["E"].start + phases["E"].count != BASE_SECTORS:
         raise AssertionError("base truncation no longer ends after endpoint phase")
     return phases
+
+
+def phase_runtime_address(
+    listing: Path,
+    phase: ProductPhase,
+    label: str,
+) -> int:
+    """Resolve one source label through its product phase load mapping."""
+    file_offset = listing_label_offset(listing, label)
+    file_start = phase.start * SECTOR
+    file_end = file_start + phase.count * SECTOR
+    if not file_start <= file_offset < file_end:
+        raise AssertionError(
+            f"{label} at file offset {file_offset:#x} escaped product phase "
+            f"{phase.tag!r} ({file_start:#x}..{file_end:#x})"
+        )
+    address = phase.destination + file_offset - file_start
+    if not phase.destination <= address < phase.destination + phase.count * SECTOR:
+        raise AssertionError(f"{label} has invalid runtime address {address:#x}")
+    return address
 
 
 def verify_product_abi(listing: Path) -> None:
@@ -299,6 +380,18 @@ def verify_product_abi(listing: Path) -> None:
                 f"Build-13 resident ABI drifted: {label}={actual:#x}, "
                 f"expected {expected:#x}"
             )
+    root_return = (
+        listing_source_offset(
+            listing,
+            "call TLS13_K14_PRODUCT_ROOT_ENTRY",
+        )
+        + 3
+    )
+    if root_return != K14_PRODUCT_ROOT_RETURN_OFFSET:
+        raise AssertionError(
+            "Build-13 K14 root return drifted: "
+            f"{root_return:#x}, expected {K14_PRODUCT_ROOT_RETURN_OFFSET:#x}"
+        )
 
 
 def verify_product_memory_contract(listing: Path) -> None:
@@ -330,29 +423,46 @@ def reserve_layout(
     *,
     identity: bool,
     secure: bool = False,
+    product_mode: bool = False,
 ) -> dict[str, tuple[int, int, int, bytes]]:
+    protected_sectors = (
+        (
+            IDENTITY_PROTECTED_CONTROLLER_END
+            - PROTECTED_CONTROLLER_START
+        )
+        if identity
+        else (PROTECTED_CONTROLLER_END - PROTECTED_CONTROLLER_START)
+    ) // SECTOR
     specs: list[tuple[str, int, int, bytes]] = [
         ("boot_controller", 1, 0x3400, b""),
         ("hello_controller", 1, 0x3400, b""),
-        ("crypto_controller", 1, 0x3400, b""),
+        (
+            "sym_tail_restore" if product_mode else "crypto_controller",
+            1,
+            0x2E00 if product_mode else 0x3400,
+            b"",
+        ),
     ]
     if secure:
         specs.append(("secure_sym_controller", 1, 0x3400, b""))
-        # This useful one-sector continuation also preserves the former pad's
-        # alignment, keeping the following identity/post controllers within
-        # individual 160 KiB floppy tracks.
-        specs.append(("secure_preconnect_controller", 1, 0x2400, b""))
+        if product_mode:
+            # Keep the one-sector scrub in the old continuation position so
+            # protected/post controller track geometry remains unchanged.
+            specs.append(("scrub_controller", 1, FO_CONTROLLER_START, b""))
+        else:
+            # This useful one-sector continuation also preserves the former
+            # pad's alignment for the research image.
+            specs.append(
+                ("secure_preconnect_controller", 1, 0x2400, b"")
+            )
     specs.extend(
         [
         (
-            "protected_controller",
-            (
-                (IDENTITY_PROTECTED_CONTROLLER_END - PROTECTED_CONTROLLER_START)
-                if identity
-                else (PROTECTED_CONTROLLER_END - PROTECTED_CONTROLLER_START)
-            )
-            // SECTOR,
-            PROTECTED_CONTROLLER_START,
+            "protected_controller_relocation_pad"
+            if product_mode
+            else "protected_controller",
+            protected_sectors,
+            0x0000 if product_mode else PROTECTED_CONTROLLER_START,
             b"",
         ),
         (
@@ -372,10 +482,44 @@ def reserve_layout(
                 b"",
             )
         )
-        specs.append(("scrub_controller", 1, FO_CONTROLLER_START, b""))
+        if product_mode:
+            specs.append(
+                ("secure_preconnect_controller", 2, 0x2400, b"")
+            )
+        else:
+            specs.append(("scrub_controller", 1, FO_CONTROLLER_START, b""))
         specs.append(
             ("entropy_controller", 1, 0x0900, overlays["entropy"])
         )
+        if product_mode:
+            specs.extend(
+                [
+                    (
+                        "vault_lifecycle",
+                        3,
+                        PRODUCT_VAULT_LIFECYCLE_STAGE,
+                        overlays["vault_lifecycle"],
+                    ),
+                    (
+                        "vault_access",
+                        2,
+                        PRODUCT_VAULT_ACCESS_STAGE,
+                        overlays["vault_access"],
+                    ),
+                    (
+                        "config_escrow",
+                        2,
+                        PRODUCT_CONFIG_ESCROW_STAGE,
+                        overlays["config_escrow"],
+                    ),
+                    (
+                        "state_guard",
+                        2,
+                        0x0700,
+                        overlays["state_guard"],
+                    ),
+                ]
+            )
     else:
         specs.append(("public_fixture", 1, 0x0700, fixture))
     specs.extend(
@@ -391,8 +535,18 @@ def reserve_layout(
         cursor += count
 
     # The critical loader never crosses a track in one BIOS request.  Spend
-    # otherwise-cheap media sectors to make candidate and the eight-sector
-    # symmetric restore each a single call under either controller geometry.
+    # otherwise-cheap media sectors to make candidate and the first eight
+    # symmetric restore sectors each a single call under either controller
+    # geometry.  Product mode restores two more sectors in one second batch
+    # because its long-lived vault-access pin borrows the symmetric suffix.
+    #
+    # The product places the real critical controllers beside their consumers.
+    # The former crypto-controller hole carries the exact canonical 2e00..2fff
+    # K14 runtime tail, so later off-window reloads can replace the deadline-
+    # only raw writer/continuation without spending another floppy sector.
+    if product_mode:
+        result["crypto_controller"] = (cursor, 1, 0x3400, b"")
+        cursor += 1
     candidate_pad = (
         -(CORE_START_LBA + cursor)
     ) % FLOPPY_SECTORS_PER_TRACK
@@ -407,6 +561,14 @@ def reserve_layout(
     cursor += sym_pad
     result["sym"] = (cursor, 12, 0x1800, overlays["sym"])
     cursor += 12
+    if product_mode:
+        result["protected_controller"] = (
+            cursor,
+            protected_sectors,
+            PROTECTED_CONTROLLER_START,
+            b"",
+        )
+        cursor += protected_sectors
 
     if secure:
         fo_pad = (
@@ -508,6 +670,7 @@ def build_basic_sidecar(build: Path) -> tuple[Path, Path]:
             "-DSEED_CORE_SECTORS=4",
             "-DSEED_RAM_TOP=0x4000",
             "-DSEED_BOOT_DRIVE=1",
+            f"-DBASIC_TIMER_IRET=0x{BASIC_TIMER_IRET:04x}",
             "-o",
             str(loader),
             str(ROOT / "targets/ibm_pc_5150/basic/bootstrap.asm"),
@@ -571,11 +734,22 @@ def main() -> None:
             "identity checkpoint; implies --identity"
         ),
     )
+    parser.add_argument(
+        "--product-mode",
+        action="store_true",
+        help=(
+            "build the generic-vault, return-to-caller K14 product phase set; "
+            "implies --secure and emits no patched harness image"
+        ),
+    )
     args = parser.parse_args()
+    if args.product_mode:
+        args.secure = True
     if args.secure:
         args.identity = True
     build = args.build_dir if args.build_dir.is_absolute() else ROOT / args.build_dir
     build.mkdir(parents=True, exist_ok=True)
+    driver_build_dir = args.ne_driver.parent
 
     entropy_meta_path = (
         ROOT / "build/crypto-bench/tls13-poc/entropy_meta_fixture.bin"
@@ -583,18 +757,20 @@ def main() -> None:
     hello_inputs_path = (
         ROOT / "build/crypto-bench/tls13-poc/hello_inputs_fixture.bin"
     )
-    required = (
-        args.product_core,
-        args.product_listing,
-        args.ne_driver,
-        PRODUCT_BUILD / "boot.bin",
-        PRODUCT_BUILD / "loader.bin",
-    )
-    if args.secure:
+    required = (args.product_core, args.product_listing)
+    if not args.product_mode:
         required += (
-            PRODUCT_BUILD / "drivers/ne-driver-wrapper.asm",
-            PRODUCT_BUILD / "drivers/nic-driver-abi.inc",
+            args.ne_driver,
+            PRODUCT_BUILD / "boot.bin",
+            PRODUCT_BUILD / "loader.bin",
         )
+    if args.secure and not args.product_mode:
+        required += (
+            driver_build_dir / "ne-driver-wrapper.asm",
+            driver_build_dir / "nic-driver-abi.inc",
+        )
+    elif args.product_mode:
+        required += (PUBLIC_VAULT_SOURCE,)
     else:
         required += (entropy_meta_path, hello_inputs_path)
     missing = [str(path) for path in required if not path.is_file()]
@@ -611,8 +787,31 @@ def main() -> None:
     product_phases = parse_product_phases(product)
     verify_product_abi(args.product_listing)
     verify_product_memory_contract(args.product_listing)
+    tcp_close_cached_entry = phase_runtime_address(
+        args.product_listing,
+        product_phases["C"],
+        "tcp_close_cached_target",
+    )
+    endpoint_entry = phase_runtime_address(
+        args.product_listing,
+        product_phases["E"],
+        "agent_endpoint_phase",
+    )
+    tcp_connect_entry = phase_runtime_address(
+        args.product_listing,
+        product_phases["C"],
+        "tcp_connect_phase",
+    )
+    if endpoint_entry != product_phases["E"].destination:
+        raise AssertionError(
+            f"endpoint phase entry drifted: {endpoint_entry:#x}"
+        )
+    if tcp_connect_entry != product_phases["C"].destination:
+        raise AssertionError(
+            f"TCP phase entry drifted: {tcp_connect_entry:#x}"
+        )
     packet_io_pstop_instruction_offset = None
-    if args.secure:
+    if args.secure and not args.product_mode:
         packet_io_pstop_instruction_offset = listing_source_offset(
             args.product_listing,
             "mov byte [ne_rx_stop], ne_rx_stop_2k",
@@ -636,17 +835,23 @@ def main() -> None:
             raise AssertionError(
                 "product packet-I/O PSTOP instruction preimage drifted"
             )
-    driver = args.ne_driver.read_bytes()
-    if len(driver) != SECTOR or driver[10:14] != b"SDRV":
-        raise AssertionError("NE.DRV is not the expected one-sector Build-13 driver")
+    driver = b""
+    if not args.product_mode:
+        driver = args.ne_driver.read_bytes()
+        if len(driver) != SECTOR or driver[10:14] != b"SDRV":
+            raise AssertionError(
+                "NE.DRV is not the expected one-sector Build-13 driver"
+            )
     ne_buf_load = None
     ne_buf_read = None
+    fo_buf_load = None
+    fo_buf_read = None
     driver_probe = b""
     driver_probe_listing = None
-    if args.secure:
+    if args.secure and not args.product_mode:
         driver_probe, driver_probe_listing = assemble(
             build,
-            PRODUCT_BUILD / "drivers/ne-driver-wrapper.asm",
+            driver_build_dir / "ne-driver-wrapper.asm",
             "secure_ne_driver_probe",
             (),
         )
@@ -667,6 +872,140 @@ def main() -> None:
                 "packaged NE.DRV remote-DMA leaves drifted: "
                 f"write={ne_buf_load:#x} read={ne_buf_read:#x}"
             )
+
+    vault_lifecycle = b""
+    vault_access = b""
+    vault_lifecycle_listing = None
+    vault_access_listing = None
+    vault_entries: dict[str, int] = {}
+    vault_begin = 0
+    vault_zeroize = 0
+    vault_retire = 0
+    vault_enter_raw_offset = 0
+    vault_rebind_raw_offset = 0
+    config_escrow = b""
+    config_escrow_listing = None
+    config_escrow_save = 0
+    config_escrow_restore = 0
+    state_guard = b""
+    state_guard_entry = 0
+    if args.product_mode:
+        vault_lifecycle, vault_lifecycle_listing = assemble(
+            build,
+            PUBLIC_VAULT_SOURCE,
+            "product_vault_lifecycle",
+            ("PV_LOAD_ADDR=0",),
+        )
+        vault_access, vault_access_listing = assemble(
+            build,
+            PUBLIC_VAULT_SOURCE,
+            "product_vault_access",
+            ("PV_ACCESS_ONLY", "PV_LOAD_ADDR=0"),
+        )
+        if len(vault_lifecycle) != 1422 or len(vault_access) != 871:
+            raise AssertionError(
+                "product public-vault image geometry drifted: "
+                f"lifecycle={len(vault_lifecycle)} access={len(vault_access)}"
+            )
+        vault_entries = {
+            "begin_offset": listing_label_offset(
+                vault_lifecycle_listing, "pv_begin"
+            ),
+            "zeroize_offset": listing_label_offset(
+                vault_lifecycle_listing, "pv_zeroize"
+            ),
+            "retire_offset": listing_label_offset(
+                vault_lifecycle_listing, "pv_retire"
+            ),
+            "enter_raw_offset": listing_label_offset(
+                vault_lifecycle_listing, "pv_enter_raw"
+            ),
+            "rebind_raw_offset": listing_label_offset(
+                vault_lifecycle_listing, "pv_rebind_raw"
+            ),
+            "lifecycle_write_offset": listing_label_offset(
+                vault_lifecycle_listing, "pv_write"
+            ),
+            "lifecycle_read_offset": listing_label_offset(
+                vault_lifecycle_listing, "pv_read"
+            ),
+            "write_offset": listing_label_offset(
+                vault_access_listing, "pv_write"
+            ),
+            "read_offset": listing_label_offset(
+                vault_access_listing, "pv_read"
+            ),
+        }
+        ne_buf_load = (
+            PRODUCT_VAULT_ACCESS_STAGE + vault_entries["write_offset"]
+        )
+        ne_buf_read = (
+            PRODUCT_VAULT_ACCESS_STAGE + vault_entries["read_offset"]
+        )
+        fo_buf_load = (
+            PRODUCT_FO_VAULT_STAGE + vault_entries["write_offset"]
+        )
+        fo_buf_read = (
+            PRODUCT_FO_VAULT_STAGE + vault_entries["read_offset"]
+        )
+        vault_begin = (
+            PRODUCT_VAULT_LIFECYCLE_STAGE + vault_entries["begin_offset"]
+        )
+        vault_zeroize = (
+            PRODUCT_VAULT_LIFECYCLE_STAGE + vault_entries["zeroize_offset"]
+        )
+        vault_retire = (
+            PRODUCT_VAULT_LIFECYCLE_STAGE + vault_entries["retire_offset"]
+        )
+        vault_enter_raw_offset = vault_entries["enter_raw_offset"]
+        vault_rebind_raw_offset = vault_entries["rebind_raw_offset"]
+        config_escrow, config_escrow_listing = assemble(
+            build,
+            PRODUCT_CONFIG_ESCROW_SOURCE,
+            "product_config_escrow",
+            (
+                f"K14_CONFIG_ESCROW_ORIGIN=0x{PRODUCT_CONFIG_ESCROW_STAGE:04x}",
+                "K14_CONFIG_CACHE=0x3b9c",
+                "K14_CONFIG_SENSITIVE_START=0x3b2b",
+                "K14_CONFIG_SENSITIVE_END=0x3c9c",
+                "K14_CURSOR_ROW=0x0f55",
+                "K14_CURSOR_COL=0x0f56",
+                "K14_PROMPT_MARKER_ROW=0x0f33",
+                "K14_AGENT_LOOP_PENDING=0x0f66",
+                "K14_AGENT_LOOP_COUNT=0x0f67",
+            ),
+        )
+        if not 0 < len(config_escrow) <= 2 * SECTOR:
+            raise AssertionError(
+                "product config escrow exceeds its two-sector phase"
+            )
+        config_escrow_save = (
+            PRODUCT_CONFIG_ESCROW_STAGE
+            + listing_label_offset(
+                config_escrow_listing, "k14_config_escrow_save"
+            )
+        )
+        config_escrow_restore = (
+            PRODUCT_CONFIG_ESCROW_STAGE
+            + listing_label_offset(
+                config_escrow_listing, "k14_config_escrow_restore"
+            )
+        )
+        state_guard, state_guard_listing = assemble(
+            build,
+            PRODUCT_STATE_GUARD_SOURCE,
+            "product_state_guard",
+            (),
+        )
+        if len(state_guard) != 2 * SECTOR:
+            raise AssertionError(
+                "product state guard is not exactly two padded sectors"
+            )
+        state_guard_entry = 0x0700 + listing_label_offset(
+            state_guard_listing, "k14_product_state_guard"
+        )
+        if state_guard_entry != 0x0700:
+            raise AssertionError("product state-guard entry moved from 0x0700")
 
     keygen, keygen_listing = assemble(
         build,
@@ -701,16 +1040,26 @@ def main() -> None:
                 f"FTE_KEYGEN_KECCAK_WORK_END=0x{keccak_work_end:04x}",
             ),
         )
-    hello, _ = assemble(
+    hello_defines = [
+        "TLS13_POC_K14",
+        "HELLO_FRESH_ONLY",
+        "HELLO_CACHED_CONNECT",
+        "HELLO_FRESH_TICKET_REQUEST",
+    ]
+    if args.product_mode:
+        hello_defines.append("TLS13_PRODUCT_TLS13")
+    hello, hello_listing = assemble(
         build,
         HERE / "hello_overlay.asm",
         "hello_cached_k14",
-        (
-            "TLS13_POC_K14",
-            "HELLO_FRESH_ONLY",
-            "HELLO_CACHED_CONNECT",
-            "HELLO_FRESH_TICKET_REQUEST",
-        ),
+        tuple(hello_defines),
+    )
+    hello_sha256_initial_state = (
+        HELLO_IMAGE_START
+        + listing_label_offset(hello_listing, "sha256_initial_state")
+    )
+    hello_sha256_k = (
+        HELLO_IMAGE_START + listing_label_offset(hello_listing, "sha256_k")
     )
     candidate, _ = assemble(
         build,
@@ -718,12 +1067,86 @@ def main() -> None:
         "candidate_k14",
         ("TLS13_POC_K14",),
     )
+    critical_vault_writer = b""
+    critical_vault_listing = None
+    critical_vault_write_offset = 0
+    critical_vault_write_end_offset = 0
+    sym_defines = ["TLS13_POC_K14"]
+    if args.product_mode:
+        critical_vault_writer, critical_vault_listing = assemble(
+            build,
+            PRODUCT_CRITICAL_VAULT_SOURCE,
+            "k14_product_critical_vault",
+            (),
+        )
+        if len(critical_vault_writer) != 0x00A0:
+            raise AssertionError("product critical vault writer is not 160 bytes")
+        critical_vault_write_offset = listing_label_offset(
+            critical_vault_listing, "k14_product_critical_vault_write"
+        )
+        critical_vault_write_end_offset = listing_label_offset(
+            critical_vault_listing, "k14_product_critical_vault_write_end"
+        )
+        if not (
+            critical_vault_write_offset == 0
+            and 0 < critical_vault_write_end_offset <= len(critical_vault_writer)
+        ):
+            raise AssertionError("product critical vault writer entry drifted")
+        preliminary_tail = build / "k14-product-critical-tail-preliminary.bin"
+        preliminary_tail.write_bytes(
+            critical_vault_writer
+            + bytes(PRODUCT_EMBEDDED_SYM_CONTROLLER_LEN)
+        )
+        sym_defines.extend(
+            [
+                (
+                    "TLS13_PRODUCT_CRITICAL_TAIL_PATH="
+                    f'"{preliminary_tail.as_posix()}"'
+                ),
+                (
+                    "TLS13_PRODUCT_SHA256_INITIAL_STATE="
+                    f"0x{PRODUCT_SYM_SHA256_INITIAL_STATE:04x}"
+                ),
+            ]
+        )
     sym, sym_listing = assemble(
         build,
         HERE / "tls13_sym_overlay.asm",
         "sym_k14",
-        ("TLS13_POC_K14",),
+        tuple(sym_defines),
     )
+    sym_runtime_tail = b""
+    if args.product_mode:
+        canonical_sym, _canonical_sym_listing = assemble(
+            build,
+            HERE / "tls13_sym_overlay.asm",
+            "sym_k14_runtime_canonical",
+            ("TLS13_POC_K14",),
+        )
+        if len(canonical_sym) != len(sym):
+            raise AssertionError(
+                "canonical symmetric restore changed phase geometry"
+            )
+        sym_runtime_tail = canonical_sym[
+            PRODUCT_SYM_RUNTIME_TAIL_OFFSET :
+            PRODUCT_SYM_RUNTIME_TAIL_OFFSET + PRODUCT_SYM_RUNTIME_TAIL_LEN
+        ]
+        if (
+            len(sym_runtime_tail) != PRODUCT_SYM_RUNTIME_TAIL_LEN
+            or sym_runtime_tail[
+                : PRODUCT_CRITICAL_VAULT_ADDR - PRODUCT_SYM_RUNTIME_TAIL_START
+            ]
+            != sym[
+                PRODUCT_SYM_RUNTIME_TAIL_OFFSET :
+                PRODUCT_SYM_RUNTIME_TAIL_OFFSET
+                + PRODUCT_CRITICAL_VAULT_ADDR
+                - PRODUCT_SYM_RUNTIME_TAIL_START
+            ]
+        ):
+            raise AssertionError(
+                "canonical symmetric tail does not preserve the product prefix"
+            )
+        (build / "sym_k14_runtime_tail.bin").write_bytes(sym_runtime_tail)
     auth = b""
     if args.identity:
         auth, _ = assemble(
@@ -763,16 +1186,26 @@ def main() -> None:
     if args.secure:
         overlays["fo"] = fo
         overlays["entropy"] = entropy
+    if args.product_mode:
+        overlays["vault_lifecycle"] = vault_lifecycle
+        overlays["vault_access"] = vault_access
+        overlays["config_escrow"] = config_escrow
+        overlays["state_guard"] = state_guard
     expected_overlay_sizes = {
         "keygen": 2871,
-        "hello": 3740,
+        "hello": 3803 if args.product_mode else 3740,
         "candidate": 2113,
-        "sym": 6142,
+        "sym": 6144,
         "delta_loader": 146,
     }
     if args.secure:
         expected_overlay_sizes["fo"] = 2829
         expected_overlay_sizes["entropy"] = 512
+    if args.product_mode:
+        expected_overlay_sizes["vault_lifecycle"] = 1422
+        expected_overlay_sizes["vault_access"] = 871
+        expected_overlay_sizes["config_escrow"] = 536
+        expected_overlay_sizes["state_guard"] = 1024
     sized_images = overlays | {"delta_loader": delta_loader}
     for name, expected in expected_overlay_sizes.items():
         if len(sized_images[name]) != expected:
@@ -800,6 +1233,7 @@ def main() -> None:
         fixture,
         identity=args.identity,
         secure=args.secure,
+        product_mode=args.product_mode,
     )
     candidate_absolute_lba = CORE_START_LBA + layout["candidate"][0]
     sym_absolute_lba = CORE_START_LBA + layout["sym"][0]
@@ -829,6 +1263,15 @@ def main() -> None:
         )
     ):
         raise AssertionError("critical live phases are not track-batchable")
+    if args.product_mode and (
+        layout["crypto_controller"][0]
+        != layout["hello"][0] + layout["hello"][1]
+        or layout["protected_controller"][0]
+        != layout["sym"][0] + layout["sym"][1]
+    ):
+        raise AssertionError(
+            "product critical controllers are no longer physically local"
+        )
 
     def key(name: str, count: int | None = None) -> int:
         start, reserved_count, _destination, _data = layout[name]
@@ -848,6 +1291,10 @@ def main() -> None:
         f"LIVE_K15_SYM_KEY=0x{key('sym'):04x}",
         f"LIVE_K15_ENDPOINT_KEY=0x{product_phases['E'].key:04x}",
         f"LIVE_K15_TCP_KEY=0x{product_phases['C'].key:04x}",
+        (
+            "LIVE_K15_TCP_CLOSE_CACHED_ENTRY="
+            f"0x{tcp_close_cached_entry:04x}"
+        ),
         f"LIVE_K15_KEYGEN_KEY=0x{key('keygen'):04x}",
         f"LIVE_K15_HELLO_KEY=0x{key('hello'):04x}",
         f"LIVE_K15_HELLO_CONTROLLER_KEY=0x{key('hello_controller'):04x}",
@@ -872,6 +1319,52 @@ def main() -> None:
                 f"LIVE_K15_NE_BUF_LOAD=0x{ne_buf_load:04x}",
             ]
         )
+        if args.product_mode:
+            boot_defines.extend(
+                [
+                    "LIVE_K15_PRODUCT_MODE",
+                    (
+                        "LIVE_K15_VAULT_LIFECYCLE_KEY="
+                        f"0x{key('vault_lifecycle'):04x}"
+                    ),
+                    (
+                        "LIVE_K15_VAULT_LIFECYCLE_STAGE="
+                        f"0x{PRODUCT_VAULT_LIFECYCLE_STAGE:04x}"
+                    ),
+                    (
+                        "LIVE_K15_VAULT_BEGIN="
+                        f"0x{vault_begin:04x}"
+                    ),
+                    (
+                        "LIVE_K15_VAULT_ZEROIZE="
+                        f"0x{vault_zeroize:04x}"
+                    ),
+                    (
+                        "LIVE_K15_VAULT_ACCESS_KEY="
+                        f"0x{key('vault_access'):04x}"
+                    ),
+                    (
+                        "LIVE_K15_VAULT_ACCESS_STAGE="
+                        f"0x{PRODUCT_VAULT_ACCESS_STAGE:04x}"
+                    ),
+                    (
+                        "LIVE_K15_CONFIG_ESCROW_KEY="
+                        f"0x{key('config_escrow'):04x}"
+                    ),
+                    (
+                        "LIVE_K15_CONFIG_ESCROW_STAGE="
+                        f"0x{PRODUCT_CONFIG_ESCROW_STAGE:04x}"
+                    ),
+                    (
+                        "LIVE_K15_CONFIG_ESCROW_SAVE="
+                        f"0x{config_escrow_save:04x}"
+                    ),
+                    (
+                        "LIVE_K15_CONFIG_ESCROW_RESTORE="
+                        f"0x{config_escrow_restore:04x}"
+                    ),
+                ]
+            )
     else:
         boot_defines.append(
             f"LIVE_K15_FIXTURE_KEY=0x{key('public_fixture'):04x}"
@@ -895,33 +1388,82 @@ def main() -> None:
                 boot_listing, label
             )
 
+        preconnect_defines = [
+            "LIVE_K15_SECURE_PRECONNECT_CONTROLLER",
+            f"LIVE_K15_ENDPOINT_KEY=0x{product_phases['E'].key:04x}",
+            f"LIVE_K15_TCP_KEY=0x{product_phases['C'].key:04x}",
+            (
+                "LIVE_K15_TCP_CLOSE_CACHED_ENTRY="
+                f"0x{tcp_close_cached_entry:04x}"
+            ),
+            f"LIVE_K15_KEYGEN_KEY=0x{key('keygen'):04x}",
+            f"LIVE_K15_HELLO_KEY=0x{key('hello'):04x}",
+            (
+                "LIVE_K15_HELLO_CONTROLLER_KEY="
+                f"0x{key('hello_controller'):04x}"
+            ),
+            f"LIVE_K15_BOOT_EMIT=0x{boot_address('live_emit'):04x}",
+            f"LIVE_K15_BOOT_FAIL=0x{boot_address('live_fail'):04x}",
+            (
+                "LIVE_K15_BOOT_CARD_WRITE="
+                f"0x{boot_address('live_secure_card_write'):04x}"
+            ),
+            f"LIVE_K15_NE_BUF_READ=0x{ne_buf_read:04x}",
+            f"LIVE_K15_NE_BUF_LOAD=0x{ne_buf_load:04x}",
+        ]
+        if args.product_mode:
+            preconnect_defines.extend(
+                [
+                    "LIVE_K15_PRODUCT_MODE",
+                    (
+                        "LIVE_K15_VAULT_LIFECYCLE_KEY="
+                        f"0x{key('vault_lifecycle'):04x}"
+                    ),
+                    (
+                        "LIVE_K15_VAULT_LIFECYCLE_STAGE="
+                        f"0x{PRODUCT_VAULT_LIFECYCLE_STAGE:04x}"
+                    ),
+                    f"LIVE_K15_VAULT_ZEROIZE=0x{vault_zeroize:04x}",
+                    (
+                        "LIVE_K15_CONFIG_ESCROW_KEY="
+                        f"0x{key('config_escrow'):04x}"
+                    ),
+                    (
+                        "LIVE_K15_CONFIG_ESCROW_STAGE="
+                        f"0x{PRODUCT_CONFIG_ESCROW_STAGE:04x}"
+                    ),
+                    (
+                        "LIVE_K15_CONFIG_ESCROW_RESTORE="
+                        f"0x{config_escrow_restore:04x}"
+                    ),
+                    (
+                        "LIVE_K15_VAULT_ACCESS_KEY="
+                        f"0x{key('vault_access'):04x}"
+                    ),
+                    (
+                        "LIVE_K15_VAULT_ACCESS_STAGE="
+                        f"0x{PRODUCT_VAULT_ACCESS_STAGE:04x}"
+                    ),
+                    (
+                        "LIVE_K15_VAULT_ENTER_RAW_OFFSET="
+                        f"0x{vault_enter_raw_offset:04x}"
+                    ),
+                    (
+                        "LIVE_K15_SYM_ACCESS_RESTORE_KEY="
+                        f"0x{phase_key(layout['sym'][0] + 8, 2):04x}"
+                    ),
+                ]
+            )
+        else:
+            preconnect_defines.append(
+                "LIVE_K15_PREPARE_INTERNET="
+                f"0x{0x1000 + ABI_OFFSETS['prepare_internet_path']:04x}"
+            )
         secure_preconnect_controller, secure_preconnect_listing = assemble(
             build,
             CONTROLLERS,
             "live_secure_preconnect_controller",
-            (
-                "LIVE_K15_SECURE_PRECONNECT_CONTROLLER",
-                f"LIVE_K15_ENDPOINT_KEY=0x{product_phases['E'].key:04x}",
-                f"LIVE_K15_TCP_KEY=0x{product_phases['C'].key:04x}",
-                f"LIVE_K15_KEYGEN_KEY=0x{key('keygen'):04x}",
-                f"LIVE_K15_HELLO_KEY=0x{key('hello'):04x}",
-                (
-                    "LIVE_K15_HELLO_CONTROLLER_KEY="
-                    f"0x{key('hello_controller'):04x}"
-                ),
-                f"LIVE_K15_BOOT_EMIT=0x{boot_address('live_emit'):04x}",
-                f"LIVE_K15_BOOT_FAIL=0x{boot_address('live_fail'):04x}",
-                (
-                    "LIVE_K15_BOOT_CARD_WRITE="
-                    f"0x{boot_address('live_secure_card_write'):04x}"
-                ),
-                f"LIVE_K15_NE_BUF_READ=0x{ne_buf_read:04x}",
-                f"LIVE_K15_NE_BUF_LOAD=0x{ne_buf_load:04x}",
-                (
-                    "LIVE_K15_PREPARE_INTERNET="
-                    f"0x{0x1000 + ABI_OFFSETS['prepare_internet_path']:04x}"
-                ),
-            ),
+            tuple(preconnect_defines),
         )
         pre_sym_image = secure_preconnect_controller
         pre_sym_listing = secure_preconnect_listing
@@ -935,19 +1477,50 @@ def main() -> None:
     if not pre_sym_source < pre_sym_end <= len(pre_sym_image):
         raise AssertionError("pre-sym transition source escaped its controller")
     pre_sym_transition = pre_sym_image[pre_sym_source:pre_sym_end]
+    pre_sym_failure = 0
+    if args.product_mode:
+        assert secure_preconnect_listing is not None
+        failure_source = listing_label_offset(
+            secure_preconnect_listing,
+            "preconnect_transition_failed_source",
+        )
+        if not pre_sym_source <= failure_source < pre_sym_end:
+            raise AssertionError(
+                "product preconnect failure continuation escaped low image"
+            )
+        pre_sym_failure = PRE_SYM_TRANSITION_START + (
+            failure_source - pre_sym_source
+        )
     pre_sym_binary = build / "live_pre_sym_transition.bin"
     pre_sym_binary.write_bytes(pre_sym_transition)
     if PRE_SYM_TRANSITION_START + len(pre_sym_transition) > TCP_TAIL_STATE_START:
         raise AssertionError("pre-sym transition reaches live TCP tail state")
 
+    hello_controller_defines = [
+        "LIVE_K15_HELLO_CONTROLLER",
+        f"LIVE_K15_CRYPTO_CONTROLLER_KEY=0x{key('crypto_controller'):04x}",
+    ]
+    if args.product_mode:
+        hello_controller_defines.extend(
+            [
+                "LIVE_K15_PRODUCT_MODE",
+                f"LIVE_K15_PRECONNECT_FAIL=0x{pre_sym_failure:04x}",
+                (
+                    "LIVE_K15_HELLO_SHA256_INITIAL_STATE="
+                    f"0x{hello_sha256_initial_state:04x}"
+                ),
+                f"LIVE_K15_HELLO_SHA256_K=0x{hello_sha256_k:04x}",
+                (
+                    "LIVE_K15_PRODUCT_SHA256_INITIAL_STATE="
+                    f"0x{PRODUCT_STAGED_SHA256_INITIAL_STATE:04x}"
+                ),
+            ]
+        )
     hello_controller, _ = assemble(
         build,
         CONTROLLERS,
         "live_hello_controller",
-        (
-            "LIVE_K15_HELLO_CONTROLLER",
-            f"LIVE_K15_CRYPTO_CONTROLLER_KEY=0x{key('crypto_controller'):04x}",
-        ),
+        tuple(hello_controller_defines),
     )
     crypto_defines = [
         (
@@ -963,17 +1536,52 @@ def main() -> None:
         f"LIVE_K15_CORE_START_LBA={CORE_START_LBA}",
     ]
     if args.secure:
-        assert ne_buf_load is not None and ne_buf_read is not None
-        crypto_defines.extend(
-            [
-                f"LIVE_K15_NE_BUF_LOAD=0x{ne_buf_load:04x}",
-                f"LIVE_K15_NE_BUF_READ=0x{ne_buf_read:04x}",
-                (
-                    "LIVE_K15_SCRUB_CONTROLLER_KEY="
-                    f"0x{key('scrub_controller'):04x}"
-                ),
-            ]
+        crypto_defines.append(
+            "LIVE_K15_SCRUB_CONTROLLER_KEY="
+            f"0x{key('scrub_controller'):04x}"
         )
+        if args.product_mode:
+            crypto_defines.extend(
+                [
+                    "LIVE_K15_PRODUCT_MODE",
+                    (
+                        "LIVE_K15_CRITICAL_VAULT_WRITE="
+                        f"0x{PRODUCT_CRITICAL_VAULT_ADDR:04x}"
+                    ),
+                    (
+                        "LIVE_K15_EMBEDDED_SYM_CONTROLLER_SOURCE="
+                        f"0x{PRODUCT_EMBEDDED_SYM_CONTROLLER_SOURCE:04x}"
+                    ),
+                    (
+                        "LIVE_K15_EMBEDDED_SYM_CONTROLLER_LEN="
+                        f"0x{PRODUCT_EMBEDDED_SYM_CONTROLLER_LEN:04x}"
+                    ),
+                    (
+                        "LIVE_K15_ROOT_RETURN="
+                        f"0x{0x1000 + K14_PRODUCT_ROOT_RETURN_OFFSET:04x}"
+                    ),
+                    (
+                        "LIVE_K15_VAULT_LIFECYCLE_KEY="
+                        f"0x{key('vault_lifecycle'):04x}"
+                    ),
+                    (
+                        "LIVE_K15_VAULT_LIFECYCLE_STAGE="
+                        f"0x{PRODUCT_VAULT_LIFECYCLE_STAGE:04x}"
+                    ),
+                    (
+                        "LIVE_K15_VAULT_ZEROIZE="
+                        f"0x{vault_zeroize:04x}"
+                    ),
+                ]
+            )
+        else:
+            assert ne_buf_load is not None and ne_buf_read is not None
+            crypto_defines.extend(
+                [
+                    f"LIVE_K15_NE_BUF_LOAD=0x{ne_buf_load:04x}",
+                    f"LIVE_K15_NE_BUF_READ=0x{ne_buf_read:04x}",
+                ]
+            )
     else:
         crypto_defines.extend(
             [
@@ -1006,6 +1614,16 @@ def main() -> None:
     persistent_zero_window = persistent_address(f"{persistent_prefix}_zero_window")
     persistent_emit = persistent_address(f"{persistent_prefix}_emit")
     persistent_fail = persistent_address(f"{persistent_prefix}_fail")
+    persistent_product_zeroize = (
+        persistent_address("live_secure_persist_product_zeroize")
+        if args.product_mode and args.secure
+        else None
+    )
+    persistent_emergency = (
+        persistent_address("live_secure_persist_emergency_reset")
+        if args.product_mode and args.secure
+        else None
+    )
     persistent_runtime_start = K14_EXTENSION_START + persistent_start
     persistent_runtime_end = K14_EXTENSION_START + persistent_end
     if not (
@@ -1022,21 +1640,108 @@ def main() -> None:
     secure_sym_controller = b""
     secure_sym_listing = None
     if args.secure:
+        sym_restore_sectors = PRODUCT_CRITICAL_SYM_RESTORE_SECTORS
+        secure_sym_defines = [
+            "LIVE_K15_SECURE_SYM_CONTROLLER",
+            (
+                "LIVE_K15_SYM_RESTORE_KEY="
+                f"0x{key('sym', sym_restore_sectors):04x}"
+            ),
+            (
+                "LIVE_K15_PROTECTED_CONTROLLER_KEY="
+                f"0x{key('protected_controller'):04x}"
+            ),
+            f"LIVE_K15_CORE_START_LBA={CORE_START_LBA}",
+            f"LIVE_K15_PERSIST_FAIL=0x{persistent_fail:04x}",
+        ]
+        if args.product_mode:
+            secure_sym_defines.extend(
+                [
+                    "LIVE_K15_PRODUCT_MODE",
+                    "LIVE_K15_EMBEDDED_SYM_CONTROLLER",
+                    (
+                        "LIVE_K15_STAGED_SHA256_INITIAL_STATE="
+                        f"0x{PRODUCT_STAGED_SHA256_INITIAL_STATE:04x}"
+                    ),
+                    (
+                        "LIVE_K15_SYM_SHA256_INITIAL_STATE="
+                        f"0x{PRODUCT_SYM_SHA256_INITIAL_STATE:04x}"
+                    ),
+                    "LIVE_K15_STAGED_SHA256_K=0x0500",
+                    f"LIVE_K15_SYM_SHA256_K=0x{PRODUCT_SYM_SHA256_K:04x}",
+                ]
+            )
         secure_sym_controller, secure_sym_listing = assemble(
             build,
             CONTROLLERS,
             "live_secure_sym_controller",
-            (
-                "LIVE_K15_SECURE_SYM_CONTROLLER",
-                f"LIVE_K15_SYM_RESTORE_KEY=0x{key('sym', 8):04x}",
-                (
-                    "LIVE_K15_PROTECTED_CONTROLLER_KEY="
-                    f"0x{key('protected_controller'):04x}"
-                ),
-                f"LIVE_K15_CORE_START_LBA={CORE_START_LBA}",
-                f"LIVE_K15_PERSIST_FAIL=0x{persistent_fail:04x}",
-            ),
+            tuple(secure_sym_defines),
         )
+        if args.product_mode:
+            if len(secure_sym_controller) != PRODUCT_EMBEDDED_SYM_CONTROLLER_LEN:
+                raise AssertionError(
+                    "embedded symmetric continuation is not 128 bytes"
+                )
+            critical_tail = build / "k14-product-critical-tail.bin"
+            critical_tail.write_bytes(
+                critical_vault_writer + secure_sym_controller
+            )
+            if critical_tail.stat().st_size != PRODUCT_SYM_CRITICAL_TAIL_LEN:
+                raise AssertionError("product symmetric critical tail drifted")
+            final_sym_defines = (
+                "TLS13_POC_K14",
+                (
+                    "TLS13_PRODUCT_CRITICAL_TAIL_PATH="
+                    f'"{critical_tail.as_posix()}"'
+                ),
+                (
+                    "TLS13_PRODUCT_SHA256_INITIAL_STATE="
+                    f"0x{PRODUCT_SYM_SHA256_INITIAL_STATE:04x}"
+                ),
+            )
+            final_sym, final_sym_listing = assemble(
+                build,
+                HERE / "tls13_sym_overlay.asm",
+                "sym_k14",
+                final_sym_defines,
+            )
+            if len(final_sym) != len(sym):
+                raise AssertionError("product symmetric tail changed phase geometry")
+            if final_sym[:0x16E0] != sym[:0x16E0]:
+                raise AssertionError("product symmetric prefix changed during tail bind")
+            runtime_sym = (
+                final_sym[:PRODUCT_SYM_RUNTIME_TAIL_OFFSET]
+                + sym_runtime_tail
+            )
+            if (
+                len(runtime_sym) != len(final_sym)
+                or runtime_sym != canonical_sym
+                or runtime_sym[
+                    PRODUCT_SYM_RUNTIME_TAIL_OFFSET :
+                    PRODUCT_SYM_RUNTIME_TAIL_OFFSET
+                    + PRODUCT_CRITICAL_VAULT_ADDR
+                    - PRODUCT_SYM_RUNTIME_TAIL_START
+                ]
+                != final_sym[
+                    PRODUCT_SYM_RUNTIME_TAIL_OFFSET :
+                    PRODUCT_SYM_RUNTIME_TAIL_OFFSET
+                    + PRODUCT_CRITICAL_VAULT_ADDR
+                    - PRODUCT_SYM_RUNTIME_TAIL_START
+                ]
+                or runtime_sym[PRODUCT_SYM_SHA256_K - 0x1800 :]
+                != sym_runtime_tail[PRODUCT_SYM_SHA256_K - PRODUCT_SYM_RUNTIME_TAIL_START :]
+            ):
+                raise AssertionError("product symmetric runtime-tail repair drifted")
+            sym = final_sym
+            sym_listing = final_sym_listing
+            overlays["sym"] = sym
+            sym_start, sym_count, sym_destination, _old_sym = layout["sym"]
+            layout["sym"] = (
+                sym_start,
+                sym_count,
+                sym_destination,
+                sym,
+            )
 
     protected_defines = [
         "LIVE_K15_PROTECTED_CONTROLLER",
@@ -1052,6 +1757,10 @@ def main() -> None:
         ),
         f"LIVE_K15_POST_CONTROLLER_KEY=0x{key('post_controller'):04x}",
     ]
+    if args.product_mode:
+        protected_defines.append("LIVE_K15_PRODUCT_MODE")
+    if args.secure:
+        protected_defines.append("LIVE_K15_SECURE_FO")
     if args.identity:
         protected_defines.extend(
             [
@@ -1084,6 +1793,8 @@ def main() -> None:
         f"LIVE_K15_PERSIST_FAIL=0x{persistent_fail:04x}",
         f"LIVE_K15_PERSIST_EMIT=0x{persistent_emit:04x}",
     ]
+    if args.product_mode:
+        post_defines.append("LIVE_K15_PRODUCT_MODE")
     if args.identity:
         post_defines.extend(
             [
@@ -1122,6 +1833,8 @@ def main() -> None:
     auth_controller = b""
     if args.identity:
         auth_defines = ["LIVE_K15_AUTH_CONTROLLER"]
+        if args.product_mode:
+            auth_defines.append("LIVE_K15_PRODUCT_MODE")
         if args.secure:
             auth_defines.extend(
                 [
@@ -1150,32 +1863,82 @@ def main() -> None:
     scrub_controller = b""
     if args.secure:
         assert ne_buf_load is not None and ne_buf_read is not None
+        if args.product_mode:
+            assert fo_buf_load is not None and fo_buf_read is not None
+        else:
+            fo_buf_load = ne_buf_load
+            fo_buf_read = ne_buf_read
+        fo_defines = [
+            "LIVE_K15_FO_CONTROLLER",
+            f"LIVE_K15_FO_PHASE_KEY=0x{key('fo'):04x}",
+            (
+                "LIVE_K15_AUTH_CONTROLLER_KEY="
+                f"0x{key('auth_controller'):04x}"
+            ),
+            f"LIVE_K15_NE_BUF_LOAD=0x{fo_buf_load:04x}",
+            f"LIVE_K15_NE_BUF_READ=0x{fo_buf_read:04x}",
+            f"LIVE_K15_PERSIST_FAIL=0x{persistent_fail:04x}",
+            f"LIVE_K15_PERSIST_EMIT=0x{persistent_emit:04x}",
+        ]
+        scrub_defines = [
+            "LIVE_K15_SCRUB_CONTROLLER",
+            f"LIVE_K15_NE_BUF_LOAD=0x{ne_buf_load:04x}",
+            f"LIVE_K15_PERSIST_EMIT=0x{persistent_emit:04x}",
+        ]
+        if args.product_mode:
+            assert (
+                persistent_product_zeroize is not None
+                and persistent_emergency is not None
+            )
+            fo_defines.extend(
+                [
+                    "LIVE_K15_PRODUCT_MODE",
+                    (
+                        "LIVE_K15_VAULT_ACCESS_KEY="
+                        f"0x{key('vault_access'):04x}"
+                    ),
+                    (
+                        "LIVE_K15_VAULT_ACCESS_STAGE="
+                        f"0x{PRODUCT_FO_VAULT_STAGE:04x}"
+                    ),
+                ]
+            )
+            scrub_defines.extend(
+                [
+                    "LIVE_K15_PRODUCT_MODE",
+                    (
+                        "LIVE_K15_CONFIG_ESCROW_KEY="
+                        f"0x{key('config_escrow'):04x}"
+                    ),
+                    (
+                        "LIVE_K15_CONFIG_ESCROW_STAGE="
+                        f"0x{PRODUCT_CONFIG_ESCROW_STAGE:04x}"
+                    ),
+                    (
+                        "LIVE_K15_CONFIG_ESCROW_RESTORE="
+                        f"0x{config_escrow_restore:04x}"
+                    ),
+                    (
+                        "LIVE_K15_PERSIST_EMERGENCY="
+                        f"0x{persistent_emergency:04x}"
+                    ),
+                    (
+                        "LIVE_K15_PERSIST_PRODUCT_ZEROIZE="
+                        f"0x{persistent_product_zeroize:04x}"
+                    ),
+                ]
+            )
         fo_controller, fo_controller_listing = assemble(
             build,
             CONTROLLERS,
             "live_fo_controller",
-            (
-                "LIVE_K15_FO_CONTROLLER",
-                f"LIVE_K15_FO_PHASE_KEY=0x{key('fo'):04x}",
-                (
-                    "LIVE_K15_AUTH_CONTROLLER_KEY="
-                    f"0x{key('auth_controller'):04x}"
-                ),
-                f"LIVE_K15_NE_BUF_LOAD=0x{ne_buf_load:04x}",
-                f"LIVE_K15_NE_BUF_READ=0x{ne_buf_read:04x}",
-                f"LIVE_K15_PERSIST_FAIL=0x{persistent_fail:04x}",
-                f"LIVE_K15_PERSIST_EMIT=0x{persistent_emit:04x}",
-            ),
+            tuple(fo_defines),
         )
         scrub_controller, _ = assemble(
             build,
             CONTROLLERS,
             "live_scrub_controller",
-            (
-                "LIVE_K15_SCRUB_CONTROLLER",
-                f"LIVE_K15_NE_BUF_LOAD=0x{ne_buf_load:04x}",
-                f"LIVE_K15_PERSIST_EMIT=0x{persistent_emit:04x}",
-            ),
+            tuple(scrub_defines),
         )
     controller_data = {
         "boot_controller": boot_controller,
@@ -1184,6 +1947,8 @@ def main() -> None:
         "protected_controller": protected_controller,
         "post_controller": post_controller,
     }
+    if args.product_mode:
+        controller_data["sym_tail_restore"] = sym_runtime_tail
     if args.identity:
         controller_data["auth_controller"] = auth_controller
     if args.secure:
@@ -1242,8 +2007,13 @@ def main() -> None:
         secure_sym_code_end = listing_label_offset(
             secure_sym_listing, "live_secure_sym_controller_code_end"
         )
+        expected_secure_sym_len = (
+            PRODUCT_EMBEDDED_SYM_CONTROLLER_LEN
+            if args.product_mode
+            else 256
+        )
         if not (
-            len(secure_sym_controller) == 256
+            len(secure_sym_controller) == expected_secure_sym_len
             and secure_sym_code_end <= len(secure_sym_controller)
             and len(fo_controller) <= FO_CONTROLLER_END - FO_CONTROLLER_START
             and len(fo) <= FO_KERNEL_SECTORS * SECTOR
@@ -1323,32 +2093,55 @@ def main() -> None:
     live_phase_names = [
         "boot_controller",
         "hello_controller",
-        "crypto_controller",
+        "sym_tail_restore" if args.product_mode else "crypto_controller",
     ]
     if args.secure:
-        live_phase_names.extend(
-            ["secure_sym_controller", "secure_preconnect_controller"]
+        live_phase_names.append("secure_sym_controller")
+        live_phase_names.append(
+            "scrub_controller"
+            if args.product_mode
+            else "secure_preconnect_controller"
         )
     live_phase_names.extend(
         [
-        "protected_controller",
+        (
+            "protected_controller_relocation_pad"
+            if args.product_mode
+            else "protected_controller"
+        ),
         "post_controller",
         ]
     )
     if args.secure:
-        live_phase_names.extend(["fo_controller", "scrub_controller"])
+        live_phase_names.append("fo_controller")
+        live_phase_names.append(
+            "secure_preconnect_controller"
+            if args.product_mode
+            else "scrub_controller"
+        )
     if args.secure:
         live_phase_names.append("entropy_controller")
+        if args.product_mode:
+            live_phase_names.extend(
+                [
+                    "vault_lifecycle",
+                    "vault_access",
+                    "config_escrow",
+                    "state_guard",
+                ]
+            )
     else:
         live_phase_names.append("public_fixture")
     live_phase_names.extend(
         [
         "keygen",
         "hello",
+        *(["crypto_controller"] if args.product_mode else []),
         "candidate_track_pad",
         "candidate",
         "sym_track_pad",
         "sym",
+        *(["protected_controller"] if args.product_mode else []),
         ]
     )
     if args.secure:
@@ -1365,6 +2158,10 @@ def main() -> None:
         live_phase_names.extend(
             ["auth_controller", "auth_track_pad", "auth"]
         )
+    if args.product_mode:
+        live_phase_names = [
+            name for name in live_phase_names if layout[name][1] != 0
+        ]
     live_phases = [
         make_live_phase(
             layout,
@@ -1382,41 +2179,55 @@ def main() -> None:
     core = bytearray(product[: BASE_SECTORS * SECTOR])
     if any(core[0x0600:0x0800]):
         raise AssertionError("product resident driver slot is no longer zero-filled")
-    core[LINK_START:LINK_END] = bytes(LINK_END - LINK_START)
-    patch_exact(core, 0x0017, b"\xfa\xbd\x00\x80", b"\xe9\xe6\x05\x90")
-    patch_exact(
-        core,
-        0x004A,
-        b"\xb8\x3e\x01\xe8\x69\x00",
-        b"\x90" * 6,
-    )
-    if args.secure:
-        # Take over immediately after packet-I/O initialization but before the
-        # product's first DHCP call.  The preconnect continuation invokes that
-        # exact routine only after conditioned output is card-vaulted.
-        patch_exact(
-            core,
-            0x0069,
-            b"\xe8\x8a\x01\x72\x42",
-            b"\xe9\x94\x23\x90\x90",
+    if not args.product_mode:
+        core[LINK_START:LINK_END] = bytes(LINK_END - LINK_START)
+        patch_exact(core, 0x0017, b"\xfa\xbd\x00\x80", b"\xe9\xe6\x05\x90")
+        # The splash is a post-pack phase, so its encoded phase key changes
+        # whenever the integrated K14 pack length changes.  Validate the
+        # instruction shape and its exact run_core_phase target from the
+        # current NASM listing, then remove the whole call without pinning the
+        # mutable phase-key immediate.
+        splash_call = bytes(core[0x004A:0x0050])
+        run_core_phase = listing_label_offset(
+            args.product_listing,
+            "run_core_phase",
         )
-    else:
-        # The credential-free timing harness retains the historical
-        # post-DHCP takeover.
-        patch_exact(
-            core,
-            0x006E,
-            b"\xb8\x24\x02\xe8\x40\x00",
-            b"\xe9\x8f\x23" + b"\x90" * 3,
-        )
-    if args.secure:
-        patch_exact(
-            core,
-            PACKET_IO_PSTOP_PATCH_OFFSET,
-            b"\xc6\x06\xcd\x06" + bytes([PRODUCT_NE_PSTOP]),
-            b"\xc6\x06\xcd\x06" + bytes([SECURE_NE_PSTOP]),
-        )
-    core[0x0600:0x0800] = padded(bootstrap, 1)
+        splash_call_rel = (run_core_phase - 0x0050) & 0xFFFF
+        if (
+            splash_call[0] != 0xB8
+            or splash_call[3:] != b"\xE8" + struct.pack("<H", splash_call_rel)
+        ):
+            raise AssertionError(
+                "product splash call shape/target drifted at 0x4a: "
+                f"{splash_call.hex()}"
+            )
+        core[0x004A:0x0050] = b"\x90" * 6
+        if args.secure:
+            # Take over immediately after packet-I/O initialization but before
+            # the product's first DHCP call.
+            patch_exact(
+                core,
+                0x0069,
+                b"\xe8\x8a\x01\x72\x42",
+                b"\xe9\x94\x23\x90\x90",
+            )
+        else:
+            # The credential-free timing harness retains the historical
+            # post-DHCP takeover.
+            patch_exact(
+                core,
+                0x006E,
+                b"\xb8\x24\x02\xe8\x40\x00",
+                b"\xe9\x8f\x23" + b"\x90" * 3,
+            )
+        if args.secure:
+            patch_exact(
+                core,
+                PACKET_IO_PSTOP_PATCH_OFFSET,
+                b"\xc6\x06\xcd\x06" + bytes([PRODUCT_NE_PSTOP]),
+                b"\xc6\x06\xcd\x06" + bytes([SECURE_NE_PSTOP]),
+            )
+        core[0x0600:0x0800] = padded(bootstrap, 1)
     for phase in live_phases:
         core.extend(padded(phase.data, phase.count))
     if len(core) != cursor * SECTOR:
@@ -1427,47 +2238,64 @@ def main() -> None:
 
     live_core = build / "SEED.SYS"
     live_core.write_bytes(core)
+    phase_pack = build / "tls13-k14-product-base-pack.bin"
+    if args.product_mode:
+        phase_pack.write_bytes(core[BASE_SECTORS * SECTOR :])
     scan_no_request_or_credentials(
         "live SEED.SYS",
         core,
         allow_exact_head=True,
     )
-    if core.lower().count(b"api.openai.com") != 3:
+    expected_host_literals = 4 if args.product_mode else 3
+    if core.lower().count(b"api.openai.com") != expected_host_literals:
         raise AssertionError(
-            "harness must contain endpoint-DNS, ClientHello-SNI, and HEAD host literals"
+            "harness must contain endpoint-DNS, ClientHello-SNI, HEAD, and "
+            "only the product runtime-tail replay of that exact HEAD literal"
         )
-    if any(core[LINK_START:LINK_END]):
+    if not args.product_mode and any(core[LINK_START:LINK_END]):
         raise AssertionError("removed product LINK/API overlay is not all zero")
 
-    image = build / "floppy-160k-live-k15.img"
-    run(
-        [
-            "python3",
-            str(ROOT / "tools/build-fat12-image.py"),
-            "build",
-            "--boot",
-            str(PRODUCT_BUILD / "boot.bin"),
-            "--loader",
-            str(PRODUCT_BUILD / "loader.bin"),
-            "--loader-sectors",
-            "4",
-            "--output",
-            str(image),
-            "--file",
-            f"{live_core}:SEED.SYS",
-            "--file",
-            f"{args.ne_driver}:SEED/DRIVERS/NE.DRV",
-        ]
-    )
-    image_bytes = image.read_bytes()
-    if image_bytes[CORE_START_LBA * SECTOR : (CORE_START_LBA + cursor) * SECTOR] != core:
-        raise AssertionError("SEED.SYS is not the first contiguous FAT data file")
-    scan_no_request_or_credentials(
-        "live floppy image",
-        image_bytes,
-        allow_exact_head=True,
-    )
-    basic_loader, basic = build_basic_sidecar(build)
+    image = None
+    image_bytes = b""
+    basic_loader = None
+    basic = None
+    if not args.product_mode:
+        image = build / "floppy-160k-live-k15.img"
+        run(
+            [
+                "python3",
+                str(ROOT / "tools/build-fat12-image.py"),
+                "build",
+                "--boot",
+                str(PRODUCT_BUILD / "boot.bin"),
+                "--loader",
+                str(PRODUCT_BUILD / "loader.bin"),
+                "--loader-sectors",
+                "4",
+                "--output",
+                str(image),
+                "--file",
+                f"{live_core}:SEED.SYS",
+                "--file",
+                f"{args.ne_driver}:SEED/DRIVERS/NE.DRV",
+            ]
+        )
+        image_bytes = image.read_bytes()
+        if (
+            image_bytes[
+                CORE_START_LBA * SECTOR : (CORE_START_LBA + cursor) * SECTOR
+            ]
+            != core
+        ):
+            raise AssertionError(
+                "SEED.SYS is not the first contiguous FAT data file"
+            )
+        scan_no_request_or_credentials(
+            "live floppy image",
+            image_bytes,
+            allow_exact_head=True,
+        )
+        basic_loader, basic = build_basic_sidecar(build)
 
     phase_manifest = [
         {
@@ -1483,11 +2311,22 @@ def main() -> None:
     ]
     manifest_scope = (
         (
-            "offline-built, credential-free live-network deadline plus "
-            "post-Finished HEAD/tentative-ticket, live NE2000 card-RAM "
-            "ML-KEM FO validation, and dated exact-leaf P-256 checkpoint; "
-            "this remains an isolated secure-tier PoC with no credential "
-            "unlock and performed no VM launch or network I/O while building"
+            (
+                "offline-built product K14 phase base using a checked-to-raw-"
+                "to-checked video-RAM public-vault epoch, return-to-caller "
+                "controllers, "
+                "post-Finished HEAD/tentative-ticket, ML-KEM FO validation, "
+                "and dated exact-leaf P-256 checkpoint; final resumption and "
+                "publication are supplied by the product post-auth composition"
+            )
+            if args.product_mode
+            else (
+                "offline-built, credential-free live-network deadline plus "
+                "post-Finished HEAD/tentative-ticket, live NE2000 card-RAM "
+                "ML-KEM FO validation, and dated exact-leaf P-256 checkpoint; "
+                "this remains an isolated secure-tier PoC with no credential "
+                "unlock and performed no VM launch or network I/O while building"
+            )
         )
         if args.secure
         else (
@@ -1536,6 +2375,12 @@ def main() -> None:
         )
     manifest = {
         "scope": manifest_scope,
+        "mode": {
+            "product": args.product_mode,
+            "research_default": not args.product_mode,
+            "generic_vault": args.product_mode,
+            "patched_harness": not args.product_mode,
+        },
         "crypto_memory_variant": {
             "logical_variant": "K14",
             "k_window": "0x1800..0x3400 (end exclusive)",
@@ -1570,6 +2415,9 @@ def main() -> None:
             "path": str(args.product_core),
             "bytes": len(product),
             "sha256": sha256(product),
+            "endpoint_entry": f"0x{endpoint_entry:04x}",
+            "tcp_connect_entry": f"0x{tcp_connect_entry:04x}",
+            "tcp_close_cached_entry": f"0x{tcp_close_cached_entry:04x}",
             "resident_abi_offsets": {
                 name: f"0x{offset + 0x1000:04x}"
                 for name, offset in ABI_OFFSETS.items()
@@ -1585,6 +2433,9 @@ def main() -> None:
             "image_sha256": sha256(image_bytes),
             "basic_loader": str(basic_loader),
             "basic_program": str(basic),
+            "product_phase_pack": (
+                str(phase_pack) if args.product_mode else None
+            ),
             "pre_sym_transition": str(pre_sym_binary),
             "persistent_services": str(persistent_services_binary),
         },
@@ -1658,8 +2509,28 @@ def main() -> None:
                 "candidate_absolute_lba": candidate_absolute_lba,
                 "candidate_batch_calls": 1,
                 "symmetric_restore_absolute_lba": sym_absolute_lba,
-                "symmetric_restore_sectors": 8,
+                "symmetric_restore_sectors": (
+                    PRODUCT_CRITICAL_SYM_RESTORE_SECTORS
+                    if args.secure
+                    else 8
+                ),
                 "symmetric_restore_batch_calls": 1,
+                "off_window_symmetric_tail_restore_absolute_lba": (
+                    sym_absolute_lba + PRODUCT_CRITICAL_SYM_RESTORE_SECTORS
+                    if args.product_mode and args.secure
+                    else None
+                ),
+                "off_window_symmetric_tail_restore_sectors": (
+                    PRODUCT_OFF_WINDOW_SYM_TAIL_SECTORS
+                    if args.product_mode and args.secure
+                    else 0
+                ),
+                "off_window_symmetric_tail_restore_batch_calls": (
+                    1 if args.product_mode and args.secure else 0
+                ),
+                "off_window_symmetric_tail_restore_before_live_socket": (
+                    args.product_mode and args.secure
+                ),
                 "protected_controller_absolute_lba": protected_absolute_lba,
                 "protected_controller_batch_calls": 1,
                 "post_controller_absolute_lba": post_absolute_lba,
@@ -1712,6 +2583,8 @@ def main() -> None:
                     "range": "0x0ee0..0x0f00",
                     "source": "0x3c30..0x3c50",
                     "saved_before_post_controller": True,
+                    "signed_content_digest_computed_after_credential_free_head": True,
+                    "signed_content_digest_computed_after_zero_window": True,
                     "restored_at_exact_head_ticket_boundary": True,
                     "outside_identity_post_scatter": True,
                 }
@@ -1720,8 +2593,12 @@ def main() -> None:
             ),
             "fo_ticket_hold": (
                 {
-                    "ticket": "0x0700..0x07ee",
-                    "expected_provisional_k": "0x07ee..0x080e",
+                    "ticket": "0x0700..0x080e",
+                    "ticket_bytes": 270,
+                    "includes_psk_identity_and_metadata": True,
+                    "identity_metadata": "0x0700..0x07ee",
+                    "psk": "0x07ee..0x080e",
+                    "expected_provisional_k": "0x080e..0x082e",
                     "kernel_preserved_limit": "0x0830",
                     "restored_only_after_valid_fo": True,
                 }
@@ -1739,11 +2616,38 @@ def main() -> None:
                 "first byte-identical replay prefix prebuilt before TCP SYN; "
                 "restored by the first eight symmetric sectors"
             ),
-            "hello_tx_stage_restore": {
+                "hello_tx_stage_restore": {
                 "phase": "sym",
                 "destination": f"0x{HELLO_IMAGE_START:04x}",
-                "bytes": 8 * SECTOR,
-            },
+                    "bytes": 8 * SECTOR,
+                },
+                "product_symmetric_tail": (
+                    {
+                        "range": "0x2ee0..0x3000",
+                        "deadline_raw_writer": "0x2ee0..0x2f80",
+                        "embedded_continuation_source": "0x2f80..0x3000",
+                        "continuation_destination": "0x3400..0x3480",
+                        "sha256_initial_state_stage": "0x0fc2..0x0fe2",
+                        "sha256_initial_state_runtime": "0x2ee0..0x2f00",
+                        "sha256_k_stage": "0x0500..0x0600",
+                        "sha256_k_runtime_restore": "0x2f00..0x3000",
+                        "runtime_tail_phase": {
+                            "name": "sym_tail_restore",
+                            "key": (
+                                f"0x{key('sym_tail_restore'):04x}"
+                            ),
+                            "destination": "0x2e00",
+                            "range": "0x2e00..0x3000",
+                            "bytes": len(sym_runtime_tail),
+                            "sha256": sha256(sym_runtime_tail),
+                            "reuses_former_relocation_pad": True,
+                            "required_after_post_deadline_sym_reload": True,
+                        },
+                        "packaged_controller_phase_loaded": False,
+                    }
+                    if args.product_mode and args.secure
+                    else None
+                ),
             "persistent_services": (
                 f"0x{persistent_runtime_start:04x}.."
                 f"0x{persistent_runtime_end:04x}; untouched K14 extension tail"
@@ -1801,7 +2705,7 @@ def main() -> None:
                     "live_artifact_only": True,
                     "product_source_edited": False,
                 }
-                if args.secure
+                if args.secure and not args.product_mode
                 else None
             ),
             "compiled_canary_head_request": (
@@ -1871,6 +2775,233 @@ def main() -> None:
         },
         "limitations": limitations,
     }
+    if args.product_mode:
+        assert (
+            persistent_product_zeroize is not None
+            and persistent_emergency is not None
+        )
+        persistent_manifest = manifest["persistent_services"]
+        assert isinstance(persistent_manifest, dict)
+        persistent_manifest["product_zeroize"] = (
+            f"0x{persistent_product_zeroize:04x}"
+        )
+        persistent_manifest["emergency_reset"] = (
+            f"0x{persistent_emergency:04x}"
+        )
+        persistent_manifest["root_frame_snapshot"] = {
+            "start": "0x35fa",
+            "end": "0x3600",
+            "sp": "0x35fa",
+            "sp_inverse": "0x35fc",
+            "inverse": "0x35fe",
+            "status": "0x35ff",
+            "expected_return": (
+                f"0x{0x1000 + K14_PRODUCT_ROOT_RETURN_OFFSET:04x}"
+            ),
+        }
+        manifest["limitations"] = [
+            (
+                "the automatic read-only floppy timing source has zero "
+                "emulator credit; representative physical-drive entropy "
+                "characterization remains required"
+            ),
+            (
+                "this base stops before same-boot resumption publication; "
+                "build_post_auth_live.py --product-mode composes that route"
+            ),
+            (
+                "offline assembly proves phase geometry and ABI binding, not "
+                "live provider timing or packet behavior"
+            ),
+        ]
+        manifest["product_abi"] = {
+            "root_entry": {
+                "phase": "boot_controller",
+                "phase_key": f"0x{key('boot_controller'):04x}",
+                "load_destination": "0x3400",
+                "call_address": "0x3400",
+                "resident_return": (
+                    f"0x{0x1000 + K14_PRODUCT_ROOT_RETURN_OFFSET:04x}"
+                ),
+                "preconditions": [
+                    "DS=ES=SS=0 and DF clear",
+                    "resident phase loader and packet I/O initialized",
+                    "same-boot DHCP lease accepted before agent setup",
+                    "model/key config already copied into chat caches",
+                    "state-guard PRE mode completed before the call",
+                ],
+                "input": "AL=0 cold post-config setup; AL=1 human reconnect",
+                "success": "CF=0, AX=1 after composed resumed publication",
+                "failure": "CF=1, AX=0 after best-effort secret/vault cleanup",
+                "preserves_live_session_on_success": True,
+                "nic_vtable": {
+                    "controller_calls_enter": True,
+                    "reuses_boot_acquired_dhcp_lease": True,
+                    "caller_restores_after_every_return": True,
+                    "restore_preserves_tcp_tls_session": True,
+                    "second_enter_before_restore_forbidden": True,
+                },
+                "caller_redraws_after_return": (
+                    "required for MDA because vault zeroize clears the visible "
+                    "page; harmless for CGA"
+                ),
+            },
+            "vault": {
+                "lifecycle_phase_key": f"0x{key('vault_lifecycle'):04x}",
+                "lifecycle_stage": (
+                    f"0x{PRODUCT_VAULT_LIFECYCLE_STAGE:04x}"
+                ),
+                "begin": f"0x{vault_begin:04x}",
+                "begin_input": "DX=nonzero generation",
+                "begin_result": "CF clear on success",
+                "zeroize_offset": (
+                    f"0x{vault_entries['zeroize_offset']:04x}"
+                ),
+                "retire_offset": (
+                    f"0x{vault_entries['retire_offset']:04x}"
+                ),
+                "retire": f"0x{vault_retire:04x}",
+                "retire_contract": (
+                    "erase vault-owned state while preserving the hidden MDA "
+                    "config escrow and saved-mode triple; no mode-port output"
+                ),
+                "access_phase_key": f"0x{key('vault_access'):04x}",
+                "enter_raw_offset": (
+                    f"0x{vault_enter_raw_offset:04x}"
+                ),
+                "enter_raw_preconnect": (
+                    f"0x{0x1800 + vault_enter_raw_offset:04x}"
+                ),
+                "rebind_raw_offset": (
+                    f"0x{vault_rebind_raw_offset:04x}"
+                ),
+                "rebind_raw_receipt": (
+                    f"0x{PRODUCT_FO_VAULT_STAGE + vault_rebind_raw_offset:04x}"
+                ),
+                "receipt_lifecycle_stage": (
+                    f"0x{PRODUCT_FO_VAULT_STAGE:04x}"
+                ),
+                "receipt_lifecycle_write": (
+                    f"0x{PRODUCT_FO_VAULT_STAGE + vault_entries['lifecycle_write_offset']:04x}"
+                ),
+                "receipt_lifecycle_read": (
+                    f"0x{PRODUCT_FO_VAULT_STAGE + vault_entries['lifecycle_read_offset']:04x}"
+                ),
+                "initial_stage": (
+                    f"0x{PRODUCT_VAULT_ACCESS_STAGE:04x}"
+                ),
+                "initial_write": f"0x{ne_buf_load:04x}",
+                "initial_read": f"0x{ne_buf_read:04x}",
+                "fo_stage": f"0x{PRODUCT_FO_VAULT_STAGE:04x}",
+                "fo_write": (
+                    f"0x{PRODUCT_FO_VAULT_STAGE + vault_entries['write_offset']:04x}"
+                ),
+                "fo_read": (
+                    f"0x{PRODUCT_FO_VAULT_STAGE + vault_entries['read_offset']:04x}"
+                ),
+                "resumption_stage": "0x2c00",
+                "resumption_write": (
+                    f"0x{0x2C00 + vault_entries['write_offset']:04x}"
+                ),
+                "resumption_read": (
+                    f"0x{0x2C00 + vault_entries['read_offset']:04x}"
+                ),
+                "write_abi": "AL page, SI source, BP count; CF status",
+                "read_abi": "BX virtual address, CX count, DI destination; CF status",
+                "integrity": (
+                    "per-page IEEE CRC32 plus inverse over generation, page, "
+                    "and 256-byte payload"
+                ),
+                "integrity_claim": (
+                    "32-bit accidental-corruption and lifecycle detection; "
+                    "not authentication"
+                ),
+                "write_old_value_policy": (
+                    "verify a partial tail; skip complete pages because no "
+                    "old byte survives"
+                ),
+                "access_modes": {
+                    "checked": "3cc3",
+                    "raw": "a55a",
+                    "ordinary_access_requires_checked": True,
+                    "enter_raw_validates_every_page": True,
+                    "enter_raw_status_last": True,
+                    "rebind_rebuilds_every_page_tag": True,
+                    "rebind_checked_status_last": True,
+                },
+                "deadline_raw_writer": {
+                    "source": str(PRODUCT_CRITICAL_VAULT_SOURCE),
+                    "image": str(build / "k14_product_critical_vault.bin"),
+                    "image_bytes": len(critical_vault_writer),
+                    "image_sha256": sha256(critical_vault_writer),
+                    "entry": (
+                        f"0x{PRODUCT_CRITICAL_VAULT_ADDR + critical_vault_write_offset:04x}"
+                    ),
+                    "code_bytes": critical_vault_write_end_offset,
+                    "range": "0x2ee0..0x2f80",
+                    "embedded_continuation_source": (
+                        f"0x{PRODUCT_EMBEDDED_SYM_CONTROLLER_SOURCE:04x}"
+                    ),
+                    "embedded_continuation_bytes": (
+                        PRODUCT_EMBEDDED_SYM_CONTROLLER_LEN
+                    ),
+                    "write_abi": "AL page, SI source, BP count; CF status",
+                    "requires_raw_mode": True,
+                    "status_written_last": True,
+                    "page_crc_tags_deliberately_stale": True,
+                    "ordinary_access_forbidden_until_rebind": True,
+                    "authority_granted": False,
+                    "authority_gates": [
+                        "TLS Server Finished",
+                        "full ML-KEM FO compare",
+                        "dated exact-leaf CertificateVerify",
+                    ],
+                },
+            },
+            "config_escrow": {
+                "phase_key": f"0x{key('config_escrow'):04x}",
+                "stage": f"0x{PRODUCT_CONFIG_ESCROW_STAGE:04x}",
+                "save": f"0x{config_escrow_save:04x}",
+                "restore": f"0x{config_escrow_restore:04x}",
+                "conventional_cache": "0x3b9c..0x3c9c",
+                "conventional_sensitive_span": "0x3b2b..0x3c9c",
+                "cache_bytes": 256,
+                "source_zeroed_before_status_publication": True,
+                "cache_preserved_in_modes": [0, 1],
+                "ui_control_vector": {
+                    "cursor_row": "0x0f55",
+                    "cursor_col": "0x0f56",
+                    "dpi_prompt_marker_row": "0x0f33",
+                    "agent_loop_pending": "0x0f66",
+                    "agent_loop_count": "0x0f67",
+                },
+                "video_windows": {
+                    "CGA": "B800:1e00..1f9f",
+                    "MDA": "B000:0e00..0f9f",
+                },
+                "object_bytes": 416,
+                "integrity": "redundant metadata + IEEE CRC32 + CRC32C",
+                "status_written_last": True,
+                "restore_validates_before_conventional_write": True,
+                "restore_scrubs_video_object": True,
+            },
+            "state_guard": {
+                "phase_key": f"0x{key('state_guard'):04x}",
+                "stage": "0x0700",
+                "entry": f"0x{state_guard_entry:04x}",
+                "bytes": len(state_guard),
+                "modes": {
+                    "pre_cold": 0,
+                    "pre_human": 1,
+                    "post_route": 2,
+                    "abort": 3,
+                },
+                "pre_runs_before_root": True,
+                "post_runs_after_root_and_nic_restore": True,
+                "prompt_valid": "0x3cbf",
+                "human_mda_dispatch_requires_prompt_valid": True,
+            },
+        }
     if args.secure:
         assert ne_buf_load is not None and ne_buf_read is not None
         manifest["entropy_ceremony"] = {
@@ -2076,17 +3207,17 @@ def main() -> None:
                 "boot_fail_service_preserved_on_partial_read": True,
             },
             "tentative_ticket": {
-                "source": "0x3b40..0x3c2e",
-                "hold": "0x0700..0x07ee",
+                "source": ["0x38b0..0x38d0", "0x3b40..0x3c2e"],
+                "hold": "0x0700..0x080e",
                 "saved_after_zero_window": True,
                 "restored_only_after_fo_valid_and_k_match": True,
-                "psk_sentinel": "0x38b0..0x38d0",
-                "psk_outside_parked_range": True,
+                "identity_metadata_parked_by_receipt": "0x0700..0x07ee",
+                "psk_parked_by_fo_controller": "0x07ee..0x080e",
                 "psk_preserved_by_fo_kernel": True,
             },
             "secret_cleanup": {
                 "low_handoffs": "0x0d00..0x0e00",
-                "expected_k": "0x07ee..0x080e",
+                "expected_k": "0x080e..0x082e",
                 "retired_high_message": "0x3a40..0x3a60",
                 "card_initial_handoffs": [
                     "0x7e00..0x7e80",
@@ -2105,6 +3236,81 @@ def main() -> None:
             },
             "product_arena_context_writes": 0,
         }
+        if args.product_mode:
+            checkpoint = manifest["secure_fo_checkpoint"]
+            assert isinstance(checkpoint, dict)
+            checkpoint["required_nic_family"] = None
+            checkpoint["marker_order"] = []
+            checkpoint["success_requires_exact_marker_order"] = False
+            checkpoint["success_contract"] = (
+                "CF=0, AX=1 only after the composed resumed publication; "
+                "failures return CF=1, AX=0"
+            )
+            checkpoint["generic_vault_callbacks"] = {
+                "backend": "product video-RAM public-vault lifecycle",
+                "write": f"0x{ne_buf_load:04x}",
+                "read": f"0x{ne_buf_read:04x}",
+                "checked_leaf_used_during_deadline": False,
+                "deadline_raw_writer": (
+                    f"0x{PRODUCT_CRITICAL_VAULT_ADDR:04x}"
+                ),
+                "deadline_raw_writer_bytes": len(critical_vault_writer),
+                "raw_epoch_rebound_before_receipt": True,
+                "virtual_range": "0x7300..0x8000",
+                "nic_family_independent": True,
+                "floppy_writes": 0,
+            }
+            checkpoint["packaged_driver"] = None
+            checkpoint["card_vault"] = None
+            checkpoint["phase_transitions"] = {
+                "secure_preconnect_controller": "0x2400..0x2800",
+                "checked_vault_access_initial": "0x2800..0x2c00",
+                "raw_epoch_entry_lifecycle": "0x1800..0x1dfb",
+                "off_window_symmetric_tail_restore": "0x2800..0x2c00",
+                "deadline_raw_writer": "0x2ee0..0x2f80",
+                "embedded_symmetric_continuation_source": "0x2f80..0x3000",
+                "receipt_raw_rebind_lifecycle": "0x2800..0x2dfb",
+                "checked_vault_access_after_rebind": "0x2800..0x2c00",
+                "generic_vault_access_resumption": "0x2c00..0x3000",
+                "persistent_services_preserved": (
+                    f"0x{PERSISTENT_SERVICES_START:04x}.."
+                    f"0x{persistent_runtime_end:04x}"
+                ),
+                "fo_controller": "0x2400..0x2600",
+                "failure_local_scrub_controller": "0x2400..0x2600",
+                "failure_lifecycle_zeroize": (
+                    f"0x{persistent_product_zeroize:04x}"
+                ),
+                "auth_controller": "0x3200",
+            }
+            checkpoint["preconnect_failure_cleanup"] = {
+                "relocated_runtime": (
+                    f"0x{PRE_SYM_TRANSITION_START:04x}.."
+                    f"0x{PRE_SYM_TRANSITION_START + len(pre_sym_transition):04x}"
+                ),
+                "local_secret_ranges": [
+                    "0x0700..0x0800",
+                    "0x1800..0x2337",
+                    "0x3000..0x3400",
+                    "0x3600..0x3b00",
+                    "0x3b9c..0x3bdc",
+                ],
+                "generic_vault_zeroize_attempted": True,
+                "caller_restores_single_vtable_lease_after_every_return": True,
+            }
+            checkpoint["secret_cleanup"] = {
+                "local_handoffs_and_candidate_scrubbed": True,
+                "generic_vault_lifecycle_zeroized": True,
+                "never_calls_retired_access_leaf": True,
+                "failure_returns_to_caller": "CF=1, AX=0",
+            }
+            output_manifest = manifest["output"]
+            assert isinstance(output_manifest, dict)
+            output_manifest["image"] = None
+            output_manifest["image_bytes"] = 0
+            output_manifest["image_sha256"] = None
+            output_manifest["basic_loader"] = None
+            output_manifest["basic_program"] = None
     manifest_path = build / "manifest.json"
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 
@@ -2113,16 +3319,29 @@ def main() -> None:
         f"  core={len(core)} bytes ({cursor} sectors) "
         f"sha256={sha256(core)}"
     )
-    print(f"  image={image} sha256={sha256(image_bytes)}")
+    if image is not None:
+        print(f"  image={image} sha256={sha256(image_bytes)}")
+    else:
+        print(
+            f"  product phase pack={phase_pack} "
+            f"sha256={sha256(phase_pack.read_bytes())}"
+        )
     print(
         "  controllers="
         + ", ".join(f"{name}:{len(data)}B" for name, data in controller_data.items())
     )
-    print(
-        "  exact credential-free HEAD allowlist + credential literal gate=PASS; "
-        "packaged files=SEED.SYS + SEED/DRIVERS/NE.DRV"
-    )
-    print(f"  BASIC sidecar={basic}")
+    if args.product_mode:
+        print(
+            "  exact credential-free HEAD allowlist + credential literal "
+            "gate=PASS; phase pack has no NIC-driver dependency"
+        )
+    else:
+        print(
+            "  exact credential-free HEAD allowlist + credential literal "
+            "gate=PASS; packaged files=SEED.SYS + SEED/DRIVERS/NE.DRV"
+        )
+    if basic is not None:
+        print(f"  BASIC sidecar={basic}")
     print(f"  manifest={manifest_path}")
     print("  VM/network launch=NOT PERFORMED")
 

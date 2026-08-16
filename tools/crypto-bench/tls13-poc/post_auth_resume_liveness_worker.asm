@@ -32,14 +32,8 @@ org 0x0900
 %ifndef RESUME_LIVENESS_TCP_ACK
 %error "liveness worker requires resident TCP ACK"
 %endif
-%ifndef RESUME_LIVENESS_NIC_RECEIVE_SLOT
-%error "liveness worker requires the resident NIC receive vtable slot"
-%endif
 %ifndef RESUME_LIVENESS_RX_SAMPLE_COUNT
 %error "liveness worker requires resident NIC sample-count state"
-%endif
-%ifndef RESUME_LIVENESS_RX_READ_LIMIT
-%error "liveness worker requires resident NIC read-limit state"
 %endif
 %ifndef RESUME_LIVENESS_TCP_PAYLOAD_PTR
 %error "liveness worker requires resident TCP payload-pointer state"
@@ -115,11 +109,13 @@ liveness_http_done         equ liveness_http_line_state + 1
 liveness_http_status_state equ liveness_http_done + 1
 liveness_state_end         equ 0x3c76
 
-liveness_flush_limit       equ 256
-liveness_nic_read_limit    equ 438
 liveness_http_limit        equ 2048
 
 resume_liveness_code:
+    ; Resident tcp_receive_payload waits with HLT. Make its interrupt
+    ; requirement explicit at the low-worker boundary rather than inheriting
+    ; an incidental IF state from deferred FO and the phase loader.
+    sti
     cld
     push es
     push ds
@@ -130,23 +126,11 @@ resume_liveness_code:
     jne resume_liveness_failed
     call liveness_clear_all
 
-    ; Retire copies accumulated while the receive window was zero.  An empty
-    ; sample is the exact boundary from which the following ACK asks the peer
-    ; to retransmit.
-    mov word [RESUME_LIVENESS_RX_READ_LIMIT], liveness_nic_read_limit
-    mov bp, liveness_flush_limit
-.flush:
-    push bp
-    call word [RESUME_LIVENESS_NIC_RECEIVE_SLOT]
-    pop bp
-    cld
-    jc resume_liveness_failed
-    cmp word [RESUME_LIVENESS_RX_SAMPLE_COUNT], 0
-    je .open_window
-    dec bp
-    jnz .flush
-    jmp resume_liveness_failed
-.open_window:
+    ; Open the ordinary receive window without destructively draining the NIC
+    ; ring first. tcp_receive_payload's exact-sequence parser retires stale
+    ; zero-window probes/duplicates and accepts an already-queued response.
+    ; Discarding that exact response here would depend on a host TCP proxy
+    ; retransmitting bytes it may already have acknowledged upstream.
     call RESUME_LIVENESS_TCP_ACK
     cld
     jc resume_liveness_failed

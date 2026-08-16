@@ -2,6 +2,8 @@
 %error "PHASE_BASE must name the containing phase start label"
 %endif
 
+%include "phases/warm_restart_scrub.inc"
+
 %macro phase_call_res 1
     db 0xe8
     dw %1 - (low_scratch_start + ($ - PHASE_BASE) + 2)
@@ -343,8 +345,7 @@ restore_env_phase:
     call .print_z                    ; "incorrect option"
     jmp .tb_prompt
 .tb_restart:
-    mov word [0x0472], 0x1234        ; restart -> warm-boot flag + reset vector
-    jmp 0xffff:0x0000
+    jmp restore_env_warm_restart
 .fail:
     stc
     ret
@@ -656,4 +657,7 @@ restore_env_paint_screen:
 restore_seed_name db 'SEED       '
 restore_env_name db 'ENV     DAT'
 
+seed_warm_restart_scrub restore_env_warm_restart, low_scratch_start
+
+%unmacro seed_warm_restart_scrub 2
 %unmacro phase_call_res 1

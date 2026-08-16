@@ -744,26 +744,183 @@ def zero_rtt_architecture_gate() -> dict[str, object]:
         ):
             assignments[node.target.id] = node.value
 
-    reservations_node = assignments.get("reservations")
-    if not isinstance(reservations_node, (ast.Tuple, ast.List)):
-        raise AssertionError("builder phase reservations are not static")
-    reservations: dict[str, tuple[int, int]] = {}
-    for item in reservations_node.elts:
-        if not isinstance(item, (ast.Tuple, ast.List)) or len(item.elts) != 3:
-            continue
-        name_node, sectors_node, destination_node = item.elts
+    def reservation_literal(
+        node: ast.expr,
+    ) -> tuple[str, int, int | str]:
+        if not isinstance(node, (ast.Tuple, ast.List)) or len(node.elts) != 3:
+            raise AssertionError("builder phase reservation is not a fixed triple")
+        name_node, sectors_node, destination_node = node.elts
         if (
-            isinstance(name_node, ast.Constant)
-            and isinstance(name_node.value, str)
-            and isinstance(sectors_node, ast.Constant)
-            and isinstance(sectors_node.value, int)
-            and isinstance(destination_node, ast.Constant)
-            and isinstance(destination_node.value, int)
+            not isinstance(name_node, ast.Constant)
+            or not isinstance(name_node.value, str)
+            or not isinstance(sectors_node, ast.Constant)
+            or not isinstance(sectors_node.value, int)
         ):
-            reservations[name_node.value] = (
-                sectors_node.value,
-                destination_node.value,
+            raise AssertionError("builder phase reservation name/count is dynamic")
+        if isinstance(destination_node, ast.Constant) and isinstance(
+            destination_node.value, int
+        ):
+            destination: int | str = destination_node.value
+        elif isinstance(destination_node, ast.Name):
+            destination = destination_node.id
+        else:
+            raise AssertionError(
+                f"{name_node.value} reservation destination is dynamic"
             )
+        return name_node.value, sectors_node.value, destination
+
+    reservations_list_node = assignments.get("reservations_list")
+    if not isinstance(reservations_list_node, ast.List):
+        raise AssertionError("builder base phase reservations are not static")
+    base_reservations = [
+        reservation_literal(item) for item in reservations_list_node.elts
+    ]
+    expected_base_reservations: list[tuple[str, int, int | str]] = [
+        ("post_auth_publication_adapter", 1, "PUBLICATION_ADAPTER_START"),
+        ("post_auth_supervisor", 2, "SUPERVISOR_START"),
+        ("post_auth_route_gate", 2, "GATE_START"),
+        ("post_auth_resume_controller", 2, "ADAPTER_STAGE"),
+        ("post_auth_cached_connect", 1, "CACHED_CONNECT_ORIGIN"),
+        ("post_auth_resumed_hello", 8, 0x1800),
+        ("post_auth_resume_receipt", 1, "AUTH_CALLBACK_STAGE"),
+        ("post_auth_resume_lifecycle", 2, 0x3000),
+        ("post_auth_resume_lifecycle_receipt_hash", 1, 0x2400),
+        ("post_auth_resume_lifecycle_vault_hash", 1, 0x2400),
+        ("post_auth_resume_prepare", 2, 0x3000),
+        ("post_auth_resume_prepare_hash", 1, 0x3000),
+        ("post_auth_resume_prepare_commit", 1, 0x3000),
+        ("post_auth_resume_prepare_crypto", 1, 0x3000),
+        ("post_auth_resume_prepare_age", 1, 0x2800),
+        ("post_auth_resume_prepare_binder", 1, 0x3000),
+        ("post_auth_resume_prepare_sym_binder", 1, 0x3400),
+        ("post_auth_resume_prepare_early", 1, 0x3400),
+        ("post_auth_resume_prepare_restore", 1, 0x3000),
+        ("post_auth_resume_exchange", 1, 0x3000),
+        ("post_auth_resume_exchange_tx", 1, 0x3000),
+        ("post_auth_resume_exchange_rx", 2, 0x2800),
+        ("post_auth_resume_exchange_crypto", 1, 0x3000),
+        ("post_auth_resume_exchange_post", 1, 0x2400),
+        ("post_auth_resume_exchange_restore", 1, 0x0700),
+        ("post_auth_resume_fo", 1, 0x3000),
+        ("post_auth_resume_fo_controller", 2, 0x2400),
+        ("post_auth_resume_sym_io", 1, "ADAPTER_STAGE"),
+        ("post_auth_resume_dispatcher", 1, "CALLBACKS_START"),
+        ("post_auth_resume_liveness", 2, "RESUME_LIVENESS_START"),
+    ]
+    if base_reservations != expected_base_reservations:
+        raise AssertionError(
+            "builder base phase reservation ledger drifted: "
+            f"{base_reservations!r}"
+        )
+
+    def is_product_mode(node: ast.expr) -> bool:
+        return (
+            isinstance(node, ast.Attribute)
+            and node.attr == "product_mode"
+            and isinstance(node.value, ast.Name)
+            and node.value.id == "args"
+        )
+
+    def reservation_mutation(
+        statement: ast.stmt,
+        method: str,
+    ) -> ast.Call | None:
+        if (
+            not isinstance(statement, ast.Expr)
+            or not isinstance(statement.value, ast.Call)
+            or not isinstance(statement.value.func, ast.Attribute)
+            or statement.value.func.attr != method
+            or not isinstance(statement.value.func.value, ast.Name)
+            or statement.value.func.value.id != "reservations_list"
+            or len(statement.value.args) != 1
+            or statement.value.keywords
+        ):
+            return None
+        return statement.value
+
+    conditional_ledgers: list[
+        tuple[tuple[str, int, int | str], list[tuple[str, int, int | str]]]
+    ] = []
+    accepted_mutations: set[int] = set()
+    for node in ast.walk(builder_tree):
+        if not isinstance(node, ast.If) or not is_product_mode(node.test):
+            continue
+        if len(node.body) != 1 or len(node.orelse) != 1:
+            continue
+        product_append = reservation_mutation(node.body[0], "append")
+        legacy_extend = reservation_mutation(node.orelse[0], "extend")
+        if product_append is None or legacy_extend is None:
+            continue
+        legacy_node = legacy_extend.args[0]
+        if not isinstance(legacy_node, (ast.Tuple, ast.List)):
+            raise AssertionError(
+                "builder non-product phase reservations are dynamic"
+            )
+        conditional_ledgers.append(
+            (
+                reservation_literal(product_append.args[0]),
+                [reservation_literal(item) for item in legacy_node.elts],
+            )
+        )
+        accepted_mutations.update({id(product_append), id(legacy_extend)})
+
+    expected_product_reservation = (
+        "post_auth_product_publication",
+        1,
+        "PRODUCT_PUBLICATION_START",
+    )
+    expected_legacy_reservations: list[tuple[str, int, int | str]] = [
+        ("post_auth_auth_callbacks", 1, "CALLBACKS_START"),
+        ("post_auth_user_loader", 2, "USER_LOADER_START"),
+        ("post_auth_request_callbacks", 1, "CALLBACKS_START"),
+        ("post_auth_request", 2, "REQUEST_START"),
+        ("post_auth_request_adapter", 1, "ADAPTER_STAGE"),
+        ("post_auth_response", 2, "REQUEST_START"),
+        ("post_auth_response_literals", 1, "ADAPTER_STAGE"),
+    ]
+    if conditional_ledgers != [
+        (expected_product_reservation, expected_legacy_reservations)
+    ]:
+        raise AssertionError(
+            "builder product/non-product reservation branch drifted: "
+            f"{conditional_ledgers!r}"
+        )
+
+    reservation_mutations = [
+        node
+        for node in ast.walk(builder_tree)
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "reservations_list"
+        )
+    ]
+    if (
+        len(reservation_mutations) != 2
+        or {id(node) for node in reservation_mutations} != accepted_mutations
+    ):
+        raise AssertionError("builder has an unverified reservation-list mutation")
+
+    reservations_node = assignments.get("reservations")
+    if not (
+        isinstance(reservations_node, ast.Call)
+        and isinstance(reservations_node.func, ast.Name)
+        and reservations_node.func.id == "tuple"
+        and len(reservations_node.args) == 1
+        and isinstance(reservations_node.args[0], ast.Name)
+        and reservations_node.args[0].id == "reservations_list"
+        and not reservations_node.keywords
+    ):
+        raise AssertionError(
+            "builder does not freeze the verified reservation list as a tuple"
+        )
+
+    reservations = {
+        name: (sectors, destination)
+        for name, sectors, destination in base_reservations
+        if isinstance(destination, int)
+    }
     expected_reservations = {
         "post_auth_resume_prepare_age": (1, 0x2800),
         "post_auth_resume_prepare_sym_binder": (1, 0x3400),
@@ -896,32 +1053,94 @@ def zero_rtt_architecture_gate() -> dict[str, object]:
         "RESUME_EXCHANGE_SYM_RESTORE_KEY"
     )
     if not (
-        isinstance(sym_restore, ast.Call)
-        and isinstance(sym_restore.func, ast.Name)
-        and sym_restore.func.id == "phase_key"
-        and len(sym_restore.args) == 2
-        and isinstance(sym_restore.args[0], ast.Name)
-        and sym_restore.args[0].id == "sym_start"
-        and isinstance(sym_restore.args[1], ast.Constant)
-        and sym_restore.args[1].value == 10
+        isinstance(sym_restore, ast.Name)
+        and sym_restore.id == "sym_key"
     ):
         raise AssertionError(
-            "EXCHANGE no longer restores the ten borrowed symmetric sectors"
+            "EXCHANGE no longer restores the complete symmetric phase"
         )
+
+    sym_phase = assignments.get("sym_phase")
+    if not (
+        isinstance(sym_phase, ast.Subscript)
+        and isinstance(sym_phase.value, ast.Name)
+        and sym_phase.value.id == "base_phases"
+        and isinstance(sym_phase.slice, ast.Constant)
+        and sym_phase.slice.value == "sym"
+    ):
+        raise AssertionError("symmetric restore phase is no longer the base sym phase")
+    sym_key = assignments.get("sym_key")
+    if not (
+        isinstance(sym_key, ast.Call)
+        and isinstance(sym_key.func, ast.Name)
+        and sym_key.func.id == "parse_hex"
+        and len(sym_key.args) == 2
+        and not sym_key.keywords
+        and isinstance(sym_key.args[0], ast.Call)
+        and isinstance(sym_key.args[0].func, ast.Attribute)
+        and isinstance(sym_key.args[0].func.value, ast.Name)
+        and sym_key.args[0].func.value.id == "sym_phase"
+        and sym_key.args[0].func.attr == "get"
+        and len(sym_key.args[0].args) == 1
+        and isinstance(sym_key.args[0].args[0], ast.Constant)
+        and sym_key.args[0].args[0].value == "key"
+        and not sym_key.args[0].keywords
+        and isinstance(sym_key.args[1], ast.Constant)
+        and sym_key.args[1].value == "complete symmetric phase key"
+    ):
+        raise AssertionError("complete symmetric phase key derivation drifted")
+
+    def is_complete_sym_geometry_guard(node: ast.If) -> bool:
+        test = node.test
+        return (
+            isinstance(test, ast.Compare)
+            and isinstance(test.left, ast.Name)
+            and test.left.id == "sym_key"
+            and len(test.ops) == 1
+            and isinstance(test.ops[0], ast.NotEq)
+            and len(test.comparators) == 1
+            and isinstance(test.comparators[0], ast.Call)
+            and isinstance(test.comparators[0].func, ast.Name)
+            and test.comparators[0].func.id == "phase_key"
+            and len(test.comparators[0].args) == 2
+            and not test.comparators[0].keywords
+            and isinstance(test.comparators[0].args[0], ast.Name)
+            and test.comparators[0].args[0].id == "sym_start"
+            and isinstance(test.comparators[0].args[1], ast.Call)
+            and isinstance(test.comparators[0].args[1].func, ast.Name)
+            and test.comparators[0].args[1].func.id == "int"
+            and len(test.comparators[0].args[1].args) == 1
+            and not test.comparators[0].args[1].keywords
+            and isinstance(test.comparators[0].args[1].args[0], ast.Subscript)
+            and isinstance(
+                test.comparators[0].args[1].args[0].value, ast.Name
+            )
+            and test.comparators[0].args[1].args[0].value.id == "sym_phase"
+            and isinstance(
+                test.comparators[0].args[1].args[0].slice, ast.Constant
+            )
+            and test.comparators[0].args[1].args[0].slice.value == "sectors"
+        )
+
+    if (
+        sum(
+            is_complete_sym_geometry_guard(node)
+            for node in ast.walk(builder_tree)
+            if isinstance(node, ast.If)
+        )
+        != 1
+    ):
+        raise AssertionError(
+            "complete symmetric phase key lost its geometry guard"
+        )
+
     critical_keys = assignments.get("critical_base_keys")
     if not isinstance(critical_keys, ast.Set) or not any(
-        isinstance(item, ast.Call)
-        and isinstance(item.func, ast.Name)
-        and item.func.id == "phase_key"
-        and len(item.args) == 2
-        and isinstance(item.args[0], ast.Name)
-        and item.args[0].id == "sym_start"
-        and isinstance(item.args[1], ast.Constant)
-        and item.args[1].value == 10
+        isinstance(item, ast.Name) and item.id == "sym_key"
         for item in critical_keys.elts
     ):
         raise AssertionError(
-            "ten-sector symmetric restore key left the collision gate"
+            "complete symmetric restore key left the collision gate"
         )
     if "len(resume_exchange_rx) <= 2 * SECTOR" not in builder_source:
         raise AssertionError("EXCHANGE RX lost its measured two-sector bound")
@@ -1233,7 +1452,7 @@ def zero_rtt_architecture_gate() -> dict[str, object]:
             "RESTORE",
         ],
         "exchange_rx_sectors": 2,
-        "symmetric_restore_sectors": 10,
+        "symmetric_restore_sectors": 12,
         "rsi_operations": [4, 5, 6, 7],
         "ticket_marker_lifecycle": [2, 0, 1],
         "one_shot_burn_precedes_tcp_send": True,
@@ -1502,6 +1721,7 @@ def supervisor_authority_order_gate(directory: Path) -> dict[str, object]:
         ),
     }
     events: list[str] = []
+    resume_operations: list[int] = []
     active_low_phase = ""
     publication: bytes | None = None
     liveness_overwrite = False
@@ -1696,6 +1916,23 @@ def supervisor_authority_order_gate(directory: Path) -> dict[str, object]:
     ) -> None:
         if address in {route, route_inverse, state - 1, state}:
             promotion_writes.append((address, value & ((1 << (8 * size)) - 1)))
+        if address == route and value & 0xFF == 2:
+            if (
+                resume_operations[-1:] != [9]
+                or "outer:after:LIVENESS" not in events
+            ):
+                raise AssertionError(
+                    "LIVE_TICKET promotion preceded authenticated "
+                    "operation-9 liveness"
+                )
+
+    def record_resume_operation(
+        uc: Uc,
+        _address: int,
+        _size: int,
+        _user_data: object,
+    ) -> None:
+        resume_operations.append(uc.reg_read(UC_X86_REG_AX) & 0xFFFF)
 
     def authorize_live_ticket(
         uc: Uc,
@@ -1705,6 +1942,8 @@ def supervisor_authority_order_gate(directory: Path) -> dict[str, object]:
     ) -> None:
         if (
             bytes(uc.mem_read(route, 1)) != b"\x02"
+            or resume_operations[-1:] != [9]
+            or "outer:after:LIVENESS" not in events
             or any(
                 uc.reg_read(register) & 0xFFFF
                 for register in (
@@ -1773,6 +2012,7 @@ def supervisor_authority_order_gate(directory: Path) -> dict[str, object]:
 
     hooks = (
         (PHASE_LOADER, load_phase),
+        (0x0500, record_resume_operation),
         (gate_commit, commit_ticket_only),
         (gate_authorize, authorize_live_ticket),
         (stamp, stamp_receipt),
@@ -1836,6 +2076,276 @@ def supervisor_authority_order_gate(directory: Path) -> dict[str, object]:
         raise AssertionError("successful path changed 0x0600..0x08b6")
     if publication is None:
         raise AssertionError("UCL1 fixture did not publish PAK1")
+    if resume_operations != [8, 9]:
+        raise AssertionError(
+            "successful authority path did not use only resumed liveness "
+            f"then promotion: {resume_operations!r}"
+        )
+
+    # Head state 2 is the authenticated ticket-bearing close_notify outcome.
+    # It enters this composition with exactly the same ROG3 TICKET_ONLY
+    # authority as the ordinary fresh-HEAD outcome.  Execute the real
+    # supervisor again with the resumed liveness worker forced to fail: route
+    # 3 must be able to reach only cleanup operation 11, never operation 9,
+    # ROG4 authorization, UCL1 publication, or any credential/request phase.
+    provisional_head_state = 2
+    denied_events: list[str] = []
+    denied_operations: list[int] = []
+    denied_route2_writes: list[tuple[int, int]] = []
+    denied_publication_writes: list[tuple[int, int, int]] = []
+    denied_active_low_phase = ""
+    denied_liveness_worker = b"\xB8\x00\x00\xF9\xC3".ljust(
+        0x0401, b"\x90"
+    ).ljust(0x0600, b"\0")
+    denied = Uc(UC_ARCH_X86, UC_MODE_16)
+    denied.mem_map(0, RAM_BYTES)
+    denied.mem_write(0, bytes([0xA5]) * RAM_BYTES)
+    denied.mem_write(0x0600, live_poison)
+    denied.mem_write(0x3000, supervisor)
+    denied.mem_write(PHASE_LOADER, b"\xC3")
+    denied.mem_write(RETURN_SENTINEL, b"\xF4")
+    denied.mem_write(
+        0x360A,
+        APP.TEST_GENERATION.to_bytes(2, "little"),
+    )
+    denied.mem_write(STACK_TOP - 2, struct.pack("<H", RETURN_SENTINEL))
+    for register in (
+        UC_X86_REG_CS,
+        UC_X86_REG_DS,
+        UC_X86_REG_ES,
+        UC_X86_REG_SS,
+    ):
+        denied.reg_write(register, 0)
+    denied.reg_write(UC_X86_REG_SP, STACK_TOP - 2)
+    denied.reg_write(UC_X86_REG_EFLAGS, 2)
+
+    def denied_load_phase(
+        uc: Uc,
+        _address: int,
+        _size: int,
+        _user_data: object,
+    ) -> None:
+        nonlocal denied_active_low_phase
+        key = uc.reg_read(UC_X86_REG_AX) & 0xFFFF
+        destination = uc.reg_read(UC_X86_REG_BX) & 0xFFFF
+        phase = phases.get(key)
+        if phase is None:
+            raise AssertionError(
+                f"unexpected provisional supervisor phase {key:#06x}"
+            )
+        name, image = phase
+        if name in {
+            "auth_callbacks",
+            "user_loader",
+            "request_callbacks",
+            "request",
+            "request_adapter",
+        }:
+            raise AssertionError(
+                f"TICKET_ONLY/head-state 2 loaded credential phase {name}"
+            )
+        expected_destinations = {
+            "supervisor": 0x3000,
+            "gate": 0x1800,
+            "resume_callbacks": 0x0D00,
+            "resume_tail": 0x0D00,
+            "resume_head": 0x0900,
+            "route_worker": 0x3000,
+            "liveness_worker": 0x0900,
+        }
+        if destination != expected_destinations[name]:
+            raise AssertionError(
+                f"{name} loaded at {destination:#06x}, expected "
+                f"{expected_destinations[name]:#06x}"
+            )
+        if name == "liveness_worker":
+            image = denied_liveness_worker
+            denied_active_low_phase = name
+        uc.mem_write(destination, image)
+        uc.ctl_remove_cache(destination, destination + len(image))
+        if name == "resume_callbacks":
+            uc.ctl_remove_cache(0x0500, 0x0600)
+        if name == "supervisor":
+            uc.ctl_remove_cache(0x3000, 0x3400)
+        denied_events.append(f"load:{name}")
+        set_carry(uc, False)
+
+    def denied_commit_ticket_only(
+        uc: Uc,
+        _address: int,
+        _size: int,
+        _user_data: object,
+    ) -> None:
+        if (
+            provisional_head_state != 2
+            or uc.reg_read(UC_X86_REG_BX) & 0xFFFF != 3
+        ):
+            raise AssertionError(
+                "head-state-2 boundary did not commit only TICKET_ONLY"
+            )
+        uc.mem_write(route, b"\x03")
+        uc.mem_write(route_inverse, b"\xfc")
+        uc.mem_write(state, b"\xc3")
+        uc.mem_write(
+            0x3C30,
+            APP.TEST_GENERATION.to_bytes(2, "little"),
+        )
+        uc.reg_write(UC_X86_REG_AX, 1)
+        set_carry(uc, False)
+        denied_events.append("commit:TICKET_ONLY:head-state-2")
+
+    def denied_stamp_receipt(
+        uc: Uc,
+        _address: int,
+        _size: int,
+        _user_data: object,
+    ) -> None:
+        if bytes(uc.mem_read(route, 1)) != b"\x03":
+            raise AssertionError(
+                "provisional RSU1 stamp did not retain TICKET_ONLY"
+            )
+        return_address = int.from_bytes(
+            bytes(
+                uc.mem_read(
+                    uc.reg_read(UC_X86_REG_SP) & 0xFFFF,
+                    2,
+                )
+            ),
+            "little",
+        )
+        if not 0x0F00 <= return_address < 0x0FE2:
+            raise AssertionError(
+                "provisional RSU1 stamp retained a supervisor return"
+            )
+        uc.mem_write(0x3000, bytes([0xCC]) * 0x400)
+        uc.ctl_remove_cache(0x3000, 0x3400)
+        uc.reg_write(UC_X86_REG_AX, 1)
+        set_carry(uc, False)
+        denied_events.append("rsu1:stamp")
+
+    def denied_fresh_attempt(
+        uc: Uc,
+        _address: int,
+        _size: int,
+        _user_data: object,
+    ) -> None:
+        if bytes(uc.mem_read(route, 1)) != b"\x03":
+            raise AssertionError(
+                "provisional resumption did not start at TICKET_ONLY"
+            )
+        stack = (uc.reg_read(UC_X86_REG_SP) - 2) & 0xFFFF
+        uc.mem_write(
+            stack,
+            RESUME_AFTER_LIVENESS.to_bytes(2, "little"),
+        )
+        uc.reg_write(UC_X86_REG_SP, stack)
+        uc.reg_write(UC_X86_REG_AX, 8)
+        uc.reg_write(UC_X86_REG_IP, 0x0500)
+        denied_events.append("rsu1:tail:LIVENESS")
+
+    def denied_after_liveness(
+        _uc: Uc,
+        _address: int,
+        _size: int,
+        _user_data: object,
+    ) -> None:
+        denied_events.append("outer:after:LIVENESS:failed")
+
+    def denied_resume_operation(
+        uc: Uc,
+        _address: int,
+        _size: int,
+        _user_data: object,
+    ) -> None:
+        denied_operations.append(uc.reg_read(UC_X86_REG_AX) & 0xFFFF)
+
+    def denied_authorize(
+        _uc: Uc,
+        _address: int,
+        _size: int,
+        _user_data: object,
+    ) -> None:
+        raise AssertionError(
+            "TICKET_ONLY/head-state 2 invoked the credential callback"
+        )
+
+    def denied_user_or_request(
+        _uc: Uc,
+        _address: int,
+        _size: int,
+        _user_data: object,
+    ) -> None:
+        if denied_active_low_phase == "liveness_worker":
+            return
+        raise AssertionError(
+            "TICKET_ONLY/head-state 2 reached UCL1/request publication"
+        )
+
+    def denied_write(
+        _uc: Uc,
+        _access: int,
+        address: int,
+        size: int,
+        value: int,
+        _user_data: object,
+    ) -> None:
+        masked = value & ((1 << (8 * size)) - 1)
+        if address == route and masked & 0xFF == 2:
+            denied_route2_writes.append((address, masked))
+        if (
+            address < APP.PUBLICATION_END
+            and address + size > APP.PUBLICATION_START
+            and masked != 0
+        ):
+            denied_publication_writes.append((address, size, masked))
+
+    denied_hooks = (
+        (PHASE_LOADER, denied_load_phase),
+        (0x0500, denied_resume_operation),
+        (gate_commit, denied_commit_ticket_only),
+        (gate_authorize, denied_authorize),
+        (stamp, denied_stamp_receipt),
+        (attempt, denied_fresh_attempt),
+        (RESUME_AFTER_LIVENESS, denied_after_liveness),
+        (request_entry, denied_user_or_request),
+    )
+    for address, callback in denied_hooks:
+        denied.hook_add(
+            UC_HOOK_CODE,
+            callback,
+            begin=address,
+            end=address,
+        )
+    denied.hook_add(UC_HOOK_MEM_WRITE, denied_write)
+    denied.emu_start(0x3000, RETURN_SENTINEL, count=3_000_000)
+    if denied.reg_read(UC_X86_REG_IP) & 0xFFFF != RETURN_SENTINEL:
+        raise AssertionError(
+            "failed provisional liveness did not reach persistent failure"
+        )
+    if denied_operations != [8, 11]:
+        raise AssertionError(
+            "failed provisional route did not go directly from liveness to "
+            f"cleanup: {denied_operations!r}"
+        )
+    if denied_route2_writes:
+        raise AssertionError(
+            "failed provisional liveness published LIVE_TICKET"
+        )
+    if denied_publication_writes:
+        raise AssertionError(
+            "failed provisional liveness wrote nonzero PAK1 state: "
+            f"{denied_publication_writes!r}"
+        )
+    denied_publication = bytes(
+        denied.mem_read(
+            APP.PUBLICATION_START,
+            APP.PUBLICATION_END - APP.PUBLICATION_START,
+        )
+    )
+    if denied_publication[2:6] == b"PAK1":
+        raise AssertionError(
+            "failed provisional liveness left a PAK1 publication"
+        )
 
     controller_source = CONTROLLER_SOURCE.read_text(encoding="utf-8")
     receive_label = controller_source.index(
@@ -1896,7 +2406,16 @@ def supervisor_authority_order_gate(directory: Path) -> dict[str, object]:
     return {
         "supervisor_bytes": len(supervisor),
         "events": events,
+        "resume_operations": resume_operations,
         "credential_before_route2": False,
+        "head_state_2_ticket_only": {
+            "input_head_state": provisional_head_state,
+            "failed_liveness_operations": denied_operations,
+            "credential_callback_calls": 0,
+            "publication_writes": 0,
+            "live_ticket_writes": 0,
+            "events": denied_events,
+        },
         "rog4_reloaded_after_resumption": True,
         "supervisor_retired_before_first_rsu_operation": True,
         "low_tail_overwrite_executed": liveness_overwrite,
@@ -2652,6 +3171,9 @@ def main() -> None:
         "post-auth supervisor authority-order gate: PASS\n"
         f"  supervisor={order['supervisor_bytes']} bytes; "
         "route3 -> RSU1 -> route2 -> ROG4 authorize -> request\n"
+        "  head-state 2/TICKET_ONLY denied liveness="
+        f"ops {order['head_state_2_ticket_only']['failed_liveness_operations']}, "
+        "zero credential/publication/promotion\n"
         "  failure zeroization="
         + ",".join(order["failure_zeroized_spans"])
         + "; persistent 0x355d..0x3600 preserved"

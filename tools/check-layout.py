@@ -93,6 +93,7 @@ def read_core(path: Path) -> dict:
         phases.append({"id": pid, "load": load, "sectors": sectors, "end": load + sectors * SECTOR})
     k = next((p for p in phases if p["id"] == "K"), None)
     return {
+        "image": data,
         "resident_sectors": resident_sectors,
         "resident_bytes": resident_sectors * SECTOR,
         "k_load": k["load"] if k else None,
@@ -316,6 +317,27 @@ def run(core_path: Path, layout: Path, data: Path) -> int:
     k_end = core["k_load"] + core["k_sectors"] * SECTOR
     need("nucleus<=K", nucleus_end <= core["k_load"],
          f"nucleus ends {nucleus_end:#06x}, K loads {core['k_load']:#06x}")
+    timer_addr = c["basic_timer_iret_addr"]
+    timer_off = timer_addr - c["core_load_addr"]
+    need(
+        "basic-timer-iret-adjacent",
+        timer_addr + 1 == c["nic_driver_slot"],
+        f"timer IRET {timer_addr:#06x} is not immediately below "
+        f"driver slot {c['nic_driver_slot']:#06x}",
+    )
+    need(
+        "basic-timer-iret-resident",
+        0 <= timer_off < core["resident_bytes"],
+        f"timer IRET {timer_addr:#06x} is outside the "
+        f"{core['resident_bytes']}-byte resident prefix",
+    )
+    if 0 <= timer_off < len(core["image"]):
+        need(
+            "basic-timer-iret-byte",
+            core["image"][timer_off] == 0xCF,
+            f"SEED.SYS offset {timer_off:#06x} contains "
+            f"{core['image'][timer_off]:#04x}, expected IRET 0xcf",
+        )
     need("K<=hi-scratch", k_end <= c["high_crypto_scratch_start"],
          f"K ends {k_end:#06x}, high crypto scratch at {c['high_crypto_scratch_start']:#06x}")
     need("hi==crit", c["high_crypto_scratch_end"] == c["critical_scratch_start"],
@@ -388,6 +410,7 @@ def run(core_path: Path, layout: Path, data: Path) -> int:
 # Layout values other tooling needs (the inspect/budget ranges). Derived from
 # layout.inc so they cannot drift — replaces the Makefile's hand-synced copies.
 EMIT = {
+    "basic_timer_iret_addr": lambda c: c["basic_timer_iret_addr"],
     "high_crypto_scratch_start": lambda c: c["high_crypto_scratch_start"],
     "high_crypto_scratch_len": lambda c: c["high_crypto_scratch_end"] - c["high_crypto_scratch_start"],
     "critical_scratch_start": lambda c: c["critical_scratch_start"],
@@ -406,7 +429,11 @@ def main() -> int:
         c = parse_equates([args.layout, args.data])
         value = EMIT[args.emit](c)
         # starts as hex (addresses), lengths as decimal — matches inspect-range style.
-        print(f"{value:#06x}" if args.emit.endswith("_start") else value)
+        print(
+            f"{value:#06x}"
+            if args.emit.endswith(("_start", "_addr"))
+            else value
+        )
         return 0
     if args.core_sys is None:
         ap.error("core_sys is required unless --emit is given")

@@ -68,6 +68,9 @@ post_auth_entry_failed:
     xor ax, ax
     stc
     ret
+%elifdef POST_AUTH_PRODUCT_MODE
+    mov dx, POST_AUTH_LIVE_PERSIST_FAIL
+    jmp dx
 %else
     mov dx, POST_AUTH_LIVE_PERSIST_FAIL
     jmp dx
@@ -89,14 +92,6 @@ post_auth_transition_source:
     jc .failed
     cmp ax, 1
     jne .failed
-
-%ifdef POST_AUTH_LIVE_DIAGNOSTIC
-    ; Temporary live-stage marker: exact P-256 and LP1 publication passed.
-    mov dx, 0x03f8
-    mov al, 'P'
-    out dx, al
-%endif
-
     ; LP1 now carries the authenticated digest and immutable exact-leaf
     ; identity.  Only at this point may the overlapping tail of the retired
     ; CertificateVerify signature become the private resumption lifecycle
@@ -113,18 +108,15 @@ post_auth_transition_source:
     mov dx, resident_load_phase
     call dx
     jc .failed
-%ifdef POST_AUTH_LIVE_DIAGNOSTIC
-    ; Temporary live-stage marker: supervisor phase is installed.
-    mov dx, 0x03f8
-    mov al, 'S'
-    out dx, al
-%endif
     jmp bx
 .failed:
 %ifdef POST_AUTH_OFFLINE_TEST
     xor ax, ax
     stc
     ret
+%elifdef POST_AUTH_PRODUCT_MODE
+    mov dx, POST_AUTH_LIVE_PERSIST_FAIL
+    jmp dx
 %else
     mov dx, POST_AUTH_LIVE_PERSIST_FAIL
     jmp dx
@@ -190,6 +182,20 @@ post_auth_transition_len equ \
 %ifndef POST_AUTH_LIVE_AFTER_LIVENESS
 %error "post-auth supervisor requires the low-worker return continuation"
 %endif
+%ifdef POST_AUTH_PRODUCT_MODE
+%ifndef POST_AUTH_PRODUCT_VAULT_ACCESS_KEY
+%error "product supervisor requires the generic-vault access phase"
+%endif
+%ifndef POST_AUTH_PRODUCT_VAULT_ACCESS_STAGE
+%error "product supervisor requires the generic-vault access stage"
+%endif
+%ifndef POST_AUTH_PRODUCT_PUBLICATION_KEY
+%error "product supervisor requires the final publication phase"
+%endif
+%ifndef POST_AUTH_PRODUCT_PUBLICATION_ENTRY
+%error "product supervisor requires the final publication entry"
+%endif
+%else
 %ifndef POST_AUTH_LIVE_AUTH_CALLBACKS_KEY
 %error "post-auth supervisor requires the fixed auth callback-page phase"
 %endif
@@ -246,6 +252,7 @@ post_auth_transition_len equ \
 %endif
 %ifndef POST_AUTH_LIVE_RESPONSE_SUCCESS_TEXT
 %error "post-auth supervisor requires the post-request-safe success literal"
+%endif
 %endif
 %ifndef POST_AUTH_LIVE_PERSIST_EMIT
 %error "post-auth supervisor requires the persistent emit service"
@@ -312,7 +319,6 @@ post_auth_live_supervisor:
     jc post_auth_failed
     cmp ax, 1
     jne post_auth_failed
-
     ; A ticket is not credential authority. Install the fixed resumption
     ; dispatcher plus the exact RSU1 scatter controller, stamp the original
     ; authenticated NST receipt, and force one fresh-key resumption. RSU1
@@ -324,9 +330,18 @@ post_auth_live_supervisor:
     mov si, stage_buffer
     mov cx, POST_AUTH_LIVE_RESUME_CALLBACKS_BYTES
     call post_auth_install_callbacks
+%ifdef POST_AUTH_PRODUCT_MODE
+    ; Exact P-256 overwrote the initial 0x2800 leaf.  Establish the resumption
+    ; access lease at 0x2c00.  Full twelve-sector K14 SHA/binder work may
+    ; deliberately replace it; those workers stage any simultaneous input and
+    ; explicitly repin this same leaf after symmetric code retires.
+    mov ax, POST_AUTH_PRODUCT_VAULT_ACCESS_KEY
+    mov bx, POST_AUTH_PRODUCT_VAULT_ACCESS_STAGE
+    call resident_load_phase
+    jc post_auth_failed
+%endif
     call post_auth_install_resume
     jc post_auth_failed
-
     ; Every RSU1 fixed operation cold-loads a worker at 0x3000. Retire this
     ; supervisor before the first receipt operation so no return address or
     ; executing byte remains inside the worker slot. The relocated sequence
@@ -347,7 +362,6 @@ post_auth_live_after_resume:
     jne post_auth_failed
     cmp byte [gate_state], gate_state_committed
     jne post_auth_failed
-
     ; The promoted route is fully represented by the issuer, ticket, and
     ; 0x3c30 control block. Retire receipt/candidate/FO attempt state before
     ; the credential callback reuses part of this range.
@@ -375,7 +389,21 @@ post_auth_live_after_resume:
     jc post_auth_failed
     cmp ax, 1
     jne post_auth_failed
-
+%ifdef POST_AUTH_PRODUCT_MODE
+    ; No USER.CFG, fixed-LBA loader, or one-shot business request belongs to
+    ; the product phase chain. Publish only after the complete promoted route
+    ; has passed the fixed authorize entry above.
+    mov ax, POST_AUTH_PRODUCT_PUBLICATION_KEY
+    mov bx, 0x0900
+    call resident_load_phase
+    jc post_auth_failed
+    ; Publication scrubs this supervisor's 0x3000..0x33ff slot.  Enter it as
+    ; a terminal tail jump: its RET therefore goes directly to the resident
+    ; caller that entered this supervisor, with AX/CF carrying publication's
+    ; success or fail-closed result.  No continuation may remain here.
+post_auth_product_publish_tail:
+    jmp POST_AUTH_PRODUCT_PUBLICATION_ENTRY
+%else
     ; Install only the exact tiny auth callback page. A direct one-sector
     ; phase load at 0x0500 is forbidden because it would overwrite the live
     ; handoff and NIC/TCP state beginning at 0x0600.
@@ -582,6 +610,7 @@ post_auth_live_response_receive:
     hlt
     jmp short .halt
 %endif
+%endif
 
 ; Before request_send, 0x0d00 holds the status-last PAK1 publication. Stage
 ; the request adapter in retired HELLO space so phase loading cannot alter it.
@@ -688,6 +717,21 @@ post_auth_resume_after_liveness_source:
     jne .liveness_failed
     pop dx
 
+%ifdef POST_AUTH_PRODUCT_MODE
+    ; FO's terminal transition restores the complete K14 symmetric image for
+    ; authenticated liveness.  That restore deliberately retires the
+    ; overlapping 0x2c00 public-vault access lease.  Liveness uses only K14
+    ; record services, so repin the measured access leaf now, after its final
+    ; record has authenticated and before operation 9 attempts its first
+    ; vault read.  Operation 9's hash bridge performs the same repin after its
+    ; own temporary K14 reload.
+    mov ax, POST_AUTH_PRODUCT_VAULT_ACCESS_KEY
+    mov bx, POST_AUTH_PRODUCT_VAULT_ACCESS_STAGE
+    mov dx, resident_load_phase
+    call dx
+    jc .after_failed
+%endif
+
     ; Validate the complete still-TICKET_ONLY bundle after authenticated
     ; liveness. The fixed operation restores and scrubs a valid vault before
     ; it invokes ROG4; no caller-selected pointer or route crosses the ABI.
@@ -718,6 +762,19 @@ post_auth_resume_after_liveness_source:
 .liveness_failed:
     pop dx
 .after_failed:
+%ifdef POST_AUTH_PRODUCT_MODE
+    ; Every failure origin reaches operation 11 only with a measured access
+    ; lease.  In particular, liveness failure arrives after FO's full K14
+    ; restore retired 0x2c00, and an operation-9 hash failure may arrive
+    ; before its bridge managed to repin the leaf.  If even this cold reload
+    ; fails, use the disk-independent persistent cleanup; never CALL through
+    ; bytes that may still contain the symmetric image.
+    mov ax, POST_AUTH_PRODUCT_VAULT_ACCESS_KEY
+    mov bx, POST_AUTH_PRODUCT_VAULT_ACCESS_STAGE
+    mov dx, resident_load_phase
+    call dx
+    jc post_auth_resume_failed
+%endif
     mov ax, 11
     mov dx, resume_fixed_callback
     call dx
@@ -745,21 +802,15 @@ post_auth_failed:
     mov cx, 0x355d - 0x3510
     rep stosb
     mov di, 0x3600
-    mov cx, 0x0238
-    rep stosb
-    mov di, 0x3838
-    mov cx, 0x0308
-    rep stosb
-    mov di, 0x3b40
-    mov cx, 0x0100
-    rep stosb
-    mov di, 0x3c40
-    mov cx, resume_state_end - 0x3c40
+    mov cx, resume_state_end - 0x3600
     rep stosb
 %ifdef POST_AUTH_OFFLINE_TEST
     xor ax, ax
     stc
     ret
+%elifdef POST_AUTH_PRODUCT_MODE
+    mov dx, POST_AUTH_LIVE_PERSIST_FAIL
+    jmp dx
 %else
     mov dx, POST_AUTH_LIVE_PERSIST_FAIL
     jmp dx

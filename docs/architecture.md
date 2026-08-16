@@ -12,14 +12,14 @@ and every byte of headroom above 16 KiB belongs to the user, not to Seed.** A
 bigger machine does not get a bigger Seed; it gets a bigger conversation and a
 bigger arena to build in. That principle is the spine of everything below.
 
-> **Status.** This contract describes the current runtime/driver split on top of
-> the capability-tiered architecture: lifetime-ordered low memory, one
-> `SEED.SYS` runtime, external NIC driver files, native function tools, RAM
-> scaling from the 16 KiB floor through EMS / 286 native extended / 386 unreal
-> mode, and CPU-tiered security beginning at the 286. Byte-level maps for the
-> 16 KiB floor and profile examples for larger tiers are in [`memory.md`](memory.md).
-> Measured numbers below are from the current tree and the crypto spike
-> (`tools/crypto-bench/results/FINDINGS.md`).
+> **Status.** This contract describes the TLS 1.3 integration currently under
+> validation: lifetime-ordered low memory, one self-selecting `SEED.SYS`,
+> external NIC drivers, native function tools, and RAM scaling from the 16 KiB
+> floor through EMS / 286 native extended / 386 unreal mode. The 8088 and 286
+> TLS routes are linked, but live original-speed product acceptance is still
+> running; PoC measurements are labeled as such. Byte-level maps are in
+> [`memory.md`](memory.md), and the exact security claims are in
+> [`security.md`](security.md).
 
 ## Core Shape
 
@@ -84,12 +84,10 @@ EMS       — 8088/V30-class path past the 1 MiB real-mode ceiling. Seed drives 
 386 unreal — BIOS-compatible real mode with 4 GB segment limits. High memory is
           flat direct memory instead of an EMS or `int 15h` window.
 
-286+     — a CPU-class capability, orthogonal to RAM: in the current TLS 1.2
-          runtime, the first processor fast enough to run the authenticated
-          handshake inside the provider's window (see
-          [security.md](security.md)). The TLS 1.3 research canary does not
-          change the current TLS 1.2 security floor until every secure-floor
-          gate passes.
+286+ / 512 KiB — the fully standards-conforming TLS 1.3 tier: genuine
+          X25519MLKEM768, P-256 certificate authentication, and a top-relative
+          64 KiB conventional-RAM crypto reservation. CPU class and RAM are
+          both admission gates.
 
 persistence — if the boot floppy accepts a requested save write, Seed can save
           and restore the conversation window, arena, and screen. Startup does
@@ -98,39 +96,53 @@ persistence — if the boot floppy accepts a requested save write, Seed can save
 
 Product-function parity is at 16 KiB. Larger memory and faster CPU tiers add
 performance, headroom, wider address reach, persistence when requested writes
-succeed, and — on the current 286 secure tier — real confidentiality and
-authenticated peer identity; they do not make the basic agent/tool loop
-unavailable on the floor. A user-facing product function that cannot degrade
-to the 16 KiB shape is a design failure. Product-function parity must not be
-read as a claim of equal transport security across CPU tiers.
+succeed, and the fully conforming hybrid TLS route; they do not make the basic
+agent/tool loop unavailable on the floor. The 16 KiB route has its own
+credential-release boundary, but is not a standards-conforming hybrid. A
+user-facing business function that cannot degrade to the 16 KiB shape is a
+design failure. Product-function parity must not be read as a claim of equal
+transport security across CPU tiers.
 
 ## Current Target Snapshot
 
 The active implementation target is an IBM PC 5150-class machine:
 
 ```text
-CPU              8088-compatible, 4.77 MHz (baseline); 286 enables the secure tier
+CPU              8088-compatible, 4.77 MHz 8088 profile;
+                 286 at 6 MHz enables the conforming profile
 RAM tiers        16 KiB (ROM BASIC sidecar entry), 32 KiB direct boot, far conventional,
-                 EMS, 286 HMA/native extended, 386 unreal
-media            160 KiB headline FAT12 floppy image; 360 KiB profile image for 286 work
+                 EMS, 286/512 KiB conforming floor, HMA/native extended, 386 unreal
+media            160 KiB FAT12 product image
 video            BIOS text mode, CGA or MDA
 network          3c501, 3c503, NE/WD80x3, PCnet/LANCE, DEC Tulip, RTL8139,
                  and EPIC/100 families across the documented ISA/MCA/VLB/PCI paths
 runtime file     one visible SEED.SYS plus optional external SEED/DRIVERS/*.DRV NIC files
 ```
 
-Current measured image (`tools/core-sys-info.py`, this tree):
+Current TLS 1.3 integration image (`tools/core-sys-info.py`; live product
+validation pending):
 
 ```text
-SEED.SYS total bytes:        53760
-SEED.SYS total sectors:      105
+SEED.SYS total bytes:        150016
+SEED.SYS total sectors:      293
 resident nucleus sectors:    4   (2048 B; 1495 nonzero B)
-phase count:                 29
-provider-critical K window:  15 sectors / 7680 bytes (0x1800..0x3600)
+ordinary phase entries:      29
+application K executable:    10 sectors (inside its 15-sector physical slot)
+8088 TLS 1.3 cold pack:      130 sectors, file sectors 45..174
+286 TLS 1.3 tail:            82 sectors, file sectors 212..293
+  module cache:              44 sectors / 22528 bytes
+  root / entropy / hello /
+    flight / auth / footer:  38 sectors
 ```
 
 The resident nucleus is still fixed at four sectors; current growth is cold
-phases and optional high-memory overlays, not a larger always-resident Seed.
+phases and high-memory modules, not a larger always-resident Seed. The
+15-sector K slot retains five sectors of geometry headroom; those padded file
+sectors are not executable arena. The current 160 KiB composition uses 308 of
+309 FAT data sectors: 293 runtime sectors plus 15 auxiliary sectors. One FAT
+data cluster (one sector on this image) remains free as a required packaging
+guard. Consequently, the current universal `SEED.SYS` has zero usable
+sector-growth headroom even though the FAT itself has one unallocated cluster.
 
 ## Boot Artifact
 
@@ -147,7 +159,6 @@ visible runtime file plus runtime-owned subdirectories:
 | sector 12+     file data
 |                SEED.SYS is the first FAT data file
 |                SEED/ holds AGENTS.CFG, optional USER.CFG, IDENTITY, COMPACT, TOOLS
-|                SEED/LEAF.DER ships as a verified pin and may be refreshed
 |                SEED/DRIVERS/ optionally holds one-sector NIC .DRV files
 ```
 
@@ -161,6 +172,11 @@ suitable drivers are present, and uses the normal retry/restart failure path
 when no suitable driver is available. The only thing that would ever justify a second image is a
 fundamentally different ISA — an ARM/RISC port where binary reuse is literally
 impossible. Compile-time multi-build per tier is out.
+
+TLS trust state is part of `SEED.SYS` or volatile RAM: the 8088 route uses an
+immutable exact-leaf object, while the 286 route bakes the WE1 P-256 issuer
+point and generates the leaf tables on the target. No `LEAF.DER` file is
+packaged and no writable-medium trust cache is required.
 
 `IDENTITY`, `COMPACT`, and `TOOLS` are static prompt/schema assets: the agent's
 identity, the compaction contract, and the native tool schema. They live on the
@@ -189,6 +205,7 @@ machine enters ROM BASIC
   -> user pastes the generated SEED24A.BAS / SEED24B.BAS sidecar text
   -> BASIC pokes a tiny 8086 loader at 0000:3a00
   -> helper reads the resident SEED.SYS sectors from the Seed floppy
+  -> helper atomically redirects INT 1Ch to the resident IRET at 0000:15ff
   -> helper passes AX = RAM top, BX/CX = "SEED" magic, DL = boot drive
   -> jump 0000:1000
 ```
@@ -198,13 +215,22 @@ memory that later becomes Seed critical scratch. Once it jumps to `SEED.SYS`,
 the BASIC runtime and sidecar loader are abandoned. RAM top is the first input
 to the capability vector — it selects the 16 KiB or 32 KiB layout.
 
+ROM BASIC also owns the BIOS timer callback at INT 1Ch. Seed reclaims BASIC's
+workspace, so leaving that vector live would let the 18.2 Hz callback interpret
+overwritten BASIC state as its own. After the complete resident prefix is in
+RAM, the sidecar disables interrupts, publishes `0000:15ff` as the complete
+INT 1Ch vector, and enters Seed without re-enabling interrupts. The target byte
+is a permanent `IRET` in the final byte below the active NIC-driver slot; it is
+loaded by every entry path and is never overwritten. Direct boot does not
+rewrite INT 1Ch.
+
 ## The One-Artifact Relocation Model
 
-A single `SEED.SYS` runs every tier, and the capability vector selects what
-loads and where. The foundational question is *how* a tier's code is placed —
-and the answer is **hybrid: two build-time-fixed layouts inside one image,
-selected at boot, with the few tier-varying entry points reached through a small
-fixed dispatch-vector table.**
+A single `SEED.SYS` runs every current x86 tier, and the capability vector
+selects what loads and where. The foundational question is *how* a tier's code
+is placed — and the answer is **hybrid: two build-time-fixed low entry shapes,
+cold CPU/TLS packs inside the same file, and tier-varying entry points reached
+through a small fixed dispatch-vector table.**
 
 Because the tiers are locked at two, both layouts are fully known at build time,
 so "relocation" never needs runtime address arithmetic:
@@ -215,38 +241,52 @@ so "relocation" never needs runtime address arithmetic:
 
 32 KiB layout   the SAME shape, plus a few optional modules placed at
                 build-time-fixed high addresses: the chat loop's working set,
-                tools schema, and (on a 286) the real-crypto modules.
+                tools schema, and low decoded-module overlay.
                 Everything else above is arena.
 
 >32 KiB         the 32 KiB layout plus detected memory-reach backends. Module
                 addresses do not move; only the arena/context map grows.
+
+286/512 KiB     the same low entry plus a 64 KiB top-relative conventional
+                reservation. The complete cold pack is cached high; one module
+                at a time decodes into the fixed low overlay.
 ```
 
 The handful of entry points that differ by tier — the phase loader's
-preload-vs-demand decision, the active NIC driver, and (on a 286) the secure
-crypto path — are called **indirectly through a fixed low vector table** that
+preload-vs-demand decision, the active NIC driver, and the two TLS routes —
+are called **indirectly through a fixed low vector table** that
 the boot fills from the capability vector. The calls are coarse-grained
 (per-phase, per-record, per-handshake), so the indirection costs a few bytes and
-a few cycles, never a per-instruction tax. The 16 KiB hot path — 1,495 nonzero
-shared bytes in the four-sector resident region before a one-sector NIC driver
-occupies its reserved slot, plus crypto inner loops with no spare registers —
-pays none of it.
+a few cycles, never a per-instruction tax. The 16 KiB hot path — a three-sector
+shared resident span plus a one-sector active NIC driver, followed by crypto
+inner loops with no spare registers — pays none of it. The final shared byte is
+the permanent ROM-BASIC timer `IRET`, so the last-nonzero envelope intentionally
+reaches the end of that three-sector span without consuming executable-code
+headroom.
 
 **Why not runtime-relative addressing.** Setting region bases at runtime (a base
 register or segment per region) is maximally flexible and would let code load
 anywhere. But on the 8088 it taxes exactly the two most-constrained resources in
 the system: the resident nucleus (no room for relocation prologues) and the
 register-starved crypto inner loops (the 286 secure handshake is already on a
-~1 s knife-edge). It buys geometry-flexibility that the *locked two-tier* model
-has defined away — even the 286 secure tier is "the 32 KiB layout plus more
-modules in the same high region," not new geometry. Fixed placement is the
-correct design when the number of layouts is small and known; runtime-relative
-solves a problem this contract does not have.
+~1 s knife-edge). It buys geometry-flexibility that the locked entry model has
+defined away. The 286 TLS 1.3 route adds a top-relative conventional-memory
+reservation and fixed low module overlay, but still enters through the same
+resident nucleus. Fixed placement remains appropriate for the bounded low
+windows; high-memory buffers are described through explicit segment:offset
+descriptors.
 
 **The seam for the >64 KiB tiers.** The vector table *is* the escape hatch.
 Most hot code still calls near pointers inside segment 0; far conventional, EMS,
 286 native extended, and 386 unreal mode sit behind memory-HAL helpers and the same
-native tool / context-streaming call sites. The 64-bit/no-BIOS runtime remains later work.
+native tool / context-streaming call sites.
+
+**Future ISAs and no-BIOS entry.** “One product” does not require one native
+instruction stream across x86 and ARM. A future distribution can keep the
+user-facing zero-choice experience by using the smallest firmware-native entry
+shim to detect the ISA/firmware and load the matching payload from one package.
+The current floppy remains one x86 `SEED.SYS`; 64-bit addressing and a
+no-BIOS/UEFI path remain later work and must not enlarge the 16 KiB nucleus.
 
 ## Memory Shape: Lifetime-Ordered Bands
 
@@ -324,44 +364,43 @@ bytes.
 
 ## Floppy Policy
 
-The floppy is **read-only** (the recovery boundary; see below) and demand-loading
-from it is *preferred on every tier* whenever it buys arena — code that lives on
-the floppy is RAM that goes to the user instead. Seed minimizes its resident
-footprint everywhere. There are exactly **two no-floppy zones**:
+The floppy is the **read-only recovery boundary**. Demand-loading immutable
+code from it is preferred whenever that gives RAM back to the arena. Neither
+TLS tier needs writable media, persistent tickets, a precomputed private key,
+or help from another machine.
+
+Timing-sensitive spans are explicitly preloaded:
 
 ```text
-1. the snappy chat loop   — no mid-conversation floppy latency
-2. the ~15 s crypto race  — no floppy I/O between handshake start and finish
-```
-
-Outside those two windows, read freely — even on a 32 KiB machine. The critical
-nuance is *timing, not prohibition*: a floppy read **before** the crypto race
-starts is fine; only reads **during** the windowed handshake are forbidden. So a
-mid-session reconnect first reloads its handshake crypto from floppy, *then*
-opens the connection and runs the race floppy-free.
-
-The tiers differ only in what they pin:
-
-```text
-16 KiB   demand-loads its phases in-loop (no room to preload). Acceptable: the
-         loop reads between turns and before the race, never during either zone.
+16 KiB   cold-loads each bounded TLS 1.3 phase when its lifetime begins. The
+         fresh deadline phase preloads its exact code/data set. Later proof
+         phases may read the floppy while no credential is reachable; a
+         credential-free dialogue or same-boot ticket can bridge connection
+         closure without turning disk into mutable state.
 
 32 KiB   preloads ONLY the normal chat loop's working set (its phases + the streamed
          IDENTITY prompt) so ordinary turns are floppy-free. The rare COMPACT prompt
-         can still stream from floppy. It does NOT
-         greedily preload everything it could — the rest stays on floppy and
-         that RAM becomes arena. Boot-time reads are encouraged when they buy
-         loop-time RAM.
+         can still stream from floppy.
+
+286      reads and validates the complete 44-sector asymmetric module pack into
+         its top-relative 64 KiB reservation before opening TCP. Before each
+         live connection it also stages the immutable 12-sector 8088
+         symmetric image in the high record quarantine, verifies its already-
+         canonical SHA initial-state operand, and restores the canonical
+         288-byte SHA tail before publishing that stage READY. The final
+         connection additionally derives
+         the ticket-only early secret and generates the public nine-polynomial
+         ML-KEM A^T matrix before TCP. Only one decoded module occupies the low
+         overlay at a time.
 ```
 
-> **Implemented.** On a 32 KiB direct boot, the boot reads the loop's working set —
-> the chat-loop phases, the resident crypto (K) window, and the IDENTITY prompt — into a
-> high RAM cache once (`loop_cache`, above the arena/context pool and below the stack). The
-> phase loader (`load_core_sectors_at`) and the prompt streamer then serve ordinary turns from RAM, so a
-> normal chat turn reads **no floppy** (per-turn I/O ~25 sectors → 0). The rare compaction turn may still
-> stream the COMPACT prompt from floppy. The arena/context ceiling drops to the cache
-> base, and the ledger advertises that as the RAM ceiling so an agent write never lands in the cache.
-> 16 KiB is untouched: the path is gated on `ram_top`, and the 16 KiB loop demand-loads as before.
+On a 32 KiB direct boot, the boot reads the loop's working set — the chat-loop
+phases, application-record window, and IDENTITY prompt — into a high RAM cache
+once (`loop_cache`, above the arena/context pool and below the stack). The phase
+loader and prompt streamer then serve ordinary turns from RAM. The rare
+compaction turn may still stream COMPACT from floppy. The arena/context ceiling
+drops to the cache base, and the ledger advertises that ceiling so an agent
+write cannot land in the cache. The 16 KiB path remains demand-loaded.
 
 ## Runtime Step Order
 
@@ -378,27 +417,45 @@ entry normalize
 hardware phase "."
   -> H: display, handoff, CPU/memory/media/NIC discovery (sets the capability vector;
         conditionally runs 0 for 286 HMA/native extended-memory layout)
-  -> B: draw the seed build splash and CPU-class warning before driver/network setup
+  -> B: draw the seed build splash and 8088 security note before driver/network setup
   -> 2: scan SEED/DRIVERS/*.DRV and load a suitable detected-family NIC driver
   -> Z: 386 unreal setup when present
   -> I: packet I/O initialization
 
 internet phase (still ".")
   -> D: DHCP setup
-  -> N: NTP/RTC setup for certificate validity checks
 
 agent phase "o"
-  -> A: SEED/AGENTS.CFG load/parse or built-in fallback
+  -> A: OpenAI declaration from SEED/AGENTS.CFG or built-in fallback
   -> U: SEED/USER.CFG load/parse
-  -> Q: prompt for any missing agent/server/key/model/reasoning values
-  -> E: selected-agent endpoint and DNS name preparation
-  -> V: selected-agent cache setup
+  -> Q: prompt for any missing OpenAI key/model/reasoning values
+  -> E/V: fixed OpenAI endpoint and validated config cache
   -> R: request construction
   -> G/J: context mirror or extended-memory context chunk reads when required
-  -> K: load the provider-critical crypto window
-  -> L: build TLS ClientHello and low crypto constants
-  -> C: TCP connect to the selected provider on port 443
-  -> K: TLS server proof, key schedule, encrypted request, application receive
+  -> dispatch by CPU/RAM capability:
+       8088 profile:
+         escrow config -> collect local floppy timing -> cold-load K14 phases
+         -> connect -> provisional TLS 1.3 Finished + bounded ticket receipt
+         -> full FO + exact dated-leaf/CV proof
+         -> one-shot resumed 0-RTT HEAD + authenticated liveness
+         -> atomic credential unlock
+       286 / 512 KiB conforming route:
+         N: silently obtain a coherent platform-UTC RTC value and preserve the
+            prompt working set in an arena-excluded RAM shadow
+         -> cache/validate 286 pack -> acquisition connection
+         -> stage the immutable symmetric image before opening acquisition TCP
+         -> provisional hybrid proof, client Finished, literal credential-free
+            HEAD, and authenticated tentative NewSessionTicket
+         -> offline full FO comparison plus WE1/leaf/time/CV validation and
+            table generation; promote the same-boot ticket
+         -> no-0RTT PSK-DHE resumption with independent X25519MLKEM768 keys,
+            a real binder, selected_identity=0, and pre-TCP symmetric-image,
+            early-derived, and public-matrix caches
+         -> after ServerHello, consume the public matrix for complete full FO
+            decapsulation, then accept only a strict
+            EncryptedExtensions-to-Finished flight
+         -> send client Finished and publish application keys/credentials
+  -> K/X: TLS 1.3 application records, encrypted request, application receive
   -> T: parse the received application-data chunk for the returned answer
   -> S: best-effort SEED/USER.CFG save if values changed
 
@@ -407,15 +464,17 @@ prompt loop "Default Prompt Interface"
   -> each turn builds the request, streams the reply, then cold native-tool phases run any
      function_call (`read_mem`, `write_mem`, `exec`, `save_env`, `load_env`) and replay the
      function_call_output back to the model (see "Demo" below)
-  -> reconnect (reload-before-race, then retry) only on a real drop
+  -> on a human no-text failure, rebuild one fresh route and resend once
+  -> never replay a tool continuation or partially rendered response
 
 failure
   -> F: mark the current phase red, type the error, offer retry/restart
   -> retry returns to the hardware "." phase without rereading resident sectors
 ```
 
-The same TCP connect phase serves selected provider connections and reconnects;
-it is loaded into the network setup window each time it is needed.
+The same resident TCP/NIC callbacks serve both TLS routes. The current provider
+and hostname are fixed to OpenAI; alternate `AGENTS.CFG` entries do not select
+an alternate security path.
 
 ## Phase Windows
 
@@ -430,7 +489,7 @@ Current 29-phase layout (regenerate with `make inspect` / `tools/core-sys-info.p
 
 ```text
 id  sectors  load addr  responsibility
-K   15       0x1800     provider-critical crypto: SHA-256, ChaCha20-Poly1305, TLS, API
+K   10/15    0x1800     10-sector TLS 1.3 application executable in a 15-sector slot
 F   2        0x0700     failure action UI
 H   4        0x0700     hardware/display/NIC discovery
 2   2        0x0700     scan/load suitable NIC driver from SEED/DRIVERS/*.DRV
@@ -438,11 +497,11 @@ H   4        0x0700     hardware/display/NIC discovery
 Z   1        0x0700     386 unreal-mode setup/refresh support
 I   1        0x0700     packet I/O initialization
 D   3        0x0900     DHCP setup
-N   2        0x0900     NTP/RTC setup for certificate validity
+N   2        0x0900     platform RTC + diskless loop-cache shadow parent
 C   3        0x0900     TCP connect
-L   3        0x0700     TLS ClientHello, low crypto constants, recert cache
-E   1        0x0700     selected-agent endpoint setup
-A   2        0x0700     SEED/AGENTS.CFG provider config
+L   3        0x0700     fixed TLS 1.3 286 bootstrap
+E   1        0x0700     OpenAI endpoint setup
+A   2        0x0700     SEED/AGENTS.CFG OpenAI config
 U   2        0x0700     SEED/USER.CFG persisted user values
 Q   2        0x0700     agent selection and missing-value prompts
 G   1        0x0700     context mirror into the far canonical log
@@ -461,17 +520,17 @@ P   3        0x0700     restore ENV.DAT into conversation/arena/screen
 W   2        0x0900     save ENV.DAT prep/write helper
 ```
 
-Phases that do network I/O — `D`, `N`, `C`, `R`, `X`, `T`, `W` — load at
+Phases that do network I/O — `D`, `C`, `R`, `X`, `T`, `W` — load at
 `0x0900` when they need to coexist with the TCP/NIC scratch or share that larger
 network window between turns. The 286 extended-layout phase `0` loads at `0x3600`
 because it runs while the high scratch band is still available. Most remaining
 cold phases load at `0x0700`. This
-phase-streaming design is what lets a TLS 1.2 record path — ChaCha20-Poly1305,
+phase-streaming design is what lets a TLS 1.3 record path — ChaCha20-Poly1305,
 SHA-256, HTTP/1.1, SSE streaming — run in 16 KiB on a 4.77 MHz 8088: only the
 nucleus and the crypto window stay resident, while the other phases stream from
-the floppy and take turns in one small window. (The P-256 key agreement real TLS
-also needs is the one piece that doesn't fit on the 8088 — see CPU And Crypto
-Budget.)
+the floppy and take turns in one small window. The public vault and
+provisional/quarantine schedule are what keep the full 8088 route from
+displacing the 96/96-byte user pool.
 
 ## Demo: A Tool-Called Request
 
@@ -503,168 +562,200 @@ a reboot from trusted media (see Authority Model and Recovery Boundary).
 
 ## CPU And Crypto Budget
 
-The other half of the constraint is the processor. A 4.77 MHz 8088 is a 16-bit,
-sub-MIPS part with a slow multiply and no crypto acceleration, and the provider
-path asks it to run modern TLS 1.2. That splits into two very different costs.
-The *symmetric* crypto — ChaCha20-Poly1305 record encryption and SHA-256 (the
-handshake transcript and the PRF key schedule) — runs for real on the 8088. The
-*asymmetric* step — a P-256 scalar multiply for ECDH key agreement — is the
-killer: one real scalar multiply is **110.8 s** measured here (the dormant
-constant-time primitives, verified against OpenSSL), so the baseline build skips
-it. Notably it is **not a size problem** — the real P-256 fits in ~3.4 KiB —
-purely a speed one: the 8088's slow `mul` is the wall.
+A 4.77 MHz 8088 cannot complete every asymmetric operation inside one
+provider connection deadline. The architecture no longer treats that as a
+binary choice between a fast insecure handshake and a standards-complete one.
+It keeps credentials unreachable while the same original machine finishes the
+proof in cold-loaded phases.
 
-The 8086/8088-class resource profile, measured by packet-capture timing across two boots (the
-gaps between the VM's packets *are* the 8088's compute), holds the surprise
-about which resource dominates:
+### 8088: bounded work before credential release
+
+The 8088 profile has three timing domains:
 
 ```text
-FIRST BOOT  -  power-on to first response     (handshake + reply measured, 2 boots)
+before TCP
+  collect and condition local read-only floppy timings
+  generate the ML-KEM-768 keypair
+  resolve the fixed OpenAI target and preload the deadline phase
 
-       |setup|------TLS 1.2 handshake------|reply
-  t/s  0   2   4   6   8   10  12  14  16  18  20
-  CPU  ░░▒▒▒▓██████████████████████████████   ░▒░
-  NET  ░▒▓▓▒░▓                          ▒▒ ░ ▓▓▒░
-  NIC   ░▒░  ▒                               ░▓▓▒
-  DSK  ▒██▓░                                 ░▒
-  RAM  ░▒▓███████████████████████████████████████
-       (blank) idle   ░ light   ▒ medium   ▓ busy   █ saturated     NIC = 8088 PIO
+fresh provider deadline
+  send TLS 1.3 ClientHello
+  verify protected flight and exact server Finished under the provisional candidate
+  send client Finished and attempt one literal credential-free HEAD
+  retain one bounded tentative same-boot ticket; an authenticated
+    ticket-bearing close is a quarantined receipt, not liveness
 
-  ──────────────────────────────
-
-CHAT / TOOL-CALL TURN  -  session reused, no handshake     (model-wait bound)
-
-       -thinks--reply
-  t/s  0 1 2 3 4 5 6
-  CPU            ░▓▒
-  NET  ░        ▓▓▓▒
-  NIC           ░▓▓▒
-  DSK           ▒
-  RAM  ██████████████
+after the deadline, still on the 8088
+  complete full ML-KEM FO validation and traffic-secret comparison
+  verify possession of the image's dated exact leaf and the saved CertificateVerify
+  resume with fresh KEM work and the one-shot tentative ticket
+  send the same fixed HEAD as 0-RTT and authenticate its response
+  restore/scrub volatile state, then publish credential access status-last
 ```
 
-That monitor remains valid for the 8086/8088 path. It is the
-encrypted-not-secure path: no real public-key work, no certificate
-authentication, and a red `insecure` splash on pre-286 machines.
+The wire group is `X25519MLKEM768`, but the 8088 fixes X25519 to `u=9`.
+Consequently this is effective ML-KEM-only key exchange and not a
+standards-conforming hybrid. The fixed HEAD is a real but credential-free
+external effect; no key, prompt, context, redirect, or tool continuation is
+reachable before full commit. The complete rationale is in
+[`security.md`](security.md).
 
-The 6 MHz 286 secure path spends roughly the same boot phases on the screen, but
-the CPU profile is different: the public-key work is real, and it is the
-knife-edge. This is a budget-shaped monitor from the measured component timings
-in [crypto-feasibility.md](crypto-feasibility.md), not a replacement for the
-packet-capture trace above:
+The date is trusted image provenance, not a target-time check: the 8088 has no
+trusted runtime clock. Leaf rotation or the image object's validity end
+requires a refreshed trusted image.
+
+The exact-floor route must put fresh client Finished on the wire before the
+provider close. Credential-free liveness may complete on that socket or on the
+immediately paired resumed 0-RTT connection after an authenticated ticket/close
+receipt and offline proof. These are measured compatibility boundaries, not a
+service SLA; the provider's observed close is near 15 seconds and may vary.
+
+The route stays inside 16 KiB by loading one immutable phase at a time and
+placing 3,328 bytes of public objects in a guarded video-RAM vault. On MDA the
+guard combines output-disable with one-column scanout redirected to a zeroed
+out-of-page quarantine; ordinary scanout returns only after the visible page
+is scrubbed. The vault
+is neither NIC RAM nor writable-floppy scratch. Its 867-byte stateless access
+leaf is duplicated or staged by consuming phases, and all vault state is
+zeroized at route completion or failure. The user-facing low pool remains a
+96-byte executable arena plus 96-byte context window.
+
+### 286: conforming hybrid with certificate work off the timer
+
+The 6 MHz / 512 KiB tier reserves the top 64 KiB of conventional RAM. Its
+remaining far pool is `0x10000..0x70000`, 384 KiB split into a 192 KiB
+executable arena and 192 KiB context window. Certificate validation still
+does not fit comfortably inside the provider's observed close, so the route
+uses a same-boot ticket as a quarantined bridge between acquisition and the
+credential-bearing connection:
 
 ```text
-286 @6 FIRST BOOT  -  authenticated path (qualified entropy/expiry policy)
+acquisition connection
+  independent ML-KEM-768 + X25519 key generation
+  use the exact ML-KEM candidate only provisionally
+  verify protected records and server Finished
+  capture ordinary Certificate + CertificateVerify
+  send client Finished and the immutable credential-free HEAD
+  authenticate the HTTP response and one NewSessionTicket
+  publish that ticket only as TENTATIVE
 
-       |setup|P-256 ECDHE | RSA verify |reply
-  t/s  0   2   4   6   8   10  12  14  16  18  20
-  CPU  ░░▒▒▒▓█████████████████████████▓ ░░▒░
-  NET   ▓▒▒▒▒                         ▒ ▓▓▓▓▓▓▓
-  NIC    ░ ▒▒                         ▒ ▓▓▓▓▓▓
-  DSK  ▒████▓
-  RAM  ░▒▓█████████████████████████████████████
+offline, no provider timer
+  perform complete ML-KEM FO decapsulation and constant-time candidate compare
+  validate platform-UTC certificate dates, api.openai.com, purpose, and WE1
+  verify acquisition CertificateVerify and generate P-256 G/leaf tables
+  promote the same-boot ticket only after every proof succeeds
+
+final credential-bearing resumption
+  consume the promoted ticket before reading its PSK or identity
+  stage the immutable 12-sector symmetric image before opening TCP
+  generate an independent ML-KEM-768 + X25519 attempt
+  send a real PSK binder with no early_data and require selected_identity=0
+  derive the ticket-only early secret and precompute the public nine-polynomial
+    ML-KEM A^T matrix before TCP
+  after ServerHello, consume the matrix and complete full ML-KEM FO
+    decapsulation plus X25519 shared-secret derivation
+  accept only EncryptedExtensions followed by Finished
+  verify server Finished, send client Finished and the credential-free HEAD
+  require a complete authenticated ticket plus an allowed HTTP status
+  publish application keys with the consumed server-record sequence; a missing
+    response-header terminator does not hold credentials indefinitely
+  only now make the API key and business request reachable
 ```
 
-The 286 loads its authenticated overlay only on 286+ machines, seeds its
-ephemeral key through the implemented SHA-256 entropy mixer, and runs the
-genuine P-256/RSA path. Physical min-entropy from the configured inputs is not
-yet validated on hardware. It attempts a best-effort NTP clock sync, but that
-source is not trusted: certificate expiry closes only when a usable clock
-exists and is skipped under the documented weaker no-time policy. At 6 MHz
-the authenticated handshake greets but is still the tight path; at 8 MHz it
-has comfortable room.
+The final route is no-0RTT PSK-DHE resumption: the PSK authenticates the
+same-boot ticket, while the independent genuine `X25519MLKEM768` exchange
+provides fresh hybrid key agreement. There is no compressed certificate,
+persisted ticket, persisted leaf, mutable trust file, early data, or no-time
+bypass. The immutable trust object is the WE1 P-256 point. A coherent BIOS RTC
+is used silently as the machine's configured platform UTC clock, as on a
+conventional TLS client. Invalid, incoherent, or out-of-range values fail
+closed. Unauthenticated NTP and user confirmation are not trust inputs.
 
-On the 8088, the TLS handshake is ~14.5 s of the CPU pinned flat-out — SHA-256 hashing the
-2.8 KB certificate into the transcript, the PRF key schedule, and ChaCha — in
-two ~7 s halves that come out identical run to run (fixed arithmetic on fixed
-input). Everything else is small: the model thinks and replies in ~2.5 s, a
-round trip is 7 ms, the ClientHello builds in 0.27 s. The contrast is the point:
-the expensive crypto is paid **once**, at boot. Every turn after reuses the open
-session, so a chat or tool-call turn is mostly the 8088 idle while the model
-thinks, then a ChaCha decrypt, a render, and — for a tool call — a CALL into the
-arena. On a 4.77 MHz part, modern TLS is a symmetric-arithmetic cost, and it is
-the single biggest line item in the whole boot.
+The three pre-TCP caches are scheduling devices, not deferred security checks.
+The symmetric image is published only after all twelve read-only floppy reads
+complete, consumed before it is copied low, relocated, and checked by its
+existing image CRC. The 32-byte resumption early-derived value is stored beside
+its bytewise complement, published status-last, consumed before import, and
+wiped in full. The 4,608-byte public ML-KEM matrix is likewise published
+status-last and consumed once before cached decapsulation. Missing, torn, or
+replayed status fails before the corresponding consumer runs. Matrix payload
+corruption cannot skip FO: the cached path still performs the complete FIPS 203
+ciphertext comparison and branchless implicit-rejection selection, so a wrong
+cache produces the rejection secret and cannot pass server Finished. The
+record-open path retires the staged public bytes before authenticated plaintext
+uses the quarantine, and abort/restart scrubs the reservation.
 
-What keeps the symmetric side tractable:
+Exact 6 MHz, 512 KiB tick-aligned target measurements show why this schedule is
+useful: public matrix generation costs 45 ticks / 2.4716 s before TCP; full FO
+costs 43 ticks / 2.3618 s with the cache versus 88 ticks / 4.8334 s without it.
+The current conservative serialized CPU windows are 162 ticks / 8.8979 s for
+acquisition and 168 ticks / 9.2275 s for final resumption. The exact-floor
+read-only live reconnect capture independently measures all four fresh/resumed
+critical intervals below nine seconds and returns authenticated OpenAI text.
 
-- **An ARX record cipher.** ChaCha20-Poly1305 is add-rotate-xor, no S-boxes or
-  large tables, so it needs no AES hardware and stays cheap on the 8088.
-- **Reused HMAC state.** Prepared HMAC-SHA256 ipad/opad pads are kept across the
-  TLS PRF, so the key schedule does not recompute blocks it already has.
-- **Pace the stream to the renderer.** On the most constrained NICs, response
-  text uses render-before-ACK pacing so the network does not outrun the
-  renderer (see `networking.md`).
+The candidate ML-KEM path is deliberately not an authority boundary. The
+offline full FO comparison, X.509/hostname/time/WE1/CV checks, and
+status-last ticket promotion all precede the final credential connection.
+Offline component and serialized timing gates remain structural evidence, not
+a substitute for the live pcap. The integrated 6 MHz / 512 KiB single-profile
+wire/reconnect trace and the injected CPU/RAM/time/entropy/auth/Finished/FO/
+pack/abort gates pass. Physical entropy characterization and additional
+provider-edge repetition remain open.
 
-**The fast crypto is baseline now — one implementation, everywhere.** An
-evolutionary search produced a family of byte-granular-rotate + register-resident
-SHA-256/PRF rewrites, all bit-exact. Seed ships **r2_v25 — ~4.3× faster
-(PRF 4.92 s → ~1.14 s), bit-exact** (gated by `evaluate.py` + `check-tls-prf` +
-`check-chacha-poly1305`). It is the only crypto Seed ships — no slow fallback —
-because it works on the 16 KiB baseline, where every feature must. The faster
-`r4_v42` (~4.64×) was measured but *not* shipped: it is one sector larger and buys
-the last ~0.3× only behind a fragile 74 B bit-exact golf of working TLS code, for
-the same 16K cost — not worth the handshake risk.
+### Entropy and validation boundary
 
-**The honest 16K cost.** The fast SHA is bigger than the slow one, so it grows the
-resident K window by one sector (14 → 15). The earlier hope was that an "overlay
-zone" would let the handshake-only SHA share space with chat scratch and *never
-touch the arena* — but at the 16K byte level that does not hold: there is no
-~2 KB hole free *during the handshake* (it uses all of low scratch, including the
-packet TX buffer), so the SHA must stay resident. Conservation of bytes then wins:
-on a full 16 KiB machine the extra sector comes from the only elastic upper pool.
-In the current native-tool layout that final pool is 192 B, split into a 96 B
-conversation window and a 96 B arena. **32 KiB is unaffected** — the extra RAM is
-buying the cached chat/tool loop, and the 512 B SHA cost is noise there. Faster
-crypto everywhere, paid for at the 16 KiB floor, is the real shape of the trade.
-It is also *load-bearing for the 286 secure tier* (below).
+Both routes generate private material on the target and work from a
+write-protected floppy. The 8088 route SHA3-conditions PIT-bracketed floppy-read
+timings. The 286 route performs no entropy-only disk reads: it polls the AT
+RTC's 4,096 Hz periodic flag, samples that independent oscillator against PIT
+channel 0, applies online health tests, then uses SHA3 and HMAC_DRBG. Emulator
+runs receive zero entropy credit. Representative physical traces,
+source-specific conservative min-entropy estimates, and calibrated health
+cutoffs remain open before a secure-floor claim.
 
-And the part that is *not* tractable on the 8088 — the honest gap, and where it closes —
-is **capability-tiered security**, covered in full in [security.md](security.md). In short:
+### Session reuse and bounded reconnect
 
-- **On the 8088 the channel is encrypted but not secure.** The P-256 key exchange is
-  skipped (a scalar-1 stub: the server's public X *is* the premaster, so no key agreement
-  happens — anyone capturing the handshake derives every session key), and certificate
-  authentication is skipped too (RSA/ECDSA verify is tens of seconds to minutes here). Real
-  entropy would not help on its own. A pre-286 machine shows a red **"insecure"** on the
-  splash to say so.
-- **Current TLS 1.2 security begins at the 286.** The 286 runs a *real* authenticated handshake —
-  real ECDHE key agreement (the optimised P-256, ~6.6 s/scalar-mult @6), a pinned-key
-  RSA-2048 certificate verify, and **silent re-pinning** when the leaf rotates — inside a
-  handshake-only module that overlays the 32 KiB loop cache (0 resident RAM on 16 KiB; the
-  hot path never loads it). The fast SHA above is load-bearing for it. The full handshake
-  fits the provider's ~15 s window even at 6 MHz (a ~1.2 s knife-edge; 8 MHz is the
-  comfortable floor), tamper-rejecting a bad pin.
-  This authentication is subject to the current certificate-time policy:
-  DER/signature/hostname failures close, but expiry checking is skipped when
-  no usable RTC value is available.
+After commit, ordinary turns reuse one live session and pay only record crypto.
+If a human request fails before any response text appears, Seed retires the
+channel, cold-builds one fresh tier route, reconstructs the same prompt, and
+sends it once more. A second failure returns to the prompt. Text-seen responses
+and tool/agent-loop continuations are never automatically replayed.
 
-The trust model, the off-race re-pin mechanics, the best-effort
-unauthenticated-NTP/no-time validity policy, and the scoped-but-unbuilt ECDSA
-contingency are all in [security.md](security.md).
+Thus resumption and reconnect improve availability but never extend the trust
+boundary: every fresh route repeats its tier's mandatory proof, and tentative
+tickets cannot make application credentials reachable.
 
-The handshake race is also why the chat loop reuses one session instead of
-reconnecting per turn — a fresh mid-chat handshake can lose the race:
+### Integration risks and open questions
 
-```text
-  fresh TLS handshake on the 8088   ├──────────────── ~15 s ────────────────┤ done
-  provider reconnect window         ├─────────────── ~15 s ───────────────┤ ✗ closed
-
-  So the chat loop:
-    · holds ONE TLS session open and reuses it for every prompt; a keep-alive ping holds
-      it open through long renders, so an engaged session reuses snappily, no reconnect
-    · if the completion marker is missed but the text already rendered, accepts the answer
-      rather than forcing a new (racing) handshake
-    · when reuse DOES fail — idle long enough that the provider closed the socket — it
-      reloads handshake crypto from floppy BEFORE opening the connection (never during the
-      race), then reconnects behind a single dim "> reconnect" line and retries up to 3x;
-      if all three lose the race it appends " failed" and drops to the prompt (never a
-      blank turn)
-  The ~15 s handshake is normally paid once, at boot — never per reused turn.
-```
-
-Both constraints are answered the same way: do the irreducible work once, keep
-it resident only as long as its lifetime requires, and lean on algorithm and
-layout choices that suit a small, slow machine instead of fighting them.
+- The provider close near 15 seconds is observed behavior, not an SLA. Both
+  exact-floor routes have current live margin evidence but need more repetition
+  across cold boots and edge variation. The 8088 profile requires fresh
+  Finished plus bounded ticket/close receipt before the
+  paired resumed 0-RTT liveness exchange; the conforming route still requires
+  its complete acquisition/HEAD/ticket exchange. Both need further live
+  margin characterization.
+- Emulator entropy has zero credit. The physical 8088 floppy source and 286
+  RTC/PIT source may not support their provisional min-entropy assumptions or
+  health cutoffs.
+- The 8088 exact-leaf route lacks trusted runtime time and general issuer-based
+  rotation. Its image object has an operational expiry/update requirement.
+- A ticket may be absent, malformed, rejected, or expire before offline proof
+  completes. The route must fail closed or reacquire within its bounded policy;
+  it must never fall back to a credential-bearing provisional connection.
+- The 160 KiB image retains one unallocated FAT data sector as a required
+  packaging guard, leaving zero usable `SEED.SYS` sector-growth headroom.
+  Further cold code needs deletion/compression, a larger media profile that
+  does not fragment the user experience, or revised package geometry.
+- The video-RAM vault has extensive CPU-emulated hostile gates and clean 86Box
+  CGA/MDA active-hold plus post-scrub redraw evidence. Physical adapter scanout
+  behavior remains unverified. MDA intentionally has no changing live UI
+  during the vault lifetime; any binary/random glyph screen is an acceptance
+  failure.
+- The product 8088 profile passes all seven original-speed NIC profiles;
+  this does not grant permission to disturb the stable driver surface. Shared
+  TCP/TLS changes continue to require the documented NIC regression matrix.
+- OpenAI is the only current wire profile. Adding a provider is an explicit
+  certificate/protocol/timing architecture task, not another config row.
 
 ## Extensibility: HAL, Drivers, and the Capability Layer
 
@@ -841,15 +932,12 @@ best-effort — a status line if the medium cannot be written or is full); `load
 mid-session revert that discards the current arena/context pool, restores the saved one, and
 redisplays.
 
-**Leaf DER.** The security path owns one separate refreshable file:
-`SEED/LEAF.DER`. Standard images ship the current `api.openai.com` RSA leaf there, but it
-is not trusted just because it is on the floppy. Before opening a 286+ TLS socket, Seed
-reads the file, verifies strict DER, SAN, WR1 signature, and, when a usable RTC
-value is available, validity dates against the baked WR1 anchor. The current
-weaker no-time fallback skips the date check. After an auto-recertification
-verifies a freshly captured leaf, Seed tries to write that DER back to the boot medium.
-Missing, stale, malformed, full-media, or write-protected cases fall back to the normal
-live-leaf recertify path.
+**TLS trust is not persisted.** TLS 1.3 ships no mutable leaf file. The 8088
+exact-leaf point and the 286 WE1 issuer point are immutable program assets.
+Captured certificates, generated P-256 tables, tentative tickets, attempt
+bundles, and traffic keys are same-boot RAM state and are scrubbed or lost on
+restart. A restored environment therefore repeats a complete cold tier route
+before its first request.
 
 **The restore fit gate** is two tiers. A *silent fail-safe* on magic / format version /
 checksum — a corrupt, foreign, or incompatible file is ignored and the machine boots
@@ -943,10 +1031,11 @@ arena; they do not become alternate products.
 larger conversation window and arena (the default home for headroom)
 preloaded normal-turn working set (the cached 32 KiB chat loop)
 far conventional, EMS, HMA/native extended, and unreal-mode memory reach
-real, authenticated TLS on a 286-class CPU
+64 KiB top-relative TLS reservation on the 286/512 KiB conforming tier
 later: more NIC families and link types, additively
 ```
 
 The >64 KiB path is additive through the relocation seam (near→far dispatch
-vectors, above), not a rewrite. EMS bank-switching, 286 HMA/native extended memory, and
-386+ unreal mode are current tiers. TLS 1.3 and the 64-bit, no-BIOS runtime are later work.
+vectors, above), not a rewrite. EMS bank-switching, 286 HMA/native extended
+memory, 386+ unreal mode, and TLS 1.3 are current integrated tiers under
+validation. The 64-bit, no-BIOS runtime remains later work.

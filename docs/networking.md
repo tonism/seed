@@ -1,115 +1,139 @@
 # Networking And NIC Transport Contract
 
-This documents the behavioral contracts the boot core must honor when reaching a
-provider over the TLS 1.2 ChaCha20-Poly1305 path: the shared transport rules that
-apply to every adapter, and the per-NIC carve-outs that exist because of real
-hardware differences. These are durable behavioral requirements, not status notes.
-The lane-validation history and per-card evidence behind these contracts are
-recorded in `docs/builds.md`.
+Seed's one current provider route is OpenAI over TLS 1.3 and HTTP/1.1. The
+runtime selects the 8088 or 286 conforming TLS profile from the same
+`SEED.SYS`; NIC transport behavior remains behind one resident vtable.
 
-**Security note:** confidentiality is CPU-tiered. On a stock 8088 this path is *not* a
-secure channel — the ECDH key exchange is stubbed (the premaster is the server's public
-value) and client randomness is a placeholder; a 286 runs the real secure handshake
-(ECDHE + pinned-key RSA cert verify in the current tree). See
-[`architecture.md`](architecture.md), "CPU And Crypto Budget." The contracts below are
-about transport *reliability* — identical on both tiers — not confidentiality.
+The two TLS routes make different security claims, documented in
+[`security.md`](security.md). A NIC success proves packet transport, not the
+security tier by itself.
 
 ## Shared transport rules
 
-These hold for every supported adapter:
+These rules hold for every supported adapter:
 
-- **Large-record completion.** Always decrypt and scan a large TLS application
-  record to its end. Do not fast-drain it: a terminal HTTP zero chunk
-  (`0\r\n\r\n`) or an SSE completion marker can be bundled into a large
-  `response.completed` record, and fast-draining drops the completion signal and
-  stalls the loop.
-- **Completion marker.** Treat the transport zero chunk and the
-  `response.completed` / `*_text.done` SSE marker as completion. Do not rely on a
-  contiguous `output_text.done` alone — a provider can split the event name across
-  TLS records — so key on `response.completed` as the semantic marker.
-- **Session reuse.** Reuse the live keep-alive TLS session for follow-up prompts.
-  Do not force a fresh handshake per follow-up; a reconnect immediately after a
-  long stream races the provider's reconnect window. Reconnect and resend only
-  when a real close/stale condition is seen.
-- **Text-seen fallback.** On a receive or ACK failure *after* response text has
-  already rendered, accept the rendered answer and invalidate the session rather
-  than reconnecting mid-exchange. A mid-exchange reconnect's full handshake races
-  the provider window and surfaces a connect/handshake error for an answer the
-  user already read.
-- **Durable prompt tail.** Hold the prompt tail in memory that TLS setup cannot
-  overwrite, so it survives a reconnect-and-resend.
-- **Chunked request.** Send the provider request as several TLS application
-  records (headers+model / instructions+ledger / conversation+prompt). When the
-  conversation+prompt would overflow the send buffer, flush across further records rather
-  than truncating — one HTTP request, more TLS records, transparent to the adapter.
-- **Receive-buffer floor.** Seed advertises a 384-byte TCP MSS and the TLS receive
-  path streams one TCP segment at a time through `tls_rx_copy`; it no longer needs a
-  whole TLS record in RAM. Large application records are decrypted and MAC-checked
-  incrementally. The receive buffer itself stays at a 592-byte scratch floor because
-  it must also hold a 512-byte floppy/prompt staging sector, the DNS qname tail,
-  ClientHello, and DPI input aliases. Do not grow this buffer casually; it directly
-  trades against the reconnect-safe context pool on 16 KiB.
+- **Cold-load before timing.** Read and validate the required TLS phase or 286
+  pack before opening the timed connection. A reconnect may read the
+  write-protected floppy first, then opens a wholly fresh socket. No TLS path
+  writes temporary state to disk.
+- **Large-record completion.** Decrypt, authenticate, and scan every
+  application record to its end. A terminal HTTP zero chunk or SSE completion
+  event may share a large record with output text; fast-draining can discard
+  the only completion signal.
+- **Completion marker.** Treat the HTTP terminal chunk and the
+  `response.completed` / `*_text.done` events as completion. Event names may
+  cross TLS-record boundaries, so do not depend on one contiguous
+  `output_text.done` literal.
+- **Session reuse.** Keep a successfully committed TLS session open for
+  follow-up prompts. Do not pay a fresh hybrid exchange per turn.
+- **Credential quarantine.** Before either route commits, only its literal
+  credential-free HEAD probe may enter application records. On the 8088
+  profile, a bounded fresh ticket/close receipt may bridge to the same HEAD as
+  resumed 0-RTT, but the receipt is not liveness or credential authority. API
+  credentials, prompts, context, cookies, redirects, and tool continuations
+  remain unreachable. On the 286, the authenticated acquisition ticket remains
+  tentative until offline full FO/X.509/CV proof, then the final no-0RTT
+  PSK-DHE resumption must complete before credential publication. Tentative
+  and promoted tickets remain same-boot RAM state.
+- **Text-seen fallback.** If receive or ACK handling fails after output text
+  has rendered, accept the visible answer and retire the channel. Never replay
+  a partially visible answer automatically.
+- **Durable human prompt.** Keep the submitted human prompt in memory that TLS
+  setup cannot overwrite. It must survive one fresh reconnect and exact
+  request reconstruction.
+- **No tool replay.** A tool/agent-loop continuation is never automatically
+  reconnected and resent; doing so could duplicate a local effect.
+- **Chunked request.** Send one HTTP request over as many TLS application
+  records as needed. Never truncate the conversation or prompt because the
+  current record buffer is full.
+- **Bounded receive.** The product TLS 1.3 receive path authenticates records
+  incrementally and rejects record, plaintext, spool, sequence, and pointer
+  overflow before copying. Keep transport reads within the active NIC's
+  advertised sample and ring bounds.
+- **Key and sequence retirement.** Every close, parse failure, bad tag,
+  interrupted phase load, or route failure invalidates both directions'
+  traffic keys, IVs, sequence numbers, pending ticket status, and application
+  readiness before returning to UI or setup.
+
+## Bounded same-request reconnect
+
+Reconnect is deliberately one attempt, not a general retry loop:
+
+```text
+human request, no response text
+  -> retire failed channel
+  -> cold-load/rebuild one fresh tier route
+  -> reconstruct the same durable prompt from the screen
+  -> send that request exactly once
+  -> success, or retire and return failure
+
+response text already visible
+  -> accept text, retire channel, no replay
+
+tool/agent-loop continuation
+  -> retire channel, no replay
+```
+
+The fresh route repeats all tier-specific cryptographic gates. No ticket,
+same-boot pin, or “reconnect” flag can bypass authentication. The offline
+replay contract is gated by `tools/check-tls13-product-reconnect.py`; live
+acceptance also requires pcap proof on the exact CPU/RAM floors.
 
 ## Per-NIC contracts
 
-### 3Com 3c501 (el1, single-buffer)
+### 3Com 3c501
 
-The most constrained adapter and the source of most carve-outs, because the el1 is
-a single-buffer card.
+The 3c501 is the single-buffer outlier.
 
-- Send ClientKeyExchange before the expensive PRF and key-block work.
-- Keep the prebuilt application-frame path separate from the other adapters.
-- Prepare the receive latch around post-prompt sends (the stable path prepares the
-  3c501 receive latch before and after the ready-tail application-data send).
-- Keep the single-card receive sample below the response phase and reject truncated
-  TCP payloads; never ACK bytes that were not fully retained in `ne_tx_frame`.
-- Use render-before-ACK during active chat once response text has started: the
-  single-buffer card must not acknowledge a long text stream faster than the 8088
-  renderer can consume it. Cold greeting, setup, and pre-text metadata still use
-  ACK-before-render.
+- Keep its prebuilt-frame and receive-latch paths separate.
+- Prepare the receive latch around application sends.
+- Reject truncated TCP payloads and never ACK bytes not fully retained.
+- Once response text starts, render before ACK so the card cannot be
+  overwritten faster than the 8088 can display the text.
+- Treat cold TLS setup, liveness, and normal application exchange as separate
+  validation lanes; passing one does not imply the others.
 
-### 3Com 3c503 (DP8390)
+### 3Com 3c503
 
-- Keep the request phase loaded away from the HTTP body scratch; the enlarged
-  ready-request builder must not execute from a region it overwrites.
-- Use the pre-server-Finished application-data send path. Moving the send to after
-  server Finished regressed into server FIN/RST races.
-- Do not force split-body sending for short prompts: prompts at or below
-  `api_ready_short_prompt_max` inline the whole request when it fits; longer
-  prompts use the split lane.
-- Metadata records may ACK before rendering; once response text has started, use
-  render-before-ACK.
-- Oversized TLS application records can carry real output text — chunk-decrypt and
-  parse them and preserve the following TLS record tails; do not blanket
-  fast-drain.
+- Keep request/controller code outside the HTTP body and record scratch it
+  overwrites.
+- Metadata may ACK before render; after response text starts, render before
+  ACK.
+- Preserve following TLS-record tails when a large record is streamed and
+  parsed.
 
-### NE1000 / NE2000 (and Novell NE1000)
+### NE1000 / NE2000 and Novell NE1000
 
-- After response text has started, use render-before-ACK pacing for long
-  responses.
-- NE2000 has the strongest focused validation evidence of this family.
-- Treat Novell NE1000 as a separate verification target; do not assume NE2000
-  evidence covers it until it passes the focused gates.
+- After response text begins, use render-before-ACK pacing for long replies.
+- The 16 KiB TLS public vault is video RAM, not NE card RAM. No product path
+  may assume an NE adapter or borrow its packet pages for crypto state.
+- Treat NE1000, NE2000, and Novell NE1000 as separate original-speed gates.
 
-### WD80x3 (WD8003E / WD8003EB / WD8013EBT)
+### WD80x3
 
-- Use the ACK-before-render shape. Global delayed-ACK experiments regressed
-  WD8003E.
-- Treat WD8003E, WD8003EB, and WD8013EBT as related but verify them
-  independently; one passing does not certify the others.
-- Keep the shared-memory aperture enabled before DP8390 access. WD8013EBT can
-  otherwise pass early DHCP traffic and later fail on agent-endpoint ARP receive.
-- Keep the ring bounds family-specific: 8 KiB WD8003 cards use pages `0x06..0x1f`,
-  while the 16 KiB WD8013EBT profile uses pages `0x06..0x3f`.
+- Keep ACK-before-render behavior where the existing family path requires it;
+  global delayed-ACK changes have regressed WD8003E.
+- Keep the shared-memory aperture enabled before DP8390 access.
+- Use family-specific ring bounds: 8 KiB WD8003 cards use pages
+  `0x06..0x1f`; the 16 KiB WD8013 profile uses `0x06..0x3f`.
+- Validate WD8003E, WD8003EB, and WD8013 independently.
+
+### Later ISA and PCI families
+
+PCnet/LANCE, DEC Tulip, RTL8139, and EPIC/100 remain external `.DRV` families
+behind the same vtable and shared TLS application contract. Their larger
+machine profiles do not authorize a separate provider, TLS version, or boot
+artifact. Each family still needs its own cold TLS, first response, reuse,
+bounded reconnect, and long-render gates.
 
 ## Why the carve-outs exist
 
-The shared rules above cover the DP8390-class cards (NE1000/NE2000, 3c503, and
-WD80x3). The 3c501 is the outlier: its el1 single-buffer hardware forces the
-render-before-ACK pacing and the receive-latch handling. The remaining per-NIC
-branches in the boot core are therefore hardware-driven; most of the behavioral
-carve-outs are 3c501's. Reducing that surface — folding carve-outs back into the
-shared path where a card allows it — is tracked as a roadmap investigation in
-`docs/builds.md`. A per-card rule may only be retired once a documented shared
-replacement rule and cross-NIC evidence exist; see `docs/builds.md` for the
-validation history and the unification investigation.
+Most supported early cards share DP8390-style ring behavior. The 3c501's
+single packet buffer and some WD shared-memory details require hardware-specific
+pacing and aperture rules. Those branches may be retired only after a common
+replacement passes the full original-speed NIC matrix.
+
+The TLS implementation itself must not acquire NIC-family state. Its only
+transport authority is the resident vtable plus bounded TCP send/receive/close
+callbacks. This is what lets one TLS architecture run across the complete
+driver set and keeps inactive adapters out of the 16 KiB resident budget.

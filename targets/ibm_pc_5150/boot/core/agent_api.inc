@@ -63,7 +63,8 @@ agent_api_exchange:
     mov al, 0x11
     call ne_transmit_tcp_flags
     cmp byte [api_stream_completed], 2
-    jae .success
+    je .hard_failed
+    ja .success
     ; All NICs: a receive/ack failure after text rendered means the answer streamed but the
     ; transport-completion marker was missed (or it cut mid-answer). Accept what rendered and
     ; invalidate the session (clean fresh connect next prompt) instead of reconnecting
@@ -75,7 +76,15 @@ agent_api_exchange:
 .text_seen_fallback:
     cmp byte [api_stream_text_seen], 0
     je .hard_failed
+%ifdef TLS13_PRODUCT_TLS13
+    ; Preserve the rendered answer, but retire the complete unusable TLS 1.3
+    ; application capability before returning success through .success.  This
+    ; is not a no-text scheduler failure, so suppress its one permitted replay.
+    mov byte [reconnect_retries], 0
+    call tls13_product_retire_app_state
+%else
     mov byte [tls_key_schedule_ready], 0
+%endif
     jmp .success
 .hard_failed:
     stc

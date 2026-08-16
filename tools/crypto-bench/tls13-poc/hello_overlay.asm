@@ -32,6 +32,15 @@
 ; fragment until hello_fragment_consumed is called.  hello_server_begin is
 ; rejected until the final fragment was consumed.  Thus raw c may overwrite ek
 ; at 08c0 only after no ClientHello fragment can still refer to ek.
+;
+; HELLO_DYNAMIC_X25519 is the narrow 286 product handoff.  Before entry 0 or 1
+; the controller writes one raw 32-byte RFC 7748 client public share at
+; hello_dynamic_x25519_input (0000:4000).  The selected begin entry rejects an
+; all-zero value, snapshots it into HELLO-owned mutable state, and scrubs the
+; input.  Rewrites of the input cannot change binder construction or the
+; pending/replayed ClientHello.  The snapshot is scrubbed when ServerHello
+; parsing begins.  This define neither adds a public entry nor changes the
+; overlay header/table format.
 
 bits 16
 cpu 8086
@@ -51,6 +60,17 @@ org 0x1800
 %define HELLO_CACHED_CONNECT 1
 %endif
 
+%ifdef HELLO_DYNAMIC_X25519
+%ifndef TLS13_PRODUCT_TLS13
+%error "dynamic X25519 requires the TLS 1.3 product wire profile"
+%endif
+%ifndef HELLO_FRESH_ONLY
+%ifndef HELLO_RESUMED_ONLY
+%error "dynamic X25519 requires an explicit fresh-only or resumed-only image"
+%endif
+%endif
+%endif
+
 %include "layout.inc"
 
 sha256_digest_len equ 32
@@ -59,8 +79,17 @@ sha256_k_len equ 256
 
 hello_version                 equ 1
 hello_mss_max                 equ 384
-hello_base_fresh_message_len  equ 1376
-hello_base_fresh_extensions_len equ 0x0511
+%ifdef TLS13_PRODUCT_TLS13
+; RFC 8449 record_size_limit = 2048.  This is an offer, not an assumption:
+; the protected-record receiver keeps its own fail-closed staging bound even
+; when a server (including the current OpenAI edge) omits the extension from
+; EncryptedExtensions.
+hello_product_extension_delta equ 6
+%else
+hello_product_extension_delta equ 0
+%endif
+hello_base_fresh_message_len  equ 1376 + hello_product_extension_delta
+hello_base_fresh_extensions_len equ 0x0511 + hello_product_extension_delta
 %ifdef HELLO_FRESH_TICKET_REQUEST
 hello_fresh_message_len       equ hello_base_fresh_message_len + 6
 hello_fresh_extensions_len    equ hello_base_fresh_extensions_len + 6
@@ -77,6 +106,11 @@ hello_fresh_fragment_count    equ 6
 hello_resumed_fragment_count  equ 8
 hello_ticket_min              equ 1
 hello_ticket_max              equ poc_ticket_identity_max
+%ifdef HELLO_RESUMED_EARLY_DATA
+hello_resumed_tail_prefix_len equ 68 + hello_product_extension_delta
+%else
+hello_resumed_tail_prefix_len equ 64 + hello_product_extension_delta
+%endif
 
 hello_mode_fresh              equ 0
 hello_mode_resumed            equ 1
@@ -112,6 +146,17 @@ hello_input_ticket_age        equ hello_input_ticket_psk + 32 ; 4-byte wire orde
 hello_input_ticket_len        equ hello_input_ticket_age + 4  ; native word
 hello_attempt_used_end        equ hello_input_ticket_len + 2
 hello_status                  equ poc_hello_status
+%ifdef HELLO_DYNAMIC_X25519
+; Controller/HELLO ABI: write one nonzero RFC 7748 public share here before
+; either begin entry.  This 286-only handoff sits above the 16 KiB ceiling and
+; below the fixed 0000:4200 asymmetric-module overlay, so resumed tickets keep
+; their independent PSK at 0000:3bdc.  HELLO snapshots and erases these bytes.
+hello_dynamic_x25519_input     equ 0x4000
+hello_dynamic_x25519_len       equ 32
+%if hello_dynamic_x25519_input < poc_ram_end
+%error "dynamic X25519 input must remain outside the 16 KiB product floor"
+%endif
+%endif
 
 hello_overlay_header:
     db 'T13HEL01'
@@ -177,6 +222,10 @@ hello_fresh_begin:
 %else
     call hello_begin_common
     jc .done
+%ifdef HELLO_DYNAMIC_X25519
+    call hello_dynamic_x25519_capture
+    jc hello_fail
+%endif
     mov byte [hello_mode], hello_mode_fresh
     mov word [hello_message_len], hello_fresh_message_len
     mov word [hello_extensions_len], hello_fresh_extensions_len
@@ -194,6 +243,10 @@ hello_resumed_begin:
 %else
     call hello_begin_common
     jc .done
+%ifdef HELLO_DYNAMIC_X25519
+    call hello_dynamic_x25519_capture
+    jc hello_fail
+%endif
     mov ax, [hello_input_ticket_len]
     cmp ax, hello_ticket_min
     jb hello_fail
@@ -268,6 +321,30 @@ hello_begin_common:
     clc
     ret
 
+%ifdef HELLO_DYNAMIC_X25519
+; Snapshot the controller-owned public share before the ClientHello iterator
+; can expose any fragment.  The source is erased on both success and failure;
+; after this call only HELLO's private snapshot can influence the wire.
+hello_dynamic_x25519_capture:
+    xor dx, dx
+    mov si, hello_dynamic_x25519_input
+    mov di, hello_dynamic_x25519_snapshot
+    mov cx, hello_dynamic_x25519_len / 2
+.copy:
+    lodsw
+    or dx, ax
+    stosw
+    mov word [si - 2], 0
+    loop .copy
+    or dx, dx
+    jz .bad
+    clc
+    ret
+.bad:
+    stc
+    ret
+%endif
+
 hello_next_fragment:
     cmp byte [hello_phase], hello_phase_tx
     je .tx_active
@@ -332,7 +409,12 @@ hello_next_fragment:
     mov cx, poc_mlkem_ek_len - (3 * hello_mss_max)
     jmp short .publish
 .fresh_tail:
+%ifdef HELLO_DYNAMIC_X25519
+    call hello_build_dynamic_fresh_tail
+    mov si, hello_tx_build_start
+%else
     mov si, hello_fresh_tail
+%endif
 %ifdef HELLO_FRESH_TICKET_REQUEST
     ; The live fresh-flight PoC advertises PSK-DHE ticket usability without
     ; offering a PSK.  hello_psk_modes_extension is laid out directly after
@@ -346,11 +428,7 @@ hello_next_fragment:
 .resumed_tail_prefix:
     call hello_build_resumed_tail_prefix
     mov si, hello_tx_build_start
-%ifdef HELLO_RESUMED_EARLY_DATA
-    mov cx, 68
-%else
-    mov cx, 64
-%endif
+    mov cx, hello_resumed_tail_prefix_len
     jmp short .publish
 .identity:
     mov si, poc_ticket_identity
@@ -855,6 +933,38 @@ hello_build_prefix:
     pop ax
     ret
 
+%ifdef HELLO_DYNAMIC_X25519
+; Build the one contiguous tail fragment from the frozen RFC 7748 share and
+; the immutable product suffix.  Every non-dynamic image retains the fixed-u=9
+; bytes byte-for-byte, while this path neither stores nor publishes them.
+hello_build_dynamic_fresh_tail:
+    push ax
+    push cx
+    push si
+    push di
+    push es
+    push ds
+    pop es
+    mov di, hello_tx_build_start
+    mov si, hello_dynamic_x25519_snapshot
+    mov cx, hello_dynamic_x25519_len
+    rep movsb
+    mov si, hello_fresh_tail_suffix
+    mov cx, hello_fresh_tail_suffix_len
+    rep movsb
+%ifdef HELLO_FRESH_TICKET_REQUEST
+    mov si, hello_psk_modes_extension
+    mov cx, hello_psk_modes_extension_len
+    rep movsb
+%endif
+    pop es
+    pop di
+    pop si
+    pop cx
+    pop ax
+    ret
+%endif
+
 %ifndef HELLO_FRESH_ONLY
 hello_build_resumed_tail_prefix:
     push ax
@@ -865,8 +975,16 @@ hello_build_resumed_tail_prefix:
     push ds
     pop es
     mov di, hello_tx_build_start
+%ifdef HELLO_DYNAMIC_X25519
+    mov si, hello_dynamic_x25519_snapshot
+    mov cx, hello_dynamic_x25519_len
+    rep movsb
+    mov si, hello_fresh_tail_suffix
+    mov cx, hello_fresh_tail_suffix_len
+%else
     mov si, hello_fresh_tail
     mov cx, hello_fresh_tail_len
+%endif
     rep movsb
     mov si, hello_psk_modes_extension
     mov cx, hello_psk_modes_extension_len
@@ -941,11 +1059,7 @@ hello_make_binder:
     call hello_build_resumed_tail_prefix
     hello_binder_diagnostic 'e'
     mov si, hello_tx_build_start
-%ifdef HELLO_RESUMED_EARLY_DATA
-    mov cx, 68
-%else
-    mov cx, 64
-%endif
+    mov cx, hello_resumed_tail_prefix_len
     call sha256_update
     hello_binder_diagnostic 'f'
     mov si, poc_ticket_identity
@@ -1158,7 +1272,9 @@ hello_clear:
 %error "cached connector requires an explicit fresh-only or resumed-only mode"
 %endif
 %endif
+%define HELLO_CACHED_CONNECT_AUTO_3C501_PRIME 1
 %include "hello_cached_connect.inc"
+%undef HELLO_CACHED_CONNECT_AUTO_3C501_PRIME
 %endif
 
 ; ---------------------------------------------------------------------------
@@ -1189,11 +1305,25 @@ hello_prefix_extensions:
 hello_prefix_extensions_len equ $ - hello_prefix_extensions
 
 hello_fresh_tail:
+%ifndef HELLO_DYNAMIC_X25519
     db 0x09
     times 31 db 0
+%endif
+hello_fresh_tail_suffix:
+%ifdef TLS13_PRODUCT_TLS13
+    ; record_size_limit = 2048.  Keep it ahead of padding and, on resumed
+    ; handshakes, ahead of the mandatory-final pre_shared_key extension.
+    db 0x00,0x1c,0x00,0x02,0x08,0x00
+%endif
     db 0x00,0x15,0x00,0x0e
     times 14 db 0
+%ifdef HELLO_DYNAMIC_X25519
+hello_fresh_tail_len equ hello_dynamic_x25519_len + \
+    ($ - hello_fresh_tail_suffix)
+%else
 hello_fresh_tail_len equ $ - hello_fresh_tail
+%endif
+hello_fresh_tail_suffix_len equ $ - hello_fresh_tail_suffix
 
 %ifdef HELLO_FRESH_TICKET_REQUEST
 %define HELLO_INCLUDE_PSK_MODES_BYTES 1
@@ -1342,6 +1472,15 @@ hello_truncated_digest equ hello_session + 32
 hello_server_x_work equ hello_truncated_digest + 32
 hello_secret_a equ hello_server_x_work + 32
 hello_secret_b equ hello_secret_a + 32
+%ifdef HELLO_DYNAMIC_X25519
+; Server-share work is dead throughout ClientHello binder/send/replay and is
+; cleared at hello_server_begin before it receives the peer share.  Reuse that
+; exact block for the frozen client public share without growing mutable state.
+hello_dynamic_x25519_snapshot equ hello_server_x_work
+%if hello_dynamic_x25519_snapshot + hello_dynamic_x25519_len > hello_secret_a
+%error "dynamic X25519 snapshot escapes its 32-byte mutable slot"
+%endif
+%endif
 hello_hkdf_info equ hello_secret_b + 32
 hello_hkdf_info_len equ 64
 hello_hkdf_block equ hello_hkdf_info + hello_hkdf_info_len

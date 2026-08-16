@@ -66,9 +66,22 @@ start:
     inc cx
     xor dh, dh
     mov dl, SEED_BOOT_DRIVE
+.read_retry_init:
+    mov di, 3
+.read_retry:
     mov ax, 0x0201
     int 0x13
-    jc .failed
+    jnc .read_done
+    ; A ROM-BASIC entry can leave the selected drive idle for many seconds
+    ; while the sidecar is typed.  Some BIOS/FDC combinations report the
+    ; first motor-start read as an error.  Reset the drive and retry a bounded
+    ; number of times instead of turning that transient into a red-X halt.
+    xor ax, ax
+    int 0x13
+    dec di
+    jnz .read_retry
+    jmp .failed
+.read_done:
     inc si
     add bx, sector_size
     dec bp

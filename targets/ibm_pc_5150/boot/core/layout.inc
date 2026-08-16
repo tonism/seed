@@ -37,6 +37,11 @@ low_scratch_end equ 0x1000
 ; crypto window still starts at 0x1800 (= nic_driver_slot_end), so this costs no arena and no
 ; crypto-window move. Each driver module must fit one sector (loaded whole-sector into the slot).
 nic_driver_slot equ 0x1600
+; ROM BASIC owns INT 1Ch while its workspace is live. The 16 KiB sidecar
+; reclaims that workspace, so it atomically redirects INT 1Ch to this permanent
+; IRET byte before entering Seed. Keep the byte in resident nucleus padding,
+; immediately below the driver slot that hardware setup later overwrites.
+basic_timer_iret_addr equ nic_driver_slot - 1
 nic_driver_slot_len equ 0x200
 nic_driver_slot_end equ nic_driver_slot + nic_driver_slot_len
 nic_vt_slot_count equ 5
@@ -56,9 +61,16 @@ loop_cache_end equ runtime_stack_top - runtime_stack_guard_len
 loop_cache_start equ loop_cache_end - loop_cache_len
 ; Build 12 incr 3: the normal-turn IDENTITY prompt (<=512 B = 1 sector, see the Makefile cap) caches
 ; in a fixed slot at the TOP of the loop cache, independent of the phase count; the phases fill from
-; loop_cache_start upward. The rare COMPACT prompt streams from floppy so the local-history response
-; scanner can keep its second sector without moving the 32K cache below the 16K ceiling.
+; loop_cache_start upward. The rare COMPACT prompt streams from floppy on the legacy low-memory
+; route; the 286 product route preserves the complete 29-sector working span in its RAM shadow.
 prompt_id_cache equ loop_cache_end - 512
+; The immutable phase lookup belongs to the cache it indexes.  Keeping it in
+; the otherwise-unused bytes below IDENTITY frees its former resident-nucleus
+; home for the 286 RAM-shadow restore thunk.  core.asm asserts that the phase
+; payloads cannot grow into it.
+loop_cache_max_entries equ 5
+loop_cache_table_len equ loop_cache_max_entries * 4
+loop_cache_table equ prompt_id_cache - loop_cache_table_len
 ; Build 12 native tool calling: raw SSE function_call capture. The response phase loads at 0x0900
 ; during receive, so this sector at 0x0d00 is a low-memory handoff buffer that survives the later
 ; parser phase (loaded at 0x0700..0x0d00). The memory helper may later load through 0x0d00 because
@@ -85,10 +97,10 @@ tools_cache_sectors equ 1
 tools_cache_len equ tools_cache_sectors * 512
 tools_cache equ loop_cache_start - tools_cache_len
 tools_schema_max_len equ 384
-; Build 12 286 secure tier: the handshake-only P-256 ECDHE module (core/p256_module.asm, incbin'd into
-; SEED.SYS). Loaded ONLY on the 286 secure path (handoff_flag_cpu_286plus) into a high overlay band
-; that ALIASES the 32K loop cache — lifetime-disjoint: the module runs during the boot handshake; the
-; loop cache is preloaded AFTER it (a reconnect reloads the module, then re-preloads the cache). The
+; Build 12 legacy 286 secure tier: the handshake-only P-256 ECDHE module (core/p256_module.asm,
+; incbin'd into SEED.SYS). Loaded only by the retired TLS 1.2 path into a high overlay band that
+; aliases the 32K loop cache. The TLS 1.3 product route instead keeps the complete prompt-time
+; working set in an arena-excluded top-relative RAM shadow and restores it without floppy I/O. The
 ; 286 secure tier is inherently 32K (it needs this high region), so the 16K floor never reaches here;
 ; p256_module_load == loop_cache_start keeps the band above the 16K ceiling (absent on 16K). The module
 ; (code + data) must fit p256_module_max_sectors (build-asserted in p256_module.asm) AND the loop cache.
@@ -199,6 +211,9 @@ handoff_flag_cpu_386plus equ 0x0080
 handoff_flag_hma equ 0x0100
 handoff_flag_unreal equ 0x0200
 handoff_flag_wd_ram_dc00 equ 0x0400
+; Reserved. Product TLS 1.3 treats a coherent, valid CMOS RTC as the platform
+; UTC clock and does not interrupt the chat flow for a same-boot confirmation.
+handoff_flag_reserved_0800 equ 0x0800
 handoff_status_booting equ 1
 handoff_status_no_nic equ 2
 handoff_status_ready equ 3
@@ -522,11 +537,17 @@ tcp_rx_read_len equ 96
 tcp_offset equ eth_header_len + ipv4_header_len
 tcp_payload_offset equ tcp_offset + 20
 tcp_payload_max_len equ 1460
-tcp_payload_read_len equ tcp_payload_offset + tcp_payload_max_len
 ; Build 13 3c501 receive safety: advertise an MSS whose complete Ethernet frame fits below the
 ; response phase at 0x0900 even when a pure ACK is latched ahead of it in the single el1 buffer.
 ; The TLS receive buffer stays at its 592-byte scratch floor below.
 tcp_syn_mss equ 384
+; Every established-TCP receive lands at ne_tx_frame (0x0700). Bound the
+; driver copy by the executable phase at 0x0900, not by Ethernet's theoretical
+; 1460-byte payload: the advertised 384-byte MSS keeps ordinary frames inside
+; this window, while the full 512 bytes preserve the 3c501's concatenated
+; pure-ACK + MSS-frame fallback. A peer/proxy that violates the MSS is
+; truncated and rejected by parse_tcp_payload instead of overwriting live code.
+tcp_payload_read_len equ agent_response_phase_load_addr - low_scratch_start
 ; TLS record receive buffer. Post the Build 11 draining-FIFO collapse the receive STREAMS per
 ; segment (tls.inc:911 "removed the LAST whole-record receive path"): tls_rx_copy holds ONE TCP
 ; segment, never a whole record, so there is no record-size ceiling - a multi-KB TLS record arrives
@@ -600,17 +621,20 @@ tls_finished_cipher_len equ tls_finished_plain_len
 tls_finished_record_len equ tls_finished_cipher_len + 16
 tls_finished_total_len equ 5 + tls_finished_record_len
 tls_aead_aad_len equ 13
+tls13_aead_aad_len equ 5
 tls_record_seq_len equ 8
 tls_client_record_seq_len equ tls_record_seq_len
 tls_server_record_seq_len equ tls_record_seq_len
 tls_record_header_len equ 5
 tls_aead_tag_len equ 16
-tls_app_max_plain_len equ tcp_payload_max_len - tls_record_header_len - tls_aead_tag_len
+tls13_inner_type_len equ 1
+tls_app_max_plain_len equ tcp_payload_max_len - tls_record_header_len - tls_aead_tag_len - tls13_inner_type_len
 ; Fixed OpenAI proof request with max 192-byte key and max 64-byte model.
 api_request_plain_len equ 440
 api_ready_tiny_prompt_max equ 10
 api_ready_short_prompt_max equ 24
 tls_app_record_buffer_len equ api_request_plain_len + tls_record_header_len + tls_aead_tag_len
+tls13_app_record_buffer_len equ tls_app_record_buffer_len + tls13_inner_type_len
 api_request_key_value_offset equ 71
 api_request_model_value_offset equ 10
 chacha_word_count equ 16

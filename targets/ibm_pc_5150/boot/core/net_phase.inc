@@ -1,3 +1,218 @@
+%ifdef TLS13_PRODUCT_TLS13
+; Product TLS 1.3 resident scheduler.  This entire conditional occupies the
+; exact 333-byte extent of the retired TLS 1.2 scheduler (0x11f6..0x1342).
+; K14's phase chain calls fixed resident callbacks, so the filesystem and NIC
+; code below this include must remain at their established absolute addresses.
+tls13_product_net_block_start:
+
+prepare_internet_path:
+    call [nic_vt_enter]
+    run_net_phase core_dhcp_setup_phase_start, core_dhcp_setup_phase_end
+    pushf
+    call [nic_vt_restore]
+    popf
+    ret
+
+prepare_agent_path:
+    call_post_pack_core_phase core_agents_cfg_phase_start, core_agents_cfg_phase_end
+    call_post_pack_core_phase core_user_cfg_phase_start, core_user_cfg_phase_end
+    jnc .values_ready
+    call_post_pack_core_phase core_agent_setup_phase_start, core_agent_setup_phase_end
+.values_ready:
+    cmp byte [user_cfg_dirty], 0
+    je .config_saved
+    call_post_pack_core_phase core_save_phase_start, core_save_phase_end
+.config_saved:
+    ; Cache validated OpenAI model/key state exactly once, before either route
+    ; is allowed to reuse the old config/TLS scratch.
+    call_post_pack_core_phase core_agent_cache_phase_start, core_agent_cache_phase_end
+    jc .done
+    call_post_pack_core_phase core_restore_env_phase_start, core_restore_env_phase_end
+    jc prepare_agent_endpoint_path
+.done:
+    ret
+
+prepare_agent_endpoint_path:
+    ; The prompt buffer aliases receive scratch.  Preserve its length before a
+    ; route or application receive can overwrite it.  A tool continuation uses
+    ; the already-durable originating prompt and is never reconstructed/routed.
+    mov al, [dpi_input_len_byte]
+    cmp byte [agent_loop_pending], 0
+    je .prompt_len_ready
+    mov al, [chat_resend_prompt_len]
+.prompt_len_ready:
+    ; One bounded replay is permitted for this human turn.  A tool
+    ; continuation still cannot reconnect: establish_route rejects it before
+    ; any request rebuild or fresh send.
+    mov ah, 1
+    mov [chat_resend_prompt_len], ax
+
+.pass:
+    cmp byte [tls_key_schedule_ready], 1
+    je .build
+    ; A tool output is a non-replayable local side effect: if its live
+    ; session died, return softly to DPI before entering the reconnect path.
+    mov al, [tool_fc_state]
+    or al, [agent_loop_pending]
+    jz .establish
+    stc
+    ret
+.establish:
+    call tls13_product_establish_route
+    jc .burn
+.build:
+    call .build_request
+    jc .return
+    load_core_window core_link_window_start, core_link_window_end
+    jc .burn
+
+    ; Load X without calling it.  K and X are both complete before the single
+    ; application-data NIC lease begins.  X returns the response phase key in
+    ; AX/BX for agent_api_exchange's first phase load.
+    mov ax, post_pack_phase_key(core_agent_api_stream_phase_start, core_agent_api_stream_phase_end)
+    mov bx, net_setup_phase_start
+    call load_core_sectors_at
+    jc .burn
+    call [nic_vt_enter]
+    ; Driver enter may clobber every GP register; X is at its fixed load
+    ; address, so do not trust the pre-enter BX value here.
+    call net_setup_phase_start
+    jc .exchange_done
+    call agent_api_exchange
+.exchange_done:
+    pushf
+    call [nic_vt_restore]
+    popf
+    jc .burn
+    test byte [compacting_msg], 0xff
+    jnz .pass
+    ret
+.burn:
+    ; The ready byte is the capability gate, but retire the complete published
+    ; TLS 1.3 application state as well: failed records and failed route
+    ; finalization must not leave a later path able to reuse old keys/IVs/seqs.
+    push es
+    push ds
+    pop es
+    cld
+    xor ax, ax
+    mov di, tls_client_write_key
+    mov cx, (tls_server_record_seq + tls_server_record_seq_len - tls_client_write_key) / 2
+    rep stosw
+    pop es
+    mov [tls_key_schedule_ready], al
+    stc
+    ; The first no-text failure burns the old capability then rebuilds the
+    ; same durable human request on one fresh route.  DEC preserves the carry
+    ; set above, so exhaustion returns CF=1.  K's text-seen fallback forces
+    ; this counter to zero before entering the retirement leaf.
+    dec byte [reconnect_retries]
+    jz .pass
+.return:
+    ret
+
+; K's streamed-answer fallback calls the same resident retirement leaf, then
+; deliberately converts its carry back to success after preserving the text.
+tls13_product_retire_app_state equ prepare_agent_endpoint_path.burn
+
+.build_request:
+    cmp word [far_log_seg_var], 0
+    je .request
+    call_post_pack_core_phase core_context_mirror_phase_start, core_context_mirror_phase_end
+.request:
+    call_post_pack_core_phase core_agent_request_phase_start, core_agent_request_phase_end
+    ret
+
+; Establish exactly one tier route.  The caller has already rejected
+; non-replayable tool/agent-loop continuations, so every failure here can
+; return normally into the bounded human-turn reconnect loop.
+tls13_product_establish_route:
+    call tls13_product_route_mode
+    push ax
+    sub [dpi_reached], al
+    test word [handoff_addr + handoff_flags], handoff_flag_cpu_286plus
+    jnz tls13_product_establish_286
+
+    mov ax, TLS13_K14_PRODUCT_STATE_GUARD_PHASE_KEY
+    mov bx, TLS13_K14_PRODUCT_STATE_GUARD_DESTINATION
+    call load_core_sectors_at
+    jc .route_load_failed
+    pop ax
+    push ax
+    call TLS13_K14_PRODUCT_STATE_GUARD_ENTRY
+    jc .guard_pre_failed
+
+    ; PRE_HUMAN owns the complete three-fact MDA boundary and returns carry
+    ; unless every non-empty volatile prompt was published status-last.
+    mov ax, TLS13_K14_PRODUCT_ROOT_PHASE_KEY
+    mov bx, TLS13_K14_PRODUCT_ROOT_DESTINATION
+    call load_core_sectors_at
+    jc .root_load_failed
+    pop ax
+    call TLS13_K14_PRODUCT_ROOT_ENTRY
+    pushf
+    call [nic_vt_restore]
+    ; Root success publishes READY=1, while its disk-independent abort returns
+    ; with READY=0.  Hide either result without underflow until POST validates
+    ; the restored state/UI boundary.
+    mov byte [tls_key_schedule_ready], 0
+
+    ; Root success is not visible to the chat loop until POST has rebuilt all
+    ; scrubbed low constants/UI and invalidated its prompt snapshot.
+    mov ax, TLS13_K14_PRODUCT_STATE_GUARD_PHASE_KEY
+    mov bx, TLS13_K14_PRODUCT_STATE_GUARD_DESTINATION
+    call load_core_sectors_at
+    jc .guard_post_load_failed
+    mov al, k14_guard_mode_post_route
+    call TLS13_K14_PRODUCT_STATE_GUARD_ENTRY
+    jc .guard_post_load_failed
+    popf
+    jc .restore_dpi_failed
+    inc byte [tls_key_schedule_ready]
+    jmp tls13_product_route_mode
+
+.guard_post_load_failed:
+.route_load_failed:
+    pop ax                              ; discard saved root flags/route mode
+    jmp .restore_dpi_failed
+.root_load_failed:
+.guard_pre_failed:
+    pop ax                              ; discard saved route mode
+    mov al, k14_guard_mode_abort
+    call TLS13_K14_PRODUCT_STATE_GUARD_ENTRY
+.restore_dpi_failed:
+    call tls13_product_route_mode
+.failed:
+    stc
+    ret
+
+tls13_product_establish_286:
+    ; N revalidates the 286/512 KiB gates and silently publishes a fresh,
+    ; coherent platform-UTC BIOS RTC value. Failure is indistinguishable from
+    ; any other unavailable secure route; there is no interactive clock gate.
+    run_net_phase core_ntp_setup_phase_start, core_ntp_setup_phase_end
+    jc tls13_product_establish_route.route_load_failed
+    mov ax, TLS13_286_PRODUCT_ROOT_PHASE_KEY
+    mov bx, TLS13_286_PRODUCT_ROOT_DESTINATION
+    call load_core_sectors_at
+    ; Discard the saved endpoint mode only after the BDA gate and phase load.
+    ; POP preserves the loader's carry.  On success the 286 controller is a
+    ; true tail call: it owns the one NIC enter/restore lease, DPI restoration,
+    ; app-state retirement, and final CF return to our original caller.
+    pop ax
+    jc tls13_product_establish_route.restore_dpi_failed
+    ; N also returns DI at the publication base for its phase contract, but
+    ; the bootstrap reads that fixed low address directly and does not trust
+    ; a register across the intervening disk load.
+    jmp TLS13_286_PRODUCT_ROOT_ENTRY
+
+tls13_product_net_block_end:
+%if (tls13_product_net_block_end - tls13_product_net_block_start) > 333
+%error "TLS 1.3 product scheduler exceeds the fixed 333-byte resident net block"
+%endif
+times 333 - (tls13_product_net_block_end - tls13_product_net_block_start) db 0
+
+%else
 prepare_internet_path:
     call [nic_vt_enter]
     run_net_phase core_dhcp_setup_phase_start, core_dhcp_setup_phase_end
@@ -188,3 +403,4 @@ secure_capture_chunk:
     call word [p256_ep_capture_chunk]
 .scc_ret:
     ret
+%endif

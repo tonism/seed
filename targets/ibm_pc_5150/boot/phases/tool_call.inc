@@ -5,6 +5,8 @@
 %error "PHASE_LOAD_ADDR must name the runtime load address"
 %endif
 
+%include "phases/warm_restart_scrub.inc"
+
 %macro phase_call_res 1
     db 0xe8
     dw %1 - (PHASE_LOAD_ADDR + ($ - PHASE_BASE) + 2)
@@ -44,7 +46,7 @@ fc_fail_code equ tool_seg                     ; parser-only diagnostic scratch; 
 ;   write_mem(addr,bytes)    write up to 4 hex bytes to addr
 ;   exec(addr)               far-call addr; report returned AX + CF
 ;   save_env()               persist ENV.DAT via the save phase
-;   load_env()               reboot through int 19h so boot restore can load ENV.DAT
+;   load_env()               scrub live state, then warm-reset so boot restore can load ENV.DAT
 ; Result lines show addr only, or addr -> mapped when EMS page-frame translation changes the target.
 ; Read bytes are kept model-only; the model-facing read prefix stays compact:
 ;   read from 0x<addr> / model: read 0x<addr>[: <bb> <bb> ...]
@@ -237,7 +239,7 @@ tool_phase:
     stc
     ret
 .native_load:
-    int 0x19
+    jmp tool_phase_warm_restart
 .native_save:
     call .arm_fc_result
     mov byte [save_pending], 1
@@ -689,4 +691,7 @@ tool_phase:
 .arg_len db '\', '"', 'len', '\', '"', ':', 0
 .arg_bytes db '\', '"', 'bytes', '\', '"', ':', 0
 
+seed_warm_restart_scrub tool_phase_warm_restart, PHASE_LOAD_ADDR
+
+%unmacro seed_warm_restart_scrub 2
 %unmacro phase_call_res 1

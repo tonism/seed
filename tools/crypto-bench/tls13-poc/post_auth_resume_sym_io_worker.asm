@@ -36,9 +36,6 @@ cpu 8086
 %error "resumed symmetric I/O worker requires persistent zero-window service"
 %endif
 %ifdef RESUME_SYM_IO_EARLY_DATA
-%ifndef RESUME_SYM_IO_NE_BUF_READ
-%error "early-data RSI1 requires the guarded NE2000 read leaf"
-%endif
 %ifndef RESUME_SYM_IO_SHA256_UPDATE
 %error "early-data RSI1 requires the resident SHA-256 update leaf"
 %endif
@@ -73,8 +70,10 @@ sym_server_finished_hash   equ 0x3680
 sym_client_finished_state  equ 0x3c2d
 early_disposition          equ 0x3c5c
 rejected_finished_sent     equ 0x82
-early_eoed_card            equ 0x7d40
 early_eoed_bytes           equ 26
+early_eoed_hold            equ sym_io + head_record_bytes
+early_eoed_hold_end        equ early_eoed_hold + early_eoed_bytes
+ticket_identity            equ 0x3b40
 %ifdef RESUME_SYM_IO_EARLY_DATA
 resumed_protected_bytes    equ 68
 %else
@@ -82,6 +81,19 @@ resumed_protected_bytes    equ 64
 %endif
 client_finished_bytes      equ 58
 head_record_bytes          equ 72
+
+%if early_eoed_hold < sym_io + resumed_protected_bytes
+%error "RSI1 EOED hold overlaps the authenticated resumed record"
+%endif
+%if early_eoed_hold < sym_io + client_finished_bytes
+%error "RSI1 EOED hold overlaps client Finished"
+%endif
+%if early_eoed_hold < sym_io + head_record_bytes
+%error "RSI1 EOED hold overlaps the fixed HEAD"
+%endif
+%if early_eoed_hold_end > ticket_identity
+%error "RSI1 EOED hold reaches retained ticket identity"
+%endif
 
 resume_sym_io_code:
     cld
@@ -127,16 +139,14 @@ resume_sym_io_receive:
 resume_sym_io_send_eoed:
     cmp byte [sym_client_finished_state], 0
     jne resume_sym_io_failed
-    mov bx, early_eoed_card
-    mov cx, early_eoed_bytes
-    mov di, sym_io
-    call RESUME_SYM_IO_NE_BUF_READ
-    jc resume_sym_io_failed
-    cmp byte [sym_io], 0x17
+    ; EXCHANGE validated and copied this pre-sealed record before its complete
+    ; symmetric restore retired the overlapping 0x2c00 vault-access lease.
+    ; Recheck the exact public record shape immediately before transmission.
+    cmp byte [early_eoed_hold], 0x17
     jne resume_sym_io_failed
-    cmp word [sym_io + 1], 0x0303
+    cmp word [early_eoed_hold + 1], 0x0303
     jne resume_sym_io_failed
-    cmp word [sym_io + 3], 0x1500
+    cmp word [early_eoed_hold + 3], 0x1500
     jne resume_sym_io_failed
 
     ; Application traffic secrets use the server-Finished-only transcript,
@@ -156,9 +166,21 @@ resume_sym_io_send_eoed:
     mov di, sym_server_finished_hash
     call RESUME_SYM_IO_TRANSCRIPT_SNAPSHOT
 
-    mov si, sym_io
+    mov si, early_eoed_hold
     mov cx, early_eoed_bytes
     call RESUME_SYM_IO_TCP_SEND
+    ; The synchronous send has consumed the source.  Scrub it on both success
+    ; and failure while preserving the transport carry result.  Fixed
+    ; services may clobber ES/DF, so normalize both before the string wipe.
+    pushf
+    cld
+    push ds
+    pop es
+    xor ax, ax
+    mov di, early_eoed_hold
+    mov cx, early_eoed_bytes / 2
+    rep stosw
+    popf
     jc resume_sym_io_failed
     RESUME_SYM_IO_MARK 'O'
     jmp resume_sym_io_succeeded

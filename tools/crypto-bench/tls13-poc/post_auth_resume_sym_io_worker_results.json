@@ -5,7 +5,8 @@
     "accepted_preload_only": true,
     "compatibility_head": true,
     "invalid_dispositions_fail_closed": true,
-    "missing_fixed_services_fail_build": true
+    "missing_fixed_services_fail_build": true,
+    "ram_held_eoed_nonoverlap_and_scrub": true
   },
   "preservation": {
     "k14_bounds_source_derived": true,
@@ -25,7 +26,7 @@
   },
   "status": "pass",
   "worker": {
-    "bytes": 286,
+    "bytes": 284,
     "limit": 512,
     "operations": [
       4,

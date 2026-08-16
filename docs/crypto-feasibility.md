@@ -1,7 +1,13 @@
-# Crypto feasibility — where the current TLS 1.2 secure handshake fits
+# Historical crypto feasibility — where the TLS 1.2 handshake fit
 
-This is the research record behind one scoped decision: **where can Seed's
-current TLS 1.2 ECDHE-P256/RSA profile complete its authenticated handshake?**
+> **Historical record.** Seed's product path is now TLS 1.3. The measurements
+> below explain why the former TLS 1.2 P-256/RSA design could not authenticate
+> on an 8088 and why its old authenticated tier began at the 286. They do not
+> describe the current security architecture; see
+> [`security.md`](security.md).
+
+This is the research record behind one scoped decision: **where could Seed's
+TLS 1.2 ECDHE-P256/RSA profile complete its authenticated handshake?**
 It is a measured answer, not a reasoned one — every claim below comes from a
 benchmark, and the ones that started as guesses are marked where the
 measurement corrected them.
@@ -9,19 +15,16 @@ measurement corrected them.
 **The answer, up front.** On a stock 4.77 MHz 8088, this P-256/RSA TLS 1.2
 handshake is out of reach by ~11× — not for lack of RAM, but because its
 256-bit modular arithmetic takes minutes while the server closes the
-connection in ~15 seconds. So the current TLS 1.2 8088 tier stays honestly
+connection in ~15 seconds. So the former TLS 1.2 8088 tier stayed honestly
 **"encrypted, not secure."** This profile's authenticated tier *begins at the
 286*: with an optimised P-256, a pinned-key RSA verify, and a faster SHA-256,
 the handshake first fits the window on the lowest 6 MHz 286 (on a ~1.2 s
-knife-edge) and is comfortable by 8 MHz. That tier is implemented in the
-current tree, with the documented weaker no-time certificate-expiry fallback;
-see [security.md](security.md) for the security posture and
-[architecture.md](architecture.md) for the system mechanics.
+knife-edge) and was comfortable by 8 MHz.
 
 This result is not a proof that every secure protocol architecture is
-impossible on an 8088. The separate TLS 1.3 rearchitecture work investigates
-streamed phases, precomputation, quarantine, and post-Finished proof; that
-candidate has not yet proved a product secure tier.
+impossible on an 8088. The TLS 1.3 architecture now uses streamed phases,
+quarantine, and post-Finished proof; its current validation status is recorded
+in [security.md](security.md).
 
 The rest of this document is *how* we know the TLS 1.2 result: the method, the
 symmetric-crypto optimisation hunt, the asymmetric-crypto wall, the levers we
@@ -132,7 +135,7 @@ This same fast SHA is **load-bearing for the 286 secure tier** — it is what ge
 
 ---
 
-## The asymmetric track — the current TLS 1.2 public-key wall
+## The asymmetric track — the former TLS 1.2 public-key wall
 
 "Encrypted but not secure" on the 8088 rests on three skipped pieces: real key
 agreement, real entropy, and certificate authentication. We measured each.
@@ -207,7 +210,7 @@ but small, and the test was right to run.)
 
 ---
 
-## Where current TLS 1.2 peer authentication begins — the 286
+## Where former TLS 1.2 peer authentication began — the 286
 
 The 086 class cannot reach this P-256/RSA handshake inside the observed window
 even with the measured optimisations. The 286 can. We booted the 360K bench
@@ -270,7 +273,7 @@ does. Summing the serial crypto against the ~15 s window:
 | @ 8 | **~10.4 s** | ~4.6 s | **comfortable** |
 | @ 12 (linear proj) | ~6.9 s | ~8 s | ample |
 
-**Threshold result for the current TLS 1.2 profile: peer authentication begins
+**Threshold result for the former TLS 1.2 profile: peer authentication began
 at the 286.** An optimised real ECDHE is 6.6 s on the lowest 6 MHz part, so the
 ECDHE + pinned-key RSA authentication + fast SHA + entropy budget *fits* the
 ~15 s window there — but on a ~1.2 s knife-edge that can flake on a degraded
@@ -300,24 +303,24 @@ architecture is still what makes silent re-pin fit @6.
 
 ---
 
-## What we shipped, and why
+## What the TLS 1.2 implementation shipped, and why
 
 | decision | choice | why |
 |---|---|---|
 | **SHA-256 / PRF** | `r2_v25` (4.62× block / 4.33× PRF) | fits the 16K K-window in 15 sectors with **no golf**; the faster `r4_v42` (4.64×) needed a fragile 74 B hot-path squeeze for ~0.02× more — not worth it. Now the single 16K crypto baseline (slow path deleted). |
 | **ECDHE** | the combined Karatsuba + Solinas + wNAF P-256 → `core/p256.inc` | 3.9× on the 286 (25.8 s → 6.6 s @6) — the only thing that gets ECDHE under the window on the lowest 286. 286-only (handshake module). |
-| **Cert-auth** | pin the `api.openai.com` leaf key; one in-race RSA-2048 verify | one verify fits the lowest 286; a full chain (~3 verifies) would push back over the window. RSA over ECDSA because ECDSA verify is ~2× ECDHE. (Leaf rotation is handled by [silent re-pinning](architecture.md); see auto-recertify.) |
+| **Cert-auth** | pin the `api.openai.com` leaf key; one in-race RSA-2048 verify | one verify fit the lowest 286; a full chain (~3 verifies) would push back over the window. RSA over ECDSA because ECDSA verify was ~2× ECDHE. Leaf rotation used the historical auto-recertify path. |
 | **Entropy** | not shipped standalone | gated — cosmetic without real key agreement; would cut against honest framing. Ships only bundled with the secret it protects. |
-| **Current TLS 1.2 tier** | pinned-key peer authentication begins at the 286, comfortable at @8; the 8088 stays "encrypted, not secure" | measured: this P-256/RSA profile is ~11× over the window on the 8088; this does not prejudge a different TLS 1.3 phase schedule. |
+| **Former TLS 1.2 tier** | pinned-key peer authentication began at the 286, comfortable at @8; the 8088 stayed "encrypted, not secure" | measured: this P-256/RSA profile was ~11× over the window on the 8088; it did not prejudge a different TLS 1.3 phase schedule. |
 | **FPU / 80186** | neither | measured to not unlock crypto (FMUL-count floor; the bus beats the 186 ISA). FPU stays a future *non-crypto* capability dimension. |
 
 ---
 
-## The ECDSA question — scoped, not built
+## The TLS 1.2 ECDSA question — historical scope
 
-The current 286 tier pins an RSA leaf loaded from `SEED/LEAF.DER` — but `api.openai.com`
+The former 286 tier pinned an RSA leaf loaded from `SEED/LEAF.DER` — but `api.openai.com`
 is **dual-cert load-balanced** and migrating to ECDSA. The 286's forced `ECDHE_RSA`
-profile still draws an RSA-2048 leaf via GTS WR1 (current shipped leaf: 2026-07-08 to
+profile still drew an RSA-2048 leaf via GTS WR1 (then-shipped leaf: 2026-07-08 to
 2026-10-06; WR1 anchor valid to 2029-02-20); default clients now get a P-256/WE1 ECDSA
 leaf. Today's pin survives
 only because the 286 forces RSA. So we asked the obvious next question — *if the RSA leaf ever

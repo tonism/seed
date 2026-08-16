@@ -587,7 +587,6 @@ def validate_images(images: Images) -> None:
             not diagnostic_depth
             and directive
             in (
-                ["%ifdef", "RESUME_PREPARE_DIAGNOSTIC"],
                 ["%ifdef", "RESUME_PREPARE_BINDER_DIAGNOSTIC"],
             )
         ):

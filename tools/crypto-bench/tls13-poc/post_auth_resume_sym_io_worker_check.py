@@ -44,7 +44,6 @@ RETURN_SENTINEL = 0x04F0
 TCP_SEND = 0x1220
 WAIT_TICKS = 0x1240
 DERIVE_CLIENT_APP = 0x1260
-NE_BUF_READ = 0x1280
 SHA256_UPDATE = 0x12A0
 TRANSCRIPT_SNAPSHOT = 0x12C0
 BUILD_HEAD = 0x1840
@@ -55,7 +54,9 @@ SYM_SERVER_FINISHED_HASH = 0x3680
 SYM_CLIENT_FINISHED_STATE = 0x3C2D
 EARLY_DISPOSITION = 0x3C5C
 REJECTED_FINISHED_SENT = 0x82
-EARLY_EOED_CARD = 0x7D40
+EARLY_EOED_HOLD = SYM_IO + 72
+EARLY_EOED_BYTES = 26
+TICKET_IDENTITY = 0x3B40
 PROTECTED_START = 0x0600
 PROTECTED_END = 0x08B6
 K14_MUTABLE_START = 0x3000
@@ -85,6 +86,7 @@ class Result:
     events: tuple[str, ...]
     sends: tuple[bytes, ...]
     sym_io: bytes
+    eoed_hold: bytes
     input_hello_hash: bytes
     server_finished_hash: bytes
     derive_hash: bytes | None
@@ -123,7 +125,6 @@ def assemble(directory: Path, *, expect_success: bool = True) -> bytes:
         "-DRESUME_SYM_IO_TCP_SEND=0x1220",
         "-DRESUME_SYM_IO_WAIT_TICKS=0x1240",
         "-DRESUME_SYM_IO_DERIVE_CLIENT_APP=0x1260",
-        "-DRESUME_SYM_IO_NE_BUF_READ=0x1280",
         "-DRESUME_SYM_IO_SHA256_UPDATE=0x12a0",
         "-DRESUME_SYM_IO_TRANSCRIPT_SNAPSHOT=0x12c0",
         "-DRESUME_SYM_IO_BUILD_HEAD=0x1840",
@@ -240,7 +241,6 @@ def run_worker(
     operation: int,
     *,
     card_eoed: bytes | None = None,
-    card_read_fail: bool = False,
     early_disposition: int = 1,
     finished_state: int = 0,
     input_hello_hash: bytes | None = None,
@@ -260,7 +260,6 @@ def run_worker(
         TCP_SEND,
         WAIT_TICKS,
         DERIVE_CLIENT_APP,
-        NE_BUF_READ,
         SHA256_UPDATE,
         TRANSCRIPT_SNAPSHOT,
         BUILD_HEAD,
@@ -294,7 +293,8 @@ def run_worker(
     machine.mem_write(PROTECTED_START, protected)
     machine.mem_write(K14_MUTABLE_START, scratch)
     machine.mem_write(SYM_IO, initial_sym)
-    machine.mem_write(EARLY_EOED_CARD, card_eoed)
+    if operation == 7:
+        machine.mem_write(EARLY_EOED_HOLD, card_eoed)
     machine.mem_write(SYM_INPUT_HELLO_HASH, input_hello_hash)
     machine.mem_write(SYM_SERVER_FINISHED_HASH, server_finished_hash)
     machine.mem_write(SYM_CLIENT_FINISHED_STATE, bytes([finished_state]))
@@ -378,31 +378,6 @@ def run_worker(
         uc.reg_write(UC_X86_REG_ES, 0x0020)
         set_df(uc, True)
 
-    def card_read(
-        uc: Uc,
-        _address: int,
-        _size: int,
-        _user_data: object,
-    ) -> None:
-        source = uc.reg_read(UC_X86_REG_BX) & 0xFFFF
-        length = uc.reg_read(UC_X86_REG_CX) & 0xFFFF
-        destination = uc.reg_read(UC_X86_REG_DI) & 0xFFFF
-        events.append(f"card_read:{source:04x}:{length}:{destination:04x}")
-        if (source, length, destination) != (
-            EARLY_EOED_CARD,
-            26,
-            SYM_IO,
-        ):
-            raise AssertionError("EOED card-read geometry drifted")
-        if not card_read_fail:
-            uc.mem_write(
-                destination,
-                bytes(uc.mem_read(source, length)),
-            )
-        set_carry(uc, card_read_fail)
-        uc.reg_write(UC_X86_REG_ES, 0x0020)
-        set_df(uc, True)
-
     def sha_update(
         uc: Uc,
         _address: int,
@@ -481,7 +456,6 @@ def run_worker(
     hooks = (
         (TCP_SEND, send),
         (DERIVE_CLIENT_APP, derive),
-        (NE_BUF_READ, card_read),
         (SHA256_UPDATE, sha_update),
         (TRANSCRIPT_SNAPSHOT, snapshot),
         (BUILD_HEAD, build),
@@ -508,6 +482,9 @@ def run_worker(
         events=tuple(events),
         sends=tuple(sends),
         sym_io=bytes(machine.mem_read(SYM_IO, len(initial_sym))),
+        eoed_hold=bytes(
+            machine.mem_read(EARLY_EOED_HOLD, EARLY_EOED_BYTES)
+        ),
         input_hello_hash=bytes(
             machine.mem_read(SYM_INPUT_HELLO_HASH, len(SERVER_FINISHED_HASH))
         ),
@@ -578,6 +555,13 @@ def main() -> None:
         assert_k14_source_geometry(directory)
         image = assemble(directory)
         validate_image(image)
+        if not (
+            EARLY_EOED_HOLD >= SYM_IO + 68
+            and EARLY_EOED_HOLD >= SYM_IO + 58
+            and EARLY_EOED_HOLD >= SYM_IO + 72
+            and EARLY_EOED_HOLD + EARLY_EOED_BYTES <= TICKET_IDENTITY
+        ):
+            raise AssertionError("RAM-held EOED overlaps a live symmetric span")
 
         preload = run_worker(image, 4)
         require_success(preload)
@@ -622,17 +606,12 @@ def main() -> None:
         )
         eoed = run_worker(image, 7, card_eoed=eoed_record)
         require_success(eoed)
-        if eoed.events != (
-            f"card_read:{EARLY_EOED_CARD:04x}:26:{SYM_IO:04x}",
-            "sha_update",
-            "snapshot",
-            "send",
-        ):
+        if eoed.events != ("sha_update", "snapshot", "send"):
             raise AssertionError("accepted-0RTT EOED service order drifted")
         if eoed.sends != (eoed_record,):
             raise AssertionError("EOED operation did not send exactly 26 bytes")
-        if eoed.sym_io[:26] != eoed_record:
-            raise AssertionError("card-held EOED was not recovered into sym_io")
+        if eoed.eoed_hold != bytes(EARLY_EOED_BYTES):
+            raise AssertionError("RAM-held EOED was not scrubbed after send")
         if eoed.transcript_updates != (EOED_PLAINTEXT,):
             raise AssertionError("EOED plaintext was not appended exactly once")
         if eoed.input_hello_hash != SERVER_FINISHED_HASH:
@@ -644,14 +623,6 @@ def main() -> None:
                 "EOED did not snapshot the client-Finished transcript"
             )
 
-        require_failure(
-            run_worker(
-                image,
-                7,
-                card_eoed=eoed_record,
-                card_read_fail=True,
-            )
-        )
         blocked_eoed = run_worker(
             image,
             7,
@@ -675,20 +646,19 @@ def main() -> None:
                 card_eoed=malformed,
             )
             require_failure(malformed_eoed)
-            if malformed_eoed.events != (
-                f"card_read:{EARLY_EOED_CARD:04x}:26:{SYM_IO:04x}",
-            ):
+            if malformed_eoed.events:
                 raise AssertionError(
                     "malformed EOED reached transcript or network services"
                 )
-        require_failure(
-            run_worker(
-                image,
-                7,
-                card_eoed=eoed_record,
-                send_fail=True,
-            )
+        failed_eoed_send = run_worker(
+            image,
+            7,
+            card_eoed=eoed_record,
+            send_fail=True,
         )
+        require_failure(failed_eoed_send)
+        if failed_eoed_send.eoed_hold != bytes(EARLY_EOED_BYTES):
+            raise AssertionError("failed EOED send retained its RAM copy")
 
         finished = bytes((0x42 + index * 7) & 0xFF for index in range(58))
         sent = run_worker(image, 5)
@@ -883,6 +853,7 @@ def main() -> None:
         "coverage": {
             "accepted_preload_only": True,
             "accepted_early_data_eoed": True,
+            "ram_held_eoed_nonoverlap_and_scrub": True,
             "accepted_and_rejected_finished_paths": True,
             "compatibility_head": True,
             "invalid_dispositions_fail_closed": True,
@@ -899,7 +870,7 @@ def main() -> None:
     )
     print(
         "  operation4=accepted disposition/state preload-only; "
-        "operation7=card EOED26 -> transcript append/snapshot -> send; "
+        "operation7=RAM-held EOED26 -> transcript append/snapshot -> send/scrub; "
         "operation5=accepted Finished58 / rejected-sent skip -> restore "
         "server-Finished hash -> client-app derive -> zero-window; "
         "operation6=1-RTT HEAD-only compatibility"

@@ -1,200 +1,318 @@
 # Security
 
-Seed's TLS channel is **capability-tiered**: how secure the connection is depends on
-the CPU it boots on, because real public-key crypto on these machines is a *speed*
-problem, not a size one. This document is the reference for what protection Seed
-provides on each tier and why it stops where it does. Its companion
-[crypto-feasibility.md](crypto-feasibility.md) is the *story of how we measured that
-boundary* — the benchmarks, the optimisation hunt, the levers ruled out; the system
-mechanics (where the crypto lives, the handshake's place in the boot) are in
-[architecture.md](architecture.md).
+Seed has two TLS 1.3 profiles in one `SEED.SYS`. They share the record
+layer and OpenAI endpoint, but they do **not** make the same security claim.
+This document is the authority for that distinction.
 
-**The one line for the current TLS 1.2 product:** a stock 8088 is honestly
-**encrypted, but not secure** — no key agreement, no authentication, so a passive
-eavesdropper recovers every session key. A **286 has real ECDHE and
-WR1/hostname-authenticated peer keys** with silent re-pinning. Its “secure”
-label assumes the documented weaker no-time expiry policy: when no usable
-clock exists, certificate dates are not checked. The TLS 1.3 8088 research
-canary does not change this current-tree boundary until its complete
-secure-floor gate passes.
+> **Validation status.** Both product routes are integrated and currently
+> integration-under-validation. Their current-source offline cryptographic,
+> layout, fail-closed, exact-floor 86Box wire, reconnect, and screen gates pass;
+> the 8088 profile also passes all seven original-speed ISA profiles.
+> Physical entropy characterization and additional provider-edge repetition
+> remain before either route is an unconditional secure-floor claim.
 
-## The 8088 floor — encrypted, not secure
+## Claims at a glance
 
-On a stock 4.77 MHz 8088 the handshake runs ChaCha20-Poly1305 and SHA-256 for real,
-but the public-key steps are skipped — not for lack of RAM (the real primitives fit in
-~3.4 KiB) but because a single P-256 scalar multiply is **110.8 s** at that clock and
-the server closes the connection in ~15 s. Concretely:
+| Profile | Product floor | Security claim |
+| --- | --- | --- |
+| 8088 | 4.77 MHz 8088, 16 KiB RAM | TLS 1.3 wire protocol with a bounded Seed credential-release boundary; effective ML-KEM-only key exchange, deferred authentication; not standards-conforming hybrid TLS |
+| 286 conforming | 6 MHz 286, 512 KiB RAM | fully standards-conforming TLS 1.3 `X25519MLKEM768`, with real ML-KEM-768 and X25519 contributions and P-256 certificate authentication |
 
-- **No key agreement.** The boot substitutes a scalar-1 stub: the server's public X
-  coordinate *is* the premaster, so no Diffie-Hellman happens and **anyone who captures
-  the handshake derives every session key** (`tools/tls-decrypt.py` does exactly that).
-- **No authentication.** Server-certificate verification is skipped too (RSA-2048 verify
-  ~43 s, ECDSA-P256 ~220 s on the 8088 — both far past the window), so the peer is
-  unverified and the channel is MITM-able.
-- **Entropy would not save it.** With a public premaster the client random is only a
-  nonce; making it unpredictable buys no confidentiality. Real entropy is a cheap
-  *prerequisite* for a secure channel (~0.16 s), never a standalone fix, so it is not
-  shipped standalone — that would be cosmetic.
+The 8088 route must not be described as FIPS-conforming, as a conforming
+`X25519MLKEM768` hybrid, or as equivalent to the 286 route. The 286 protocol
+claim likewise does not imply that the physical entropy source has already
+been validated; that is a separate hardware acceptance gate.
 
-So the 8088 tier is **encrypted, not secure**, and the label is precise, not
-aspirational. A pre-286 machine shows a red **"insecure"** on the splash to say
-so. The current TLS 1.2 P-256/RSA profile measures about 2.7 minutes on the
-8088, roughly 11× over the window; the full case is in
-[crypto-feasibility.md](crypto-feasibility.md). That result does not prejudge
-the separate streamed/deferred TLS 1.3 architecture research.
+These names are not product-capability tiers. After its route commits, the
+8088 exposes the same chat and tool loop and protects application records with
+TLS 1.3 ChaCha20-Poly1305. Its qualification differs at key establishment and
+identity freshness: no secret classical X25519 contribution, no trusted
+runtime expiry check, and a physical entropy source still awaiting validation.
+The neutral-gray `security note` on its splash points to this documented
+boundary; it is not a key-leakage warning or a reduced-function mode.
 
-## The current 286 authenticated tier
+The 286 wire protocol is not cryptographically weakened relative to an
+ordinary conforming `X25519MLKEM768` client. Seed as an implementation and its
+1980s hardware entropy source still have less assurance than a mature,
+independently audited TLS stack until physical characterization and external
+review are complete. That implementation qualification applies separately
+from protocol conformance.
 
-The 286 is the first processor whose integer `MUL` is fast enough (≈9× the 8088's) to
-run the current real authenticated handshake inside the provider's window.
-Its ECDHE and pinned-key peer authentication are **real, not skipped**; the
-overall “secure” label remains qualified by the weaker no-time expiry policy
-and by physical min-entropy not yet being validated on hardware:
+## The 8088 security boundary
 
-- **Real ECDHE key agreement.** The optimised constant-time P-256 (Solinas + Karatsuba
-  + wNAF, OpenSSL-verified, ~6.6 s/scalar-mult on the lowest 6 MHz part) is wired as a
-  286-only handshake module. The client generates a genuine ephemeral keypair from an
-  implemented entropy pool (PIT / MAC / tick → SHA-256), sends its real public point, and derives
-  `premaster = client_private × server_public`. No scalar-1 stub — the session keys are
-  a real shared secret. The mixer is implemented, but physical min-entropy from
-  those inputs still needs hardware validation.
-- **Real server authentication.** The 286 negotiates `ECDHE_RSA` and verifies the
-  ServerKeyExchange's RSA-2048-PKCS#1 signature — the one in-race RSA verify — against a
-  **pinned provider leaf public key**, proving the server holds that key. It is real
-  authentication, not a cosmetic flag.
+The 16 KiB route uses TLS 1.3, SHA-256, and ChaCha20-Poly1305 on the wire. Its
+ClientHello names `X25519MLKEM768` and carries a genuine, target-generated
+ML-KEM-768 public key. Its X25519 share is the fixed coordinate `u=9`, however,
+so there is no secret classical X25519 contribution. The effective key
+exchange is ML-KEM-only.
 
-The 286-only crypto (P-256 + RSA verify + cert glue, ~10 KiB) lives in a handshake-only
-module that **overlays the 32 KiB loop cache — 0 resident RAM on 16 KiB**; the hot path
-never loads it. (`montsqr`, a Montgomery squaring shortcut for the RSA modexp, widens
-the @6 margin ~19%; see crypto-feasibility.md.)
-
-**Validated in original-timing 86Box** on both the 6 MHz 286 (the knife-edge)
-and the 8 MHz: each completes a
-full real-ECDHE + RSA-cert-authenticated handshake and reaches the model, and a
-**one-bit-tampered pinned key is rejected** (the handshake fails) — the pin is enforced.
-The handshake fits the ~15 s window even at 6 MHz, but on a ~1.2 s knife-edge that may
-flake on a degraded link (the 8088's exact failure mode); **8 MHz is the comfortable
-authenticated-path floor under the documented policy**.
-
-### Why pin the leaf, not chain to the root
-
-Pinning `api.openai.com`'s **leaf** key keeps authentication to *one* RSA verify, which
-is what fits the lowest 286 — chaining to its RSA-4096 root would be ~3 verifies and
-push back over the window. RSA over ECDSA for the same reason: ECDSA-P256 verify is
-~2× an ECDHE scalar mult (see [the ECDSA tier](#the-future-ecdsa-tier--scoped-not-built)).
-A pinned leaf would normally be brittle — leaves rotate ~90 days — but that rotation is
-handled automatically (next section). The leaf itself ships as `SEED/LEAF.DER`; only the
-durable CA anchor is baked into `SEED.SYS`.
-
-## Silent re-pinning (auto-recertify)
-
-A pinned leaf rotating every ~90 days would otherwise force a runtime rebuild every quarter, so
-the 286 bakes a **durable** anchor — the issuing CA, **Google Trust Services WR1**
-(RSA-2048, valid for years) — and ships the current leaf as `SEED/LEAF.DER`. On 286+,
-Seed verifies that file against WR1 before opening a TLS socket. If the file is missing
-or fails the available checks, the device does not adopt it and runs a full X.509
-chain-verify **off the ~15 s race**:
-
-1. parse the freshly-presented leaf (strict DER),
-2. confirm its SAN is exactly `api.openai.com`,
-3. verify the leaf's signature against the pinned WR1, **and**
-4. when a usable RTC value is available, check the leaf is currently within its
-   `notBefore`/`notAfter` window.
-
-The current implementation skips step 4 when time is unavailable. If every
-applicable check passes, the new leaf is adopted as the pin and the handshake is retried. A dim
-`> recertify` marks the pause (**mid-chat only** — silent during cold-boot loading), and
-a mid-chat rotation keeps the conversation (history lives in RAM).
-
-After a successful re-pin, Seed also tries to write the verified leaf DER back to
-`SEED/LEAF.DER` on the boot medium. This is best-effort and silent: write-protected or
-full media simply continue without the cache update. Later 286+ connects read that file before
-opening a TLS socket, verify it through the same strict-DER, SAN, WR1-signature, and
-available-time checks, and only then adopt it as the fast-path pin. The file is therefore not
-trust-on-disk; the immutable WR1 anchor in `SEED.SYS` remains the trust root. A missing
-or invalid file falls back to the normal live-leaf recertify path.
-
-This is deliberately **not trust-on-first-use**: a leaf is adopted only if a CA we
-*already* pinned signed it and for the *exact* host we expect. An available usable clock
-must also place it in date; without one, the current weaker policy skips expiry checking.
-Cryptographic, DER, and hostname failures **fail closed** and fall through to the normal
-reconnect-failed path.
-
-Two properties define the current best-effort date check, but they do not make
-it a trusted clock against an active network attacker:
-
-- **A TLS-peer-independent clock.** A 286-only setup phase syncs the CMOS RTC
-  from unauthenticated NTP (`time1.google.com`) at boot, *before* any TLS, and
-  the validity gate reads that RTC. This keeps the date out of the TLS peer's
-  own response, but an active network attacker can still spoof NTP. If NTP is
-  unreachable the date check is skipped (best-effort), not failed.
-- **Off-race timing.** The WR1 re-derive (~3.3 s on a 6 MHz part) runs *before* the
-  reconnect opens its socket — off the server's window. It has to: when it ran between
-  the SYN and the ClientHello instead, the 6 MHz client Finished landed ~1.6 s past the
-  deadline and the server closed (wire-confirmed). Moving the derive ahead of the connect
-  fixed the @6 re-pin.
-
-A replacement secure floor therefore needs trusted user-set time, an
-authenticated persisted lower bound, or an explicitly accepted weaker/no-time
-certificate policy; the current NTP behavior is not sufficient evidence.
-
-WR1 itself rotates on the order of years and still needs a human re-pin then
-(`tools/gen-rsa-pinned-key.py --mode anchor`). Like the rest of the secure tier this is
-286-only — the captured leaf and the chain-verify run inside the handshake-only module
-(the WR1 anchor is shrunk to its modulus, Montgomery constants re-derived on the fly), so
-the 16 KiB hot path carries none of it.
-
-## Trust model, in one place
+The provider's observed fresh-connection deadline is close to 15 seconds.
+Full ML-KEM Fujisaki-Okamoto validation and P-256 identity verification cannot
+all complete before that deadline on a 4.77 MHz 8088. Seed therefore divides
+the route into three trust states:
 
 ```text
-pinned leaf key    api.openai.com's RSA-2048 leaf from SEED/LEAF.DER or verified recertification
-pinned CA anchor   Google Trust Services WR1 (RSA-2048) — the durable re-pin anchor
-leaf DER file      SEED/LEAF.DER, shipped and refreshable; verified against WR1 before adoption
-adoption rule      a new leaf is pinned ONLY if WR1 signed it and SAN == api.openai.com;
-                   an available usable clock must also place it in date — never TOFU
-failure            DER/signature/SAN failures, and date failures when time is usable,
-                   fail closed; missing time currently skips the date check
-validity clock     CMOS RTC, best-effort unauthenticated NTP sync at boot; not trusted
-human re-pin       leaf: automatic (auto-recertify); CA (WR1): manual, ~yearly cadence
-                   (tools/gen-rsa-pinned-key.py)
+provisional
+  verify the protected flight and exact server Finished with the provisional
+  ML-KEM candidate
+  send client Finished
+  permit only a compiled, literal, credential-free HEAD liveness request
+  retain at most the bounded same-boot ticket object as tentative state; an
+  authenticated ticket-bearing close is a receipt, not liveness
+
+quarantine
+  finish full ML-KEM re-encryption, comparison, and implicit rejection
+  re-derive and compare the TLS traffic material
+  verify the immutable dated leaf possession and live CertificateVerify
+  accept no credential, prompt, tool continuation, redirect, or business effect
+
+committed
+  publish the capability status-last
+  only now restore access to USER.CFG credentials and construct the API request
 ```
 
-## The future ECDSA tier — scoped, not built
+The provisional HEAD contains no Authorization header, API key, prompt,
+account identifier, cookie, or server-derived redirect target. It is still an
+external effect: the provider may log, fingerprint, rate-limit, or count it.
+If the fresh socket closes after returning a bounded ticket but before HEAD
+liveness, Seed records only the authenticated ticket/close receipt, finishes
+FO and exact-leaf/CV proof offline, and uses that ticket once to send the same
+fixed HEAD as 0-RTT. Only its authenticated resumed response establishes
+liveness. This paired route is the narrow exception that buys enough dialogue
+time for the original machine to finish its own proof.
 
-`api.openai.com` is **dual-cert load-balanced**: the 286's forced `ECDHE_RSA` profile
-still gets an RSA-2048 leaf issued by WR1 (current shipped leaf: **2026-07-08** to
-**2026-10-06**; WR1 anchor valid to **2029-02-20**), but default clients now get a P-256/WE1
-**ECDSA** leaf. Today's RSA path survives only because the 286 forces it; if the RSA leaf
-is ever withdrawn for our profile, recertify fails closed and the user must act. So an ECDSA
-path is a tracked contingency, scoped by two fan-out spikes (the journey is in
-[crypto-feasibility.md](crypto-feasibility.md#the-ecdsa-question--scoped-not-built); the raw
-record is `notes/old/ecdsa-tier-scoping.md`):
+A received ticket is not trusted merely because its record tag verified under
+provisional keys. It stays RAM-only and tentative. A resumed connection still
+performs fresh KEM work, sends only the fixed 0-RTT HEAD, verifies its protected
+flight and Finished, completes full FO validation and authenticated HEAD
+liveness, restores and scrubs the vault, and only then promotes the route
+status-last. Tickets and keys never survive a restart.
 
-- **Optimisation spike — field tuning can't make @6.** ECDSA verify is two scalar mults
-  (~8.3 s with Shamir's trick); the best non-overlapping stack of field-level wins lands
-  the @6 handshake at ~15.1–15.9 s — on or over the ~15 s window — and the 286 module is
-  already 24/24 sectors full, with no room for the new code.
-- **Off-race feasibility spike — NO-GO as proposed.** Deferring the SKE-signature verify
-  the way auto-recertify defers the *chain* verify is sound for confidentiality (nothing
-  durable leaks behind a strict fail-closed app-data gate) but a **security downgrade**: a
-  MITM gets a completed session and the client Finished — an interactive oracle — before
-  rejection. And it can't actually reuse the recertify hook: recertify verifies
-  *disconnected between handshakes*, while the SKE signature is *per-connection*, so
-  off-racing it means holding the live connection idle ~8 s (a wire-unmeasured timing risk
-  the @6 window is unforgiving about).
+### 8088 identity and rotation
 
-**Verdict: 286 @8 MHz (~12.4 s, no deferral, no downgrade) is the clean ECDSA floor** if
-the contingency ever fires — the same knife-edge precedent as the RSA tier. No code while
-the WR1 RSA leaf is served.
+The fast identity object is an immutable `api.openai.com` P-256 leaf point in
+`SEED.SYS`. Its issuer, hostname, purpose, and validity interval are checked
+when the trusted image object is generated, and the route requires possession
+of that exact key through TLS CertificateVerify. “Dated exact leaf” refers to
+that image provenance; the 8088 route does not yet have a trusted runtime
+clock, so it cannot independently know that the current boot is still inside
+the interval. A changed leaf fails closed and requires a new trusted Seed
+image unless a separately validated WE1-authorized rotation path is later
+added. Image expiry is therefore an operational trust limit of this 8088
+boundary, not a silently enforced target check.
 
-## Reproduce / the record
+There is no mutable leaf file and no trust-on-first-use. In particular,
+`SEED/LEAF.DER` is not part of the TLS 1.3 image.
 
-- **Live validation:** `tools/run-286-86box.py` (286 @6/@8, networked, screenshots the
-  greeting — accept, and the 1-bit-tamper reject).
-- **The measurements:** `tools/crypto-bench/` and `results/FINDINGS.md` (the raw lab log
-  behind crypto-feasibility.md).
-- **Working records:** `notes/old/auto-recertify-attempts.md`,
-  `notes/old/ecdsa-tier-scoping.md`, and
-  `notes/old/build12-layout-redesign-attempts.md`.
-- **Re-pin tooling:** `tools/gen-rsa-pinned-key.py` (`--mode anchor` for the CA),
-  `tools/x509/` (the offline X.509 oracle + tamper matrix).
+### 8088 entropy status
+
+The machine gathers its own input before TCP by timing alternating reads from
+the write-protected boot floppy with PIT channel 0 and conditioning the events
+with SHA3-256 into domain-separated, one-shot attempt bundles. It does not ask
+the operator for dice rolls, use elapsed seconds as entropy, or depend on a
+trusted modern machine. The floppy reads work on read-only media.
+
+The emulator proves the mechanism but receives zero entropy credit. A secure
+floor claim still requires traces from representative physical drives, a
+conservative min-entropy estimate, and calibrated startup and continuous
+health tests. Until that is complete, this is a functional 8088 boundary under
+validation, not a claimed production secure floor.
+
+## The 286 conforming profile
+
+The 286 route is admitted only when the CPU is 286+ and the BIOS Data Area
+reports at least 512 KiB conventional RAM. It implements a real
+`X25519MLKEM768` TLS 1.3 exchange:
+
+- target-generated ML-KEM-768 keypair and full decapsulation;
+- target-generated X25519 scalar, public share, and shared secret;
+- the standard hybrid secret construction;
+- SHA-256 and ChaCha20-Poly1305 handshake and record protection;
+- strict ordinary Certificate parsing;
+- Google Trust Services WE1 P-256 issuer verification;
+- exact `api.openai.com` hostname, purpose, key-use, and validity policy; and
+- P-256 CertificateVerify over the acquisition transcript, followed by a
+  standards-conforming authenticated PSK-DHE resumption.
+
+The final credential-bearing connection is no-0RTT PSK-DHE resumption. It uses
+a same-boot ticket from the authenticated acquisition, a real binder, and an
+independent genuine hybrid key exchange. The ticket is a timing bridge, not a
+classical-share or authentication shortcut.
+
+### Authenticate, then use
+
+The slow certificate work is moved outside the provider timer without moving
+it outside the security boundary:
+
+1. An acquisition connection generates real ML-KEM-768 and X25519 shares. It
+   uses the exact ML-KEM candidate provisionally, verifies the protected flight
+   and server Finished, captures the ordinary Certificate and
+   CertificateVerify, sends client Finished plus the immutable
+   credential-free HEAD, and authenticates both the HTTP response and one
+   NewSessionTicket. That ticket is published only as tentative.
+2. With no provider connection timer running, the same machine performs full
+   ML-KEM FO decapsulation and a constant-time comparison with the provisional
+   candidate, then strictly validates WE1, hostname, purpose, key use, UTC
+   validity, and the acquisition CertificateVerify. Only the complete proof
+   promotes the volatile ticket.
+3. The final connection consumes the promoted ticket before reading its PSK
+   or identity, stages the immutable symmetric image, generates independent
+   ML-KEM-768 and X25519 keys, sends a real binder with no `early_data`, and
+   requires `selected_identity=0`. Before TCP it computes the ticket-only
+   early-derived value and the public ML-KEM A^T matrix. After ServerHello it
+   consumes that matrix for complete full FO decapsulation before accepting a
+   strict EncryptedExtensions-to-Finished flight. After server Finished
+   verifies, Seed sends client Finished and the credential-free HEAD, then
+   requires a complete authenticated ticket plus an allowed HTTP status. It
+   publishes application keys with the advanced server-record sequence without
+   waiting indefinitely for a missing response-header terminator; only then is
+   credential access restored.
+
+### Pre-TCP cache boundary
+
+The final route moves only connection-independent or already-determined work
+outside the provider timer:
+
+- the immutable 12-sector symmetric image is read from the write-protected
+  floppy into the high record quarantine before either live TCP connection;
+- the 32-byte resumption early-derived value is computed from the promoted
+  ticket PSK before final TCP and stored beside a bytewise complement; and
+- the 4,608-byte, nine-polynomial public A^T matrix is generated from the
+  fresh ML-KEM public `rho` before final TCP.
+
+Each cache begins invalid, publishes its inverse/READY status last, is consumed
+by invalidating that status before the first read, and is retired after its
+one permitted use. The symmetric image is checked again by the relocated-image
+CRC; the early-derived value must match its complete complement and is wiped
+after import. Missing, torn, reversed, or stale status aborts before the
+consumer can publish authority. A corrupted public matrix does not turn cached
+decapsulation into a candidate shortcut: full ciphertext comparison, `J`, and
+branchless implicit rejection still run after ServerHello, and the resulting
+wrong secret cannot verify server Finished. Client Finished and credential
+publication remain after those checks.
+
+At the exact 6 MHz measurement rate, matrix generation is 45 ticks / 2.4716 s
+outside the live window. Cached full FO is 43 ticks / 2.3618 s, compared with
+88 ticks / 4.8334 s uncached. The conservative serialized CPU windows are 162
+ticks / 8.8979 s for acquisition and 168 ticks / 9.2275 s for final
+resumption. The separate exact-floor read-only four-flow pcap measures every
+fresh/resumed critical interval at 8.893, 8.628, 8.956, and 8.645 seconds and
+returns authenticated OpenAI text. The CPU/RAM, RTC/time, entropy, certificate,
+CV, Finished, FO/cache, pack, and abort negative gates pass; physical RTC/PIT
+entropy characterization remains open.
+
+The immutable trust object is the WE1 P-256 affine point baked into
+`SEED.SYS`. The leaf, generated tables, private state, and same-boot pin live
+only in RAM and are discarded on restart. The ticket and PSK are also volatile
+and never become a disk cache. Read-only floppy media is sufficient.
+
+The acquisition candidate is not an authority boundary: it can enable only the
+fixed credential-free HEAD and tentative ticket capture. A candidate mismatch,
+failed X.509/CV check, torn ticket state, bad binder/identity selection, or
+resumed Finished failure aborts and wipes without exposing the API key.
+
+There is no 0-RTT, compressed certificate, persisted ticket, persisted private
+key, mutable leaf, classical-share shortcut, or no-time validity bypass.
+
+## Pinning and the earlier “double pin” idea
+
+Pinning is part of the TLS architecture, not a packaging afterthought. The
+useful authority chain is:
+
+```text
+durable issuer authority     WE1 point in the immutable image
+acquisition identity         authenticated api.openai.com leaf + live CV
+same-boot bridge             promoted ticket derived only after full offline proof
+credential-bearing channel  binder + independent hybrid KEX + resumed Finished
+```
+
+That is the 286 route. It avoids trust-on-first-use and survives ordinary leaf
+rotation without making a mutable floppy file authoritative. The earlier
+“double pin” intuition therefore belongs in the architecture scope, but not as
+two guessed leaf files: issuer authorization, exact live acquisition identity,
+and the promoted same-boot ticket are distinct links with distinct lifetimes.
+
+The 8088 fast route currently has only the immutable exact-leaf identity
+object; adding trusted runtime time and a general WE1-authorized rotation path
+at that floor remains future work. Until then, leaf change or the image
+object's validity end requires an updated trusted image. Baking “current and
+guessed next leaf” is not a sound substitute:
+there is no authenticated way to know the future leaf, and it only delays the
+same rollover problem. A future issuer rollover can use a bounded active and
+successor issuer set only with an authenticated update story.
+
+### Trusted time
+
+An IBM PC/AT RTC exposes no timezone. Seed treats its coherent BCD Gregorian
+value as the machine's platform UTC clock, just as a conventional TLS client
+relies on its configured platform clock. This is silent: a user confirmation
+would add no trustworthy time information. Invalid, incoherent, or
+out-of-range values fail the profile. Unauthenticated NTP is not a trust input and
+there is no no-time expiry bypass.
+
+### Entropy
+
+The 286 route silently gathers 1,024 timing events by polling the
+MC146818-compatible RTC's 4,096 Hz periodic flag and sampling that independent
+32.768 kHz oscillator against PIT channel 0. It does not enable IRQ8 or perform
+entropy-only floppy reads, and it restores RTC Status A afterward. Seed applies
+repetition-count and adaptive-proportion health tests, conditions the transcript
+with SHA3, and instantiates HMAC_DRBG attempt bundles. No private seed is
+supplied by the build machine or persisted.
+
+The health-test cutoffs and min-entropy credit remain provisional until
+representative physical-machine characterization is complete. This is an
+explicit acceptance risk, not a protocol shortcut.
+
+## Same-request reconnect and replay
+
+The application layer keeps a successfully authenticated TLS session open.
+When a human request fails before any response text appears, Seed retires the
+channel, creates exactly one fresh route, reconstructs the same durable prompt
+from the screen, and sends it once more. A second failure returns an error.
+
+Seed never automatically replays:
+
+- a response after any text has rendered; the visible text is accepted and the
+  channel is retired; or
+- a tool/agent-loop continuation, because replay could duplicate local effects.
+
+Reconnect is availability logic. It cannot promote tentative crypto state or
+weaken either profile's authentication gates.
+
+## Local machine boundary
+
+TLS protects the network route; it does not turn the floppy into secret
+storage or Seed into a sandbox.
+
+- `SEED/USER.CFG` stores an API key in plaintext when the user chooses to save
+  it. A write-protected floppy protects recovery and immutability, not
+  confidentiality at rest.
+- A model-authorized native tool runs with bare-metal authority over the
+  published arena. The recovery boundary is a reboot from known media.
+- The video-RAM public vault uses redundant CRC/status metadata to detect torn
+  writes and accidental corruption. It is not authentication against an
+  attacker already able to modify arbitrary local memory.
+- On MDA, confidentiality requires both output-disable and scanout redirected
+  to the zero quarantine before the first vault write, followed by complete
+  visible-page scrub before page-zero/80-column output returns. A binary-glyph
+  screen is rejected as visible vault exposure.
+
+## Evidence and acceptance gates
+
+The architecture and exact memory contracts are in
+[`architecture.md`](architecture.md),
+[`memory.md`](memory.md), and the target TLS directory. The earlier TLS 1.2
+feasibility record remains in
+[`crypto-feasibility.md`](crypto-feasibility.md) as historical evidence only.
+
+Current emulator evidence covers every offline TLS 1.3 product/KAT/layout
+gate, both exact-floor fresh/reuse/reconnect pcaps, the seven-profile 8088 NIC
+matrix, CGA/MDA vault lifecycle, no-card/no-driver behavior, and the
+malformed-record, identity/time/CV/Finished/FO/cache/torn-state/abort matrices.
+Before removing the integration-under-validation qualification:
+
+- repeat deadline measurements across more cold boots and provider-edge
+  variation; and
+- characterize entropy and health-test behavior for the 8088 floppy source
+  and the 286 RTC/PIT source on representative physical machines.

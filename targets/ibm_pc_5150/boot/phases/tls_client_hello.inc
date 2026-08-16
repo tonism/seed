@@ -231,19 +231,7 @@ tls_client_hello_extensions_tail db 0, 11, 0, 2, 1, 0
                                  db 0, 13, 0, 4, 0, 2, 4
 tls_ch_sigalg_lo:                db 3           ; sigalg {sha256(4), ecdsa(3)}; 286 patches -> 1 (rsa) = rsa_pkcs1_sha256
 tls_low_constants_constant:
-tls_label_master_secret_constant db 'master secret'
-tls_label_client_finished_constant db 'client finished'
-tls_label_server_finished_constant db 'server finished'
-tls_label_key_expansion_constant db 'key expansion'
-chacha_constants_constant dw 0x7865, 0x6170, 0x646e, 0x3320
-                           dw 0x2d32, 0x7962, 0x6574, 0x6b20
-poly1305_prime_constant db 0xfb
-                           times 15 db 0xff
-                           db 0x03
-sha256_initial_state_constant dw 0xe667, 0x6a09, 0xae85, 0xbb67
-                           dw 0xf372, 0x3c6e, 0xf53a, 0xa54f
-                           dw 0x527f, 0x510e, 0x688c, 0x9b05
-                           dw 0xd9ab, 0x1f83, 0xcd19, 0x5be0
+%include "tls13/low_static_constants.inc"
 tls_low_constants_constant_len equ $ - tls_low_constants_constant
 %if tls_low_constants_constant_len != low_static_constants_len
 %error "low static constants length mismatch"

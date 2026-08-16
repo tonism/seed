@@ -91,7 +91,6 @@ class LiveK14RunnerTests(unittest.TestCase):
             "preflight cache\n"
             "offline keygen\n"
             "live connect\n"
-            "DEADLINE PASS\n"
             "HEAD TX\n"
             "TICKET\n"
             "HEAD OK\n"

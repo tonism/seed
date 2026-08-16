@@ -4,10 +4,14 @@ from __future__ import annotations
 import argparse
 import ctypes
 from datetime import datetime, timezone
+import errno
+import hashlib
 import os
 import re
+import shlex
 import shutil
 import signal
+import stat
 import subprocess
 import struct
 import sys
@@ -36,6 +40,20 @@ BASIC_BOOTSTRAP_ADDR = 0x3A00
 BASIC_BOOTSTRAP_CLEAR_TOP = 14847
 BASIC_HEX_CHUNK_SIZE = 32
 CG_EVENT_FLAG_MASK_SHIFT = 1 << 17
+RTC_UTC_ATTEST_RAM_KIB = 512
+RTC_UTC_ATTEST_MACHINE_SETTINGS = {
+    "machine": "ami286",
+    "cpu_family": "286",
+    "cpu_speed": "6000000",
+    "cpu_multi": "1",
+    "cpu_use_dynarec": "0",
+}
+# Do not abort the AMI286 count at its first visible 96-KiB step.  The direct
+# loader places the 150,016-byte product at 0000:1000, and the known-good
+# manual bypass first let the count advance into the 160--192 KiB range.
+# Ninety seconds retains that loader-safe margin while avoiding the complete,
+# very slow 512-KiB POST count at the exact 6-MHz floor.
+AMI286_MEMORY_BYPASS_DELAY_SECONDS = 90.0
 
 KEY_CODES = {
     "\n": (36, False),
@@ -169,8 +187,12 @@ class TestLock:
                     warned = True
                 time.sleep(2.0)
                 continue
-            with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                handle.write(self.content)
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                    handle.write(self.content)
+            except BaseException:
+                self.path.unlink(missing_ok=True)
+                raise
             self.acquired = True
             print(f"test lock: acquired {self.path}")
             return
@@ -419,6 +441,153 @@ def type_basic_pid_keycodes(
         post_key(key_code, shifted, char)
         time.sleep(line_delay if char == "\n" else key_delay)
     time.sleep(line_delay)
+
+
+def post_pid_focused_keycode(
+    pid: int,
+    key_code: int,
+    *,
+    restore_focus: bool = True,
+) -> None:
+    """Focus the exact 86Box PID briefly and submit one physical key."""
+    previous_frontmost = frontmost_process_name() if restore_focus else None
+    script = """
+on run argv
+  set targetPid to (item 1 of argv) as integer
+  set targetKeyCode to (item 2 of argv) as integer
+  tell application "System Events"
+    set vmProcess to first application process whose unix id is targetPid
+    set frontmost of vmProcess to true
+    delay 0.05
+    key code targetKeyCode
+  end tell
+end run
+"""
+    try:
+        run(["osascript", "-e", script, str(pid), str(key_code)])
+    finally:
+        restore_frontmost_process(previous_frontmost)
+
+
+def image_suggests_86box_paused(path: Path) -> bool:
+    """Recognize 86Box's bottom-right `0 Hz` status without OCR."""
+    width, height, channels, rows = read_png_rgb(path)
+    x0 = width * 3 // 4
+    x1 = width * 93 // 100
+    y0 = height * 88 // 100
+    y1 = height
+    bright: set[tuple[int, int]] = set()
+    for y in range(y0, y1):
+        row = rows[y]
+        for x in range(x0, x1):
+            off = x * channels
+            r, g, b = row[off], row[off + 1], row[off + 2]
+            if min(r, g, b) > 150 and max(r, g, b) - min(r, g, b) < 45:
+                bright.add((x, y))
+
+    components: list[tuple[int, int, int, int, int]] = []
+    while bright:
+        seed = bright.pop()
+        pending = [seed]
+        xs: list[int] = []
+        ys: list[int] = []
+        while pending:
+            x, y = pending.pop()
+            xs.append(x)
+            ys.append(y)
+            for dx, dy in (
+                (-1, -1), (0, -1), (1, -1),
+                (-1, 0),             (1, 0),
+                (-1, 1),  (0, 1),   (1, 1),
+            ):
+                adjacent = (x + dx, y + dy)
+                if adjacent in bright:
+                    bright.remove(adjacent)
+                    pending.append(adjacent)
+        if len(xs) >= 8:
+            components.append(
+                (min(xs), min(ys), max(xs) + 1, max(ys) + 1, len(xs))
+            )
+
+    min_height = max(7, height // 100)
+    max_height = max(min_height, height // 25)
+    glyphs = sorted(
+        component
+        for component in components
+        if min_height <= component[3] - component[1] <= max_height
+        and component[2] - component[0] <= width // 25
+    )
+    if len(glyphs) < 3:
+        return False
+
+    # `60 Hz`/`59 Hz` has four adjacent glyphs; paused `0 Hz` has three.
+    # The following status icons are separated by a visibly wider gap.
+    status: list[tuple[int, int, int, int, int]] = [glyphs[0]]
+    gap_limit = max(8, width // 64)
+    for component in glyphs[1:]:
+        if component[0] - status[-1][2] > gap_limit:
+            break
+        status.append(component)
+    return len(status) == 3
+
+
+def click_86box_pause_menu(pid: int) -> None:
+    """Toggle the exact 86Box process through its native Pause menu item."""
+    script = """
+on run argv
+  set targetPid to (item 1 of argv) as integer
+  tell application "System Events"
+    set vmProcess to first application process whose unix id is targetPid
+    set frontmost of vmProcess to true
+    delay 0.05
+    click menu item "Pause" of menu 1 of menu bar item "Action" of menu bar 1 of vmProcess
+  end tell
+end run
+"""
+    run(["osascript", "-e", script, str(pid)])
+
+
+def focus_86box_pid(pid: int) -> None:
+    """Bring the exact 86Box process forward without submitting guest input."""
+    script = """
+on run argv
+  set targetPid to (item 1 of argv) as integer
+  tell application "System Events"
+    set vmProcess to first application process whose unix id is targetPid
+    set frontmost of vmProcess to true
+  end tell
+end run
+"""
+    run(["osascript", "-e", script, str(pid)])
+
+
+def ensure_86box_running(
+    screenshot_path: Path,
+    profile: str,
+    pid: int,
+) -> bool:
+    """Leave a newly launched exact VM focused and normalize a 0-Hz pause."""
+    focus_86box_pid(pid)
+    # The later AMI state machine owns the one counted bypass Escape.  Give
+    # the native status bar time to repaint after bringing the VM forward.
+    time.sleep(0.2)
+    if not screenshot_86box_window_or_screen(screenshot_path, profile, pid):
+        return False
+    try:
+        paused = image_suggests_86box_paused(screenshot_path)
+    except (OSError, ValueError):
+        return False
+    if not paused:
+        return True
+    print("harness: 86Box launched at 0 Hz; resuming exact VM", flush=True)
+    click_86box_pause_menu(pid)
+    time.sleep(0.5)
+    if not screenshot_86box_window_or_screen(screenshot_path, profile, pid):
+        return False
+    try:
+        return not image_suggests_86box_paused(screenshot_path)
+    except (OSError, ValueError):
+        return False
 
 
 class ComCapture:
@@ -826,20 +995,32 @@ def rewrite_vm_config(
     ram_kib: int | None,
     floppy: Path,
     rom_basic: bool,
+    rom_basic_drive: str = "b",
     com_passthrough: bool = False,
     com_pipe_base: Path | None = None,
     muted: bool = True,
+    attest_rtc_utc: bool = False,
+    floppy_read_only: bool = False,
 ) -> None:
+    if rom_basic_drive not in {"a", "b"}:
+        raise ValueError("ROM BASIC drive must be 'a' or 'b'")
+    rom_basic_a = rom_basic and rom_basic_drive == "a"
+    rom_basic_b = rom_basic and rom_basic_drive == "b"
     lines = config.read_text(encoding="utf-8").splitlines()
     out: list[str] = []
     in_general_section = False
+    in_machine_section = False
     in_floppy_section = False
+    saw_machine_section = False
     wrote_sound_muted = False
     wrote_sound_gain = False
+    wrote_time_sync = False
     wrote_fdd1_fn = False
+    wrote_fdd1_writeprot = False
     wrote_fdd2_check = False
     wrote_fdd2_fn = False
     wrote_fdd2_type = False
+    wrote_fdd2_writeprot = False
     wrote_video_filter = False
     floppy_size = floppy.stat().st_size
     if floppy_size == 1474560:
@@ -861,35 +1042,60 @@ def rewrite_vm_config(
         if not wrote_sound_gain:
             out.append("sound_gain = 0")
 
+    def flush_machine_tail():
+        if attest_rtc_utc and not wrote_time_sync:
+            out.append("time_sync = utc")
+
     def flush_floppy_tail():
         # Called when leaving the floppy section. Append any keys we still
         # need that weren't already written from the source iteration.
-        if not rom_basic and not wrote_fdd1_fn:
+        if (not rom_basic or rom_basic_a) and not wrote_fdd1_fn:
             out.append(f"fdd_01_fn = {floppy}")
-        if rom_basic and not wrote_fdd2_check:
+        if (
+            floppy_read_only
+            and (not rom_basic or rom_basic_a)
+            and not wrote_fdd1_writeprot
+        ):
+            out.append("fdd_01_writeprot = 1")
+        if rom_basic_b and not wrote_fdd2_check:
             out.append("fdd_02_check_bpb = 0")
-        if rom_basic and not wrote_fdd2_fn:
+        if rom_basic_b and not wrote_fdd2_fn:
             out.append(f"fdd_02_fn = {floppy}")
+        if floppy_read_only and rom_basic_b and not wrote_fdd2_writeprot:
+            out.append("fdd_02_writeprot = 1")
         if not wrote_fdd2_type:
-            out.append("fdd_02_type = 525_1dd" if rom_basic else "fdd_02_type = none")
+            out.append("fdd_02_type = 525_1dd" if rom_basic_b else "fdd_02_type = none")
 
     for line in lines:
         stripped = line.strip()
         if stripped.startswith("[") and stripped.endswith("]"):
             if in_general_section:
                 flush_general_tail()
+            if in_machine_section:
+                flush_machine_tail()
             if in_floppy_section:
                 flush_floppy_tail()
             in_general_section = stripped == "[General]"
+            in_machine_section = stripped == "[Machine]"
             in_floppy_section = stripped == "[Floppy and CD-ROM drives]"
+            saw_machine_section = saw_machine_section or in_machine_section
             wrote_sound_muted = False
             wrote_sound_gain = False
+            wrote_time_sync = False
             wrote_fdd1_fn = False
+            wrote_fdd1_writeprot = False
             wrote_fdd2_check = False
             wrote_fdd2_fn = False
             wrote_fdd2_type = False
+            wrote_fdd2_writeprot = False
             wrote_video_filter = False
             out.append(line)
+            continue
+
+        if in_machine_section and attest_rtc_utc and stripped.startswith("time_sync ="):
+            if not wrote_time_sync:
+                out.append("time_sync = utc")
+            wrote_time_sync = True
             continue
 
         if in_general_section and muted:
@@ -913,32 +1119,55 @@ def rewrite_vm_config(
 
         if in_floppy_section:
             if stripped.startswith("fdd_01_check_bpb ="):
-                if rom_basic:
-                    continue
-                out.append(line)
+                out.append("fdd_01_check_bpb = 0" if rom_basic_a else line)
                 continue
             if stripped.startswith("fdd_01_fn ="):
-                if not rom_basic:
+                if not rom_basic or rom_basic_a:
                     out.append(f"fdd_01_fn = {floppy}")
                     wrote_fdd1_fn = True
                 continue
+            if (
+                floppy_read_only
+                and (not rom_basic or rom_basic_a)
+                and stripped.startswith("fdd_01_writeprot =")
+            ):
+                if not wrote_fdd1_writeprot:
+                    out.append("fdd_01_writeprot = 1")
+                wrote_fdd1_writeprot = True
+                continue
             if stripped.startswith("fdd_01_type ="):
-                out.append("fdd_01_type = none" if rom_basic else f"fdd_01_type = {direct_fdd_type}")
+                # A physical/BIOS B: drive exists only behind an A: drive.
+                # Keep A: configured but empty so the BIOS falls through to
+                # ROM BASIC while still reporting the Seed floppy as B:.
+                out.append(
+                    "fdd_01_type = 525_1dd"
+                    if rom_basic_b
+                    else f"fdd_01_type = {direct_fdd_type}"
+                )
                 continue
             if stripped.startswith("fdd_02_check_bpb ="):
-                if not rom_basic:
+                if not rom_basic_b:
                     continue
                 out.append("fdd_02_check_bpb = 0")
                 wrote_fdd2_check = True
                 continue
             if stripped.startswith("fdd_02_fn ="):
-                if not rom_basic:
+                if not rom_basic_b:
                     continue
                 out.append(f"fdd_02_fn = {floppy}")
                 wrote_fdd2_fn = True
                 continue
+            if (
+                floppy_read_only
+                and rom_basic_b
+                and stripped.startswith("fdd_02_writeprot =")
+            ):
+                if not wrote_fdd2_writeprot:
+                    out.append("fdd_02_writeprot = 1")
+                wrote_fdd2_writeprot = True
+                continue
             if stripped.startswith("fdd_02_type ="):
-                if not rom_basic:
+                if not rom_basic_b:
                     out.append("fdd_02_type = none")
                     wrote_fdd2_type = True
                     continue
@@ -950,8 +1179,13 @@ def rewrite_vm_config(
 
     if in_floppy_section:
         flush_floppy_tail()
+    if in_machine_section:
+        flush_machine_tail()
     if in_general_section:
         flush_general_tail()
+
+    if attest_rtc_utc and not saw_machine_section:
+        raise ValueError("platform UTC RTC mode requires a [Machine] config section")
 
     if com_pipe_base is not None:
         out = ensure_com_pipe(out, com_pipe_base)
@@ -961,16 +1195,103 @@ def rewrite_vm_config(
     config.write_text("\n".join(out) + "\n", encoding="utf-8")
 
 
-def vm_machine_name(config: Path) -> str | None:
-    in_machine_section = False
+def vm_config_section(config: Path, section: str) -> dict[str, str]:
+    in_section = False
+    settings: dict[str, str] = {}
     for line in config.read_text(encoding="utf-8").splitlines():
         stripped = line.strip()
         if stripped.startswith("[") and stripped.endswith("]"):
-            in_machine_section = stripped == "[Machine]"
+            in_section = stripped == section
             continue
-        if in_machine_section and stripped.startswith("machine ="):
-            return stripped.split("=", 1)[1].strip()
-    return None
+        if in_section and "=" in stripped:
+            key, value = stripped.split("=", 1)
+            settings[key.strip()] = value.strip()
+    return settings
+
+
+def vm_machine_name(config: Path) -> str | None:
+    return vm_config_section(config, "[Machine]").get("machine")
+
+
+def require_exact_rtc_utc_machine(
+    config: Path,
+    *,
+    expected_ram_kib: int | None,
+    phase: str,
+) -> dict[str, str]:
+    settings = vm_config_section(config, "[Machine]")
+    expected = dict(RTC_UTC_ATTEST_MACHINE_SETTINGS)
+    if expected_ram_kib is not None:
+        expected["mem_size"] = str(expected_ram_kib)
+        expected["time_sync"] = "utc"
+    mismatches = [
+        f"{key}={settings.get(key)!r}, expected {value!r}"
+        for key, value in expected.items()
+        if settings.get(key) != value
+    ]
+    if mismatches:
+        raise SystemExit(
+            "platform UTC RTC mode requires the exact 6 MHz 286 floor "
+            f"({phase}: " + "; ".join(mismatches) + ")"
+        )
+    return settings
+
+
+def require_attested_floppy_config(config: Path, *, rom_basic: bool) -> None:
+    settings = vm_config_section(config, "[Floppy and CD-ROM drives]")
+    drive = "fdd_02" if rom_basic else "fdd_01"
+    if settings.get(f"{drive}_writeprot") != "1":
+        raise SystemExit(
+            "the exact 286 gate requires 86Box guest floppy write protection "
+            f"({drive}_writeprot = 1)"
+        )
+
+
+def validate_rtc_utc_attestation(
+    *,
+    enabled: bool,
+    entry: str,
+    ram_kib: int | None,
+    machine_settings: dict[str, str],
+    screen_ocr_disabled: bool,
+    prompt_timeout: float,
+    answer_timeout: float,
+    interval: float,
+    leave_running: bool,
+    long_running: bool,
+) -> None:
+    if not enabled:
+        return
+    if entry != "direct":
+        raise SystemExit("--platform-rtc-utc requires --entry direct")
+    if ram_kib != RTC_UTC_ATTEST_RAM_KIB:
+        raise SystemExit(
+            "--platform-rtc-utc requires --ram-kib "
+            f"{RTC_UTC_ATTEST_RAM_KIB}"
+        )
+    mismatches = [
+        f"{key}={machine_settings.get(key)!r}, expected {value!r}"
+        for key, value in RTC_UTC_ATTEST_MACHINE_SETTINGS.items()
+        if machine_settings.get(key) != value
+    ]
+    if mismatches:
+        raise SystemExit(
+            "--platform-rtc-utc requires ami286 with a 286 at exactly 6 MHz, "
+            "multiplier 1, and dynarec disabled ("
+            + "; ".join(mismatches)
+            + ")"
+        )
+    # These arguments remain in the compatibility signature for callers that
+    # used the former interactive attestation harness.  Platform-clock mode is
+    # now silent and therefore imposes no OCR, timeout, or run-duration rule.
+    del (
+        screen_ocr_disabled,
+        prompt_timeout,
+        answer_timeout,
+        interval,
+        leave_running,
+        long_running,
+    )
 
 
 def at_cmos(mem_kib: int, machine: str) -> bytes | None:
@@ -1025,7 +1346,10 @@ def validate_vm_ram_override(vm_path: Path, ram_kib: int | None) -> None:
         )
 
 
-def prepare_vm_nvr(vm_path: Path, ram_kib: int | None) -> tuple[Path, bytes] | None:
+def snapshot_vm_nvr(
+    vm_path: Path,
+    ram_kib: int | None,
+) -> tuple[Path, bytes] | None:
     machine = vm_machine_name(vm_path / "86box.cfg")
     if machine is None:
         return None
@@ -1040,12 +1364,150 @@ def prepare_vm_nvr(vm_path: Path, ram_kib: int | None) -> tuple[Path, bytes] | N
     nvr = vm_path / "nvr" / f"{machine}.nvr"
     if not nvr.exists():
         return None
-    restore = (nvr, nvr.read_bytes())
-    if ram_kib is not None:
-        cmos = at_cmos(ram_kib, machine)
-        if cmos is not None:
-            nvr.write_bytes(cmos)
+    return nvr, nvr.read_bytes()
+
+
+def apply_vm_nvr_override(
+    restore: tuple[Path, bytes] | None,
+    ram_kib: int | None,
+) -> None:
+    if restore is None or ram_kib is None:
+        return
+    nvr, _original = restore
+    cmos = at_cmos(ram_kib, nvr.stem)
+    if cmos is not None:
+        nvr.write_bytes(cmos)
+
+
+def prepare_vm_nvr(vm_path: Path, ram_kib: int | None) -> tuple[Path, bytes] | None:
+    restore = snapshot_vm_nvr(vm_path, ram_kib)
+    try:
+        apply_vm_nvr_override(restore, ram_kib)
+    except BaseException:
+        if restore is not None:
+            restore[0].write_bytes(restore[1])
+        raise
     return restore
+
+
+def sha256_file(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def snapshot_floppy_media(floppy: Path) -> tuple[Path, int, str]:
+    return (
+        floppy,
+        stat.S_IMODE(floppy.stat().st_mode),
+        sha256_file(floppy),
+    )
+
+
+def make_floppy_read_only(
+    media: tuple[Path, int, str],
+) -> None:
+    floppy, _original_mode, _sha256_before = media
+    floppy.chmod(0o444)
+    try:
+        descriptor = os.open(floppy, os.O_WRONLY)
+    except OSError as exc:
+        if exc.errno in {errno.EACCES, errno.EPERM, errno.EROFS}:
+            return
+        raise
+    os.close(descriptor)
+    raise RuntimeError(
+        "read-only floppy still permits a host write open"
+    )
+
+
+def restore_harness_state(
+    *,
+    com_capture: ComCapture | None,
+    pcap_capture: PcapCapture | None,
+    restore_config: tuple[Path, bytes] | None,
+    restore_nvr: tuple[Path, bytes] | None,
+    floppy_media: tuple[Path, int, str] | None,
+    test_lock: TestLock | None,
+) -> None:
+    errors: list[str] = []
+    missing = object()
+
+    def attempt(label: str, operation):
+        try:
+            return operation()
+        except BaseException as exc:
+            errors.append(f"{label}: {type(exc).__name__}: {exc}")
+            return missing
+
+    if com_capture is not None:
+        attempt("finish COM capture", com_capture.finish)
+    if pcap_capture is not None:
+        attempt("stop pcap capture", pcap_capture.stop)
+    if restore_config is not None:
+        attempt(
+            "restore 86Box config",
+            lambda: restore_config[0].write_bytes(restore_config[1]),
+        )
+    if restore_nvr is not None:
+        attempt(
+            "restore 86Box NVR",
+            lambda: restore_nvr[0].write_bytes(restore_nvr[1]),
+        )
+
+    floppy_hash_after = missing
+    if floppy_media is not None:
+        floppy, original_mode, sha256_before = floppy_media
+        floppy_hash_after = attempt(
+            "hash floppy after run",
+            lambda: sha256_file(floppy),
+        )
+        attempt(
+            "restore floppy mode",
+            lambda: floppy.chmod(original_mode),
+        )
+        if (
+            floppy_hash_after is not missing
+            and floppy_hash_after != sha256_before
+        ):
+            errors.append(
+                "verify floppy contents: SHA-256 changed during the run"
+            )
+
+    if restore_config is not None:
+        config_after = attempt(
+            "verify 86Box config",
+            restore_config[0].read_bytes,
+        )
+        if config_after is not missing and config_after != restore_config[1]:
+            errors.append("verify 86Box config: byte-for-byte mismatch")
+    if restore_nvr is not None:
+        nvr_after = attempt(
+            "verify 86Box NVR",
+            restore_nvr[0].read_bytes,
+        )
+        if nvr_after is not missing and nvr_after != restore_nvr[1]:
+            errors.append("verify 86Box NVR: byte-for-byte mismatch")
+    if floppy_media is not None:
+        floppy, original_mode, _sha256_before = floppy_media
+        floppy_mode_after = attempt(
+            "verify floppy mode",
+            lambda: stat.S_IMODE(floppy.stat().st_mode),
+        )
+        if (
+            floppy_mode_after is not missing
+            and floppy_mode_after != original_mode
+        ):
+            errors.append(
+                "verify floppy mode: "
+                f"0o{floppy_mode_after:o} != 0o{original_mode:o}"
+            )
+
+    if test_lock is not None:
+        attempt("release VM lock", test_lock.release)
+    if errors:
+        raise RuntimeError(
+            "86Box harness cleanup failed:\n  - "
+            + "\n  - ".join(errors)
+        )
 
 
 def boot_debug_marker(char: str) -> list[int]:
@@ -1299,6 +1761,17 @@ def stop_matching_86box_pids(vm_path: Path, timeout: float = 5.0) -> None:
             os.kill(pid, signal.SIGKILL)
         except ProcessLookupError:
             pass
+    kill_deadline = time.monotonic() + timeout
+    while time.monotonic() < kill_deadline:
+        if not matching_86box_pids(vm_path):
+            return
+        time.sleep(0.1)
+    remaining = sorted(matching_86box_pids(vm_path))
+    if remaining:
+        raise RuntimeError(
+            "86Box processes did not stop for VM path "
+            f"{vm_path}: {', '.join(str(pid) for pid in remaining)}"
+        )
 
 
 def launch_86box(
@@ -1477,9 +1950,10 @@ def find_86box_window_id(
             cf.CFNumberGetValue(ptr, 4, ctypes.byref(value))
             return int(value.value)
 
-        # kCGWindowListOptionOnScreenOnly == 1. The list includes occluded
-        # windows, so this still works when the user puts another window on top.
-        window_list = cg.CGWindowListCopyWindowInfo(1, 0)
+        # kCGWindowListOptionAll == 0.  Window-id capture works without raising
+        # the VM, including when macOS has placed 86Box on another Space; the
+        # on-screen-only list silently drops that otherwise valid window.
+        window_list = cg.CGWindowListCopyWindowInfo(0, 0)
         if not window_list:
             return None
         try:
@@ -1533,6 +2007,91 @@ def screenshot_86box_window(
     return result.returncode == 0 and path.exists() and path.stat().st_size > 0
 
 
+def vm_path_for_pid(pid: int | None) -> Path | None:
+    """Recover the absolute 86Box VM path from the launched process."""
+    if pid is None:
+        return None
+    try:
+        result = subprocess.run(
+            ["ps", "-ww", "-o", "args=", "-p", str(pid)],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0:
+        return None
+    try:
+        argv = shlex.split(result.stdout.strip())
+    except ValueError:
+        return None
+    for option in ("--vmpath", "-P"):
+        try:
+            index = argv.index(option)
+        except ValueError:
+            continue
+        if index + 1 < len(argv):
+            return Path(argv[index + 1]).resolve()
+    return None
+
+
+def screenshot_86box_native(path: Path, pid: int | None) -> bool:
+    """Ask 86Box itself for a rendered guest screenshot.
+
+    This avoids macOS screen-recording permission and captures only the VM's
+    display.  86Box writes a unique PNG below the VM profile; move that exact
+    new file to the caller's evidence path so source profiles do not collect
+    screenshot debris.
+    """
+    vm_path = vm_path_for_pid(pid)
+    if vm_path is None or pid is None:
+        return False
+    screenshot_dir = vm_path / "screenshots"
+    before = set(screenshot_dir.glob("Monitor_1_*.png"))
+    started_ns = time.time_ns()
+    script = """
+on run argv
+  set targetPid to (item 1 of argv) as integer
+  tell application "System Events"
+    set vmProcess to first application process whose unix id is targetPid
+    click menu item "Take screenshot" of menu 1 of menu bar item "Tools" of menu bar 1 of vmProcess
+  end tell
+end run
+"""
+    result = subprocess.run(
+        ["osascript", "-e", script, str(pid)],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return False
+    deadline = time.monotonic() + 5.0
+    while time.monotonic() < deadline:
+        candidates = []
+        for candidate in screenshot_dir.glob("Monitor_1_*.png"):
+            try:
+                stat_result = candidate.stat()
+            except OSError:
+                continue
+            if (
+                candidate not in before
+                and stat_result.st_size > 0
+                and stat_result.st_mtime_ns >= started_ns
+            ):
+                candidates.append((stat_result.st_mtime_ns, candidate))
+        if candidates:
+            source = max(candidates)[1]
+            path.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                os.replace(source, path)
+            except OSError:
+                return False
+            return path.exists() and path.stat().st_size > 0
+        time.sleep(0.1)
+    return False
+
+
 def wait_for_86box_window(
     profile: str | None,
     pid: int | None,
@@ -1546,6 +2105,8 @@ def screenshot_86box_window_or_screen(
     profile: str | None = None,
     pid: int | None = None,
 ) -> bool:
+    if screenshot_86box_native(path, pid):
+        return True
     return screenshot_86box_window(path, profile, pid)
 
 
@@ -1614,9 +2175,13 @@ def classify_86box_screen(path: Path) -> tuple[str, str]:
 
     This intentionally uses coarse color/position signals rather than OCR:
     - a centered splash/prompt state is success;
-    - red text in the main display means a clean Seed fatal error screen;
+    - red text in the main display is a possible Seed error state;
     - gray text on an otherwise dark display is the known freeze class;
     - anything else is ambiguous and should keep the screenshot for inspection.
+
+    Callers must corroborate ``clean-failure`` with the retry/restart menu.
+    The normal 8088 TLS 1.3 splash uses a neutral gray ``security note``;
+    red text is reserved for a possible failure state.
     """
     width, height, channels, rows = read_png_rgb(path)
     if width < 320 or height < 240:
@@ -1643,6 +2208,9 @@ def classify_86box_screen(path: Path) -> tuple[str, str]:
     center_dim_pixels = 0
     non_dark_pixels = 0
     sampled_pixels = 0
+    active_glyph_rows = 0
+    dense_glyph_rows = 0
+    glyph_column_pixels = [0] * max(1, x1 - x0)
     splash_pixels = 0
     splash_min_x = width
     splash_max_x = 0
@@ -1664,6 +2232,7 @@ def classify_86box_screen(path: Path) -> tuple[str, str]:
 
     for y in range(y0, y1):
         row = rows[y]
+        row_non_dark = 0
         for x in range(x0, x1):
             off = x * channels
             r, g, b = row[off], row[off + 1], row[off + 2]
@@ -1678,10 +2247,14 @@ def classify_86box_screen(path: Path) -> tuple[str, str]:
                 center_red_pixels += 1
             if r > 165 and g > 165 and b > 165:
                 non_dark_pixels += 1
+                row_non_dark += 1
+                glyph_column_pixels[x - x0] += 1
                 if lower_y0 <= y <= lower_y1:
                     lower_bright_pixels += 1
             elif r > 45 or g > 45 or b > 45:
                 non_dark_pixels += 1
+                row_non_dark += 1
+                glyph_column_pixels[x - x0] += 1
                 if lower_y0 <= y <= lower_y1:
                     lower_text_pixels += 1
             if (
@@ -1701,6 +2274,36 @@ def classify_86box_screen(path: Path) -> tuple[str, str]:
             if center_x0 <= x <= center_x1 and center_y0 <= y <= center_y1:
                 if 35 <= r <= 150 and 35 <= g <= 150 and 35 <= b <= 150:
                     center_dim_pixels += 1
+
+        if row_non_dark >= max(8, (x1 - x0) // 100):
+            active_glyph_rows += 1
+        if row_non_dark >= max(24, (x1 - x0) // 8):
+            dense_glyph_rows += 1
+
+    sampled_height = max(1, y1 - y0)
+    sampled_width = max(1, x1 - x0)
+    active_glyph_columns = sum(
+        count >= max(8, sampled_height // 100)
+        for count in glyph_column_pixels
+    )
+
+    # A screen whose glyphs span nearly every row and column is not a normal
+    # Seed splash/prompt oracle.  In particular, MDA vault bytes rendered as
+    # character/attribute pairs otherwise look like a very large gray splash
+    # and were previously misclassified as success.  Keep legitimately dense
+    # conversation screens conservative too: they require inspection instead
+    # of being accepted from this coarse shape oracle.
+    if (
+        active_glyph_rows * 4 >= sampled_height * 3
+        and active_glyph_columns * 10 >= sampled_width * 9
+        and dense_glyph_rows * 5 >= sampled_height * 2
+    ):
+        return (
+            "dense-glyph-screen",
+            f"active_rows={active_glyph_rows}/{sampled_height} "
+            f"dense_rows={dense_glyph_rows}/{sampled_height} "
+            f"active_columns={active_glyph_columns}/{sampled_width}",
+        )
 
     if center_red_pixels >= 70:
         return "clean-failure", f"center_red={center_red_pixels}"
@@ -2070,10 +2673,22 @@ def classify_running_vm(
     if lines and ocr_lines_suggest_rom_basic(lines):
         verdict = "bootstrap-failure"
         detail = f"ocr_{engine or 'unknown'}_rom_basic"
+    elif lines and ocr_lines_suggest_seed_failure_menu(lines):
+        # Sparse Seed failure screens can have the same centered-text/prompt
+        # geometry as DPI.  The retry/restart pair is the stronger signal and
+        # must never be promoted to success by the coarse pixel classifier.
+        verdict = "clean-failure"
+        detail = f"ocr_{engine or 'unknown'}_failure_menu"
+    elif verdict == "clean-failure":
+        verdict = "ambiguous"
+        detail = f"{shape_detail} without failure menu"
     if verdict == "ambiguous":
         if ocr_lines_suggest_dpi_ready(lines):
             verdict = "success"
             detail = f"ocr_{engine or 'unknown'}_dpi"
+        elif ocr_lines_suggest_seed_greeting(lines):
+            verdict = "success"
+            detail = f"ocr_{engine or 'unknown'}_greeting"
     missing_expected = missing_expected_ocr_text(lines, args.screen_expect_text)
     if args.screen_expect_text and (engine is None or missing_expected):
         verdict = "missing-expected"
@@ -2097,6 +2712,43 @@ def classify_running_vm(
     return verdict, detail
 
 
+def validate_post_dpi_expectations(
+    post_dpi_text: list[str],
+    post_dpi_expect_text: list[str],
+    *,
+    screen_oracle: bool,
+    no_screen_ocr: bool,
+) -> None:
+    if not post_dpi_expect_text:
+        return
+    if len(post_dpi_expect_text) != len(post_dpi_text):
+        raise SystemExit(
+            "--post-dpi-expect-text count must match --post-dpi-text count "
+            f"({len(post_dpi_expect_text)} != {len(post_dpi_text)})"
+        )
+    if any(not text.strip() for text in post_dpi_expect_text):
+        raise SystemExit("--post-dpi-expect-text values must not be empty")
+    for index, (prompt, expected) in enumerate(
+        zip(post_dpi_text, post_dpi_expect_text),
+        start=1,
+    ):
+        folded_prompt = re.sub(r"\s+", " ", prompt.strip().casefold())
+        folded_expected = re.sub(r"\s+", " ", expected.strip().casefold())
+        if folded_expected in folded_prompt:
+            raise SystemExit(
+                "--post-dpi-expect-text must not already appear in the "
+                f"corresponding --post-dpi-text prompt (turn {index})"
+            )
+    if not screen_oracle:
+        raise SystemExit(
+            "--post-dpi-expect-text requires --screen-oracle"
+        )
+    if no_screen_ocr:
+        raise SystemExit(
+            "--post-dpi-expect-text cannot be combined with --no-screen-ocr"
+        )
+
+
 def wait_for_dpi_prompt(
     args: argparse.Namespace,
     process: subprocess.Popen[str],
@@ -2104,6 +2756,7 @@ def wait_for_dpi_prompt(
     timeout: float,
     interval: float,
     changed_from_crc: int | None = None,
+    expected_response_text: str | None = None,
 ) -> bool:
     """Wait until the visible VM has the DPI prompt marker.
 
@@ -2135,6 +2788,13 @@ def wait_for_dpi_prompt(
                 last_shape = classify_86box_screen(args.oracle_screenshot)
             except (OSError, ValueError) as exc:
                 last_shape = ("ambiguous", str(exc))
+            if last_shape[0] == "dense-glyph-screen":
+                print(
+                    f"{label}: rejected dense glyph screen "
+                    f"({last_shape[1]})"
+                )
+                print(f"{label}: kept {args.oracle_screenshot}")
+                return False
             last_engine, last_lines = screen_ocr_lines(
                 args.oracle_screenshot,
                 args.screen_ocr_timeout,
@@ -2144,11 +2804,14 @@ def wait_for_dpi_prompt(
                 print_screen_ocr_lines(label, last_engine, last_lines)
                 print(f"{label}: kept {args.oracle_screenshot}")
                 return False
-            if last_shape[0] == "clean-failure":
-                print(f"{label}: clean failure before DPI prompt ({last_shape[1]})")
-                print_screen_ocr_lines(label, last_engine, last_lines)
-                print(f"{label}: kept {args.oracle_screenshot}")
-                return False
+            # Current product images never ask an RTC question.  If an older
+            # image does show one, keep it distinct from the identical-looking
+            # DPI input marker and refuse to inject a chat turn into it.
+            rtc_question_visible = (
+                not ocr_lines_suggest_rtc_utc_answered(last_lines)
+                and
+                ocr_lines_suggest_rtc_utc_question(last_lines)
+            )
             visual_prompt = False
             try:
                 visual_prompt = image_suggests_dpi_prompt(args.oracle_screenshot)
@@ -2168,6 +2831,13 @@ def wait_for_dpi_prompt(
                 or response_crc is None
                 or response_crc != changed_from_crc
             )
+            expected_response_seen = (
+                expected_response_text is None
+                or not missing_expected_ocr_text(
+                    last_lines,
+                    [expected_response_text],
+                )
+            )
             if (
                 candidate_crc is not None
                 and visual_candidate_crc is not None
@@ -2175,7 +2845,10 @@ def wait_for_dpi_prompt(
             ):
                 visual_candidate_crc = None
                 visual_candidate_count = 0
-            prompt_candidate = visual_prompt or ocr_prompt
+            prompt_candidate = (
+                not rtc_question_visible
+                and (visual_prompt or ocr_prompt)
+            )
             prompt_ready = False
             if prompt_candidate:
                 if candidate_crc is not None and candidate_crc == visual_candidate_crc:
@@ -2189,7 +2862,11 @@ def wait_for_dpi_prompt(
                 )
                 if changed_from_crc is None and ocr_prompt:
                     prompt_ready = True
-                prompt_ready = prompt_ready and response_changed
+                prompt_ready = (
+                    prompt_ready
+                    and response_changed
+                    and expected_response_seen
+                )
             else:
                 visual_candidate_crc = None
                 visual_candidate_count = 0
@@ -2198,7 +2875,8 @@ def wait_for_dpi_prompt(
                     f"{label}: DPI prompt ready "
                     f"(shape={last_shape[0]} {last_shape[1]}, "
                     f"ocr={last_engine or 'none'}, ocr_prompt={ocr_prompt}, "
-                    f"visual_prompt={visual_prompt}, visual_count={visual_candidate_count})"
+                    f"visual_prompt={visual_prompt}, visual_count={visual_candidate_count}, "
+                    f"expected_response={expected_response_seen})"
                 )
                 print_screen_ocr_lines(label, last_engine, last_lines)
                 if not args.keep_success_oracle_screenshot:
@@ -2213,7 +2891,8 @@ def wait_for_dpi_prompt(
                     f"(shape={last_shape[0]} {last_shape[1]}, "
                     f"ocr_prompt={ocr_prompt}, visual_prompt={visual_prompt}, "
                     f"visual_count={visual_candidate_count}, "
-                    f"changed={changed_detail})"
+                    f"changed={changed_detail}, "
+                    f"expected_response={expected_response_seen})"
                 )
                 print_screen_ocr_lines(label, last_engine, last_lines)
         else:
@@ -2228,6 +2907,304 @@ def wait_for_dpi_prompt(
                 print(f"{label}: kept {args.oracle_screenshot}")
             return False
         time.sleep(interval)
+
+
+RTC_UTC_QUESTION_OCR = re.compile(
+    r"\br[ti]c\s+is\s+set\s+to\s+utc\s+[\(c]?\s*y\s*/\s*n\s*\)?\s*\??"
+)
+AMI286_MEMORY_TEST_OCR = re.compile(
+    r"press\s+[\(\{<\[]?\s*esc\s*[\)\}>\]]?\s+to\s+bypass\s+memory\s+test"
+)
+
+
+def ocr_lines_suggest_ami286_memory_test(lines: list[str]) -> bool:
+    joined = " ".join(line.strip().casefold() for line in lines)
+    joined = re.sub(r"\s+", " ", joined)
+    bios_identity = "american megatrends" in joined or "286-bio" in joined
+    return bios_identity and AMI286_MEMORY_TEST_OCR.search(joined) is not None
+
+
+def bypass_ami286_memory_test(
+    args: argparse.Namespace,
+    process: subprocess.Popen[str],
+) -> bool:
+    """Submit one loader-safe Escape during the exact-floor AMI286 POST."""
+    deadline = time.monotonic() + args.ami286_memory_bypass_timeout
+    bypass_ready_at: float | None = None
+    bypass_submitted = False
+    saw_memory_test = False
+    last_engine: str | None = None
+    last_lines: list[str] = []
+
+    while True:
+        if process.poll() is not None:
+            print("AMI286 POST: process exited during memory count")
+            return False
+        if screenshot_86box_window_or_screen(
+            args.oracle_screenshot,
+            args.profile,
+            process.pid,
+        ):
+            last_engine, last_lines = screen_ocr_lines(
+                args.oracle_screenshot,
+                args.screen_ocr_timeout,
+            )
+            memory_test_visible = ocr_lines_suggest_ami286_memory_test(last_lines)
+            if memory_test_visible:
+                saw_memory_test = True
+                if bypass_ready_at is None:
+                    bypass_ready_at = (
+                        time.monotonic() + AMI286_MEMORY_BYPASS_DELAY_SECONDS
+                    )
+                    print(
+                        "AMI286 POST: waiting 90s for a loader-safe memory "
+                        "count before bypass"
+                    )
+                elif not bypass_submitted and time.monotonic() >= bypass_ready_at:
+                    post_pid_focused_keycode(
+                        process.pid,
+                        53,
+                        restore_focus=False,
+                    )
+                    bypass_submitted = True
+                    print("AMI286 POST: submitted one Escape key")
+            elif bypass_submitted:
+                print("AMI286 POST: memory bypass accepted")
+                return True
+            elif saw_memory_test:
+                # The count completed naturally before the delayed bypass.
+                print("AMI286 POST: memory count completed without injection")
+                return True
+            elif (
+                ocr_lines_suggest_seed_greeting(last_lines)
+                or ocr_lines_suggest_dpi_ready(last_lines)
+                or ocr_lines_suggest_seed_failure_menu(last_lines)
+            ):
+                # The harness attached after POST. Never inject Escape into Seed.
+                print("AMI286 POST: Seed already owns the display; no key injected")
+                return True
+
+        if time.monotonic() >= deadline:
+            print(
+                "AMI286 POST: timed out waiting for a safely bypassable memory "
+                f"count (ocr={last_engine or 'none'})"
+            )
+            print_screen_ocr_lines("AMI286 POST", last_engine, last_lines)
+            if args.oracle_screenshot.exists():
+                print(f"AMI286 POST: kept {args.oracle_screenshot}")
+            return False
+        time.sleep(args.ami286_memory_bypass_interval)
+
+
+def ocr_lines_suggest_rtc_utc_question(lines: list[str]) -> bool:
+    joined = " ".join(line.strip().casefold() for line in lines)
+    joined = re.sub(r"\s+", " ", joined)
+    # The 86Box CGA glyphs make T look like I and '(' look like C to
+    # Tesseract.  Accept only those observed single-glyph confusions while
+    # retaining the complete question/choice shape and the separate visual
+    # input-marker requirement in wait_for_rtc_utc_question().
+    return RTC_UTC_QUESTION_OCR.search(joined) is not None
+
+
+def ocr_lines_suggest_rtc_utc_answered(lines: list[str]) -> bool:
+    joined = "\n".join(line.strip().casefold() for line in lines)
+    question = RTC_UTC_QUESTION_OCR.search(joined)
+    if question is None:
+        return False
+    for line in joined[question.end() :].splitlines()[:5]:
+        folded = line.strip().casefold()
+        # Exact 86Box CGA captures can render the `>` input marker as `d`,
+        # yielding `dy` for the visible `> y`.
+        if re.fullmatch(r"[>›»)d]?\s*y", folded):
+            return True
+    return False
+
+
+def wait_for_rtc_utc_question(
+    args: argparse.Namespace,
+    process: subprocess.Popen[str],
+) -> bool:
+    """Wait for the exact 286 UTC-attestation question and visible input marker."""
+    deadline = time.monotonic() + args.rtc_prompt_timeout
+    last_engine: str | None = None
+    last_lines: list[str] = []
+    last_visual_prompt = False
+    samples = 0
+    bios_memory_bypass_submitted = False
+    bios_memory_bypass_departure_confirmed = False
+    bios_memory_bypass_ready_at: float | None = None
+
+    while True:
+        if process.poll() is not None:
+            print("RTC UTC attestation: process exited before the question")
+            return False
+        if screenshot_86box_window_or_screen(
+            args.oracle_screenshot,
+            args.profile,
+            process.pid,
+        ):
+            samples += 1
+            last_engine, last_lines = screen_ocr_lines(
+                args.oracle_screenshot,
+                args.screen_ocr_timeout,
+            )
+            memory_test_visible = ocr_lines_suggest_ami286_memory_test(last_lines)
+            if not bios_memory_bypass_submitted and memory_test_visible:
+                if bios_memory_bypass_ready_at is None:
+                    bios_memory_bypass_ready_at = (
+                        time.monotonic() + AMI286_MEMORY_BYPASS_DELAY_SECONDS
+                    )
+                    print(
+                        "RTC UTC attestation: waiting 90s for a loader-safe "
+                        "AMI286 memory count before bypass"
+                    )
+                elif time.monotonic() >= bios_memory_bypass_ready_at:
+                    post_pid_focused_keycode(
+                        process.pid,
+                        53,
+                        restore_focus=False,
+                    )
+                    bios_memory_bypass_submitted = True
+                    print(
+                        "RTC UTC attestation: submitted one Escape key to the "
+                        "AMI286 BIOS memory count"
+                    )
+            elif (
+                bios_memory_bypass_submitted
+                and not bios_memory_bypass_departure_confirmed
+                and not memory_test_visible
+            ):
+                print("RTC UTC attestation: AMI286 BIOS memory bypass accepted")
+                bios_memory_bypass_departure_confirmed = True
+            if ocr_lines_suggest_seed_failure_menu(last_lines):
+                print("RTC UTC attestation: failure menu before the question")
+                print_screen_ocr_lines("RTC UTC attestation", last_engine, last_lines)
+                print(f"RTC UTC attestation: kept {args.oracle_screenshot}")
+                return False
+            try:
+                last_visual_prompt = image_suggests_dpi_prompt(args.oracle_screenshot)
+            except (OSError, ValueError):
+                last_visual_prompt = False
+            exact_question = ocr_lines_suggest_rtc_utc_question(last_lines)
+            if last_engine is not None and exact_question and last_visual_prompt:
+                print(
+                    "RTC UTC attestation: exact question ready "
+                    f"(ocr={last_engine}, visual_prompt={last_visual_prompt})"
+                )
+                print_screen_ocr_lines("RTC UTC attestation", last_engine, last_lines)
+                return True
+            if samples % max(1, int(60 / max(args.rtc_prompt_interval, 1))) == 0:
+                print(
+                    "RTC UTC attestation: waiting "
+                    f"(ocr={last_engine or 'none'}, exact_question={exact_question}, "
+                    f"visual_prompt={last_visual_prompt})"
+                )
+                print_screen_ocr_lines("RTC UTC attestation", last_engine, last_lines)
+        else:
+            last_engine = None
+            last_lines = []
+            last_visual_prompt = False
+
+        if time.monotonic() >= deadline:
+            print(
+                "RTC UTC attestation: timed out waiting for the exact question "
+                f"(ocr={last_engine or 'none'}, visual_prompt={last_visual_prompt})"
+            )
+            print_screen_ocr_lines("RTC UTC attestation", last_engine, last_lines)
+            if args.oracle_screenshot.exists():
+                print(f"RTC UTC attestation: kept {args.oracle_screenshot}")
+            return False
+        time.sleep(args.rtc_prompt_interval)
+
+
+def submit_rtc_utc_answer(
+    pid: int,
+    key_delay: float,
+    line_delay: float,
+) -> None:
+    """Submit affirmative same-boot UTC consent without an Enter key."""
+    # The BIOS Escape and Seed's single-key UTC question both sit before the
+    # normal DPI input loop.  Direct CGEventPostToPid delivery is reliable for
+    # the latter loop but can be dropped at this early boundary; use the same
+    # exact-PID, briefly focused physical-key path that bypasses the AMI memory
+    # test.  Submit exactly one key so a late duplicate cannot leak into DPI.
+    del key_delay, line_delay
+    post_pid_focused_keycode(
+        pid,
+        KEY_CODES["y"][0],
+        restore_focus=False,
+    )
+
+
+def wait_for_rtc_utc_question_clear(
+    args: argparse.Namespace,
+    process: subprocess.Popen[str],
+) -> bool:
+    """Require two OCR samples showing the affirmative echo or later progress."""
+    deadline = time.monotonic() + args.rtc_answer_timeout
+    clear_samples = 0
+    last_engine: str | None = None
+    last_lines: list[str] = []
+    last_visual_prompt = True
+
+    while True:
+        if process.poll() is not None:
+            print("RTC UTC attestation: process exited before accepting the answer")
+            return False
+        if screenshot_86box_window_or_screen(
+            args.oracle_screenshot,
+            args.profile,
+            process.pid,
+        ):
+            last_engine, last_lines = screen_ocr_lines(
+                args.oracle_screenshot,
+                args.screen_ocr_timeout,
+            )
+            if ocr_lines_suggest_seed_failure_menu(last_lines):
+                print("RTC UTC attestation: failure menu after answering")
+                print_screen_ocr_lines("RTC UTC attestation", last_engine, last_lines)
+                print(f"RTC UTC attestation: kept {args.oracle_screenshot}")
+                return False
+            try:
+                last_visual_prompt = image_suggests_dpi_prompt(args.oracle_screenshot)
+            except (OSError, ValueError):
+                last_visual_prompt = True
+            answered_echo = ocr_lines_suggest_rtc_utc_answered(last_lines)
+            question_gone = (
+                not ocr_lines_suggest_rtc_utc_question(last_lines)
+                and not last_visual_prompt
+            )
+            if last_engine is not None and (answered_echo or question_gone):
+                clear_samples += 1
+                if clear_samples >= 2:
+                    print("RTC UTC attestation: affirmative answer accepted")
+                    if not args.keep_success_oracle_screenshot:
+                        args.oracle_screenshot.unlink(missing_ok=True)
+                    return True
+            else:
+                clear_samples = 0
+
+        if time.monotonic() >= deadline:
+            print(
+                "RTC UTC attestation: affirmative echo/progress was not confirmed "
+                f"(ocr={last_engine or 'none'}, visual_prompt={last_visual_prompt})"
+            )
+            print_screen_ocr_lines("RTC UTC attestation", last_engine, last_lines)
+            if args.oracle_screenshot.exists():
+                print(f"RTC UTC attestation: kept {args.oracle_screenshot}")
+            return False
+        time.sleep(args.rtc_prompt_interval)
+
+
+def attest_rtc_utc(
+    args: argparse.Namespace,
+    process: subprocess.Popen[str],
+) -> bool:
+    if not wait_for_rtc_utc_question(args, process):
+        return False
+    submit_rtc_utc_answer(process.pid, args.type_delay, args.line_delay)
+    print("RTC UTC attestation: submitted one 'y' key without Enter")
+    return wait_for_rtc_utc_question_clear(args, process)
 
 
 def capture_response_area_crc(
@@ -2268,10 +3245,27 @@ def ocr_lines_suggest_dpi_ready(lines: list[str]) -> bool:
     return False
 
 
+def ocr_lines_suggest_seed_greeting(lines: list[str]) -> bool:
+    """Recognize Seed's initial authenticated greeting in noisy CGA OCR."""
+    joined = " ".join(line.strip().casefold() for line in lines)
+    joined = re.sub(r"\s+", " ", joined)
+    seed_identity = "seed build" in joined or any(
+        line.strip().casefold() == "seed" for line in lines
+    )
+    return seed_identity and "how can i help" in joined
+
+
 def ocr_lines_suggest_seed_failure_menu(lines: list[str]) -> bool:
-    joined = " ".join(line.strip().lower() for line in lines)
+    folded_lines = [line.strip().casefold() for line in lines]
+    joined = " ".join(folded_lines)
+    retry_choice = any(
+        re.fullmatch(r"[1il][.,:]?\s*retry", line) for line in folded_lines
+    )
+    restart_choice = any(
+        re.fullmatch(r"2[.,:]?\s*restart", line) for line in folded_lines
+    )
     return (
-        "failed" in joined
+        ("failed" in joined or (retry_choice and restart_choice))
         and "retry" in joined
         and "restart" in joined
     )
@@ -2435,9 +3429,29 @@ def main() -> int:
         help="override the 86Box profile directory; useful for per-run temporary profile copies",
     )
     parser.add_argument("--basic", type=Path, default=DEFAULT_BASIC)
+    parser.add_argument(
+        "--basic-drive",
+        choices=("a", "b"),
+        default="b",
+        help=(
+            "drive read by the ROM BASIC sidecar (default: b); the harness "
+            "also passes an explicit 86Box --image override so an old or "
+            "silently stale profile cannot start with an empty drive"
+        ),
+    )
     parser.add_argument("--loader", type=Path, default=DEFAULT_LOADER)
     parser.add_argument("--basic-loader", type=Path, default=DEFAULT_BASIC_LOADER)
     parser.add_argument("--floppy", type=Path, default=DEFAULT_FLOPPY)
+    parser.add_argument(
+        "--floppy-read-only",
+        action="store_true",
+        help=(
+            "mount the selected floppy guest-write-protected, remove host write "
+            "permission for the run, require its SHA-256 to remain unchanged, "
+            "and restore its original mode afterward; implied by "
+            "--platform-rtc-utc"
+        ),
+    )
     parser.add_argument("--loader-floppy", type=Path, default=DEFAULT_LOADER_FLOPPY)
     parser.add_argument("--screenshot", type=Path, default=DEFAULT_SCREENSHOT)
     parser.add_argument("--oracle-screenshot", type=Path, default=DEFAULT_ORACLE_SCREENSHOT)
@@ -2445,10 +3459,69 @@ def main() -> int:
     parser.add_argument("--startup-delay", type=float, default=None)
     parser.add_argument("--capture-delay", type=float, default=None)
     parser.add_argument(
+        "--platform-rtc-utc",
+        dest="attest_rtc_utc",
+        action="store_true",
+        help=(
+            "for the ami286 direct-boot acceptance gate, force 86Box UTC RTC "
+            "synchronization; Seed validates and uses the platform clock "
+            "silently"
+        ),
+    )
+    parser.add_argument(
+        "--attest-rtc-utc",
+        dest="attest_rtc_utc",
+        action="store_true",
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--rtc-prompt-timeout",
+        type=float,
+        default=300.0,
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--rtc-answer-timeout",
+        type=float,
+        default=30.0,
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--rtc-prompt-interval",
+        type=float,
+        default=1.0,
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--ami286-memory-bypass-timeout",
+        type=float,
+        default=240.0,
+        help=(
+            "seconds to allow the loader-safe exact-floor AMI286 POST memory "
+            "bypass (default: 240)"
+        ),
+    )
+    parser.add_argument(
+        "--ami286-memory-bypass-interval",
+        type=float,
+        default=1.0,
+        help="seconds between AMI286 POST OCR checks (default: 1)",
+    )
+    parser.add_argument(
         "--post-dpi-text",
         action="append",
         default=[],
         help="after DPI is ready, type this prompt into the same VM and wait for the next response; repeat to send multiple prompts",
+    )
+    parser.add_argument(
+        "--post-dpi-expect-text",
+        action="append",
+        default=[],
+        help=(
+            "require OCR to contain this response text before the corresponding "
+            "--post-dpi-text turn completes; the text must not occur in the "
+            "prompt, and the option must repeat exactly once per prompt"
+        ),
     )
     parser.add_argument(
         "--post-dpi-wait",
@@ -2465,8 +3538,8 @@ def main() -> int:
     parser.add_argument(
         "--post-dpi-gate-timeout",
         type=float,
-        default=420.0,
-        help="seconds to wait for OCR to see the DPI prompt before each --post-dpi-text (default: 420)",
+        default=1200.0,
+        help="seconds to wait for OCR to see the DPI prompt before each --post-dpi-text (default: 1200)",
     )
     parser.add_argument(
         "--post-dpi-gate-interval",
@@ -2660,11 +3733,24 @@ def main() -> int:
         help="leave 86Box sound enabled; harness runs are muted by default",
     )
     args = parser.parse_args()
+    validate_post_dpi_expectations(
+        args.post_dpi_text,
+        args.post_dpi_expect_text,
+        screen_oracle=args.screen_oracle,
+        no_screen_ocr=args.no_screen_ocr,
+    )
+    if args.attest_rtc_utc:
+        args.floppy_read_only = True
     if args.long_running:
         args.leave_running = True
         args.no_screenshot = True
         if args.capture_delay is None:
             args.capture_delay = 0
+    if args.floppy_read_only and args.leave_running:
+        raise SystemExit(
+            "--floppy-read-only cannot be combined with "
+            "--leave-running or --long-running"
+        )
 
     if args.repeat > 1:
         return run_repeat(args)
@@ -2750,33 +3836,125 @@ def main() -> int:
     image_args: list[str] | None = None
     restore_config: tuple[Path, bytes] | None = None
     restore_nvr: tuple[Path, bytes] | None = None
-    vm_path = args.vm_path or (ROOT / "targets/ibm_pc_5150/86box" / args.profile)
+    vm_path = (
+        args.vm_path
+        or (ROOT / "targets/ibm_pc_5150/86box" / args.profile)
+    ).resolve()
     if not vm_path.is_dir():
         raise SystemExit(f"missing 86Box profile: {vm_path}")
-    validate_vm_ram_override(vm_path, args.ram_kib)
-    if not args.allow_existing_86box:
-        stop_matching_86box_pids(vm_path)
-
-    com_passthrough = args.com_capture is not None
-    com_pipe_base = (
-        args.com_capture.resolve().with_suffix(args.com_capture.suffix + ".pipe")
-        if args.com_capture is not None
-        else None
+    validate_rtc_utc_attestation(
+        enabled=args.attest_rtc_utc,
+        entry=args.entry,
+        ram_kib=args.ram_kib,
+        machine_settings=vm_config_section(
+            vm_path / "86box.cfg",
+            "[Machine]",
+        ),
+        screen_ocr_disabled=args.no_screen_ocr,
+        prompt_timeout=args.rtc_prompt_timeout,
+        answer_timeout=args.rtc_answer_timeout,
+        interval=args.rtc_prompt_interval,
+        leave_running=args.leave_running,
+        long_running=args.long_running,
     )
-
-    if args.entry == "loader":
-        floppy = args.loader_floppy
-        floppy.parent.mkdir(parents=True, exist_ok=True)
-        make_loader_boot_floppy(
-            args.floppy,
-            args.loader,
-            floppy,
-            args.debug_boot_stop,
-            args.debug_loader_stop,
+    validate_vm_ram_override(vm_path, args.ram_kib)
+    test_lock_path = args.test_lock
+    if args.attest_rtc_utc and test_lock_path is None:
+        test_lock_path = vm_path / ".seed-rtc-utc.lock"
+    test_lock: TestLock | None = None
+    if test_lock_path is not None and (
+        args.attest_rtc_utc or not args.no_test_lock
+    ):
+        test_lock = TestLock(
+            test_lock_path,
+            args.test_lock_name,
+            args.profile,
+            args.test_lock_timeout,
         )
-        # --com-capture requires cfg rewrite to inject the fixed FIFO device,
-        # which is also where the floppy gets put in fdd_01 for BIOS boot.
-        if args.loader_mount == "config" or com_passthrough:
+
+    if test_lock is not None:
+        test_lock.acquire()
+
+    com_capture: ComCapture | None = None
+    pcap_capture: PcapCapture | None = None
+    floppy_media: tuple[Path, int, str] | None = None
+    try:
+        # The lock must cover every externally visible VM mutation, including
+        # stopping a prior instance and rewriting config/NVR state.
+        if not args.allow_existing_86box:
+            stop_matching_86box_pids(vm_path)
+
+        com_passthrough = args.com_capture is not None
+        com_pipe_base = (
+            args.com_capture.resolve().with_suffix(
+                args.com_capture.suffix + ".pipe"
+            )
+            if args.com_capture is not None
+            else None
+        )
+
+        if args.entry == "loader":
+            floppy = args.loader_floppy
+            floppy.parent.mkdir(parents=True, exist_ok=True)
+            make_loader_boot_floppy(
+                args.floppy,
+                args.loader,
+                floppy,
+                args.debug_boot_stop,
+                args.debug_loader_stop,
+            )
+            # Read-only and COM runs need a config mount so 86Box can enforce
+            # the drive's write-protect bit.
+            if (
+                args.loader_mount == "config"
+                or com_passthrough
+                or args.floppy_read_only
+            ):
+                config = vm_path / "86box.cfg"
+                restore_config = (config, config.read_bytes())
+                rewrite_vm_config(
+                    config,
+                    args.ram_kib,
+                    floppy,
+                    False,
+                    com_pipe_base=com_pipe_base,
+                    muted=not args.sound,
+                    attest_rtc_utc=args.attest_rtc_utc,
+                    floppy_read_only=args.floppy_read_only,
+                )
+                restore_nvr = snapshot_vm_nvr(vm_path, args.ram_kib)
+                apply_vm_nvr_override(restore_nvr, args.ram_kib)
+            else:
+                image_args = [f"A:{floppy}"]
+        elif args.entry == "basic":
+            config = vm_path / "86box.cfg"
+            restore_config = (config, config.read_bytes())
+            rewrite_vm_config(
+                config,
+                args.ram_kib,
+                floppy,
+                True,
+                rom_basic_drive=args.basic_drive,
+                com_pipe_base=com_pipe_base,
+                muted=not args.sound,
+                attest_rtc_utc=args.attest_rtc_utc,
+                floppy_read_only=args.floppy_read_only,
+            )
+            # The config rewrite supplies drive geometry and the guest
+            # write-protect bit, but 86Box 6 can silently retain an empty
+            # drive when opening an older profile.  Its command-line image
+            # override is applied after config_load(), so bind the exact
+            # sidecar drive there as well.  This also makes a mount failure
+            # occur before BASIC injection instead of surfacing later as the
+            # bootstrap's intentionally terse red X.
+            image_args = [f"{args.basic_drive.upper()}:{floppy}"]
+            restore_nvr = snapshot_vm_nvr(vm_path, args.ram_kib)
+            apply_vm_nvr_override(restore_nvr, args.ram_kib)
+        elif args.entry == "direct":
+            # Direct BIOS floppy boot: main floppy in A: (rom_basic=False), no sidecar.
+            # A >=32K machine boots Seed straight from A:, giving ram_top 0x8000 and the
+            # full-size context window - the only way to exercise the big-window send path.
+            image_args = [f"A:{floppy}"]
             config = vm_path / "86box.cfg"
             restore_config = (config, config.read_bytes())
             rewrite_vm_config(
@@ -2786,69 +3964,57 @@ def main() -> int:
                 False,
                 com_pipe_base=com_pipe_base,
                 muted=not args.sound,
+                attest_rtc_utc=args.attest_rtc_utc,
+                floppy_read_only=args.floppy_read_only,
             )
-            restore_nvr = prepare_vm_nvr(vm_path, args.ram_kib)
-        else:
-            image_args = [f"A:{floppy}"]
-    elif args.entry == "basic":
-        config = vm_path / "86box.cfg"
-        restore_config = (config, config.read_bytes())
-        rewrite_vm_config(
-            config,
-            args.ram_kib,
-            floppy,
-            True,
-            com_pipe_base=com_pipe_base,
-            muted=not args.sound,
-        )
-        restore_nvr = prepare_vm_nvr(vm_path, args.ram_kib)
-    elif args.entry == "direct":
-        # Direct BIOS floppy boot: main floppy in A: (rom_basic=False), no sidecar.
-        # A >=32K machine boots Seed straight from A:, giving ram_top 0x8000 and the
-        # full-size context window - the only way to exercise the big-window send path.
-        image_args = [f"A:{floppy}"]
-        config = vm_path / "86box.cfg"
-        restore_config = (config, config.read_bytes())
-        rewrite_vm_config(
-            config,
-            args.ram_kib,
-            floppy,
-            False,
-            com_pipe_base=com_pipe_base,
-            muted=not args.sound,
-        )
-        restore_nvr = prepare_vm_nvr(vm_path, args.ram_kib)
+            restore_nvr = snapshot_vm_nvr(vm_path, args.ram_kib)
+            apply_vm_nvr_override(restore_nvr, args.ram_kib)
 
-    com_capture: ComCapture | None = None
-    if args.com_capture is not None:
-        assert com_pipe_base is not None
-        com_capture = ComCapture(args.com_capture.resolve(), com_pipe_base)
+        if args.attest_rtc_utc:
+            assert restore_config is not None
+            require_exact_rtc_utc_machine(
+                restore_config[0],
+                expected_ram_kib=RTC_UTC_ATTEST_RAM_KIB,
+                phase="post-rewrite",
+            )
+            require_attested_floppy_config(
+                restore_config[0],
+                rom_basic=args.entry == "basic",
+            )
 
-    pcap_capture: PcapCapture | None = None
-    if args.pcap is not None:
-        pcap_capture = PcapCapture(
-            args.pcap,
-            args.pcap_filter,
-            args.pcap_iface,
-            args.pcap_report_filter,
-            args.pcap_max_lines,
+        if args.floppy_read_only:
+            floppy_media = snapshot_floppy_media(floppy)
+            make_floppy_read_only(floppy_media)
+
+        if args.com_capture is not None:
+            assert com_pipe_base is not None
+            com_capture = ComCapture(args.com_capture.resolve(), com_pipe_base)
+
+        if args.pcap is not None:
+            pcap_capture = PcapCapture(
+                args.pcap,
+                args.pcap_filter,
+                args.pcap_iface,
+                args.pcap_report_filter,
+                args.pcap_max_lines,
+            )
+    except BaseException:
+        restore_harness_state(
+            com_capture=com_capture,
+            pcap_capture=pcap_capture,
+            restore_config=restore_config,
+            restore_nvr=restore_nvr,
+            floppy_media=floppy_media,
+            test_lock=test_lock,
         )
+        raise
 
-    test_lock: TestLock | None = None
-    if args.test_lock is not None and not args.no_test_lock:
-        test_lock = TestLock(
-            args.test_lock,
-            args.test_lock_name,
-            args.profile,
-            args.test_lock_timeout,
-        )
-
-    if test_lock is not None:
-        test_lock.acquire()
     exit_code = 0
-    previous_frontmost = frontmost_process_name() if args.restore_focus else None
-    launch_started_at = time.monotonic()
     try:
+        previous_frontmost = (
+            frontmost_process_name() if args.restore_focus else None
+        )
+        launch_started_at = time.monotonic()
         if com_capture is not None:
             com_capture.start()
         process = launch_86box(
@@ -2891,6 +4057,13 @@ def main() -> int:
                     "harness: direct 86Box launch still has no capturable window",
                     flush=True,
                 )
+        if (
+            args.attest_rtc_utc
+            and args.screen_oracle
+            and not args.no_screen_ocr
+            and not bypass_ami286_memory_test(args, process)
+        ):
+            raise RuntimeError("exact-floor AMI286 POST bypass failed")
         restore_frontmost_process(previous_frontmost)
         try:
             time.sleep(args.startup_delay)
@@ -2925,16 +4098,24 @@ def main() -> int:
                     type_basic_keycodes(run_text, args.type_delay, args.line_delay)
             if pcap_capture is not None:
                 pcap_capture.start()
-            https_remotes = wait_with_process_https_sampling(process, args.capture_delay)
+            platform_clock_ready = True
+            https_remotes = wait_with_process_https_sampling(
+                process, args.capture_delay
+            )
             if https_remotes:
                 print("process: 86Box HTTPS remotes: " + ", ".join(sorted(https_remotes)))
             oracle_verdict = None
-            if args.post_dpi_text:
+            if args.post_dpi_text and platform_clock_ready:
                 if args.post_dpi_at is not None:
                     remaining = launch_started_at + args.post_dpi_at - time.monotonic()
                     if remaining > 0:
                         time.sleep(remaining)
                     for index, post_dpi_text in enumerate(args.post_dpi_text, start=1):
+                        prior_prompt_crc = (
+                            capture_response_area_crc(args, process)
+                            if args.post_dpi_expect_text
+                            else None
+                        )
                         if not post_dpi_text.endswith(("\n", "\r")):
                             post_dpi_text += "\n"
                         type_basic_pid_keycodes(
@@ -2957,6 +4138,17 @@ def main() -> int:
                                 f"process: post-DPI {index} 86Box HTTPS remotes: "
                                 + ", ".join(sorted(more_remotes))
                             )
+                        if args.post_dpi_expect_text and not wait_for_dpi_prompt(
+                            args,
+                            process,
+                            f"post-DPI expected-response gate {index}",
+                            args.post_dpi_gate_timeout,
+                            args.post_dpi_gate_interval,
+                            prior_prompt_crc,
+                            args.post_dpi_expect_text[index - 1],
+                        ):
+                            exit_code = 2
+                            break
                     oracle_verdict = None
                 elif not args.screen_oracle:
                     print("--post-dpi-text requires --screen-oracle", file=sys.stderr)
@@ -2965,6 +4157,11 @@ def main() -> int:
                     post_dpi_gate_failed = False
                     prior_prompt_crc: int | None = None
                     for index, post_dpi_text in enumerate(args.post_dpi_text, start=1):
+                        expected_previous_response = (
+                            args.post_dpi_expect_text[index - 2]
+                            if args.post_dpi_expect_text and index > 1
+                            else None
+                        )
                         if not wait_for_dpi_prompt(
                             args,
                             process,
@@ -2972,9 +4169,13 @@ def main() -> int:
                             args.post_dpi_gate_timeout,
                             args.post_dpi_gate_interval,
                             prior_prompt_crc,
+                            expected_previous_response,
                         ):
                             post_dpi_gate_failed = True
-                            if args.fail_on_screen_oracle:
+                            if (
+                                args.fail_on_screen_oracle
+                                or expected_previous_response is not None
+                            ):
                                 exit_code = 2
                             break
                         prior_prompt_crc = capture_response_area_crc(args, process)
@@ -3015,8 +4216,16 @@ def main() -> int:
                             args.post_dpi_gate_timeout,
                             args.post_dpi_gate_interval,
                             prior_prompt_crc,
+                            (
+                                args.post_dpi_expect_text[-1]
+                                if args.post_dpi_expect_text
+                                else None
+                            ),
                         ):
-                            if args.fail_on_screen_oracle:
+                            if (
+                                args.fail_on_screen_oracle
+                                or args.post_dpi_expect_text
+                            ):
                                 exit_code = 2
             if args.screen_oracle:
                 oracle_verdict, _ = classify_running_vm(args, process, "screen oracle")
@@ -3067,17 +4276,16 @@ def main() -> int:
         # COM capture starts before launch so 86Box's nonblocking FIFO writer
         # always finds a reader. Finish it here, after the VM writer has
         # stopped, so launch/window failures cannot leak FIFOs and queued
-        # terminal bytes are drained to EOF.
-        if com_capture is not None:
-            com_capture.finish()
-        if pcap_capture is not None:
-            pcap_capture.stop()
-        if restore_config is not None:
-            restore_config[0].write_bytes(restore_config[1])
-        if restore_nvr is not None:
-            restore_nvr[0].write_bytes(restore_nvr[1])
-        if test_lock is not None:
-            test_lock.release()
+        # terminal bytes are drained to EOF. The same cleanup also restores
+        # config/NVR/media byte-for-byte and releases the VM lock.
+        restore_harness_state(
+            com_capture=com_capture,
+            pcap_capture=pcap_capture,
+            restore_config=restore_config,
+            restore_nvr=restore_nvr,
+            floppy_media=floppy_media,
+            test_lock=test_lock,
+        )
 
     if pcap_capture is not None:
         pcap_capture.analyze()

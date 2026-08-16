@@ -1,262 +1,237 @@
 # IBM PC 5150 Target
 
-This target is the first Seed discipline target: an original IBM PC-class boot
-path, starting from a 160 KiB 5.25-inch single-sided floppy image.
+This is Seed's active bare-metal target: one 160 KiB FAT12 floppy for machines
+from a 4.77 MHz 8088 with 16 KiB through later x86 real-mode tiers.
 
-Current boot flow:
+The TLS 1.3 product integration is currently under validation. The external
+NIC-driver work is a stable regression surface and must not be reshaped by the
+TLS work.
 
-```text
-BIOS loads boot sector
-  -> boot sector loads the fixed reserved-sector FAT12 loader
-  -> loader reads SEED.SYS from the FAT12 root directory
-  -> SEED.SYS reads the current BIOS text-mode column count
-  -> SEED.SYS clears text mode
-  -> shows a dim . marker for hardware setup
-  -> probes common ISA network card I/O bases
-  -> tries bounded ISA PnP activation for supported NE-compatible cards if no fixed card responds
-  -> records the responding NIC I/O base if one is found
-  -> publishes boot, video, and NIC state to the handoff block at 0000:0600
-  -> draws the seed build splash and CPU-class warning
-  -> turns the . marker red and plays a low failure tone if no card responds
-  -> offers retry/restart after a critical failure; retry returns to hardware setup
-  -> probes station-address PROMs when the responding I/O base is ambiguous
-  -> leaves the adapter family unresolved if automatic probes remain invalid
-  -> records the current 86Box profile IRQ after adapter family resolution
-  -> reads station-address PROMs into handoff when valid
-  -> scans SEED/DRIVERS/*.DRV for a suitable driver
-  -> loads one suitable driver, or asks which driver if multiple drivers suit
-  -> fails as driver setup failed with retry/restart if no suitable driver is present
-  -> initializes packet hardware through the active driver
-  -> reads one pending receive-ring frame when available
-  -> switches to a dim , marker for internet prep
-  -> sends one NE1000/NE2000-family DHCPDISCOVER
-  -> performs a two-pass filtered DHCPOFFER wait and parses it when available
-  -> sends DHCPREQUEST and waits for DHCPACK when an offer is available
-  -> sends ARP for the DHCP-provided DNS server after DHCPACK
-  -> selects the TCP next hop for the selected agent host
-  -> switches to a dim o marker for TLS connection prep
-  -> reads SEED/AGENTS.CFG and parses up to five agent declarations
-  -> falls back to built-in openai/anthropic/google if SEED/AGENTS.CFG is missing or bad
-  -> reads SEED/USER.CFG when present and validates the saved agent choice
-  -> asks agent? when the saved choice is missing or invalid
-  -> asks server? and key? on one form when the selected agent needs both
-  -> resolves the selected agent host and proves TCP 443 connection
-  -> sends a TLS 1.2 ClientHello with SNI and P-256 ECDHE-ECDSA-CHACHA20-POLY1305 without extended master secret
-  -> parses ServerHello plus Certificate header
-  -> drains the Certificate handshake to the next handshake boundary
-  -> parses ServerKeyExchange and range-checks the P-256 public point
-  -> parses ServerHelloDone
-  -> maintains a live SHA-256 TLS handshake transcript context through ServerHelloDone
-  -> computes the baseline 8088 fixed-scalar premaster, or real ECDHE + pinned RSA cert auth on a 286+
-  -> converts the Jacobian shared point into the affine X-coordinate pre-master secret
-  -> derives TLS master secret and ChaCha20-Poly1305 traffic keys
-  -> sends ClientKeyExchange, then ChangeCipherSpec + encrypted client Finished
-  -> receives and verifies encrypted server Finished
-  -> uses a normal o marker during local crypto/key setup
-  -> switches to a bright o marker for agent and environment prep
-  -> writes validated agent config back best-effort
-  -> enters the Default Prompt Interface below the existing splash
-  -> streams chat turns over the live TLS session
-  -> captures native Responses function_call items
-  -> runs read_mem/write_mem/exec/save_env/load_env locally and replays function_call_output
-```
+## Artifact and entry
 
-The floppy image is a minimal FAT12 filesystem with a stable reserved loader
-and a visible file-backed runtime. On machines with at least 32 KiB of RAM,
-the normal BIOS boot path starts at `0000:7c00` and reaches Seed
-automatically. The FAT12 sector map (boot sector, reserved loader, FAT copies,
-root directory, and the `SEED.SYS`-first data area) is documented once in
-[../../docs/architecture.md](../../docs/architecture.md), "Boot Artifact".
-
-`SEED.SYS` is shipped in the FAT12 root directory and contains the current Seed
-runtime. Runtime-owned config and prompt files live under `SEED/`, the current
-RSA leaf ships as `SEED/LEAF.DER` and may be refreshed after a verified
-auto-recertification, and included NIC driver files live under `SEED/DRIVERS/`.
-Normal runtime updates can replace `SEED.SYS` without rewriting the boot sector or
-reserved loader; driver-only updates can replace the relevant `.DRV` file when the
-driver ABI is unchanged.
-The build includes all current NIC drivers by default, but `INCLUDE_NIC_DRIVERS=0`
-or per-driver `INCLUDE_NIC_DRIVER_NE`, `INCLUDE_NIC_DRIVER_WD80X3`,
-`INCLUDE_NIC_DRIVER_3C503`, `INCLUDE_NIC_DRIVER_3C501`, and
-`INCLUDE_NIC_DRIVER_PCNET`, `INCLUDE_NIC_DRIVER_TULIP`, and
-`INCLUDE_NIC_DRIVER_RTL8139` switches can intentionally produce a floppy
-without some or all drivers.
-
-The reserved loader keeps its FAT buffer below the `SEED.SYS` load address and
-uses a `0x8000` stack top for 32 KiB machines so core builds can be read
-through the FAT12 cluster chain without overwriting loader state. `SEED.SYS`
-also switches to a `0x8000` runtime stack after entry.
-
-Machines below 32 KiB cannot enter through the BIOS boot sector because the PC
-BIOS loads that sector at `0000:7c00`, above the installed RAM ceiling of a
-24 KiB or 16 KiB machine. Those machines enter through ROM BASIC instead.
-Cassette BASIC cannot read FAT files directly, so the BASIC helper is a typed
-or pasted sidecar generated by the build, not a file packaged on the release
-floppy:
+The image contains one self-selecting runtime and optional external drivers:
 
 ```text
-build/ibm_pc_5150/SEED24A.BAS   typed helper for a Seed floppy in drive A:
-build/ibm_pc_5150/SEED24B.BAS   typed helper for a Seed floppy in drive B:
+floppy-160k.img
+  SEED.SYS              first FAT data file; all CPU/TLS tiers
+  SEED/AGENTS.CFG       shipped OpenAI declaration
+  SEED/USER.CFG         optional plaintext local state
+  SEED/{IDENTITY,COMPACT,TOOLS}
+  SEED/DRIVERS/*.DRV    optional one-sector NIC drivers
 ```
 
-Those BASIC programs poke a tiny 8086 loader at `0x3a00`, use BIOS INT 13h to
-read `SEED.SYS` from the same Seed floppy, and jump to `0000:1000`. `SEED.SYS`
-stays first in the FAT data area so this helper can use the stable first-data
-LBA while the normal boot loader continues to read `SEED.SYS` through FAT12. The
-generated sidecar text stores the loader as short hexadecimal `DATA` rows and
-decodes them with ROM BASIC's `VAL("&H...")` support. The current 16 KiB helper
-uses `0x4000` as its RAM ceiling and fails with a single red `X` at the normal
-loading-glyph position if the declared resident prefix would collide with the
-BASIC loader or if BIOS sector reads fail.
+TLS 1.3 does not package `SEED/LEAF.DER`. The 8088 exact-leaf object and 286
+WE1 issuer point are immutable `SEED.SYS` assets; certificates, tables,
+tickets, keys, and attempt bundles are volatile RAM state.
 
-Future artifacts may also ship host-specific loaders that jump into `SEED.SYS`
-from an already-running OS. DOS `.COM`, Windows, macOS/OSX, Linux, and other
-common hosts are possible candidates, but this is a one-way takeover path, not
-a normal program that returns cleanly to the host OS.
-
-`SEED/AGENTS.CFG` is shipped from `config/AGENTS.CFG`.
-When present and valid, it overrides the built-in `openai`, `anthropic`, and
-`google` direct-vendor fallback. `SEED/USER.CFG` is optional ignored user-local
-state and is included only when `config/USER.CFG` exists. The project-level policy is
-documented in:
+There are two entries into the same four-sector resident nucleus:
 
 ```text
-docs/config.md
+32 KiB and above
+  BIOS loads 0000:7c00
+  -> stage 1 reads the reserved FAT12 loader
+  -> loader follows the SEED.SYS FAT chain
+  -> reads only the declared resident prefix to 0000:1000
+  -> publishes RAM top/drive and jumps to 0000:1000
+
+16 KiB
+  machine enters ROM BASIC
+  -> generated SEED24A.BAS or SEED24B.BAS is pasted
+  -> helper POKEs a loader at 0000:3a00
+  -> BIOS INT 13h reads the same SEED.SYS resident prefix
+  -> helper redirects INT 1Ch to the resident IRET at 0000:15ff
+  -> publishes 0x4000 RAM top/drive and jumps to 0000:1000
 ```
 
-The Seed boot core is organized as source includes under:
+The BASIC helpers are build sidecars, not files in the FAT root. Keeping
+`SEED.SYS` first lets the normal FAT loader and the tiny BASIC loader share the
+same runtime. A 16/24 KiB machine cannot use normal BIOS boot because
+`0000:7c00` lies above installed RAM.
+
+The INT 1Ch reassignment quarantines ROM BASIC's 18.2 Hz callback before Seed
+reuses BASIC workspace. Both generated sidecars publish the vector atomically
+with interrupts disabled; `make basic-bootstrap` verifies the resident target,
+both loader sequences, and their encoded BASIC payloads. Direct boot never
+changes INT 1Ch.
+
+## Product flow
 
 ```text
-targets/ibm_pc_5150/boot/core/
+entry
+  -> preserve BIOS text mode; detect columns and CGA/MDA
+  -> publish handoff at 0000:0600
+  -> detect CPU and BIOS-reported memory
+  -> show splash; 8088 profile adds a neutral-gray security note
+  -> detect adapter and read its station address when valid
+  -> scan SEED/DRIVERS/*.DRV and load one suitable driver
+  -> initialize packet path
+  -> DHCP, ARP, DNS, TCP 443 for api.openai.com
+  -> load/validate OpenAI config and optional USER.CFG
+  -> dispatch TLS 1.3 route from CPU/RAM capability
+  -> send authenticated OpenAI request after route commit
+  -> enter the Default Prompt Interface
+  -> reuse the live session for chat and native tools
 ```
 
-`core.asm` includes those files in fixed order and NASM emits one flat `SEED.SYS`
-runtime file. NIC drivers are the target's scoped runtime modules: the build
-emits one-sector `.DRV` files into `SEED/DRIVERS/` when included, and the runtime
-scans those files for ABI-compatible metadata matching the detected adapter
-family. One suitable driver loads automatically, multiple suitable drivers are
-shown as a boot-time choice, and no suitable driver fails through retry/restart.
+OpenAI at `api.openai.com` is the only current provider route. The config
+parser may retain several bounded declarations for future compatibility, but
+an alternate ID or endpoint cannot select another TLS path.
 
-Text UI behavior, including fast-typed errors, questions, menus, and modals, is
-documented in:
+## TLS 1.3 routes
+
+### 8088 floor
+
+Admission: 4.77 MHz 8088-compatible CPU, exactly 16 KiB supported through the
+ROM BASIC entry.
+
+The route cold-loads a 130-sector K14 phase pack. It uses TLS 1.3,
+ChaCha20-Poly1305, SHA-256, and a real target-generated ML-KEM-768
+contribution, but fixes the X25519 coordinate to `u=9`. It is therefore an
+effective ML-KEM-only Seed boundary, not a standards-conforming
+`X25519MLKEM768` hybrid.
+
+Before full FO and dated exact-leaf/CertificateVerify proof, Seed can complete
+the TLS handshake, retain one bounded tentative NewSessionTicket, and transmit
+only the compiled credential-free HEAD. A fresh ticket-bearing close is a
+quarantined timing bridge, not liveness: after offline proof, the same-boot
+resumed connection must send the fixed HEAD as 0-RTT and authenticate its
+response before status-last route commit. The API key, prompt, context,
+redirects, and business request remain unreachable throughout. The ticket is
+volatile and survives neither restart nor failed proof.
+
+The leaf's hostname/issuer/purpose/validity interval are image-generation
+provenance. The 8088 has no trusted runtime clock, so image expiry is an
+explicit operational limit and requires a refreshed trusted image.
+
+Public objects use a guarded video-RAM vault:
 
 ```text
-docs/ui.md
+CGA  B800:1000..1cff payload, B800:1d00..1dff metadata
+MDA  B000:0000..0cff payload, B000:0d00..0dff metadata
 ```
 
-The boot core runtime handoff block is documented in:
+The MDA display is disabled and its scanout is redirected to a zero quarantine
+for the vault lifetime, then restored and redrawn only after the visible page
+is scrubbed. Binary/random glyphs during this interval are a security failure,
+not expected progress. No NIC RAM or writable floppy slot is part of the
+architecture.
+
+### 286 conforming floor
+
+Admission requires both CPU 286+ and at least 512 KiB in the BIOS Data Area.
+The lowest validation target is 6 MHz. The route reserves the top 64 KiB of
+conventional RAM and leaves `0x10000..0x70000` at the 512 KiB floor; the
+current split gives a 192 KiB executable arena and 192 KiB context.
+
+The route implements fully standards-conforming TLS 1.3
+`X25519MLKEM768`: real ML-KEM-768 and X25519, ChaCha20-Poly1305/SHA-256,
+strict ordinary Certificate parsing, WE1 P-256 issuer authentication, exact
+OpenAI hostname/purpose/key-use/time policy, and P-256 CertificateVerify over
+the acquisition transcript.
+
+Acquisition verifies the protected flight and server Finished with a
+provisional candidate, sends client Finished plus the immutable
+credential-free HEAD, and authenticates an HTTP response and tentative
+NewSessionTicket. Offline full FO comparison and strict
+WE1/hostname/UTC/CertificateVerify proof promote that volatile ticket. The
+final no-0RTT PSK-DHE resumption consumes it, uses independent full hybrid
+keys, a real binder, `selected_identity=0`, full decapsulation, and a strict
+EncryptedExtensions-to-Finished flight. It sends the credential-free HEAD,
+then requires a complete authenticated ticket and allowed HTTP status before
+publishing credentials and the advanced application-record sequence; it does
+not wait indefinitely for a missing response-header terminator. There is no
+0-RTT, compressed certificate, persisted ticket, mutable leaf file, or no-time
+bypass. A coherent BIOS RTC is consumed silently as the machine's configured
+platform UTC clock; invalid, incoherent, or out-of-range values fail closed.
+
+Before either live TCP connection, the route stages the immutable 12-sector
+symmetric image in its high record quarantine. Before final TCP it also
+computes the complemented ticket early-derived value and the 4,608-byte public
+ML-KEM A^T matrix. The caches publish status-last and are consumed once; the
+symmetric copy is relocated and CRC-checked, the early-derived value is wiped
+after import, and the matrix feeds complete full FO after ServerHello. Full
+ciphertext comparison and implicit rejection still precede server Finished,
+client Finished, and credential publication.
+
+At the 6 MHz floor, matrix generation measures 45 ticks / 2.4716 s outside the
+live window. Cached full FO measures 43 ticks / 2.3618 s versus 88 ticks /
+4.8334 s uncached. The current conservative serialized CPU windows are 162
+ticks / 8.8979 s for acquisition and 168 ticks / 9.2275 s for final
+resumption. A read-only exact-floor live reconnect capture passes all four
+fresh/resumed deadlines at 8.8928, 8.6282, 8.9562, and 8.6448 seconds. The 286
+negative-path gates and the 8088 seven-profile NIC, CGA/MDA vault, and
+no-card/no-driver matrices pass in 86Box; physical entropy remains a separate
+acceptance gate.
+
+Both product routes are integrated and pass their current-source emulator
+acceptance gates, but still require physical-entropy characterization and more
+provider-edge repetition. See
+[`../../docs/security.md`](../../docs/security.md).
+
+## Read-only and reconnect contract
+
+Both routes gather private input and perform all proofs on the target. The 8088
+uses read-only floppy timing; the 286 samples the AT RTC periodic source against
+the PIT and performs no entropy-only disk reads. Emulator timing receives zero
+entropy credit until each physical source is characterized. Read-only media
+simply repeats the cold proof after restart.
+
+Once committed, the TLS session is reused. A human request that fails before
+any text appears gets exactly one fresh route and exact same-request resend.
+A second failure returns to the prompt. Tool continuations and responses with
+visible text are never automatically replayed.
+
+## Drivers
+
+`core.asm` emits one flat runtime; NIC families are the scoped runtime modules.
+The build currently emits:
 
 ```text
-targets/ibm_pc_5150/HANDOFF.md
+NE.DRV  WD80X3.DRV  3C503.DRV  3C501.DRV
+PCNET.DRV  TULIP.DRV  RTL8139.DRV  EPIC100.DRV
 ```
 
-The boot core probes common
-ISA Ethernet I/O bases, publishes boot/video/NIC state to the handoff
-block, and resolves the adapter family. Known single-card bases continue
-automatically. Shared bases are resolved by station-address PROM probes when
-one family can be identified safely; `adapter?` remains a fallback question
-when the probes are invalid or ambiguous. For 3c501, 3c503,
-NE1000/NE2000-family, and WD80x3-family cards, the boot core reads the
-station-address PROM and marks the MAC valid only after rejecting multicast,
-all-zero, and all-`ff` addresses. The boot core also records IRQ 3 for the
-current 86Box IBM PC 5150 profiles once the adapter family is known; real IRQ
-discovery is later scope.
+The runtime validates `SDRV` metadata, ABI version, sector size, and family
+mask. One suitable driver autoloads; several produce `which driver?`; none
+produces `driver setup failed` through the ordinary retry/restart path.
+Station-address PROM reads remain non-fatal.
 
-The boot core initializes packet hardware through the active driver
-after a valid MAC read, polls the receive-ring pointers, reads one pending
-receive frame when available, sends a minimal DHCPDISCOVER, and performs a
-two-pass bounded filtered DHCPOFFER wait. When a DHCPOFFER is observed, the boot core
-records the offered IPv4 address, subnet mask, router, and DNS server in the
-handoff block. It then sends DHCPREQUEST and performs a bounded DHCPACK wait to
-mark the lease accepted. After DHCPACK, it sends an ARP request for the
-DHCP-provided DNS server, selects a TCP next hop using the DHCP subnet/router
-data, ARPs that next hop for the selected agent host, opens the selected
-agent's TCP 443 target through the shared TCP connect path, and sends the final
-ACK after a matching SYN-ACK.
+Use `INCLUDE_NIC_DRIVERS=0` or the per-family
+`INCLUDE_NIC_DRIVER_*` switches to omit drivers. A driver-only update can
+replace a `.DRV` when the resident ABI is unchanged.
 
-The target runs the full internet path and agent prep from `SEED.SYS`
-in a 16 KiB packed-memory layout, the smallest IBM PC 5150 configuration. The
-boot core reads
-`SEED/AGENTS.CFG`, parses up to five `agent ` declarations, reads `SEED/USER.CFG` when
-present, validates a saved `agent <id>`, asks `agent?` when the saved choice is
-missing or invalid, asks `server?` and `key?` on one form when the selected
-agent needs both values, preserves saved model and reasoning values when
-present, resolves the selected agent host, proves TCP 443 connection through
-the same TCP connect path, and runs the full TLS 1.2 / application-data path
-(ClientHello through encrypted application data), documented once in
-[../../docs/architecture.md](../../docs/architecture.md), "Provider Timing
-Model". It then runs the Default Prompt Interface chat loop over the established
-session as TLS application data: an initial model greeting, prompt input, and
-streamed model responses across multiple turns in one boot session. Native
-Responses function calls provide memory read/write/execute plus environment
-save/load; memory read/write calls are currently capped at 4 bytes while the
-native tool loop is hardened. It writes the validated values back best-effort.
-Missing or invalid `SEED/AGENTS.CFG` content falls back to
-built-in `openai`, `anthropic`, and `google`; other agent setup failures still
-fail in the bright `"o"` phase as `agent setup failed`.
+## UI
 
-The boot path does not switch video modes. It keeps the BIOS-provided text
-mode, reads the active column count, and uses that value for clearing and for
-the centered project-name anchor.
-
-The first screen text is hardcoded in `SEED.SYS` for now:
+Seed never switches video mode. It uses BIOS text services and the detected
+column count.
 
 ```text
-boot loader     no marker
-hardware setup  dim "."
-internet prep   dim ","
-TLS prep        dim "o"
-crypto prep     normal "o" on CGA/VGA, dim "o" on MDA
-agent/env prep  bright "o"
-failure         current marker turns red, low descending PC speaker tone, fast-typed error, then retry/restart
-question        phase-colored blinking marker, low PC speaker attention tone, bright fast-typed prompt ending with ?
-agent question  agent? with AGENTS.CFG entries or built-in big-three fallback when USER.CFG has no valid agent choice
-field question  server? and/or key? with cursor shown only while typing; Up/Down moves field focus
-splash         seed build banner; red insecure warning on pre-286, hidden on 286+
-success         dim "." -> dim "," -> dim "o" -> normal "o" -> bright "o" -> Default Prompt Interface
+hardware/setup     dark "."
+TLS setup          dark/normal "o"
+agent ready        bright "o"
+8088 splash        gray "security note"
+fatal              current marker red, low tone, retry/restart
+question           bright prompt ending in ?, cursor visible only while typing
 ```
 
-The splash is a boot banner drawn after display and CPU-class setup. Driver
-loading, network negotiation, agent setup, and environment setup happen after
-the splash.
+The detailed UI contract is in [`../../docs/ui.md`](../../docs/ui.md). The
+machine handoff ABI is in [`HANDOFF.md`](HANDOFF.md).
 
-Adapter prompts:
-
-```text
-0x250       auto 3c503
-0x280       auto wd8003 by checksum, else 3c501 by 3Com OUI; ask if unresolved
-0x300       auto ne2000 or ne1000 by NE PROM layout; ask if unresolved
-other base  keep base only
-```
-
-Default display attributes:
-
-```text
-seed       CGA white / MDA bright
-build N    CGA dark gray / MDA normal
-loading    CGA dark gray / MDA normal
-crypto     CGA light gray / MDA normal
-ready      CGA white / MDA bright
-question   CGA white / MDA bright
-error      CGA red / MDA bright
-menu       selected white/bright, inactive dark gray/normal
-```
-
-Build:
+## Build and inspect
 
 ```sh
 make
-make INCLUDE_NIC_DRIVERS=0   # package the floppy without NIC driver files
+make inspect
+make basic-bootstrap
 ```
 
 Output:
 
 ```text
 build/ibm_pc_5150/floppy-160k.img
+build/ibm_pc_5150/SEED24A.BAS
+build/ibm_pc_5150/SEED24B.BAS
 ```
 
-Inspect the generated FAT12 image:
-
-```sh
-make inspect
-```
+Validation recipes, exact boot modes, pcap guidance, and the NIC matrix are in
+[`../../docs/testing.md`](../../docs/testing.md).

@@ -25,10 +25,14 @@ agent_response_phase:
     ; agent_response_phase_load_addr across the whole receive loop (the only loaded code
     ; that does), so it is the home for both the call site and the request template.
     phase_call_res agent_api_keepalive
+%ifndef TLS13_PRODUCT_TLS13
+%ifndef TLS13_APP_ORACLE_CHECK
     cmp byte [api_stream_completed], 3
     jne .return_status
     mov al, 0x11
     phase_call_res ne_transmit_tcp_flags
+%endif
+%endif
 .return_status:
     cmp byte [api_stream_completed], 3
     ret
@@ -59,10 +63,28 @@ agent_response_phase:
     mov [fc_capture_buf + bx], al
     inc word [fc_capture_len]
 .fc_capture_done:
-    mov si, PHASE_LOAD_ADDR + (completed_pattern - PHASE_BASE)
+    ; response.completed is the last successful model event, not the end of
+    ; its HTTP/1.1 message. Keep consuming authenticated TLS records until the
+    ; exact chunked terminal arrives. A terminal-shaped header suffix is only
+    ; provisional: OpenAI's current final header ends in ma=86400, which is
+    ; itself 0 CR LF CR LF. A later response.completed clears that bit so only
+    ; a terminal observed after the successful event can publish state 3.
+    mov di, api_http_state
+    mov si, PHASE_LOAD_ADDR + (http_terminal_pattern - PHASE_BASE)
+    call .match_char
+    jnc .http_terminal
+    test byte [api_stream_completed], 1
+    jnz .parser_ret
     mov di, api_stream_done_match
+    mov si, PHASE_LOAD_ADDR + (completed_pattern - PHASE_BASE)
     call .match_char
     jc .scan_delta
+    mov byte [api_stream_completed], 1
+    ret
+.http_terminal:
+    ; 0 | 2 = bounded failure; 1 | 2 = successful terminal.  OR keeps a
+    ; duplicate terminal idempotent while avoiding another matcher state.
+    or byte [api_stream_completed], 2
 .done_ready:
     cmp byte [tool_fc_state], 4
     jne .done_maybe_fc
@@ -80,11 +102,15 @@ agent_response_phase:
 .done_freeze_fc:
     mov byte [tool_fc_state], 1
 .completion_ready:
-    mov al, 3
-    ; Treat SSE completion as terminal for this streamed response. HTTP/SSE reuse is still not reliable
-    ; on this path, so the next turn opens a fresh TLS session quietly instead of drawing reconnect.
-    mov [api_stream_completed], al
+    ; Treat SSE completion as terminal for this streamed response.  TLS 1.3
+    ; keeps the authenticated HTTP connection and record sequences live; an
+    ; actual send/receive failure burns that state in the resident scheduler.
+    ; The retired TLS 1.2 path closes here and marks its quiet reconnect.
+%ifndef TLS13_PRODUCT_TLS13
+%ifndef TLS13_APP_ORACLE_CHECK
     mov byte [tls_key_schedule_ready], tls_key_schedule_quiet_reconnect
+%endif
+%endif
     ret
 
 .scan_delta:
@@ -133,7 +159,11 @@ agent_response_phase:
 	mov [tool_fc_state], al
 	mov [api_stream_text_seen], al
 	mov [api_stream_completed], al
+%ifndef TLS13_PRODUCT_TLS13
+%ifndef TLS13_APP_ORACLE_CHECK
 	mov byte [tls_key_schedule_ready], tls_key_schedule_quiet_reconnect
+%endif
+%endif
 	ret
 .fc_no_match:
     cmp byte [tool_fc_state], 4
@@ -438,6 +468,7 @@ agent_response_phase:
 
 completed_pattern db 'response.completed', 0
 done_pattern equ completed_pattern
+http_terminal_pattern db '0', 13, 10, 13, 10, 0
 output_done_pattern db 'output_item.done', 0
 fc_start_pattern db '"function_call"', 0
 delta_key_pattern db 'delta":"', 0

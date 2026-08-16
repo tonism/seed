@@ -63,6 +63,11 @@ bios_ticks_day_lo         equ 0x00b0
 %ifndef RESUME_LIFECYCLE_SELF_KEY
 %error "receipt-hash bridge requires the fixed RVLW self key"
 %endif
+%ifdef RESUME_LIFECYCLE_VAULT_ACCESS_KEY
+%ifndef RESUME_LIFECYCLE_VAULT_ACCESS_STAGE
+%error "product receipt-hash bridge requires its vault-access stage"
+%endif
+%endif
 
 org hash_bridge_origin
 
@@ -82,6 +87,15 @@ lifecycle_receipt_hash_code:
     mov bx, 0x1800
     call resident_load_phase
     jc lifecycle_hash_bridge_failed
+%ifdef RESUME_LIFECYCLE_SYM_TAIL_KEY
+    ; Product K14's on-disk deadline image replaces 2ee0..2fff with the raw
+    ; vault writer and its copy-before-use continuation.  Restore the exact
+    ; canonical final sector before calling SHA after that first flight.
+    mov ax, RESUME_LIFECYCLE_SYM_TAIL_KEY
+    mov bx, 0x2e00
+    call resident_load_phase
+    jc lifecycle_hash_bridge_failed
+%endif
     call RESUME_LIFECYCLE_SHA256_INIT
     mov si, vault_head_buffer + resume_receipt_magic
     mov cx, resume_receipt_magic_len
@@ -96,7 +110,7 @@ lifecycle_receipt_hash_code:
     mov cx, resume_vault_identity_len
     call RESUME_LIFECYCLE_SHA256_UPDATE
     mov si, ticket_nonce
-    mov cx, resume_vault_ticket_tail_len
+    mov cx, resume_receipt_ticket_material_len
     call RESUME_LIFECYCLE_SHA256_UPDATE
     mov di, digest_temp
     call RESUME_LIFECYCLE_SHA256_FINISH
@@ -107,6 +121,15 @@ lifecycle_hash_bridge_reload:
     mov bx, 0x3000
     call resident_load_phase
     jc lifecycle_hash_bridge_failed
+%ifdef RESUME_LIFECYCLE_VAULT_ACCESS_KEY
+    ; The complete twelve-sector symmetric image reaches 0x2fff.  Re-establish
+    ; the product access lease only after SHA has retired and RVLW is resident
+    ; again; operation 10's caller immediately needs these guarded leaves.
+    mov ax, RESUME_LIFECYCLE_VAULT_ACCESS_KEY
+    mov bx, RESUME_LIFECYCLE_VAULT_ACCESS_STAGE
+    call resident_load_phase
+    jc lifecycle_hash_bridge_failed
+%endif
     ret
 
 lifecycle_hash_bridge_failed:
@@ -141,6 +164,11 @@ lifecycle_receipt_hash_end:
 %ifndef RESUME_LIFECYCLE_SELF_KEY
 %error "vault-hash bridge requires the fixed RVLW self key"
 %endif
+%ifdef RESUME_LIFECYCLE_VAULT_ACCESS_KEY
+%ifndef RESUME_LIFECYCLE_VAULT_ACCESS_STAGE
+%error "product vault-hash bridge requires its vault-access stage"
+%endif
+%endif
 
 org hash_bridge_origin
 
@@ -160,6 +188,12 @@ lifecycle_vault_hash_code:
     mov bx, 0x1800
     call resident_load_phase
     jc lifecycle_hash_bridge_failed
+%ifdef RESUME_LIFECYCLE_SYM_TAIL_KEY
+    mov ax, RESUME_LIFECYCLE_SYM_TAIL_KEY
+    mov bx, 0x2e00
+    call resident_load_phase
+    jc lifecycle_hash_bridge_failed
+%endif
     call RESUME_LIFECYCLE_SHA256_INIT
     mov si, lifecycle_vault_digest_domain
     mov cx, resume_vault_digest_domain_len
@@ -185,6 +219,14 @@ lifecycle_hash_bridge_reload:
     mov bx, 0x3000
     call resident_load_phase
     jc lifecycle_hash_bridge_failed
+%ifdef RESUME_LIFECYCLE_VAULT_ACCESS_KEY
+    ; Full K14 SHA and the product access leaf are mutually exclusive in the
+    ; 0x2c00 band.  Repin access only after the digest and RVLW self-reload.
+    mov ax, RESUME_LIFECYCLE_VAULT_ACCESS_KEY
+    mov bx, RESUME_LIFECYCLE_VAULT_ACCESS_STAGE
+    call resident_load_phase
+    jc lifecycle_hash_bridge_failed
+%endif
     ret
 
 lifecycle_hash_bridge_failed:
@@ -212,7 +254,7 @@ lifecycle_vault_hash_end:
 %error "resumption lifecycle worker requires the fixed scrub-controller phase"
 %endif
 %ifndef RESUME_LIFECYCLE_SCRUB_ENTRY
-%error "resumption lifecycle worker requires the fixed full-card scrub entry"
+%error "resumption lifecycle worker requires the fixed retirement entry"
 %endif
 %ifndef RESUME_LIFECYCLE_GATE_KEY
 %error "resumption lifecycle worker requires the fixed ROG3 phase"

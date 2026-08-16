@@ -21,7 +21,7 @@ reports an exact byte ledger.
 
 ## Fixed wire profile
 
-Both modes offer only:
+The default research forms offer only:
 
 - `api.openai.com` SNI;
 - TLS 1.3 with `TLS_CHACHA20_POLY1305_SHA256`;
@@ -30,6 +30,14 @@ Both modes offer only:
 - Brotli certificate compression;
 - one hybrid key share containing `ek[1184] || 09 || 00[31]`; and
 - the existing 14-byte padding extension.
+
+The 8088 product forms additionally offer RFC 8449
+`record_size_limit = 2048` (`001c00020800`) when
+`TLS13_PRODUCT_TLS13` is defined. This is an offer, not an assumption about
+the peer: absence of the extension in the server's EncryptedExtensions does
+not itself fail the handshake. The authenticated record receiver retains its
+local staging bound independently and fails closed if an unnegotiated peer
+sends a record that cannot fit.
 
 The fresh handshake message is exactly 1,376 bytes. The five-byte TLS record
 header makes the iterator's wire stream 1,381 bytes.
@@ -57,6 +65,44 @@ parser hashes the bytes in their actual wire order and maps either order onto
 one canonical bounded extraction path. A one-shot HelloRetryRequest, a zero
 X25519 coordinate, extra/changed extensions, incorrect lengths, or a
 mismatched legacy session ID fails closed.
+
+## 8088 product ClientHello gate
+
+The deterministic checker also assembles and executes the exact product define
+sets:
+
+```text
+fresh:
+  TLS13_PRODUCT_TLS13
+  HELLO_FRESH_ONLY
+  HELLO_CACHED_CONNECT
+  HELLO_FRESH_TICKET_REQUEST
+
+resumed:
+  TLS13_PRODUCT_TLS13
+  HELLO_RESUMED_ONLY
+  HELLO_RESUMED_EARLY_DATA
+```
+
+The fresh product handshake is 1,388 bytes (1,393-byte record) and fragments
+as `147,384,384,384,32,62`. The maximum-ticket resumed handshake is 1,631
+bytes (1,636-byte record) and fragments as
+`147,384,384,384,32,74,192,39`. The independent oracle includes the new
+extension in all encoded lengths, the resumption binder's truncated
+ClientHello, the final transcript, and exact replay.
+
+The fresh executable is 3,746 bytes. The resumed early-data executable is
+4,094 bytes, leaving two bytes in its eight-sector slot; the checker treats
+that ceiling as a hard regression gate. It also pins the non-product research
+image hash so the product-only extension cannot silently change the existing
+research wire bytes.
+
+Run both generic and 16 KiB/K14 geometry:
+
+```sh
+python3 tools/crypto-bench/tls13-poc/hello_check.py
+TLS13_POC_K14=1 python3 tools/crypto-bench/tls13-poc/hello_check.py
+```
 
 ## Fragment and lifetime ABI
 

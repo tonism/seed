@@ -79,12 +79,27 @@ sym_hello_context_state equ sym_hello_context + 10
 sym_hello_context_block equ sym_hello_context_state + 32
 sym_hello_context_status equ sym_hello_context_block + 64
 sym_hello_context_end equ sym_hello_context_status + 1
+%ifdef TLS13_POC_286
+; The 286 product root/decoder remains live at 0x3400..0x3bff across both
+; protected flights.  Move only the mutable symmetric state into the unused
+; gap above every P-256 module and below the resident 0x7a00 stack guard.
+; Code and immutable data remain fixed at 0x1800, so this variant has the same
+; entry-table ABI without allowing record work to overwrite its supervisor.
+sym_high_state_base equ 0x7380
+sym_high_security_state_limit equ 0x7a00
+sym_arena_floor equ 0x79b0
+sym_stack_guard_base equ 0x7a00
+%else
 sym_high_state_base equ 0x3600
 sym_high_security_state_limit equ 0x3c9c
 sym_arena_floor equ 0x3e40
 sym_stack_guard_base equ 0x3f00
+%endif
 sym_mss_max equ 384
-sym_record_cipher_max equ 4096
+; The shared primitive accepts the complete TLS 1.3 ChaCha20-Poly1305
+; TLSInnerPlaintext bound.  Restricted callers retain their smaller independent
+; record caps before entering this reusable symmetric engine.
+sym_record_cipher_max equ (1 << 14) + 256 - tls_aead_tag_len
 sym_ticket_identity_max equ 192
 sym_ticket_nonce_max equ 32
 
@@ -1224,7 +1239,11 @@ tls13_expand_group:
 ; Shipping primitive implementations
 ; ---------------------------------------------------------------------------
 
+; The overlay's deadline path uses the compact exact byte-rotate form.  The
+; shipping core keeps its established implementation unless it opts in.
+%define CHACHA_COMPACT_FAST_ROTATES 1
 %include "core/chacha20.inc"
+%undef CHACHA_COMPACT_FAST_ROTATES
 %include "core/poly1305.inc"
 %include "core/sha256.inc"
 
@@ -1357,6 +1376,30 @@ poly1305_prime:
     db 0xfb
     times 15 db 0xff
     db 0x03
+%ifdef TLS13_PRODUCT_CRITICAL_TAIL_PATH
+%ifndef TLS13_PRODUCT_SHA256_INITIAL_STATE
+%error "product critical tail requires the canonical SHA-256 initial-state address"
+%endif
+; The product K14 operand remains bound to the canonical state at 2ee0.  After
+; ServerHello commits, HELLO stages a copy of that state below the resident TCP
+; tail and stages K[0..63] in Seed's existing 0500..05ff low table.  The 288
+; bytes thereby released at the end of the immutable symmetric image carry the
+; deadline-only vault writer and copy-before-use symmetric continuation.  That
+; continuation reconstructs the canonical state at 2ee0 and K at 2f00 before
+; the first SHA operation; later off-window loads apply the canonical final-
+; sector restore phase.
+sha256_initial_state equ TLS13_PRODUCT_SHA256_INITIAL_STATE
+sha256_k             equ 0x2f00
+%if ($ - sym_overlay_header) != 0x16e0
+%error "product symmetric critical tail no longer begins at 2ee0"
+%endif
+sym_product_critical_tail:
+    incbin TLS13_PRODUCT_CRITICAL_TAIL_PATH
+sym_product_critical_tail_end:
+%if (sym_product_critical_tail_end - sym_product_critical_tail) != 0x0120
+%error "product symmetric critical tail is not exactly 288 bytes"
+%endif
+%else
 sha256_initial_state:
     dw 0xe667,0x6a09,0xae85,0xbb67
     dw 0xf372,0x3c6e,0xf53a,0xa54f
@@ -1395,6 +1438,7 @@ sha256_k:
     dw 0x7814,0x84c8,0x0208,0x8cc7
     dw 0xfffa,0x90be,0x6ceb,0xa450
     dw 0xa3f7,0xbef9,0x78f2,0xc671
+%endif
 
 sym_overlay_end:
 
@@ -1542,46 +1586,46 @@ tls_finished_tag equ sym_calc_tag
 
 ; High retained state.  The live fixed-u=9 profile passes the 64-byte
 ; ML-KEM K' || server-X25519-public string directly to HKDF-Extract.
-sym_input_shared_secret equ 0x3600
-sym_input_hello_hash equ 0x3640
-sym_pre_finished_hash equ 0x3660
+sym_input_shared_secret equ sym_high_state_base + 0x000
+sym_input_hello_hash equ sym_high_state_base + 0x040
+sym_pre_finished_hash equ sym_high_state_base + 0x060
 sym_input_binder_hash equ sym_pre_finished_hash
-sym_server_finished_hash equ 0x3680
-sym_client_finished_hash equ 0x36a0
-sym_handshake_secret equ 0x36c0
-sym_client_hs_secret equ 0x36e0
-sym_server_hs_secret equ 0x3700
-sym_client_hs_key equ 0x3720
-sym_client_hs_iv equ 0x3740
-sym_client_finished_key equ 0x374c
-sym_server_hs_key equ 0x376c
-sym_server_hs_iv equ 0x378c
-sym_server_finished_key equ 0x3798
-sym_handshake_derived equ 0x37b8
-sym_master_secret equ 0x37d8
-sym_client_app_secret equ 0x37f8
-sym_server_app_secret equ 0x3818
-sym_client_app_key equ 0x3838
-sym_client_app_iv equ 0x3858
-sym_server_app_key equ 0x3864
-sym_server_app_iv equ 0x3884
-sym_resumption_master_secret equ 0x3890
-sym_ticket_psk equ 0x38b0
-sym_client_hs_seq equ 0x38d0
-sym_server_hs_seq equ 0x38d8
-sym_client_app_seq equ 0x38e0
-sym_server_app_seq equ 0x38e8
-sym_received_server_finished equ 0x38f0
-sym_received_tag equ 0x3910
-sym_verify_work equ 0x3920
-sym_client_finished_verify equ 0x3940
+sym_server_finished_hash equ sym_high_state_base + 0x080
+sym_client_finished_hash equ sym_high_state_base + 0x0a0
+sym_handshake_secret equ sym_high_state_base + 0x0c0
+sym_client_hs_secret equ sym_high_state_base + 0x0e0
+sym_server_hs_secret equ sym_high_state_base + 0x100
+sym_client_hs_key equ sym_high_state_base + 0x120
+sym_client_hs_iv equ sym_high_state_base + 0x140
+sym_client_finished_key equ sym_high_state_base + 0x14c
+sym_server_hs_key equ sym_high_state_base + 0x16c
+sym_server_hs_iv equ sym_high_state_base + 0x18c
+sym_server_finished_key equ sym_high_state_base + 0x198
+sym_handshake_derived equ sym_high_state_base + 0x1b8
+sym_master_secret equ sym_high_state_base + 0x1d8
+sym_client_app_secret equ sym_high_state_base + 0x1f8
+sym_server_app_secret equ sym_high_state_base + 0x218
+sym_client_app_key equ sym_high_state_base + 0x238
+sym_client_app_iv equ sym_high_state_base + 0x258
+sym_server_app_key equ sym_high_state_base + 0x264
+sym_server_app_iv equ sym_high_state_base + 0x284
+sym_resumption_master_secret equ sym_high_state_base + 0x290
+sym_ticket_psk equ sym_high_state_base + 0x2b0
+sym_client_hs_seq equ sym_high_state_base + 0x2d0
+sym_server_hs_seq equ sym_high_state_base + 0x2d8
+sym_client_app_seq equ sym_high_state_base + 0x2e0
+sym_server_app_seq equ sym_high_state_base + 0x2e8
+sym_received_server_finished equ sym_high_state_base + 0x2f0
+sym_received_tag equ sym_high_state_base + 0x310
+sym_verify_work equ sym_high_state_base + 0x320
+sym_client_finished_verify equ sym_high_state_base + 0x340
 sym_resumption_binder_value equ sym_client_finished_verify
-sym_client_finished_message equ 0x3960
-sym_io_base equ 0x39a0
+sym_client_finished_message equ sym_high_state_base + 0x360
+sym_io_base equ sym_high_state_base + 0x3a0
 sym_io_end equ sym_io_base + 5 + sym_mss_max + tls_aead_tag_len
-sym_ticket_identity equ 0x3b40
-sym_ticket_nonce equ 0x3c00
-sym_ticket_lifetime_hi equ 0x3c20
+sym_ticket_identity equ sym_high_state_base + 0x540
+sym_ticket_nonce equ sym_high_state_base + 0x600
+sym_ticket_lifetime_hi equ sym_high_state_base + 0x620
 sym_ticket_lifetime_lo equ sym_ticket_lifetime_hi + 2
 sym_ticket_age_add equ sym_ticket_lifetime_lo + 2
 sym_ticket_nonce_len equ sym_ticket_age_add + 4
@@ -1589,6 +1633,10 @@ sym_ticket_identity_len equ sym_ticket_nonce_len + 2
 sym_ticket_present equ sym_ticket_identity_len + 2
 sym_client_finished_state equ sym_ticket_present + 1
 sym_high_state_end equ sym_client_finished_state + 1
+
+%if sym_high_state_end > sym_high_security_state_limit
+%error "symmetric retained state exceeds its security-state window"
+%endif
 
 %if (sym_overlay_end - sym_overlay_header) > (sym_overlay_limit - sym_overlay_base)
 %error "TLS 1.3 symmetric overlay exceeds the 15-sector K window"

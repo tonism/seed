@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Measure the live TLS 1.3 ServerHello -> client Finished interval from pcap.
+"""Report the live TLS 1.3 ServerHello -> client Finished interval from pcap.
 
 The guest tick counter is a useful conservative execution trace, but this
 wire capture is authoritative for the requested interval.  It identifies
@@ -10,7 +10,20 @@ first observed packet times.  A resumed flow must contain ServerHello,
 optional exact compatibility CCS, and the fixed 64-byte protected flight
 before that client Finished.
 The live_k15 filename is historical; the analyzer is independent of the
-guest's K-window geometry.
+guest's K-window geometry.  Product captures can additionally require either
+one fresh/resumed pair (connection reuse) or exactly two ordered pairs (one
+bounded reconnect).
+
+The observed 15-second budget is reported separately from wire-profile
+validity.  It is a performance observation, not TLS state or proof that the
+peer accepted the already-transmitted Finished.  A standalone flow requires
+the exact credential-free HEAD to reach the wire before any observed server
+FIN.  The product reuse/reconnect profiles may instead pair a fresh acquisition
+that sends Finished before the deadline and receives bounded protected
+ticket/close records with the immediately following resumed flow whose 0-RTT
+HEAD establishes credential-free liveness.  The wire shape corroborates that
+pair; authenticated target-side parsing, FO/identity proof, and response
+processing remain the dialogue authority.
 
 Only classic pcap is supported because the 86Box harness captures with
 tcpdump's pcap writer.  This script is pure stdlib and performs no network I/O.
@@ -38,13 +51,21 @@ CLIENT_KEY_EXCHANGE_BYTES = 1216
 SERVER_KEY_EXCHANGE_BYTES = 1120
 FRESH_CLIENT_HELLO_BYTES = 1376
 FRESH_TICKET_CLIENT_HELLO_BYTES = 1382
+PRODUCT_FRESH_CLIENT_HELLO_BYTES = 1382
+PRODUCT_FRESH_TICKET_CLIENT_HELLO_BYTES = 1388
 FRESH_SERVER_HELLO_BYTES = 1210
 RESUMED_SERVER_HELLO_BYTES = 1216
 EXACT_CCS_RECORD = bytes.fromhex("140303000101")
 RESUMED_PROTECTED_HEADER = bytes.fromhex("170303003b")
 RESUMED_PROTECTED_RECORD_BYTES = 64
+EARLY_HEAD_HEADER = bytes.fromhex("1703030043")
+EARLY_HEAD_RECORD_BYTES = 72
+END_OF_EARLY_DATA_HEADER = bytes.fromhex("1703030015")
+END_OF_EARLY_DATA_RECORD_BYTES = 26
 CLIENT_FINISHED_HEADER = bytes.fromhex("1703030035")
 CLIENT_FINISHED_RECORD_BYTES = 58
+TICKET_CLOSE_RECORD_BYTES = 24
+ACQUISITION_RECEIPT_MAX_RECORD_BYTES = 1613
 HELLO_RETRY_REQUEST_RANDOM = bytes.fromhex(
     "cf21ad74e59a6111be1d8c021e65b891"
     "c2a211167abb8c5e079e09e2c8a8339c"
@@ -195,6 +216,8 @@ class Flow:
     first_timestamp: float
     client_stream: TimedStream = field(default_factory=TimedStream)
     server_stream: TimedStream = field(default_factory=TimedStream)
+    client_syn_timestamp: float | None = None
+    server_fin_timestamp: float | None = None
 
 
 def collect_flows(path: Path) -> list[Flow]:
@@ -220,6 +243,20 @@ def collect_flows(path: Path) -> list[Flow]:
                 timestamp,
             )
         flow.first_timestamp = min(flow.first_timestamp, timestamp)
+        if from_client and flags & 0x02:
+            if flow.client_syn_timestamp is None:
+                flow.client_syn_timestamp = timestamp
+            else:
+                flow.client_syn_timestamp = min(
+                    flow.client_syn_timestamp, timestamp
+                )
+        if not from_client and flags & 0x01:
+            if flow.server_fin_timestamp is None:
+                flow.server_fin_timestamp = timestamp
+            else:
+                flow.server_fin_timestamp = min(
+                    flow.server_fin_timestamp, timestamp
+                )
         stream = flow.client_stream if from_client else flow.server_stream
         stream.add(sequence, flags, payload, timestamp)
     return sorted(flows.values(), key=lambda flow: flow.first_timestamp)
@@ -346,6 +383,9 @@ def parse_client_hello(stream: bytes) -> dict[str, object]:
     kinds = tuple(kind for kind, _value in extensions)
 
     base_kinds = (0, 43, 10, 13, 27, 51, 21)
+    product_base_kinds = (0, 43, 10, 13, 27, 51, 28, 21)
+    record_size_limit: int | None = None
+    early_data = False
     if kinds == base_kinds:
         profile = "fresh"
         requests_ticket = False
@@ -357,6 +397,27 @@ def parse_client_hello(stream: bytes) -> dict[str, object]:
     elif kinds == base_kinds + (45, 41):
         profile = "resumed"
         requests_ticket = True
+        expected_length = None
+    elif kinds == product_base_kinds:
+        profile = "fresh"
+        requests_ticket = False
+        record_size_limit = 2048
+        expected_length = PRODUCT_FRESH_CLIENT_HELLO_BYTES
+    elif kinds == product_base_kinds + (45,):
+        profile = "fresh"
+        requests_ticket = True
+        record_size_limit = 2048
+        expected_length = PRODUCT_FRESH_TICKET_CLIENT_HELLO_BYTES
+    elif kinds == product_base_kinds + (45, 41):
+        profile = "resumed"
+        requests_ticket = True
+        record_size_limit = 2048
+        expected_length = None
+    elif kinds == product_base_kinds + (45, 42, 41):
+        profile = "resumed"
+        requests_ticket = True
+        record_size_limit = 2048
+        early_data = True
         expected_length = None
     else:
         raise ValueError(f"wrong ClientHello extension order {kinds}")
@@ -373,8 +434,10 @@ def parse_client_hello(stream: bytes) -> dict[str, object]:
         10: b"\x00\x02" + struct.pack(">H", HYBRID_GROUP_ID),
         13: b"\x00\x02\x04\x03",
         27: b"\x02\x00\x02",
+        28: b"\x08\x00",
         21: b"\x00" * 14,
         45: b"\x01\x01",
+        42: b"",
     }
     values = dict(extensions)
     for kind, expected in expected_values.items():
@@ -385,7 +448,12 @@ def parse_client_hello(stream: bytes) -> dict[str, object]:
     identity_length: int | None = None
     if profile == "resumed":
         identity_length = _parse_client_psk(values[41])
-        expected_length = 1429 + identity_length
+        expected_length = (
+            1429
+            + identity_length
+            + (6 if record_size_limit is not None else 0)
+            + (4 if early_data else 0)
+        )
     if expected_length != len(message):
         raise ValueError(
             f"wrong {profile} ClientHello length {len(message)}"
@@ -397,6 +465,8 @@ def parse_client_hello(stream: bytes) -> dict[str, object]:
         "handshake_bytes": len(message),
         "record_bytes": 5 + len(message),
         "identity_bytes": identity_length,
+        "record_size_limit": record_size_limit,
+        "early_data": early_data,
     }
 
 
@@ -532,6 +602,8 @@ def analyze_flow(flow: Flow) -> dict[str, object] | None:
             "client_hello_handshake_bytes": client_hello["handshake_bytes"],
             "client_hello_record_bytes": client_hello["record_bytes"],
             "client_requests_ticket": client_hello["requests_ticket"],
+            "client_record_size_limit": client_hello["record_size_limit"],
+            "client_early_data": client_hello["early_data"],
         }
     )
     if client_hello["identity_bytes"] is not None:
@@ -573,10 +645,30 @@ def analyze_flow(flow: Flow) -> dict[str, object] | None:
         return result
 
     client_records = list(walk_records(client))
-    if len(client_records) < 2:
+    finished_indexes = [
+        index
+        for index, record in enumerate(client_records[1:], start=1)
+        if (
+            record[1] == 23
+            and record[2] == TLS12_LEGACY_VERSION
+            and record[3] == CLIENT_FINISHED_RECORD_BYTES - 5
+            and client[record[0] : record[0] + 5]
+            == CLIENT_FINISHED_HEADER
+        )
+    ]
+    if not finished_indexes:
         result.update({"status": "missing-client-finished", "passed": False})
         return result
-    client_finished = client_records[1]
+    if len(finished_indexes) != 1:
+        result.update(
+            {
+                "status": "duplicate-client-finished-shape",
+                "passed": False,
+            }
+        )
+        return result
+    client_finished_index = finished_indexes[0]
+    client_finished = client_records[client_finished_index]
     (
         client_finished_offset,
         client_finished_type,
@@ -584,14 +676,52 @@ def analyze_flow(flow: Flow) -> dict[str, object] | None:
         client_finished_length,
         _client_finished_body,
     ) = client_finished
-    if (
-        client_finished_type != 23
-        or client_finished_version != TLS12_LEGACY_VERSION
-        or client_finished_length != CLIENT_FINISHED_RECORD_BYTES - 5
-        or client[
-            client_finished_offset : client_finished_offset + 5
-        ] != CLIENT_FINISHED_HEADER
-    ):
+    client_before_finished = client_records[1:client_finished_index]
+    early_head_record = None
+    end_of_early_data_record = None
+    if client_hello["early_data"]:
+        if not 1 <= len(client_before_finished) <= 2:
+            result.update(
+                {
+                    "status": "invalid-early-client-record-count",
+                    "passed": False,
+                }
+            )
+            return result
+        early_head_record = client_before_finished[0]
+        early_offset = early_head_record[0]
+        if (
+            early_head_record[1] != 23
+            or early_head_record[2] != TLS12_LEGACY_VERSION
+            or early_head_record[3] != EARLY_HEAD_RECORD_BYTES - 5
+            or client[early_offset : early_offset + 5] != EARLY_HEAD_HEADER
+        ):
+            result.update(
+                {
+                    "status": "invalid-early-head-record",
+                    "passed": False,
+                }
+            )
+            return result
+        if len(client_before_finished) == 2:
+            end_of_early_data_record = client_before_finished[1]
+            eoed_offset = end_of_early_data_record[0]
+            if (
+                end_of_early_data_record[1] != 23
+                or end_of_early_data_record[2] != TLS12_LEGACY_VERSION
+                or end_of_early_data_record[3]
+                != END_OF_EARLY_DATA_RECORD_BYTES - 5
+                or client[eoed_offset : eoed_offset + 5]
+                != END_OF_EARLY_DATA_HEADER
+            ):
+                result.update(
+                    {
+                        "status": "invalid-end-of-early-data-record",
+                        "passed": False,
+                    }
+                )
+                return result
+    elif client_before_finished:
         result.update(
             {
                 "status": "unexpected-client-record-before-finished",
@@ -699,18 +829,30 @@ def analyze_flow(flow: Flow) -> dict[str, object] | None:
                 return result
 
     interval = client_finished_time - server_hello_time
-    passed = (
-        not result["stream_conflict"]
-        and interval >= 0
-        and interval <= DEADLINE_SECONDS
+    handshake_wire_profile_valid = (
+        not result["stream_conflict"] and interval >= 0
+    )
+    historical_deadline_met = (
+        handshake_wire_profile_valid and interval <= DEADLINE_SECONDS
     )
     result.update(
         {
-            "status": "pass" if passed else "late-or-invalid",
-            "passed": passed,
+            "handshake_wire_profile_valid": handshake_wire_profile_valid,
+            "historical_deadline_met": historical_deadline_met,
             "server_hello_offset": server_hello_offset,
             "client_finished_offset": client_finished_offset,
+            "client_finished_record_index": client_finished_index,
             "client_finished_record_bytes": CLIENT_FINISHED_RECORD_BYTES,
+            "early_head_record_bytes": (
+                EARLY_HEAD_RECORD_BYTES
+                if early_head_record is not None
+                else None
+            ),
+            "end_of_early_data_record_bytes": (
+                END_OF_EARLY_DATA_RECORD_BYTES
+                if end_of_early_data_record is not None
+                else None
+            ),
             "server_hello_timestamp": server_hello_time,
             "client_finished_timestamp": client_finished_time,
             "server_hello_to_client_finished_seconds": interval,
@@ -718,10 +860,178 @@ def analyze_flow(flow: Flow) -> dict[str, object] | None:
             "margin_seconds": DEADLINE_SECONDS - interval,
         }
     )
+    post_finished_server_records: list[dict[str, object]] = []
+    for record in server_records[1:]:
+        record_offset, record_type, record_version, record_length, _body = record
+        if record_offset >= len(server_times):
+            continue
+        record_time = server_times[record_offset]
+        if record_time < client_finished_time:
+            continue
+        post_finished_server_records.append(
+            {
+                "offset": record_offset,
+                "type": record_type,
+                "legacy_version": record_version.hex(),
+                "record_bytes": 5 + record_length,
+                "timestamp": record_time,
+                "seconds_after_client_finished": (
+                    record_time - client_finished_time
+                ),
+            }
+        )
+    result["post_finished_server_records"] = post_finished_server_records
+    if flow.client_syn_timestamp is not None:
+        result["client_syn_timestamp"] = flow.client_syn_timestamp
+        result["syn_to_client_finished_seconds"] = (
+            client_finished_time - flow.client_syn_timestamp
+        )
+    if flow.server_fin_timestamp is not None:
+        result["server_fin_timestamp"] = flow.server_fin_timestamp
+        result["client_finished_to_server_fin_seconds"] = (
+            flow.server_fin_timestamp - client_finished_time
+        )
+    credential_free_head_time: float | None = None
+    if early_head_record is not None:
+        early_offset = early_head_record[0]
+        if early_offset < len(client_times):
+            early_time = client_times[early_offset]
+            credential_free_head_time = early_time
+            result["early_head_timestamp"] = early_time
+            result["early_head_before_server_hello"] = (
+                early_time <= server_hello_time
+            )
+    if end_of_early_data_record is not None:
+        eoed_offset = end_of_early_data_record[0]
+        if eoed_offset < len(client_times):
+            result["end_of_early_data_timestamp"] = client_times[eoed_offset]
+    application_index = client_finished_index + 1
+    post_finished_head = False
+    if len(client_records) > application_index:
+        app_offset, app_type, app_version, app_length, _app_body = (
+            client_records[application_index]
+        )
+        if (
+            app_type == 23
+            and app_version == TLS12_LEGACY_VERSION
+            and app_offset < len(client_times)
+        ):
+            post_finished_head = 5 + app_length == EARLY_HEAD_RECORD_BYTES
+            app_time = client_times[app_offset]
+            if post_finished_head and credential_free_head_time is None:
+                credential_free_head_time = app_time
+            result.update(
+                {
+                    "client_first_application_offset": app_offset,
+                    "client_first_application_record_bytes": 5 + app_length,
+                    "client_first_application_matches_fixed_head_geometry": (
+                        5 + app_length == 72
+                    ),
+                    "client_first_application_timestamp": app_time,
+                    "client_finished_to_first_application_seconds": (
+                        app_time - client_finished_time
+                    ),
+                }
+            )
+            if flow.client_syn_timestamp is not None:
+                result["syn_to_client_first_application_seconds"] = (
+                    app_time - flow.client_syn_timestamp
+                )
+            if flow.server_fin_timestamp is not None:
+                result["first_application_before_server_fin"] = (
+                    app_time < flow.server_fin_timestamp
+                )
+                result["first_application_to_server_fin_seconds"] = (
+                    flow.server_fin_timestamp - app_time
+                )
+    credential_free_head_wire_observed = (
+        early_head_record is not None or post_finished_head
+    )
+    credential_free_head_before_server_fin: bool | None = None
+    client_finished_before_server_fin: bool | None = None
+    if flow.server_fin_timestamp is not None:
+        client_finished_before_server_fin = (
+            client_finished_time < flow.server_fin_timestamp
+        )
+        if credential_free_head_time is not None:
+            credential_free_head_before_server_fin = (
+                credential_free_head_time < flow.server_fin_timestamp
+            )
+    liveness_wire_valid = (
+        credential_free_head_wire_observed
+        and credential_free_head_time is not None
+        and client_finished_before_server_fin is not False
+        and credential_free_head_before_server_fin is not False
+    )
+    acquisition_ticket_close_wire_candidate = (
+        profile == "fresh"
+        and handshake_wire_profile_valid
+        and historical_deadline_met
+        and client_finished_before_server_fin is True
+        and 2 <= len(post_finished_server_records) <= 5
+        and all(
+            record["type"] == 23
+            and record["legacy_version"] == TLS12_LEGACY_VERSION.hex()
+            for record in post_finished_server_records
+        )
+        and all(
+            22 <= int(record["record_bytes"])
+            <= ACQUISITION_RECEIPT_MAX_RECORD_BYTES
+            for record in post_finished_server_records[:-1]
+        )
+        and int(post_finished_server_records[-1]["record_bytes"])
+        == TICKET_CLOSE_RECORD_BYTES
+        and (
+            flow.server_fin_timestamp is None
+            or float(post_finished_server_records[-1]["timestamp"])
+            <= flow.server_fin_timestamp
+        )
+    )
+    if not handshake_wire_profile_valid:
+        status = "invalid-wire-order-or-stream"
+    elif not credential_free_head_wire_observed:
+        status = "missing-credential-free-head"
+    elif credential_free_head_time is None:
+        status = "missing-credential-free-head-timestamp"
+    elif client_finished_before_server_fin is False:
+        status = "client-finished-after-server-fin"
+    elif credential_free_head_before_server_fin is False:
+        status = "credential-free-head-after-server-fin"
+    elif historical_deadline_met:
+        status = "pass"
+    else:
+        status = "valid-late"
+    wire_profile_valid = handshake_wire_profile_valid and liveness_wire_valid
+    result.update(
+        {
+            "status": status,
+            "passed": wire_profile_valid,
+            "wire_profile_valid": wire_profile_valid,
+            "liveness_wire_valid": liveness_wire_valid,
+            "credential_free_head_wire_observed": (
+                credential_free_head_wire_observed
+            ),
+            "credential_free_head_timestamp": credential_free_head_time,
+            "credential_free_head_before_server_fin": (
+                credential_free_head_before_server_fin
+            ),
+            "client_finished_before_server_fin": (
+                client_finished_before_server_fin
+            ),
+            "acquisition_ticket_close_wire_candidate": (
+                acquisition_ticket_close_wire_candidate
+            ),
+        }
+    )
+    result["authenticated_dialogue_target_confirmation_required"] = True
     return result
 
 
-def analyze(path: Path, server_ip: str | None = None) -> dict[str, object]:
+def analyze(
+    path: Path,
+    server_ip: str | None = None,
+    expect: str = "any",
+) -> dict[str, object]:
     identified: list[dict[str, object]] = []
     for flow in collect_flows(path):
         if server_ip is not None and server_ip not in flow.server[0]:
@@ -740,7 +1050,47 @@ def analyze(path: Path, server_ip: str | None = None) -> dict[str, object]:
     resumed = [
         result for result in identified if result.get("profile") == "resumed"
     ]
-    if len(identified) == 1 and len(fresh) == 1:
+    ordered = sorted(
+        identified,
+        key=lambda result: float(result.get("server_hello_timestamp", float("inf"))),
+    )
+    profile_order = [str(result.get("profile", "invalid")) for result in ordered]
+
+    def paired_reuse_valid(pair: list[dict[str, object]]) -> bool:
+        if [result.get("profile") for result in pair] != ["fresh", "resumed"]:
+            return False
+        acquisition, resumed_flow = pair
+        acquisition_valid = bool(acquisition.get("passed")) or bool(
+            acquisition.get("acquisition_ticket_close_wire_candidate")
+        )
+        resumed_liveness = (
+            bool(resumed_flow.get("passed"))
+            and resumed_flow.get("client_early_data") is True
+            and resumed_flow.get("early_head_record_bytes")
+            == EARLY_HEAD_RECORD_BYTES
+            and resumed_flow.get("credential_free_head_before_server_fin")
+            is not False
+            and 1
+            <= int(resumed_flow.get("ticket_identity_bytes") or 0)
+            <= 192
+        )
+        return acquisition_valid and resumed_liveness
+
+    if expect == "reuse":
+        capture_profile = "fresh+resumed"
+        expected_profiles = (
+            profile_order == ["fresh", "resumed"]
+            and paired_reuse_valid(ordered)
+        )
+    elif expect == "reconnect":
+        capture_profile = "fresh+resumed+fresh+resumed"
+        expected_profiles = (
+            profile_order
+            == ["fresh", "resumed", "fresh", "resumed"]
+            and paired_reuse_valid(ordered[:2])
+            and paired_reuse_valid(ordered[2:])
+        )
+    elif len(identified) == 1 and len(fresh) == 1:
         capture_profile = "fresh"
         expected_profiles = True
     elif len(identified) == 1 and len(resumed) == 1:
@@ -752,21 +1102,78 @@ def analyze(path: Path, server_ip: str | None = None) -> dict[str, object]:
     else:
         capture_profile = "invalid"
         expected_profiles = False
-    passed = (
+
+    paired_acquisitions: list[dict[str, object]] = []
+    if expect in ("reuse", "reconnect") and expected_profiles:
+        for index in range(0, len(ordered), 2):
+            acquisition = ordered[index]
+            if (
+                not acquisition.get("passed")
+                and acquisition.get("acquisition_ticket_close_wire_candidate")
+            ):
+                acquisition.update(
+                    {
+                        "status": "paired-ticket-receipt-pass",
+                        "passed": True,
+                        "wire_profile_valid": True,
+                        "paired_liveness_wire_valid": True,
+                        "liveness_deferred_to_resumed_flow": True,
+                    }
+                )
+                paired_acquisitions.append(acquisition)
+    wire_profile_valid = (
         expected_profiles
         and len(completed) == len(identified)
         and all(bool(result["passed"]) for result in identified)
     )
+    historical_deadline_met = (
+        wire_profile_valid
+        and all(
+            bool(result.get("historical_deadline_met"))
+            for result in completed
+        )
+    )
+    if not wire_profile_valid:
+        status = "failure"
+    elif historical_deadline_met:
+        status = "pass"
+    else:
+        status = "valid-late"
+    credential_free_head_wire_observed = (
+        wire_profile_valid
+        and all(
+            result.get("credential_free_head_wire_observed") is True
+            and result.get("liveness_wire_valid") is True
+            for result in resumed
+        )
+    )
     return {
         "pcap": str(path),
         "deadline_seconds": DEADLINE_SECONDS,
+        "expected_capture": expect,
         "capture_profile": capture_profile,
+        "flow_profile_order": profile_order,
         "identified_live_seed_flows": len(identified),
         "completed_live_seed_flows": len(completed),
         "fresh_live_seed_flows": len(fresh),
         "resumed_live_seed_flows": len(resumed),
-        "passed": passed,
-        "status": "pass" if passed else "failure",
+        "passed": wire_profile_valid,
+        "wire_profile_valid": wire_profile_valid,
+        "historical_deadline_met": historical_deadline_met,
+        "credential_free_head_wire_observed": (
+            credential_free_head_wire_observed
+        ),
+        "bounded_one_reconnect_observed": (
+            expect == "reconnect"
+            and expected_profiles
+            and len(completed) == 4
+        ),
+        "paired_ticket_receipt_acquisitions": len(paired_acquisitions),
+        "credential_free_liveness_connection": (
+            "resumed" if paired_acquisitions else "each-flow"
+        ),
+        "authenticated_dialogue_target_confirmation_required": True,
+        "status": status,
         "flows": identified,
     }
 
@@ -820,8 +1227,14 @@ def _fixture_client_hello(
     session_id: bytes,
     *,
     resumed: bool,
+    product: bool = False,
+    early_data: bool = False,
     identity: bytes = b"T" * 192,
 ) -> bytes:
+    if early_data and not (product and resumed):
+        raise AssertionError(
+            "early-data fixture requires a resumed product ClientHello"
+        )
     public_key = bytes((index % 251) + 1 for index in range(1184))
     exchange = public_key + b"\x09" + b"\x00" * 31
     key_share_entry = (
@@ -847,8 +1260,18 @@ def _fixture_client_hello(
                 51,
                 struct.pack(">H", len(key_share_entry)) + key_share_entry,
             ),
+            *(
+                (_fixture_extension(28, b"\x08\x00"),)
+                if product
+                else ()
+            ),
             _fixture_extension(21, b"\x00" * 14),
             _fixture_extension(45, b"\x01\x01"),
+            *(
+                (_fixture_extension(42, b""),)
+                if early_data
+                else ()
+            ),
         ),
     )
     if resumed:
@@ -875,9 +1298,16 @@ def _fixture_client_hello(
     )
     message = _fixture_handshake(1, body)
     expected = (
-        1429 + len(identity)
+        1429
+        + len(identity)
+        + (6 if product else 0)
+        + (4 if early_data else 0)
         if resumed
-        else FRESH_TICKET_CLIENT_HELLO_BYTES
+        else (
+            PRODUCT_FRESH_TICKET_CLIENT_HELLO_BYTES
+            if product
+            else FRESH_TICKET_CLIENT_HELLO_BYTES
+        )
     )
     if len(message) != expected:
         raise AssertionError(
@@ -939,11 +1369,18 @@ def _fixture_flow_packets(
     server_flight: bytes,
     server_hello_time: float,
     client_finished_time: float,
+    client_early_records: bytes = b"",
+    client_pre_finished_records: bytes = b"",
+    client_head_delay: float | None = 0.25,
+    server_post_finished_records: bytes = b"",
+    server_post_finished_delay: float = 0.1,
+    server_fin_time: float | None = None,
 ) -> list[tuple[float, bytes]]:
     client_finished = CLIENT_FINISHED_HEADER + bytes(range(1, 54))
+    client_head = b"\x17\x03\x03\x00\x43" + bytes(range(1, 68))
     client_split = min(384, len(client_hello))
     server_split = min(17, len(server_flight))
-    return [
+    packets = [
         (
             server_hello_time - 2.0,
             make_tcp_packet(
@@ -1016,6 +1453,45 @@ def _fixture_flow_packets(
                 server_flight[server_split:],
             ),
         ),
+        *(
+            [
+                (
+                    server_hello_time - 0.5,
+                    make_tcp_packet(
+                        client_ip,
+                        server_ip,
+                        client_port,
+                        443,
+                        client_sequence + 1 + len(client_hello),
+                        0x18,
+                        client_early_records,
+                    ),
+                )
+            ]
+            if client_early_records
+            else []
+        ),
+        *(
+            [
+                (
+                    client_finished_time - 0.1,
+                    make_tcp_packet(
+                        client_ip,
+                        server_ip,
+                        client_port,
+                        443,
+                        client_sequence
+                        + 1
+                        + len(client_hello)
+                        + len(client_early_records),
+                        0x18,
+                        client_pre_finished_records,
+                    ),
+                )
+            ]
+            if client_pre_finished_records
+            else []
+        ),
         (
             client_finished_time,
             make_tcp_packet(
@@ -1023,12 +1499,70 @@ def _fixture_flow_packets(
                 server_ip,
                 client_port,
                 443,
-                client_sequence + 1 + len(client_hello),
+                client_sequence
+                + 1
+                + len(client_hello)
+                + len(client_early_records)
+                + len(client_pre_finished_records),
                 0x18,
                 client_finished,
             ),
         ),
     ]
+    if client_head_delay is not None:
+        packets.append(
+            (
+                client_finished_time + client_head_delay,
+                make_tcp_packet(
+                    client_ip,
+                    server_ip,
+                    client_port,
+                    443,
+                    client_sequence
+                    + 1
+                    + len(client_hello)
+                    + len(client_early_records)
+                    + len(client_pre_finished_records)
+                    + len(client_finished),
+                    0x18,
+                    client_head,
+                ),
+            )
+        )
+    if server_post_finished_records:
+        packets.append(
+            (
+                client_finished_time + server_post_finished_delay,
+                make_tcp_packet(
+                    server_ip,
+                    client_ip,
+                    443,
+                    client_port,
+                    server_sequence + 1 + len(server_flight),
+                    0x18,
+                    server_post_finished_records,
+                ),
+            )
+        )
+    if server_fin_time is not None:
+        packets.append(
+            (
+                server_fin_time,
+                make_tcp_packet(
+                    server_ip,
+                    client_ip,
+                    443,
+                    client_port,
+                    server_sequence
+                    + 1
+                    + len(server_flight)
+                    + len(server_post_finished_records),
+                    0x11,
+                    b"",
+                ),
+            )
+        )
+    return packets
 
 
 def _write_fixture_pcap(
@@ -1057,8 +1591,28 @@ def self_test() -> None:
     fresh_client = _fixture_client_hello(fresh_session, resumed=False)
     fresh_server = _fixture_server_hello(fresh_session, resumed=False)
     resumed_client = _fixture_client_hello(resumed_session, resumed=True)
+    product_resumed_client = _fixture_client_hello(
+        resumed_session,
+        resumed=True,
+        product=True,
+        early_data=True,
+    )
     resumed_server = _fixture_server_hello(resumed_session, resumed=True)
     protected = RESUMED_PROTECTED_HEADER + bytes(range(1, 60))
+    early_head = EARLY_HEAD_HEADER + bytes(range(1, 68))
+    end_of_early_data = END_OF_EARLY_DATA_HEADER + bytes(range(1, 22))
+    ticket_record = _fixture_record(
+        23,
+        TLS12_LEGACY_VERSION,
+        bytes((index % 251) + 1 for index in range(239)),
+    )
+    protected_close = _fixture_record(
+        23,
+        TLS12_LEGACY_VERSION,
+        bytes(range(1, TICKET_CLOSE_RECORD_BYTES - 4)),
+    )
+    if len(protected_close) != TICKET_CLOSE_RECORD_BYTES:
+        raise AssertionError("ticket-close fixture geometry drifted")
 
     with tempfile.TemporaryDirectory(prefix="seed-live-k15-pcap-") as temp:
         temp_path = Path(temp)
@@ -1077,6 +1631,82 @@ def self_test() -> None:
         _write_fixture_pcap(fresh_path, fresh_packets)
         fresh_result = analyze(fresh_path)
 
+        fresh_fin_before_head_path = (
+            temp_path / "fresh-fin-before-head.pcap"
+        )
+        fresh_fin_before_head_packets = _fixture_flow_packets(
+            client_ip=client_ip,
+            server_ip=server_ip,
+            client_port=49158,
+            client_sequence=13000,
+            server_sequence=19000,
+            client_hello=fresh_client,
+            server_flight=fresh_server,
+            server_hello_time=123.0,
+            client_finished_time=137.0,
+            server_fin_time=137.1,
+        )
+        _write_fixture_pcap(
+            fresh_fin_before_head_path,
+            fresh_fin_before_head_packets,
+        )
+        fresh_fin_before_head_result = analyze(
+            fresh_fin_before_head_path
+        )
+
+        fresh_fin_after_head_path = temp_path / "fresh-fin-after-head.pcap"
+        fresh_fin_after_head_packets = _fixture_flow_packets(
+            client_ip=client_ip,
+            server_ip=server_ip,
+            client_port=49159,
+            client_sequence=15000,
+            server_sequence=21000,
+            client_hello=fresh_client,
+            server_flight=fresh_server,
+            server_hello_time=143.0,
+            client_finished_time=157.0,
+            server_fin_time=157.5,
+        )
+        _write_fixture_pcap(
+            fresh_fin_after_head_path,
+            fresh_fin_after_head_packets,
+        )
+        fresh_fin_after_head_result = analyze(fresh_fin_after_head_path)
+
+        fresh_missing_head_path = temp_path / "fresh-missing-head.pcap"
+        fresh_missing_head_packets = _fixture_flow_packets(
+            client_ip=client_ip,
+            server_ip=server_ip,
+            client_port=49160,
+            client_sequence=17000,
+            server_sequence=23000,
+            client_hello=fresh_client,
+            server_flight=fresh_server,
+            server_hello_time=163.0,
+            client_finished_time=177.0,
+            client_head_delay=None,
+        )
+        _write_fixture_pcap(
+            fresh_missing_head_path,
+            fresh_missing_head_packets,
+        )
+        fresh_missing_head_result = analyze(fresh_missing_head_path)
+
+        late_path = temp_path / "fresh-late.pcap"
+        late_packets = _fixture_flow_packets(
+            client_ip=client_ip,
+            server_ip=server_ip,
+            client_port=49156,
+            client_sequence=9000,
+            server_sequence=15000,
+            client_hello=fresh_client,
+            server_flight=fresh_server,
+            server_hello_time=83.0,
+            client_finished_time=98.25,
+        )
+        _write_fixture_pcap(late_path, late_packets)
+        late_result = analyze(late_path)
+
         dual_path = temp_path / "fresh-resumed.pcap"
         resumed_packets = _fixture_flow_packets(
             client_ip=client_ip,
@@ -1092,6 +1722,100 @@ def self_test() -> None:
         _write_fixture_pcap(dual_path, fresh_packets + resumed_packets)
         dual_result = analyze(dual_path)
 
+        product_reuse_path = temp_path / "product-fresh-resumed.pcap"
+        product_resumed_packets = _fixture_flow_packets(
+            client_ip=client_ip,
+            server_ip=server_ip,
+            client_port=49164,
+            client_sequence=25000,
+            server_sequence=31000,
+            client_hello=product_resumed_client,
+            server_flight=resumed_server + EXACT_CCS_RECORD + protected,
+            server_hello_time=33.0,
+            client_finished_time=41.0,
+            client_early_records=early_head,
+        )
+        _write_fixture_pcap(
+            product_reuse_path,
+            fresh_packets + product_resumed_packets,
+        )
+        reuse_result = analyze(product_reuse_path, expect="reuse")
+
+        ticket_receipt_path = temp_path / "ticket-receipt-reuse.pcap"
+        ticket_receipt_fresh_packets = _fixture_flow_packets(
+            client_ip=client_ip,
+            server_ip=server_ip,
+            client_port=49165,
+            client_sequence=27000,
+            server_sequence=33000,
+            client_hello=fresh_client,
+            server_flight=fresh_server,
+            server_hello_time=43.0,
+            client_finished_time=57.0,
+            client_head_delay=0.25,
+            server_post_finished_records=ticket_record + protected_close,
+            server_post_finished_delay=0.1,
+            server_fin_time=57.2,
+        )
+        ticket_receipt_resumed_packets = _fixture_flow_packets(
+            client_ip=client_ip,
+            server_ip=server_ip,
+            client_port=49166,
+            client_sequence=29000,
+            server_sequence=35000,
+            client_hello=product_resumed_client,
+            server_flight=resumed_server + EXACT_CCS_RECORD + protected,
+            server_hello_time=63.0,
+            client_finished_time=71.0,
+            client_early_records=early_head,
+        )
+        _write_fixture_pcap(
+            ticket_receipt_path,
+            ticket_receipt_fresh_packets + ticket_receipt_resumed_packets,
+        )
+        ticket_receipt_single_result = analyze(ticket_receipt_path)
+        ticket_receipt_reuse_result = analyze(
+            ticket_receipt_path,
+            expect="reuse",
+        )
+
+        reconnect_path = temp_path / "bounded-reconnect.pcap"
+        reconnect_fresh_packets = _fixture_flow_packets(
+            client_ip=client_ip,
+            server_ip=server_ip,
+            client_port=49161,
+            client_sequence=19000,
+            server_sequence=25000,
+            client_hello=fresh_client,
+            server_flight=fresh_server,
+            server_hello_time=43.0,
+            client_finished_time=55.0,
+        )
+        reconnect_resumed_packets = _fixture_flow_packets(
+            client_ip=client_ip,
+            server_ip=server_ip,
+            client_port=49162,
+            client_sequence=21000,
+            server_sequence=27000,
+            client_hello=product_resumed_client,
+            server_flight=resumed_server + EXACT_CCS_RECORD + protected,
+            server_hello_time=63.0,
+            client_finished_time=71.0,
+            client_early_records=early_head,
+        )
+        _write_fixture_pcap(
+            reconnect_path,
+            fresh_packets
+            + product_resumed_packets
+            + reconnect_fresh_packets
+            + reconnect_resumed_packets,
+        )
+        reconnect_result = analyze(reconnect_path, expect="reconnect")
+        missing_reconnect_result = analyze(
+            product_reuse_path,
+            expect="reconnect",
+        )
+
         no_ccs_path = temp_path / "resumed-no-ccs.pcap"
         no_ccs_packets = _fixture_flow_packets(
             client_ip=client_ip,
@@ -1106,6 +1830,23 @@ def self_test() -> None:
         )
         _write_fixture_pcap(no_ccs_path, no_ccs_packets)
         no_ccs_result = analyze(no_ccs_path)
+
+        early_path = temp_path / "resumed-product-early.pcap"
+        early_packets = _fixture_flow_packets(
+            client_ip=client_ip,
+            server_ip=server_ip,
+            client_port=49157,
+            client_sequence=11000,
+            server_sequence=17000,
+            client_hello=product_resumed_client,
+            server_flight=resumed_server + EXACT_CCS_RECORD + protected,
+            server_hello_time=103.0,
+            client_finished_time=111.0,
+            client_early_records=early_head,
+            client_pre_finished_records=end_of_early_data,
+        )
+        _write_fixture_pcap(early_path, early_packets)
+        early_result = analyze(early_path)
 
         old_68_path = temp_path / "resumed-old-68.pcap"
         old_68_protected = b"\x17\x03\x03\x00\x3f" + bytes(range(1, 64))
@@ -1131,6 +1872,69 @@ def self_test() -> None:
     interval = fresh_flow["server_hello_to_client_finished_seconds"]
     if abs(float(interval) - 14.75) > 0.000001:
         raise AssertionError(f"pcap self-test interval drifted: {interval}")
+    if (
+        fresh_flow.get("client_first_application_record_bytes") != 72
+        or fresh_flow.get(
+            "client_first_application_matches_fixed_head_geometry"
+        )
+        is not True
+    ):
+        raise AssertionError(
+            f"fixed HEAD wire geometry drifted: {fresh_flow}"
+        )
+    fresh_fin_before_head_flow = fresh_fin_before_head_result["flows"][0]
+    if (
+        fresh_fin_before_head_result["passed"]
+        or fresh_fin_before_head_flow["passed"]
+        or fresh_fin_before_head_flow["wire_profile_valid"]
+        or fresh_fin_before_head_flow["liveness_wire_valid"]
+        or fresh_fin_before_head_flow["status"]
+        != "credential-free-head-after-server-fin"
+        or fresh_fin_before_head_flow[
+            "credential_free_head_before_server_fin"
+        ]
+        is not False
+    ):
+        raise AssertionError(
+            "fresh HEAD after server FIN passed the liveness gate: "
+            f"{fresh_fin_before_head_result}"
+        )
+    fresh_fin_after_head_flow = fresh_fin_after_head_result["flows"][0]
+    if (
+        not fresh_fin_after_head_result["passed"]
+        or not fresh_fin_after_head_flow["passed"]
+        or fresh_fin_after_head_flow[
+            "credential_free_head_before_server_fin"
+        ]
+        is not True
+        or fresh_fin_after_head_flow["client_finished_before_server_fin"]
+        is not True
+    ):
+        raise AssertionError(
+            "fresh HEAD before server FIN failed the liveness gate: "
+            f"{fresh_fin_after_head_result}"
+        )
+    fresh_missing_head_flow = fresh_missing_head_result["flows"][0]
+    if (
+        fresh_missing_head_result["passed"]
+        or fresh_missing_head_flow["passed"]
+        or fresh_missing_head_flow["status"]
+        != "missing-credential-free-head"
+    ):
+        raise AssertionError(
+            "fresh flow without credential-free HEAD passed: "
+            f"{fresh_missing_head_result}"
+        )
+    if (
+        not late_result["passed"]
+        or late_result["historical_deadline_met"]
+        or late_result["status"] != "valid-late"
+        or late_result["flows"][0]["status"] != "valid-late"
+    ):
+        raise AssertionError(
+            "late valid wire profile was conflated with peer rejection: "
+            f"{late_result}"
+        )
 
     if (
         not dual_result["passed"]
@@ -1140,6 +1944,39 @@ def self_test() -> None:
     ):
         raise AssertionError(
             f"dual-flow pcap self-test did not pass: {dual_result}"
+        )
+    if not reuse_result["passed"] or reuse_result["expected_capture"] != "reuse":
+        raise AssertionError(
+            f"required reuse profile did not pass: {reuse_result}"
+        )
+    if ticket_receipt_single_result["passed"]:
+        raise AssertionError(
+            "ticket/close acquisition passed without an explicit paired profile"
+        )
+    if (
+        not ticket_receipt_reuse_result["passed"]
+        or ticket_receipt_reuse_result["paired_ticket_receipt_acquisitions"] != 1
+        or ticket_receipt_reuse_result["credential_free_liveness_connection"]
+        != "resumed"
+        or ticket_receipt_reuse_result["flows"][0]["status"]
+        != "paired-ticket-receipt-pass"
+    ):
+        raise AssertionError(
+            "paired ticket/close acquisition did not defer liveness to 0-RTT: "
+            f"{ticket_receipt_reuse_result}"
+        )
+    if (
+        not reconnect_result["passed"]
+        or not reconnect_result["bounded_one_reconnect_observed"]
+        or reconnect_result["flow_profile_order"]
+        != ["fresh", "resumed", "fresh", "resumed"]
+    ):
+        raise AssertionError(
+            f"bounded reconnect profile did not pass: {reconnect_result}"
+        )
+    if missing_reconnect_result["passed"]:
+        raise AssertionError(
+            "a single fresh/resumed pair satisfied the reconnect profile"
         )
     resumed_flow = next(
         flow for flow in dual_result["flows"] if flow["profile"] == "resumed"
@@ -1158,6 +1995,24 @@ def self_test() -> None:
         raise AssertionError(
             f"optional-CCS pcap self-test did not pass: {no_ccs_result}"
         )
+    if not early_result["passed"]:
+        raise AssertionError(
+            f"product 0-RTT pcap self-test did not pass: {early_result}"
+        )
+    early_flow = early_result["flows"][0]
+    if (
+        early_flow.get("client_early_data") is not True
+        or early_flow.get("client_finished_record_index") != 3
+        or early_flow.get("early_head_record_bytes")
+        != EARLY_HEAD_RECORD_BYTES
+        or early_flow.get("end_of_early_data_record_bytes")
+        != END_OF_EARLY_DATA_RECORD_BYTES
+        or early_flow.get("early_head_before_server_hello") is not True
+        or early_flow.get("credential_free_head_wire_observed") is not True
+    ):
+        raise AssertionError(
+            f"product 0-RTT client-record ordering drifted: {early_flow}"
+        )
     if no_ccs_result["flows"][0]["server_ccs_present"]:
         raise AssertionError("optional-CCS fixture unexpectedly reported CCS")
 
@@ -1169,7 +2024,11 @@ def self_test() -> None:
         )
     print(
         "live TLS 1.3 pcap analyzer self-test: PASS "
-        "(fresh + resumed, exact resumed 64/58-byte flight)"
+        "(fresh + resumed + product 0-RTT/EOED ordering, "
+        "reuse + bounded reconnect capture shape, "
+        "exact resumed 64/58-byte flight, "
+        "HEAD-before-FIN or paired ticket/close -> resumed-0RTT liveness, "
+        "historical deadline reported separately)"
     )
 
 
@@ -1180,6 +2039,12 @@ def main() -> int:
         "--server-ip",
         help="optional server IPv4 substring, useful on a host-wide capture",
     )
+    parser.add_argument(
+        "--expect",
+        choices=("any", "reuse", "reconnect"),
+        default="any",
+        help="required ordered product connection shape (default: any)",
+    )
     parser.add_argument("--json-out", type=Path)
     parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()
@@ -1188,15 +2053,17 @@ def main() -> int:
         return 0
     if args.pcap is None:
         parser.error("pcap is required unless --self-test is used")
-    result = analyze(args.pcap, args.server_ip)
+    result = analyze(args.pcap, args.server_ip, args.expect)
     if args.json_out is not None:
         args.json_out.write_text(
             json.dumps(result, indent=2) + "\n",
             encoding="utf-8",
         )
     print(
-        f"live TLS 1.3 wire deadline: {result['status'].upper()} "
-        f"({result['identified_live_seed_flows']} identified flow(s))"
+        f"live TLS 1.3 wire profile: {result['status'].upper()} "
+        f"({result['identified_live_seed_flows']} identified flow(s)); "
+        "historical 15-second budget="
+        f"{'MET' if result['historical_deadline_met'] else 'LATE/UNAVAILABLE'}"
     )
     for flow in result["flows"]:
         if "server_hello_to_client_finished_seconds" in flow:
@@ -1204,7 +2071,10 @@ def main() -> int:
                 "  "
                 f"{flow['client']} -> {flow['server']}: "
                 f"{flow['server_hello_to_client_finished_seconds']:.6f}s, "
-                f"margin={flow['margin_seconds']:.6f}s"
+                f"margin={flow['margin_seconds']:.6f}s, "
+                f"status={flow['status']}, "
+                "historical-budget="
+                f"{'met' if flow['historical_deadline_met'] else 'late'}"
             )
         else:
             print(f"  {flow['client']} -> {flow['server']}: {flow['status']}")

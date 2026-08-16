@@ -1,44 +1,26 @@
 # 86Box NIC Inventory
 
-The network path treats adapter support as internet readiness. Hardware setup probes
-common ISA Ethernet I/O bases, records the responding I/O base, starts
-resolving the adapter family when the base is ambiguous, and reads 3c501,
-3c503, NE1000/NE2000, and WD80x3 station-address PROMs into the handoff block
-when they validate. It also records IRQ 3 for the current 5150 86Box profiles
-after adapter family resolution. The packet path now covers all current 5150
-candidate families: 3c501, 3c503, NE1000/NE2000, and WD80x3. It initializes
-packet hardware, sends DHCPDISCOVER, waits for DHCPOFFER, parses IPv4 address,
-subnet mask, router, and DNS server, sends DHCPREQUEST, waits for DHCPACK,
-sends ARP for the DHCP-provided DNS server, resolves the selected agent host,
-selects and ARPs the TCP next hop, opens a TCP connection to port 443, and sends
-the final ACK.
+Adapter support is an end-to-end transport contract: detection, station
+address, external driver load, packet I/O, DHCP, DNS, ARP, TCP, TLS 1.3
+application records, and Default Prompt Interface reuse. PROM reads remain
+non-fatal, and inactive `.DRV` files consume no resident RAM.
 
-The current UI adds the dark `"o"` TLS-connection checkpoint, the normal `"o"`
-local crypto checkpoint, and the bright `"o"` agent/environment checkpoint.
-MDA collapses dark and normal `"o"` to the same non-bright attribute. The
-current ready screen also proves that agent interfaces came from either a valid
-FAT12 `SEED/AGENTS.CFG` file or the built-in `openai`, `anthropic`, and
-`google` fallback, and that selected agent and connection values came from
-either valid `SEED/USER.CFG` state or the question flow. With valid saved `SEED/USER.CFG`, the
-The current path also resolves the selected agent host and proves TCP 443
-connection, then runs the full TLS 1.2 / application-data path (ClientHello
-through encrypted application data) documented once in
-[../../../docs/architecture.md](../../../docs/architecture.md), "Provider
-Timing Model", then begins the minimal hardcoded OpenAI Responses
-API request path. On 1 May 2026, all seven original-speed NIC profiles
-completed that request/response proof and displayed the returned `ok`:
-`vm-net-3c501`, `vm-net-3c503`, `vm-net-ne1k`, `vm-net-ne2k8`,
-`vm-net-novell-ne1k`, `vm-net-wd8003e`, and `vm-net-wd8003eb`. On 4 May 2026,
-the 64 KiB baseline was retested before memory-slimming work:
-`vm-net-3c503`, `vm-net-ne1k`, `vm-net-ne2k8`, `vm-net-novell-ne1k`,
-`vm-net-wd8003e`, and `vm-net-wd8003eb` reached `seed build 6` and displayed
-`ok`; `vm-net-3c501` failed at agent setup and became the open valid-profile
-failure. On 7 May 2026, the 32 KiB slimming checkpoint repaired that failure
-in representative family tests: `vm-net-ne2k8`, `vm-net-3c501`,
-`vm-net-3c503`, and `vm-net-wd8003e` each displayed `ok` and reached
-`seed build 6`. The current entry path uses the same profiles
-through the ROM BASIC sidecar bootstrap while `make inspect` enforces the
-16 KiB packed-memory layout.
+OpenAI at `api.openai.com` is the only current provider route. TLS 1.3 is
+integrated and under validation; earlier TLS 1.2 request/response runs are
+driver regression history in `docs/builds.md`, not current security evidence.
+
+The current TLS acceptance matrix has two exact floors:
+
+```text
+8088 profile     4.77 MHz, exactly 16 KiB, ROM BASIC, read-only image;
+                 seven original-speed ISA NICs plus CGA/MDA vault cases
+286 conforming   6 MHz, 512 KiB conventional RAM; acquisition, offline
+                 authentication, no-0RTT PSK-DHE X25519MLKEM768 resumption
+```
+
+Every live route must return authenticated OpenAI text, reuse its committed
+session, and pass the one-attempt same-request reconnect policy. A no-card or
+no-driver profile must retain the established clean retry/restart failure.
 
 ## IBM PC 5150 Candidates
 
@@ -57,8 +39,9 @@ wd8003eb     Western Digital WD8003EB
 
 ## MCA Candidates
 
-These are available in 86Box, but they are not valid IBM PC 5150 cards. Build
-13 covers them through checked-in PS/2 Model 55SX profiles with configured NVR.
+These are available in 86Box, but they are not valid IBM PC 5150 cards. The
+current target covers them through checked-in PS/2 Model 55SX profiles with
+configured NVR.
 The NetWorth card reuses `NE.DRV`; the Western Digital cards reuse
 `WD80X3.DRV`. The WD MCA profiles use the PS/2 reference utility's `DC000`
 shared-RAM window instead of the original ISA WD `D0000` default.
@@ -121,150 +104,67 @@ rtl8139c+            Realtek RTL8139C+             covered by vm-net-rtl8139
 smc_epic100          SMC EtherPower II 9432        covered by vm-net-epic100
 ```
 
-## Current 5150 Test Profiles
+## Current test profiles
 
-All current 5150 candidate profiles were boot-tested for the TLS/API
-internet-proof checkpoint on 27 April 2026 with `USER.CFG` excluded from the
-test floppy. Each NIC-present profile reached the dark `"o"` TLS-connection
-`agent?` prompt after packet-level internet readiness and FAT12 `SEED/AGENTS.CFG`
-parsing. With a valid `SEED/USER.CFG`, the same checkpoint can skip the prompt and
-advance to the `seed build 6` splash.
-
-On 28 April 2026, ambiguous-family autodetect and the saved-config agent-prep
-path were smoke-tested with saved `SEED/USER.CFG`. NE1000/NE2000, WD8003, and 3c501
-profiles reached `seed build 6` without `adapter?`. The stricter ServerHello
-handshake proof was smoke-tested on `vm-net-3c501` and `vm-net-ne2k8`. The
-ServerHello state parser was smoke-tested on `vm-net-3c501` and `vm-net-ne2k8`;
-extension parsing and Certificate handshake header parsing were smoke-tested on
-`vm-net-3c501` and `vm-net-ne2k8`. Certificate handshake draining was
-smoke-tested across all listed NIC-present profiles. TCP receive sequence
-validation, ChaCha20-Poly1305-only cipher negotiation, ServerKeyExchange and
-P-256 public-point capture/range-check, ServerHelloDone parsing, and the live
-SHA-256 transcript context through ServerHelloDone were smoke-tested on
-`vm-net-3c501` and `vm-net-ne2k8`. ECDHE pre-master generation and TLS
-key-schedule derivation after the pre-master secret were first smoke-tested on
-`vm-net-ne2k8` on 29 April 2026.
-
-On 30 April 2026, `vm-net-ne2k8` completed the current direct OpenAI TLS path
-through encrypted server Finished verification and reached `seed build 6`.
-On 1 May 2026, all original-speed 4.77 MHz NIC profiles completed the minimal
-direct OpenAI Responses request/response proof and displayed the returned `ok`:
-`vm-net-3c501`, `vm-net-3c503`, `vm-net-ne1k`, `vm-net-ne2k8`,
-`vm-net-novell-ne1k`, `vm-net-wd8003e`, and `vm-net-wd8003eb`.
-On 4 May 2026, the 64 KiB baseline was retested before memory-slimming work:
-all valid profiles except `vm-net-3c501` reached `seed build 6` and displayed
-`ok`; `vm-net-3c501` failed at agent setup and remained open until the 32 KiB
-slimming pass. On 7 May 2026, representative 32 KiB family tests repaired that
-failure: `vm-net-ne2k8`, `vm-net-3c501`, `vm-net-3c503`, and
-`vm-net-wd8003e` each displayed `ok` and reached `seed build 6`. The 24 KiB
-ROM BASIC sidecar path later reached returned `ok` on those same
-representative families before the compact helper release; the released hex
-helper was smoke-tested through returned `ok` on `vm-net-ne2k8`.
-
-On 21 July 2026, the PCnet/LANCE expansion reached the Default Prompt
-Interface and returned `kiwi` on `vm-net-pcnetisa`, `vm-net-pcnetracal`, and
-`vm-net-pcnetisaplus`. The same checkpoint revalidated `vm-net-ne2kpnp` and
-the original-speed 16 KiB `vm-net-ne2k8` path after moving the NE PROM read
-buffer out of the hardware-setup phase image. The PCI discovery
-checkpoint also reached the Default Prompt Interface and returned `kiwi` on
-`vm-net-ne2kpci`, with `vm-net-ne2kpnp` revalidated afterward to prove fallback
-from PCI discovery to ISA PnP stayed green.
-
-On 23 July 2026, the PCI PCnet/LANCE add-in expansion reached the Default
-Prompt Interface and returned `kiwi` on `vm-net-pcnetpci` and
-`vm-net-pcnetfast`. The same checkpoint revalidated `vm-net-ne2kpci` to prove
-the Realtek PCI path still wins when present, and `vm-net-pcnetisa` to prove
-PCI discovery still falls through cleanly to ISA PCnet discovery. The Gateway
-E-1000/Tomahawk machine-integrated `pcnetfast_onboard` profile later reached
-the Default Prompt Interface and returned `ok` through the same `PCNET.DRV`
-path after the TCP application-payload wait moved from CPU-spin timing to BIOS
-ticks.
-
-The AMD PCnet-32 VLB profile (`vm-net-pcnetvlb`) uses fixed-base I/O discovery
-on the CS4031 VLB machine, then the same `PCNET.DRV` path as the ISA and PCI
-PCnet/LANCE cards. On 24 July 2026 it reached the Default Prompt Interface and
-responded to a `ready` prompt.
-
-The same day, one `TULIP.DRV` bus-master driver covered the DEC 21040, DEC
-21140, Microsoft Virtual PC 21140, and DEC 21143 Tulip profiles
-(`vm-net-dec21040`, `vm-net-dec21140`, `vm-net-dec21140vpc`, and
-`vm-net-dec21143`). Each reached the Default Prompt Interface and returned
-`ready`. Seed reads the 21040 direct ROM MAC through CSR9 byte reads and the
-21140/21143 SROM MAC through CSR9 93C46 serial EEPROM reads.
-
-The Realtek RTL8139C+ profile (`vm-net-rtl8139`) uses `RTL8139.DRV`, which
-drives the card through the legacy 8139 RX ring and TX slot registers.
-
-The SMC EtherPower II EPIC/100 profile (`vm-net-epic100`) uses
-`EPIC100.DRV`, which drives the card through its direct bus-master descriptor
-format. On 24 July 2026 it reached the Default Prompt Interface and returned
-`ok`.
-
-On 24 July 2026, MCA detection/configuration was validated on the PS/2 Model
-55SX 1.44M profiles. `vm-net-wd8003eta`, `vm-net-wd8003ea`, and
-`vm-net-wd8013epa` reached the Default Prompt Interface and returned `ready`
-through `WD80X3.DRV`; `vm-net-ethernextmc` reached the same prompt and returned
-`A:ok` through `NE.DRV`.
-
-Also on 30 April 2026, the fixed shipped agent hosts were checked against
-Seed's single current TLS path: TLS 1.2, P-256,
-ECDHE-ECDSA-CHACHA20-POLY1305 without extended master secret. `api.openai.com`,
-`api.anthropic.com`, `generativelanguage.googleapis.com`, and `openrouter.ai`
-all negotiated that path. `litellm` remains a dynamic endpoint entry and must
-point at a server with the same compatibility profile.
+The original-speed 8088-profile matrix is:
 
 ```text
-vm                   no network card; expected: red "." no network card, retry/restart menu
-vm-mda               no network card, MDA; expected: bright "." no network card, retry/restart menu
-vm-net-3c501         3Com EtherLink; expected: auto family, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, encrypted client Finished, server Finished verification, OpenAI Responses request/response, returned ok below the existing splash
-vm-net-3c503         3Com EtherLink II; expected: MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, encrypted client Finished, server Finished verification, OpenAI Responses request/response, returned ok below the existing splash
-vm-net-ne1k          NE1000-compatible; expected: auto family, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, encrypted client Finished, server Finished verification, OpenAI Responses request/response, returned ok below the existing splash
-vm-net-ne2k8         8-bit NE2000-compatible; expected: auto family, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, encrypted client Finished, server Finished verification, OpenAI Responses request/response, returned ok below the existing splash
-vm-net-ne2k          16-bit NE2000-compatible on 386SX; expected: auto family through NE.DRV, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ok
-vm-net-ne2kpci       Realtek RTL8029AS PCI on 486; expected: PCI BIOS discovery, auto family through NE.DRV, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ok
-vm-net-ne2kpnp       Realtek RTL8019AS ISA PnP on 386SX; expected: ISA PnP activation, auto family through NE.DRV, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ok
-vm-net-pcnetpci      AMD PCnet-PCI II on 486; expected: PCI BIOS discovery, auto family through PCNET.DRV, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ok
-vm-net-pcnetfast     AMD PCnet-FAST III on 486; expected: PCI BIOS discovery, auto family through PCNET.DRV, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ok
-vm-net-pcnetvlb      AMD PCnet-32 VLB on 486; expected: fixed-base I/O discovery, auto family through PCNET.DRV, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, response to ready prompt
-vm-net-pcnetfast-onboard Gateway E-1000/Tomahawk onboard AMD PCnet-FAST III on Pentium; expected: PCI BIOS discovery, auto family through PCNET.DRV, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ok
-vm-net-dec21040      DEC 21040 Tulip on 486; expected: PCI BIOS discovery, auto family through TULIP.DRV, ROM MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ready
-vm-net-dec21140      DEC 21140 Tulip on 486; expected: PCI BIOS discovery, auto family through TULIP.DRV, SROM MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ready
-vm-net-dec21140vpc   Microsoft Virtual PC DEC 21140 on 486; expected: PCI BIOS discovery, auto family through TULIP.DRV, SROM MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ready
-vm-net-dec21143      DEC 21143 Tulip on 486; expected: PCI BIOS discovery, auto family through TULIP.DRV, SROM MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ready
-vm-net-rtl8139       Realtek RTL8139C+ on 486; expected: PCI BIOS discovery, auto family through RTL8139.DRV, MAC register read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ready
-vm-net-epic100       SMC EtherPower II EPIC/100 on 486; expected: PCI BIOS discovery, auto family through EPIC100.DRV, MAC register read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ok
-vm-net-ethernextmc   NetWorth EtherNext/MC on PS/2 Model 55SX; expected: MCA POS discovery, auto family through NE.DRV, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ok/A:ok
-vm-net-wd8003eta     Western Digital WD8003ET/A on PS/2 Model 55SX; expected: MCA POS discovery, DC000 shared RAM through WD80X3.DRV, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ready
-vm-net-wd8003ea      Western Digital WD8003E/A on PS/2 Model 55SX; expected: MCA POS discovery, DC000 shared RAM through WD80X3.DRV, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ready
-vm-net-wd8013epa     Western Digital WD8013EP/A on PS/2 Model 55SX; expected: MCA POS discovery, DC000 shared RAM through WD80X3.DRV, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ready
-vm-net-novell-ne1k   Novell NE1000; expected: auto family, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, encrypted client Finished, server Finished verification, OpenAI Responses request/response, returned ok below the existing splash
-vm-net-novell-ne2k   Novell NE2000 on 386SX; expected: auto family through NE.DRV, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ok
-vm-net-de220p        D-Link DE-220P ISA PnP on 386SX; expected: ISA PnP activation, auto family through NE.DRV, MAC read, RX read check, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ok
-vm-net-pcnetisa      AMD PCnet-ISA on 386SX; expected: auto family through PCNET.DRV, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ok
-vm-net-pcnetracal    Racal EtherBlaster on 386SX; expected: auto family through PCNET.DRV, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ok
-vm-net-pcnetisaplus  AMD PCnet-ISA+ ISA PnP on 386SX; expected: ISA PnP activation, auto family through PCNET.DRV, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ok
-vm-net-wd8003e       Western Digital WD8003E; expected: auto family, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, encrypted client Finished, server Finished verification, OpenAI Responses request/response, returned ok below the existing splash
-vm-net-wd8003eb      Western Digital WD8003EB; expected: auto family, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, ServerHello, Certificate drained, ServerKeyExchange, ServerHelloDone, SHA-256 transcript context, ECDHE pre-master, TLS key schedule, ClientKeyExchange, ChangeCipherSpec, encrypted client Finished, server Finished verification, OpenAI Responses request/response, returned ok below the existing splash
-vm-net-wd8013ebt     Western Digital WD8013EBT on 386SX; expected: auto family through WD80X3.DRV, MAC read, DHCPDISCOVER/OFFER, DHCPREQUEST/ACK, DNS ARP/query, next-hop ARP, TCP connected, TLS/API path, returned ok
+vm-net-3c501        3Com EtherLink, single-buffer path
+vm-net-3c503        3Com EtherLink II
+vm-net-ne1k         NE1000-compatible
+vm-net-ne2k8        8-bit NE2000-compatible
+vm-net-novell-ne1k  Novell NE1000
+vm-net-wd8003e      Western Digital WD8003E
+vm-net-wd8003eb     Western Digital WD8003EB
 ```
 
-The WD80x3 86Box profiles must use a five-digit shared-memory address and byte
-size:
+The current read-only exact-floor 8088 profile passes all seven profiles
+through fresh use, session reuse, a 500-second idle, and one bounded reconnect.
+The exact four-flow timings are recorded in
+[`../../../docs/testing.md`](../../../docs/testing.md).
 
-```ini
-ram_addr = D0000
-ram_size = 8192
+`vm` and `vm-mda` are no-card failure gates. The MDA TLS vault also needs a
+NIC-present exact-floor profile because it disables the only text page during
+the public-object lifetime and must restore it after scrub.
+
+For every original-speed NIC, the current expected route is:
+
+```text
+family/MAC -> .DRV load -> DHCP -> DNS/ARP -> TCP
+-> TLS 1.3 8088 deadline phase -> Finished + bounded ticket receipt
+-> full FO + exact dated-leaf/CV -> resumed 0-RTT credential-free liveness
+-> status-last credential unlock
+-> authenticated OpenAI response -> session reuse -> one bounded reconnect
 ```
 
-The MCA WD profiles instead use checked-in PS/2 NVR configured by the IBM
-reference utility, and Seed reasserts their shared RAM at `DC000` during MCA POS
-setup.
+The later-machine inventory is a driver and transport regression matrix:
 
-Run a profile with:
-
-```sh
-tools/run-86box.sh vm-net-ne2k8
+```text
+NE.DRV       vm-net-ne2k, vm-net-novell-ne2k, vm-net-ne2kpnp,
+             vm-net-de220p, vm-net-ne2kpci, vm-net-ethernextmc
+WD80X3.DRV   vm-net-wd8013ebt, vm-net-wd8003eta, vm-net-wd8003ea,
+             vm-net-wd8013epa
+PCNET.DRV    vm-net-pcnetisa, vm-net-pcnetracal, vm-net-pcnetisaplus,
+             vm-net-pcnetvlb, vm-net-pcnetpci, vm-net-pcnetfast,
+             vm-net-pcnetfast-onboard
+TULIP.DRV    vm-net-dec21040, vm-net-dec21140, vm-net-dec21140vpc,
+             vm-net-dec21143
+RTL8139.DRV  vm-net-rtl8139
+EPIC100.DRV  vm-net-epic100
 ```
 
-The later ISA and PCI cards stay in the inventory, but they should be tested
-under later machine profiles instead of the original IBM PC 5150 profile.
+The conforming TLS floor is specifically a 6 MHz 286 with 512 KiB
+conventional RAM. A faster 386/486 NIC profile or the larger checked-in
+`vm-net-286` profile does not prove it. The exact run must show the
+acquisition connection, target-side offline WE1/hostname/UTC-validity/CV
+proof, full FO comparison, table generation, and status-last tentative-ticket
+promotion. The final connection must be no-0RTT PSK-DHE resumption with an
+independent genuine ML-KEM-768 + X25519 attempt, a real binder,
+`selected_identity=0`, full decapsulation, strict
+EncryptedExtensions-to-Finished, client Finished before credential
+publication, authenticated application data, reuse, and bounded reconnect.
+
+Driver-family evidence remains valid only for the hardware work it exercised.
+TLS 1.3 acceptance remains open until the current exact-floor matrix passes.
+See [`../../../docs/testing.md`](../../../docs/testing.md) for commands and
+[`../../../docs/builds.md`](../../../docs/builds.md) for dated history.

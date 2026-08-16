@@ -123,15 +123,15 @@ def assemble_connector() -> bytes:
         return output.read_bytes()
 
 
-def parse_connector(image: bytes) -> tuple[int, int, int]:
+def parse_connector(image: bytes) -> tuple[int, int, int, int]:
     if image[:4] != b"RHC1":
         raise AssertionError("cached connector magic mismatch")
     version, image_bytes, entry_count = struct.unpack_from("<3H", image, 4)
-    entries = struct.unpack_from("<3H", image, 10)
+    entries = struct.unpack_from("<4H", image, 10)
     if (
         version != 1
         or image_bytes != len(image)
-        or entry_count != 3
+        or entry_count != 4
         or len(image) > SECTOR
         or not all(
             CONNECT_ORIGIN <= entry < CONNECT_ORIGIN + len(image)
@@ -392,6 +392,18 @@ def main() -> None:
         hello_header.sha_end - hello_header.sha_start,
     )
     machine.header = connector_header
+    machine.write(H.HANDOFF_NIC_BASE, (0x0280).to_bytes(2, "little"))
+    machine.write(H.HANDOFF_NIC_FAMILY, bytes([H.FAMILY_3C501]))
+    machine.call(3, bx=0x0280)
+    events.append("cached_phase.entry3:3c501_status_read_and_rearm")
+    if machine.el1_prime_events != [
+        ("in", 0x0280, 0x20),
+        ("out", 0x028A, 0),
+        ("out", 0x0286, H.EL1_RX_CMD_GOOD),
+    ]:
+        raise AssertionError(
+            "post-auth 3c501 prime did not read status before rearming RX"
+        )
     machine.call(0)
     events.append("cached_phase.entry0:connect")
     if len(machine.transmit_calls) != 1 or machine.ack_calls != 1:
@@ -582,6 +594,12 @@ def main() -> None:
             "overwritten_by_later_rx": True,
             "header_entry_table_file_offset": 10,
             "entries": [f"0x{entry:04x}" for entry in connector_entries],
+            "3c501_prime_entry": f"0x{connector_entries[3]:04x}",
+            "3c501_prime_order": [
+                "read_receive_status",
+                "clear_receive_pointer",
+                "restore_receive_command",
+            ],
         },
         "resumed_hello": {
             "defines": ["TLS13_POC_K14", *HELLO_DEFINES],
@@ -651,6 +669,7 @@ def main() -> None:
             "full_clienthello_prehashed_before_connect": True,
             "hello_rewound_before_connect": True,
             "cached_connector_is_ninth_sector": True,
+            "cached_connector_3c501_status_read_before_rearm": True,
             "connector_preserves_low_hello_state": True,
             "connector_preserves_sha_context": True,
             "connector_overwritten_by_later_rx": True,

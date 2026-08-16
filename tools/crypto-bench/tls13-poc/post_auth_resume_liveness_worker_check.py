@@ -258,8 +258,17 @@ def static_gate(worker: bytes, symbols: dict[str, int], build: Path) -> dict[str
     ):
         raise AssertionError("worker header geometry drifted")
     source = SOURCE.read_text(encoding="utf-8")
-    if re.search(r"(?m)^[ \t]*(int|in|out)[ \t]+", source):
+    if re.search(
+        r"(?m)^[ \t]*(int|in|out)[ \t]+",
+        source,
+    ):
         raise AssertionError("worker contains direct BIOS/port I/O")
+    if not re.search(
+        r"(?m)^resume_liveness_code:\n"
+        r"(?:[ \t]*;[^\n]*\n)*[ \t]*sti\b",
+        source,
+    ):
+        raise AssertionError("worker does not establish IF before HLT waits")
 
     disassembler = Cs(CS_ARCH_X86, CS_MODE_16)
     decoded = list(disassembler.disasm(worker, WORKER_ORIGIN))
@@ -322,8 +331,6 @@ def run_case(
     *,
     operation: int = 8,
     ticket_marker: int = 1,
-    flush_samples: tuple[int, ...] = (4, 2, 1, 0),
-    nic_fail_at: int | None = None,
     tcp_fail_at: int | None = None,
     ack_fail_at: int | None = None,
 ) -> RunResult:
@@ -392,29 +399,10 @@ def run_case(
 
     events: list[str] = []
     fragment_index = 0
-    flush_index = 0
     ack_count = 0
     parse_calls = 0
     process_calls = 0
     reached_after = False
-
-    def nic_receive(
-        uc: Uc, _address: int, _size: int, _user: object
-    ) -> None:
-        nonlocal flush_index
-        events.append("flush")
-        if nic_fail_at == flush_index:
-            set_carry(uc, True)
-        else:
-            sample = (
-                flush_samples[flush_index]
-                if flush_index < len(flush_samples)
-                else 0
-            )
-            uc.mem_write(RX_SAMPLE_COUNT, struct.pack("<H", sample))
-            set_carry(uc, False)
-        flush_index += 1
-        set_df(uc, True)
 
     def tcp_receive_hook(
         uc: Uc, _address: int, _size: int, _user: object
@@ -468,7 +456,6 @@ def run_case(
         uc.emu_stop()
 
     for address, callback in (
-        (NIC_RECEIVE, nic_receive),
         (TCP_RECEIVE, tcp_receive_hook),
         (TCP_ACK, ack_hook),
         (entries[12], parse_hook),
@@ -631,9 +618,12 @@ def run_gate() -> dict[str, object]:
         if not (
             len(fragments[0]) == 1
             and any(len(fragment) == 1 for fragment in fragments)
-            and result.events[:4] == ("flush", "flush", "flush", "flush")
+            and result.events[0] == "ack"
+            and "flush" not in result.events
         ):
-            raise AssertionError("fragment/retransmit success did not hit hostile seams")
+            raise AssertionError(
+                "queued-response success did not open the window before receive"
+            )
         passed.append("fragmented_headers_tags_two_nsts_404")
 
         for status in (b"200 OK", b"503 Busy"):
@@ -780,12 +770,6 @@ def run_gate() -> dict[str, object]:
         hostile("missing_spent_ticket_marker", valid_http, marker=0)
         hostile("unspent_early_ticket_marker", valid_http, marker=2)
         hostile("wrong_operation", valid_http, operation=7)
-        hostile("nic_receive_failure", valid_http, nic_fail_at=0)
-        hostile(
-            "retransmit_flush_bound",
-            valid_http,
-            flush_samples=tuple([1] * 257),
-        )
         hostile("window_ack_failure", valid_http, ack_fail_at=0)
         hostile("tcp_receive_failure", valid_http, tcp_fail_at=0)
         hostile("fragment_ack_failure", valid_http, ack_fail_at=1)
@@ -852,6 +836,7 @@ def run_gate() -> dict[str, object]:
                 "liveness requires and preserves the spent normal-only ticket marker 1",
                 "authenticated HTTP 425 is rejected across TLS/TCP fragmentation",
                 "TLS headers, ciphertext, tags, HTTP fields, and CRLFCRLF may cross arbitrary TCP/TLS seams",
+                "window-open precedes receive without discarding an already-queued exact-sequence response",
                 "window-open and every fully consumed TCP fragment are ACKed",
                 "failure scrubs quarantine/parser state and returns only to fixed 0x0f30",
             ],

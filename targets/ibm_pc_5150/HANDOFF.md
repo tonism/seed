@@ -58,7 +58,8 @@ RAM tier     derived from RAM top (0x2c): < 32 KiB = 16K tier, >= 32 KiB = 32K t
              arena/context through the memory-reach tiers.)
 NIC family   0x10, used to select the active adapter path.
 CPU class    flags bit handoff_flag_cpu_286plus (0x0010): set when the CPU is a 286 or
-             better (hardware_setup's FLAGS bits-12-15 test) — gates the secure tier.
+             better (hardware_setup's FLAGS bits-12-15 test). The conforming
+             TLS tier additionally requires BDA conventional memory >=512 KiB.
              flags bit handoff_flag_cpu_386plus (0x0080): set when the CPU supports the
              386+ unreal-mode memory tier.
 HMA          flags bit handoff_flag_hma (0x0100): A20 was enabled and the HMA direct
@@ -76,11 +77,13 @@ FPU present      flags bit 0x0020; held but inert (the FPU does not unlock
 link type        wired / Wi-Fi — selects driver + setup-UI family (no Wi-Fi yet).
 ```
 
-The CPU-class **gate** rides a free `flags` bit on purpose: the struct is
+The CPU-class **fact** rides a free `flags` bit on purpose: the struct is
 **full-packed** (it ends at `0x2e`, and `low_runtime_state` begins immediately there
 and runs packed to the `0x0700` phase window), so a dedicated *byte* would have to
 grow the struct and reclaim low-runtime-state slack first. A single bit is all the
-secure tier's gate needs, so it avoids that. Promoting CPU class to a richer field,
+CPU test needs, so it avoids that. `handoff_ram_top` is only the low entry
+ceiling and must not be used for the 512 KiB TLS gate; read the BDA
+conventional-memory word. Promoting CPU class to a richer field,
 or allocating FPU / link-type as bytes, is the job of the session that adds a
 consumer needing the finer value: bump the struct version, append the field(s), and
 re-verify the low scratch fits via `tools/check-layout.py`.
@@ -92,7 +95,7 @@ re-verify the low scratch fits via `tools/check-layout.py`.
 0x0002  NIC responded
 0x0004  adapter family resolved
 0x0008  MAC address valid
-0x0010  CPU is 286 or better (handoff_flag_cpu_286plus) — gates the secure tier
+0x0010  CPU is 286 or better; conforming TLS also requires BDA RAM >=512 KiB
 0x0020  FPU present (reserved; held but inert — the FPU does not unlock secure crypto)
 0x0040  reserved writable-media hint (handoff_flag_writable_media); startup does not probe or write
 0x0080  CPU is 386 or better (handoff_flag_cpu_386plus) — gates unreal setup
@@ -172,6 +175,13 @@ re-verify the low scratch fits via `tools/check-layout.py`.
 35 encrypted TLS server Finished authenticated, decrypted, and verified
 ```
 
+Values 21–35 are retained legacy TLS 1.2 diagnostic values in structure
+version 4. The TLS 1.3 product routes do not expose their internal
+provisional/quarantine/committed security state through this byte: that would
+let a compatibility diagnostic become an authority boundary. Their capability
+publication is private, redundant, status-last state, and the handoff reaches
+ordinary ready only after product dispatch returns success.
+
 ## Network Error
 
 ```text
@@ -222,22 +232,25 @@ DNS response, or SYN-ACK is observed during the bounded waits, the dark `","`
 internet phase fails into the network setup error path with the corresponding
 status and network error.
 
-The TLS-connection phase follows the dark `","` internet phase. It uses a dark `"o"` for
-TLS connection prep, switches to a normal `"o"` for local ECDHE/key
-material derivation, and switches to a bright `"o"` after the TLS
-proof succeeds. On MDA, dark and normal `"o"` both render non-bright. This phase
-covers the network readiness states for TCP payload send/receive and the
-TLS handshake proof. It parses up to five `SEED/AGENTS.CFG` `agent ` declarations and falls
-back to built-in `openai`, `anthropic`, and `google` when that file is missing
-or bad. It validates a saved `SEED/USER.CFG` selected-agent choice when present, asks
-`agent?` when that choice is missing or invalid, asks `server?` and `key?` on
-one form when both selected-agent connection values are required, preserves
-saved model and reasoning values when present, resolves the selected agent
-host, proves TCP 443 connection, then runs the full TLS 1.2 / application-data
-path (ClientHello through encrypted application data) documented once in
-[../../docs/architecture.md](../../docs/architecture.md), "Provider Timing
-Model", advancing the network-readiness states above, and only then finishes
-writing the validated values back best-effort.
+The TLS phase follows the dark `","` internet phase. It uses a dark `"o"` for
+connection prep, a normal `"o"` for local key/proof work, and a bright `"o"`
+only after the selected TLS 1.3 route commits. On MDA, the 8088 profile
+temporarily disables output while its public vault owns the only text page,
+then scrubs and redraws it.
+
+OpenAI is the only current provider route. The runtime validates the shipped
+declaration and optional saved OpenAI values, resolves `api.openai.com`, and
+dispatches by CPU/RAM capability. Pre-286 uses the 8088 cold K14 route;
+CPU286+ with BDA conventional memory >=512 KiB uses the fully conforming
+`X25519MLKEM768` acquisition/offline-auth/no-0RTT-resumption route. Its
+tentative same-boot ticket is promoted only after full FO and
+WE1/hostname/UTC/CV proof; the final connection uses independent hybrid keys
+and publishes credentials only after resumed Finished verification. There is
+no TLS 1.2 fallback and no downgrade between profiles after admission.
+
+The handoff does not contain tickets, certificate pins, entropy bundles,
+traffic secrets, or credential-unlock state. Those are private TLS state and
+are erased on failure or restart.
 If agent endpoint reachability fails, status is set to 5 and Seed enters the
 agent setup error path before the ready splash.
 

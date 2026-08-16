@@ -16,6 +16,38 @@
 bits 16
 cpu 8086
 
+%include "tls13/k14_product_emergency_vault.inc"
+
+; The BIOS-tick samples are PoC/trace telemetry, not product state.  Their
+; historical scratch addresses overlap the resident reconnect block in the
+; integrated 16 KiB runtime, so the authoritative non-trace product route must
+; not touch them.  Keep the standalone PoC observations and the isolated
+; timing-diagnostic controller used by the 273/274-tick parity gate.
+%ifndef LIVE_K15_PRODUCT_MODE
+%define LIVE_K15_TIMING_TELEMETRY
+%elifdef LIVE_K15_TIMING_DIAGNOSTIC
+%define LIVE_K15_TIMING_TELEMETRY
+%endif
+
+; Product protected/post controllers build their own last-packet zero-window
+; ACK.  Keeping this leaf with the controller that uses it leaves the
+; phase-invariant 0x355d tail available for the disk-independent abort
+; capsule.  CX=0 remains live through the frame builder, and changing the
+; wire window from 0x0100 to zero adds one to the one's-complement checksum.
+%macro K14_PRODUCT_ZERO_WINDOW 0
+    mov al, 0x10
+    xor cx, cx
+    mov si, tcp_remote_ack
+    call res_build_tcp_frame
+    and word [tcp_window_word], byte 0
+    inc word [tcp_checksum_word]
+    jnz %%checksum_ready
+    inc word [tcp_checksum_word]
+%%checksum_ready:
+    mov si, ne_tx_frame
+    call word [res_nic_vt_transmit]
+%endmacro
+
 %ifdef LIVE_K15_BOOTSTRAP
 
 %ifndef LIVE_K15_SCHEDULER_LBA
@@ -110,6 +142,9 @@ live_boot_text db 13,10,'K15 boot',13,10,0
 %ifndef LIVE_K15_HELLO_CONTROLLER_KEY
 %error "live phase keys are required"
 %endif
+%ifndef LIVE_K15_TCP_CLOSE_CACHED_ENTRY
+%error "product-derived cached TCP close entry is required"
+%endif
 %ifdef LIVE_K15_SECURE_FO
 %ifndef LIVE_K15_SECURE_SYM_CONTROLLER_KEY
 %error "secure FO requires the card-resident symmetric controller phase"
@@ -123,6 +158,38 @@ live_boot_text db 13,10,'K15 boot',13,10,0
 %ifndef LIVE_K15_SECURE_PRECONNECT_KEY
 %error "secure FO requires the pre-connect continuation phase"
 %endif
+%ifdef LIVE_K15_PRODUCT_MODE
+%ifndef LIVE_K15_VAULT_LIFECYCLE_KEY
+%error "product mode requires the public-vault lifecycle phase"
+%endif
+%ifndef LIVE_K15_VAULT_LIFECYCLE_STAGE
+%error "product mode requires the public-vault lifecycle stage"
+%endif
+%ifndef LIVE_K15_VAULT_BEGIN
+%error "product mode requires the public-vault begin callback"
+%endif
+%ifndef LIVE_K15_VAULT_ZEROIZE
+%error "product mode requires the public-vault zeroize callback"
+%endif
+%ifndef LIVE_K15_VAULT_ACCESS_KEY
+%error "product mode requires the public-vault access phase"
+%endif
+%ifndef LIVE_K15_VAULT_ACCESS_STAGE
+%error "product mode requires the public-vault access stage"
+%endif
+%ifndef LIVE_K15_CONFIG_ESCROW_KEY
+%error "product mode requires the config-escrow phase"
+%endif
+%ifndef LIVE_K15_CONFIG_ESCROW_STAGE
+%error "product mode requires the config-escrow stage"
+%endif
+%ifndef LIVE_K15_CONFIG_ESCROW_SAVE
+%error "product mode requires the config-escrow save callback"
+%endif
+%ifndef LIVE_K15_CONFIG_ESCROW_RESTORE
+%error "product mode requires the config-escrow restore callback"
+%endif
+%endif
 %endif
 
 org 0x3400
@@ -130,7 +197,7 @@ org 0x3400
 res_load_phase               equ 0x10c4
 res_nic_vt_enter             equ 0x15db
 tcp_connect_entry            equ 0x0900
-tcp_close_cached_entry       equ 0x0941
+tcp_close_cached_entry       equ LIVE_K15_TCP_CLOSE_CACHED_ENTRY
 attempt_cache                equ 0x3b9c
 reconnect_retries            equ 0x3c9d
 compacting_msg               equ 0x3c9f
@@ -150,13 +217,57 @@ secure_handoff_b_page       equ 0x7f
 
 live_boot_controller:
     cld
+%ifndef LIVE_K15_PRODUCT_MODE
     mov si, live_net_text
     call live_emit
+%endif
 
+    ; Driver enter/restore hooks have no status-return contract.  They may be
+    ; pure windowing/no-op leaves and leave CF in either state.
+    ; AL is the explicit dispatcher mode (0=cold post-config, 1=reconnect).
+    ; The state-guard phase has already consumed it for prompt handling, but
+    ; reject every other value at the product boundary. Preserve AL across a
+    ; driver hook whose general-register clobber set is deliberately broad.
+%ifdef LIVE_K15_PRODUCT_MODE
+    push ax
+%endif
     call word [res_nic_vt_enter]
+%ifdef LIVE_K15_PRODUCT_MODE
+    pop ax
+    cmp al, 1
+    ja live_fail
+%else
     jc live_fail
+%endif
 
 %ifdef LIVE_K15_SECURE_FO
+%ifdef LIVE_K15_PRODUCT_MODE
+    ; Start a fresh volatile lifecycle before any vault read/write.  The full
+    ; checked access image is installed only after entropy; it is retired
+    ; before the live socket opens, after publishing a verified raw epoch.
+    mov ax, LIVE_K15_VAULT_LIFECYCLE_KEY
+    mov bx, LIVE_K15_VAULT_LIFECYCLE_STAGE
+    call res_load_phase
+    jc live_fail
+    mov dx, [0x046c]
+    or dx, dx
+    jnz .vault_generation_ready
+    inc dx
+.vault_generation_ready:
+    call LIVE_K15_VAULT_BEGIN
+    jc live_fail
+    ; Both cold post-config setup and reconnect already have populated model
+    ; and key caches. Preserve those 256 bytes plus the exact five-byte
+    ; UI/control survivor vector before any K14 overlay can retire them.
+    mov ax, LIVE_K15_CONFIG_ESCROW_KEY
+    mov bx, LIVE_K15_CONFIG_ESCROW_STAGE
+    push dx
+    call res_load_phase
+    pop dx
+    jc live_fail
+    call LIVE_K15_CONFIG_ESCROW_SAVE
+    jc live_fail
+%else
     ; The secure artifact is deliberately NE2000-only.  Its live-only packet
     ; init patch shrinks PSTOP from 0x80 to 0x73, reserving the remaining
     ; volatile card RAM without changing the packaged driver.
@@ -206,10 +317,12 @@ live_boot_controller:
     jmp live_fail
 .secure_scrub_done:
 %endif
+%endif
 
-    ; Preload the complete symmetric image before opening any socket.  HELLO
-    ; and candidate later dirty only its checked prefix; the critical path
-    ; restores exactly LIVE_K15_SYM_RESTORE_KEY.
+    ; Preload the complete symmetric image before opening any socket.  Product
+    ; mode later restores the two sectors temporarily used by the checked
+    ; access leaf before entering raw mode, so the critical loader needs only
+    ; the eight-sector HELLO/candidate prefix.
     mov ax, LIVE_K15_SYM_KEY
     mov bx, 0x1800
     call res_load_phase
@@ -233,12 +346,26 @@ live_boot_controller:
     mov bx, 0x0900
     call res_load_phase
     jc live_fail
+%ifndef LIVE_K15_PRODUCT_MODE
     mov si, live_entropy_ready_text
     call live_emit
+%endif
     call word [0x0910]
     jc live_fail
+%ifndef LIVE_K15_PRODUCT_MODE
     mov si, live_entropy_pass_text
     call live_emit
+%endif
+%ifdef LIVE_K15_PRODUCT_MODE
+    ; Establish one checked access image after entropy returns.  Its 0x2800
+    ; pin is disjoint from the preconnect controller, KeyGen, HELLO, HELLO's
+    ; controller staging, and candidate polynomial work.  It remains valid
+    ; through the final page-73 read immediately before symmetric restore.
+    mov ax, LIVE_K15_VAULT_ACCESS_KEY
+    mov bx, LIVE_K15_VAULT_ACCESS_STAGE
+    call res_load_phase
+    jc live_fail
+%endif
     jmp 0x2400
 %else
     ; Credential-free endpoint setup: the retained production endpoint phase
@@ -331,6 +458,7 @@ live_pre_sym_transition_len equ \
     live_pre_sym_transition_end - live_pre_sym_transition_source
 %endif
 
+%ifndef LIVE_K15_PRODUCT_MODE
 live_serial_init:
     mov dx, 0x03fb
     mov al, 0x80
@@ -348,8 +476,12 @@ live_serial_init:
     mov al, 0x03
     out dx, al
     ret
+%endif
 
 live_emit:
+%ifdef LIVE_K15_PRODUCT_MODE
+    ret
+%else
     ; Product endpoint/DNS setup changes the UART-adjacent low state that
     ; corrupted the old 0x0f00 diagnostic copy.  Reinitializing at each string
     ; also makes a dropped diagnostic line fail independently.
@@ -362,7 +494,9 @@ live_emit:
     jmp short .next
 .done:
     ret
+%endif
 
+%ifndef LIVE_K15_PRODUCT_MODE
 live_putchar:
     push ax
     push bx
@@ -390,6 +524,7 @@ live_putchar:
     pop bx
     pop ax
     ret
+%endif
 
 %ifndef LIVE_K15_SECURE_FO
 live_emit_hex16:
@@ -423,6 +558,10 @@ live_emit_hex16:
 ; sources RSAR1 from ne_tx_start, so temporarily substitute the vault page.
 ; POP/MOV preserve the driver's carry result while restoring normal TX page.
 live_secure_card_write:
+%ifdef LIVE_K15_PRODUCT_MODE
+    call LIVE_K15_NE_BUF_LOAD
+    ret
+%else
     mov ah, [ne_tx_start]
     push ax
     mov [ne_tx_start], al
@@ -433,15 +572,41 @@ live_secure_card_write:
 live_secure_card_write_restored:
     ret
 %endif
+%endif
+
 
 live_fail:
+%ifdef LIVE_K15_PRODUCT_MODE
+    mov byte [0x06c4], 0
+    mov ax, LIVE_K15_CONFIG_ESCROW_KEY
+    mov bx, LIVE_K15_CONFIG_ESCROW_STAGE
+    call res_load_phase
+    jc .product_emergency
+    call LIVE_K15_CONFIG_ESCROW_RESTORE
+    jc .product_emergency
+    mov ax, LIVE_K15_VAULT_LIFECYCLE_KEY
+    mov bx, LIVE_K15_VAULT_LIFECYCLE_STAGE
+    call res_load_phase
+    jc .product_emergency
+    call LIVE_K15_VAULT_ZEROIZE
+    jc .product_emergency
+    jmp short .product_return
+.product_emergency:
+    call live_product_emergency_vault_zeroize
+.product_return:
+    xor ax, ax
+    stc
+    ret
+%else
     mov si, live_fail_text
     call live_emit
 .halt:
     sti
     hlt
     jmp short .halt
+%endif
 
+%ifndef LIVE_K15_PRODUCT_MODE
 live_fail_text db 13,10,'FAIL',13,10,'RESULT',13,10,0
 
 %ifdef LIVE_K15_SECURE_FO
@@ -453,6 +618,11 @@ live_net_text       db 'K15 net ready',13,10,0
 live_preflight_text db 'preflight cache',13,10,0
 live_keygen_text    db 'offline keygen',13,10,0
 live_connect_text   db 'live connect',13,10,0
+%endif
+%endif
+
+%ifdef LIVE_K15_PRODUCT_MODE
+K14_PRODUCT_EMERGENCY_VAULT_ROUTINE live_product_emergency_vault_zeroize
 %endif
 
 %elifdef LIVE_K15_SECURE_PRECONNECT_CONTROLLER
@@ -487,15 +657,51 @@ live_connect_text   db 'live connect',13,10,0
 %ifndef LIVE_K15_NE_BUF_LOAD
 %error "secure pre-connect continuation requires card-write service"
 %endif
+%ifndef LIVE_K15_TCP_CLOSE_CACHED_ENTRY
+%error "product-derived cached TCP close entry is required"
+%endif
+%ifdef LIVE_K15_PRODUCT_MODE
+%ifndef LIVE_K15_VAULT_LIFECYCLE_KEY
+%error "product pre-connect continuation requires the vault lifecycle phase"
+%endif
+%ifndef LIVE_K15_VAULT_LIFECYCLE_STAGE
+%error "product pre-connect continuation requires the vault lifecycle stage"
+%endif
+%ifndef LIVE_K15_VAULT_ZEROIZE
+%error "product pre-connect continuation requires vault zeroize"
+%endif
+%ifndef LIVE_K15_CONFIG_ESCROW_KEY
+%error "product pre-connect continuation requires the config-escrow phase"
+%endif
+%ifndef LIVE_K15_CONFIG_ESCROW_STAGE
+%error "product pre-connect continuation requires the config-escrow stage"
+%endif
+%ifndef LIVE_K15_CONFIG_ESCROW_RESTORE
+%error "product pre-connect continuation requires config restore"
+%endif
+%ifndef LIVE_K15_VAULT_ACCESS_KEY
+%error "product pre-connect continuation requires the vault access phase"
+%endif
+%ifndef LIVE_K15_VAULT_ACCESS_STAGE
+%error "product pre-connect continuation requires the vault access stage"
+%endif
+%ifndef LIVE_K15_VAULT_ENTER_RAW_OFFSET
+%error "product pre-connect continuation requires the raw-mode entry offset"
+%endif
+%ifndef LIVE_K15_SYM_ACCESS_RESTORE_KEY
+%error "product pre-connect continuation requires the off-window symmetric restore"
+%endif
+%else
 %ifndef LIVE_K15_PREPARE_INTERNET
 %error "secure pre-connect continuation requires pre-network DHCP entry"
+%endif
 %endif
 
 org 0x2400
 
 res_load_phase                 equ 0x10c4
 tcp_connect_entry              equ 0x0900
-tcp_close_cached_entry         equ 0x0941
+tcp_close_cached_entry         equ LIVE_K15_TCP_CLOSE_CACHED_ENTRY
 attempt_cache                  equ 0x3b9c
 reconnect_retries              equ 0x3c9d
 compacting_msg                 equ 0x3c9f
@@ -534,30 +740,69 @@ live_secure_preconnect_controller:
     call LIVE_K15_BOOT_CARD_WRITE
     jc preconnect_failed
 
-    ; The live controller now takes over immediately before the product's
-    ; first DHCP call.  Only after both complete entropy bundles are duplicated
-    ; into volatile card RAM may network-controlled work reuse the low output
-    ; window.  The product routine performs DHCP and restores the NIC vtable;
-    ; any failure joins the existing full local/card scrub.
+    ; Only after both complete entropy bundles are duplicated into the
+    ; volatile vault may network-controlled work reuse the low output window.
+    ; Integrated product startup already acquired and validated the same-boot
+    ; DHCP lease before agent setup. Re-running DHCP here is both redundant
+    ; and incorrect: stale frames from the prior TLS route can exhaust its
+    ; deliberately tiny boot-time receive poll. Preserve the product lease
+    ; tuple at 0x0600..0x062d and let endpoint/TCP prove current liveness.
+    ;
+    ; The standalone research artifact enters before normal Seed networking,
+    ; so it retains its byte-exact resident wrapper call.
+%ifndef LIVE_K15_PRODUCT_MODE
     call LIVE_K15_PREPARE_INTERNET
     jc preconnect_failed
+%endif
 
     ; Endpoint/DNS setup and the cached TCP preflight must complete before
     ; KeyGen.  Both product paths use the exact high TLS scratch at
     ; 0x36c2..0x3b8f, which overlaps the live ML-KEM private key at
     ; 0x3600..0x3b00.  Generating the key first silently corrupts decapsulation
     ; even though the public encapsulation key remains intact.
+%ifndef LIVE_K15_PRODUCT_MODE
+    ; The standalone PoC owns its retry/compaction state.  Integrated product
+    ; mode is called by the resident scheduler, which has already published a
+    ; one-replay budget and may be in the first half of a compaction turn.
+    ; Clobbering either byte here converts the first failed response into an
+    ; immediate fatal return and can also skip the real turn after compaction.
     mov byte [reconnect_retries], 3
     mov byte [compacting_msg], 0
+%endif
+%ifdef LIVE_K15_PRODUCT_MODE
+    ; The MDA vault is active and no BIOS/direct display path may run.  Reuse
+    ; the endpoint phase's established quiet-reconnect sentinel so a live
+    ; handoff cannot emit its normal mid-chat status line.
+    mov byte [0x06c4], 2
+%endif
     mov ax, LIVE_K15_ENDPOINT_KEY
     mov bx, 0x0700
     call res_load_phase
     jc preconnect_failed
+%ifdef LIVE_K15_PRODUCT_MODE
+    ; The resident product scheduler owns the one-replay counter.  Its second
+    ; route deliberately enters with zero after consuming that budget, while
+    ; the legacy E phase interprets zero as a request to draw the terminal
+    ; "reconnect failed" line before building the immutable OpenAI QNAME.
+    ; Video RAM is the active 16 KiB vault here, so that UI path is both stale
+    ; policy and unsafe.  Present a nonzero value only for this in-memory E
+    ; call, then restore the scheduler byte before testing E's carry result.
+    ; POP/MOV preserve CF, and no asynchronous code consumes this byte.
+    mov al, [reconnect_retries]
+    push ax
+    mov byte [reconnect_retries], 1
+%endif
     call 0x0700
+%ifdef LIVE_K15_PRODUCT_MODE
+    pop ax
+    mov [reconnect_retries], al
+%endif
     jc preconnect_failed
 
+%ifndef LIVE_K15_PRODUCT_MODE
     mov si, preconnect_cache_text
     call LIVE_K15_BOOT_EMIT
+%endif
     mov ax, LIVE_K15_TCP_KEY
     mov bx, 0x0900
     call res_load_phase
@@ -604,14 +849,15 @@ live_secure_preconnect_controller:
     mov bx, 0x1800
     call res_load_phase
     jc preconnect_failed
+%ifndef LIVE_K15_PRODUCT_MODE
     mov si, preconnect_keygen_text
     call LIVE_K15_BOOT_EMIT
+%endif
     call 0x1800
-
     ; FO validation is deliberately deferred until after authenticated HEAD
     ; and ticket processing.  Preserve the public encapsulation key for that
-    ; later re-encryption check; unlike the old ordering, HELLO can use the
-    ; live low copy directly and no card read is needed on the critical path.
+    ; later re-encryption check.  HELLO can use the live low copy directly;
+    ; product mode keeps every intervening phase outside 0x08c0..0x0d5f.
     mov al, secure_ek_card_page
     mov si, 0x08c0
     mov bp, 1184
@@ -623,6 +869,26 @@ live_secure_preconnect_controller:
     mov cx, 32
     rep movsw
 
+%ifdef LIVE_K15_PRODUCT_MODE
+    ; The checked leaf has now committed entropy and ek.  KeyGen's retired
+    ; 1800..23ff code band can hold the three-sector relocatable lifecycle
+    ; image without touching either its 08c0..0d5f public output or the live
+    ; 2400 continuation.  Validate the complete vault and publish raw mode
+    ; status-last, then restore the two symmetric sectors that the 2800 access
+    ; lease occupied.  Both reads precede the live cached connection and
+    ; therefore sit outside the provider deadline.
+    mov ax, LIVE_K15_VAULT_LIFECYCLE_KEY
+    mov bx, 0x1800
+    call res_load_phase
+    jc preconnect_failed
+    call 0x1800 + LIVE_K15_VAULT_ENTER_RAW_OFFSET
+    jc preconnect_failed
+    mov ax, LIVE_K15_SYM_ACCESS_RESTORE_KEY
+    mov bx, LIVE_K15_VAULT_ACCESS_STAGE
+    call res_load_phase
+    jc preconnect_failed
+%endif
+
     ; TCP's exact three-sector load ends at 0x0f00 and therefore overwrote
     ; the low generic installer slot.  Install it only now, after every low
     ; product overlay has retired but before HELLO overwrites this controller.
@@ -631,8 +897,10 @@ live_secure_preconnect_controller:
     mov cx, preconnect_generic_installer_len
     rep movsb
 
+%ifndef LIVE_K15_PRODUCT_MODE
     mov si, preconnect_live_text
     call LIVE_K15_BOOT_EMIT
+%endif
     ; HELLO's full eight-sector load overwrites this 0x2400 continuation.
     ; The already-relocated low transition remains live across that overwrite.
     mov ax, LIVE_K15_HELLO_KEY
@@ -672,11 +940,12 @@ preconnect_transition_failed_source:
     mov cx, 0x0b37
     rep stosb
     mov di, 0x3000
-    mov cx, 0x0400
+    ; This continuation already executes from 0x0f00.  The 0x3400 controller
+    ; is retired on this failure edge, so erase its former slot together with
+    ; the adjacent staging/high-state bands in one bounded pass.
+    mov cx, 0x0b00
     rep stosb
-    mov di, 0x3600
-    mov cx, 0x0500
-    rep stosb
+%ifndef LIVE_K15_PRODUCT_MODE
     mov di, attempt_cache
     mov cx, 0x0040
     rep stosb
@@ -699,6 +968,37 @@ preconnect_transition_failed_source:
     pop bx
     mov [ne_tx_start], bl
     ret
+%else
+    ; This retained low continuation is the only code guaranteed to survive
+    ; both a preconnect failure and replacement of the 0x3400 controller by
+    ; HELLO. Restore application config, erase the complete vault, and return
+    ; directly to the dispatcher. Every fallible phase read joins the
+    ; disk-independent emergency clear below.
+    mov byte [0x06c4], 0
+    mov ax, LIVE_K15_CONFIG_ESCROW_KEY
+    mov bx, LIVE_K15_CONFIG_ESCROW_STAGE
+    mov dx, res_load_phase
+    call dx
+    jc .emergency
+    mov dx, LIVE_K15_CONFIG_ESCROW_RESTORE
+    call dx
+    jc .emergency
+    mov ax, LIVE_K15_VAULT_LIFECYCLE_KEY
+    mov bx, LIVE_K15_VAULT_LIFECYCLE_STAGE
+    mov dx, res_load_phase
+    call dx
+    jc .emergency
+    mov dx, LIVE_K15_VAULT_ZEROIZE
+    call dx
+    jnc .return
+.emergency:
+    call .emergency_vault
+.return:
+    xor ax, ax
+    stc
+    ret
+K14_PRODUCT_EMERGENCY_VAULT_ROUTINE .emergency_vault
+%endif
 preconnect_transition_end:
 preconnect_transition_len equ \
     preconnect_transition_end - preconnect_transition_source
@@ -755,9 +1055,11 @@ preconnect_generic_installer_len equ \
 %error "generic transition would overwrite the retained failure scrub"
 %endif
 
+%ifndef LIVE_K15_PRODUCT_MODE
 preconnect_keygen_text db 'offline keygen',13,10,0
 preconnect_cache_text  db 'preflight cache',13,10,0
 preconnect_live_text   db 'live connect',13,10,0
+%endif
 
 ; Every controller-resident failure joins the already-relocated scrub.  It
 ; erases the exact retired KeyGen image and output/work ranges plus complete
@@ -767,8 +1069,14 @@ preconnect_failed:
     mov dx, preconnect_transition_failed
     jmp dx
 
+%ifdef LIVE_K15_PRODUCT_MODE
+%if ($ - $$) > 0x0400
+%error "product secure pre-connect controller exceeds its two-sector slot"
+%endif
+%else
 %if ($ - $$) > 0x0200
 %error "secure pre-connect controller exceeds its one-sector slot"
+%endif
 %endif
 
 %elifdef LIVE_K15_HELLO_CONTROLLER
@@ -776,9 +1084,24 @@ preconnect_failed:
 %ifndef LIVE_K15_CRYPTO_CONTROLLER_KEY
 %error "LIVE_K15_CRYPTO_CONTROLLER_KEY is required"
 %endif
+%ifdef LIVE_K15_PRODUCT_MODE
+%ifndef LIVE_K15_PRECONNECT_FAIL
+%error "product HELLO failure requires the retained low cleanup"
+%endif
+%ifndef LIVE_K15_HELLO_SHA256_INITIAL_STATE
+%error "product HELLO controller requires the internal SHA-256 initial state"
+%endif
+%ifndef LIVE_K15_HELLO_SHA256_K
+%error "product HELLO controller requires the internal SHA-256 K table"
+%endif
+%ifndef LIVE_K15_PRODUCT_SHA256_INITIAL_STATE
+%error "product HELLO controller requires the low initial-state destination"
+%endif
+%endif
 
 org 0x3400
 
+res_load_phase                equ 0x10c4
 hello_entry_table             equ 0x1830
 hello_fresh_begin_entry       equ hello_entry_table + (0 * 2)
 hello_next_fragment_entry     equ hello_entry_table + (2 * 2)
@@ -794,13 +1117,21 @@ hello_prehashed_entry         equ hello_entry_table + (13 * 2)
 res_tcp_ack                   equ 0x13a6
 res_tcp_send                  equ 0x13bf
 res_tcp_receive               equ 0x14ed
+res_nic_vt_rx_fallback        equ 0x15e3
 tcp_remote_ack                equ 0x06f1
 tcp_rx_payload_ptr            equ 0x0fe2
 tcp_rx_payload_len            equ 0x0fe4
+hello_handoff_nic_base        equ 0x060e
+hello_handoff_nic_family      equ 0x0610
+hello_family_3c501            equ 4
+hello_el1_rx_cmd              equ 0x06
+hello_el1_rcvptr              equ 0x0a
+hello_el1_rx_cmd_good         equ 0x80
 timing_first_tick             equ 0x3ca0
 timing_commit_tick            equ 0x3ca2
 timing_tx_tick                equ 0x3ca4
 timing_first_seen             equ 0x3ca6
+
 hello_tx_stage                equ 0x2700
 hello_tx_stage_end            equ 0x2800
 poc_rx_frame_start            equ 0x0700
@@ -860,6 +1191,7 @@ live_hello_controller:
     jc hello_fail
     cmp ax, 1
     jne hello_fail
+    call hello_prepare_3c501_receive
     call res_tcp_send
     jc hello_fail
     call word [hello_fragment_done_entry]
@@ -870,6 +1202,7 @@ live_hello_controller:
     jc hello_fail
     or ax, ax
     jz .sent
+    call hello_prepare_3c501_receive
     call res_tcp_send
     jc hello_fail
     call word [hello_fragment_done_entry]
@@ -881,18 +1214,30 @@ live_hello_controller:
     jc hello_fail
     mov byte [hello_header_pos], 0
     mov word [hello_body_remaining], 0
+%ifdef LIVE_K15_TIMING_TELEMETRY
     mov byte [timing_first_seen], 0
+%endif
 
 .receive:
+    ; Match the established application-record receiver: the 3c501's single
+    ; buffer may expose the next valid TCP payload through its bounded
+    ; second-frame poll before the generic receiver's next BIOS-tick wait.
+    ; Every other driver publishes the carry-set no-fallback leaf, so its
+    ; path remains the ordinary resident receive below.
+    call word [res_nic_vt_rx_fallback]
+    jnc .received
     call res_tcp_receive
     jc hello_fail
+.received:
     mov si, [tcp_rx_payload_ptr]
     mov cx, [tcp_rx_payload_len]
+%ifdef LIVE_K15_TIMING_TELEMETRY
     cmp byte [timing_first_seen], 0
     jne .consume
     mov ax, [0x046c]
     mov [timing_first_tick], ax
     mov byte [timing_first_seen], 1
+%endif
 
 .consume:
     or cx, cx
@@ -954,8 +1299,27 @@ live_hello_controller:
     jc hello_fail
     call word [hello_server_finish_entry]
     jc hello_fail
+%ifdef LIVE_K15_PRODUCT_MODE
+    ; HELLO has authenticated its own transcript boundary.  Publish the exact
+    ; immutable SHA material that the symmetric image externalizes: the
+    ; initial state sits above delta_load's 0f00..0f91 extent, while K uses
+    ; Seed's existing 0500..05ff table.  The symmetric continuation copies K
+    ; back into its freed image tail before post-auth owns the callback page.
+    push ds
+    pop es
+    mov si, LIVE_K15_HELLO_SHA256_INITIAL_STATE
+    mov di, LIVE_K15_PRODUCT_SHA256_INITIAL_STATE
+    mov cx, 16
+    rep movsw
+    mov si, LIVE_K15_HELLO_SHA256_K
+    mov di, 0x0500
+    mov cx, 128
+    rep movsw
+%endif
+%ifdef LIVE_K15_TIMING_TELEMETRY
     mov ax, [0x046c]
     mov [timing_commit_tick], ax
+%endif
     mov ax, LIVE_K15_CRYPTO_CONTROLLER_KEY
     jmp pre_sym_transition
 
@@ -965,6 +1329,10 @@ live_hello_controller:
     jmp .receive
 
 hello_fail:
+%ifdef LIVE_K15_PRODUCT_MODE
+    mov dx, LIVE_K15_PRECONNECT_FAIL
+    jmp dx
+%else
     mov si, hello_fail_text
     call hello_emit
 .halt:
@@ -1017,12 +1385,33 @@ hello_emit:
     jmp short .next
 .done:
     ret
+%endif
 
 hello_record_header  times 5 db 0
 hello_header_pos     db 0
 hello_body_remaining dw 0
 hello_feed_len       dw 0
+
+; The 3c501 has one shared packet buffer.  Prime its receive latch immediately
+; before every ClientHello fragment, matching the established TLS/application
+; transport contract.  Without this boundary an ACK can leave the card in a
+; state where the following payload transmit is reported locally but never
+; reaches the wire.  Every other driver takes the register-preserving no-op.
+hello_prepare_3c501_receive:
+    cmp byte [hello_handoff_nic_family], hello_family_3c501
+    jne .done
+    xor al, al
+    mov bx, [hello_handoff_nic_base]
+    lea dx, [bx + hello_el1_rcvptr]
+    out dx, al
+    lea dx, [bx + hello_el1_rx_cmd]
+    mov al, hello_el1_rx_cmd_good
+    out dx, al
+.done:
+    ret
+%ifndef LIVE_K15_PRODUCT_MODE
 hello_fail_text       db 13,10,'FAIL',13,10,'RESULT',13,10,0
+%endif
 
 %elifdef LIVE_K15_CRYPTO_CONTROLLER
 
@@ -1272,14 +1661,40 @@ live_persist_services_end:
 %ifndef LIVE_K15_CORE_START_LBA
 %error "secure crypto controller requires the core LBA"
 %endif
+%ifdef LIVE_K15_PRODUCT_MODE
+%ifndef LIVE_K15_CRITICAL_VAULT_WRITE
+%error "product secure crypto controller requires the critical vault writer"
+%endif
+%ifndef LIVE_K15_EMBEDDED_SYM_CONTROLLER_SOURCE
+%error "product secure crypto controller requires the embedded symmetric continuation"
+%endif
+%ifndef LIVE_K15_EMBEDDED_SYM_CONTROLLER_LEN
+%error "product secure crypto controller requires the embedded continuation length"
+%endif
+%else
 %ifndef LIVE_K15_NE_BUF_LOAD
 %error "secure crypto controller requires the guarded NE2000 DMA-write leaf"
 %endif
 %ifndef LIVE_K15_NE_BUF_READ
 %error "secure crypto controller requires the guarded NE2000 DMA-read leaf"
 %endif
+%endif
 %ifndef LIVE_K15_SCRUB_CONTROLLER_KEY
 %error "secure crypto controller requires the cold scrub phase"
+%endif
+%ifdef LIVE_K15_PRODUCT_MODE
+%ifndef LIVE_K15_VAULT_LIFECYCLE_KEY
+%error "product failure requires the vault lifecycle phase"
+%endif
+%ifndef LIVE_K15_VAULT_LIFECYCLE_STAGE
+%error "product failure requires the vault lifecycle stage"
+%endif
+%ifndef LIVE_K15_VAULT_ZEROIZE
+%error "product failure requires the vault zeroize callback"
+%endif
+%ifndef LIVE_K15_ROOT_RETURN
+%error "product failure requires the generated resident root return"
+%endif
 %endif
 
 org 0x3400
@@ -1300,11 +1715,24 @@ secure_c_card_page             equ 0x79
 secure_handoff_a_page          equ 0x7e
 secure_handoff_b_page          equ 0x7f
 secure_handoff                 equ 0x0dab
-secure_transition              equ 0x0e30
 live_delta_load_entry          equ 0x0f00
 
 live_secure_crypto_controller:
+%ifdef LIVE_K15_PRODUCT_MODE
+    ; The escrow SAVE has completed before this controller can be installed.
+    ; Publish the sole recoverable root frame status-last before any crypto
+    ; work can replace the active stack.  Every earlier failure retains its
+    ; tailored preconnect cleanup and never consumes this snapshot.
+    mov byte [live_secure_abort_status], 0
+    mov ax, sp
+    mov [live_secure_abort_sp], ax
+    not ax
+    mov [live_secure_abort_sp_inverse], ax
+    mov byte [live_secure_abort_inverse], 0x5a
+    mov byte [live_secure_abort_status], 0xa5
+%endif
     cld
+%ifndef LIVE_K15_PRODUCT_MODE
     cmp byte [handoff_nic_family], family_ne2000
     jne .invalid_nic
     cmp byte [ne_rx_stop], 0x73
@@ -1312,6 +1740,7 @@ live_secure_crypto_controller:
 .invalid_nic:
     jmp live_secure_persist_fail
 .valid_nic:
+%endif
 
     ; Install the already-gated critical loader while HELLO's low transcript
     ; handoff remains intact below it.
@@ -1323,12 +1752,22 @@ live_secure_crypto_controller:
     rep movsw
 
     ; Preserve the actual live ServerHello ciphertext before the candidate
-    ; and symmetric phases reclaim its 0x08c0 low-object window.
+    ; and symmetric phases reclaim its 0x08c0 low-object window. Product mode
+    ; is already in a fully verified raw vault epoch; this write has no
+    ; authority until Server Finished, full FO, and identity all pass.
     mov al, secure_c_card_page
     mov si, 0x08c0
     mov bp, 1088
     call live_secure_card_write
     jc live_secure_persist_fail
+
+    ; The deadline raw-vault leaf deliberately clobbers ES with the selected
+    ; video segment.  delta_load normalizes ES only for its BIOS transfer and
+    ; then restores the caller's value, while the candidate ABI requires
+    ; DS=ES=SS=0 for its MOVS/STOS destinations.  Re-establish that boundary
+    ; before loading and entering the candidate.
+    push ds
+    pop es
 
     mov ax, LIVE_K15_CANDIDATE_KEY
     mov bx, 0x1800
@@ -1358,17 +1797,27 @@ live_secure_crypto_controller:
     call live_secure_card_write
     jc live_secure_persist_fail
 
-    ; Execute outside the destination while the guarded driver leaf replaces
-    ; only 0x3400..0x34ff.  The secure controller's persistent services at
-    ; 0x355d+ remain resident and the intervening bytes are retired.
+    ; The copy-before-use continuation lives in the freed symmetric tail.  It
+    ; replaces only 3400..347f; the persistent abort services at 355d+ remain
+    ; resident.  No floppy or video-vault read is required at this boundary.
+%ifdef LIVE_K15_PRODUCT_MODE
+    push ds
+    pop es
+    mov si, LIVE_K15_EMBEDDED_SYM_CONTROLLER_SOURCE
+    mov di, 0x3400
+    mov cx, LIVE_K15_EMBEDDED_SYM_CONTROLLER_LEN / 2
+    rep movsw
+    jmp 0x3400
+%else
 live_secure_transition_prepare:
     push ds
     pop es
     mov si, live_secure_transition_source
-    mov di, secure_transition
+    mov di, 0x0e30
     mov cx, live_secure_transition_len
     rep movsb
-    jmp secure_transition
+    jmp 0x0e30
+%endif
 
 live_secure_batch_phase:
     mov cl, ah
@@ -1380,6 +1829,10 @@ live_secure_batch_phase:
 ; AL=card page, SI=source, BP=count.  Restore ordinary TX page without
 ; disturbing the remote-DMA leaf's carry result.
 live_secure_card_write:
+%ifdef LIVE_K15_PRODUCT_MODE
+    call LIVE_K15_CRITICAL_VAULT_WRITE
+    ret
+%else
     mov ah, [ne_tx_start]
     push ax
     mov [ne_tx_start], al
@@ -1388,7 +1841,9 @@ live_secure_card_write:
     pop ax
     mov [ne_tx_start], ah
     ret
+%endif
 
+%ifndef LIVE_K15_PRODUCT_MODE
 live_secure_transition_source:
     mov bx, 0x7300
     mov cx, 256
@@ -1404,6 +1859,7 @@ live_secure_transition_source:
 live_secure_transition_end:
 live_secure_transition_len equ \
     live_secure_transition_end - live_secure_transition_source
+%endif
 
 live_secure_crypto_controller_code_end:
 live_secure_delta_loader_source:
@@ -1417,6 +1873,105 @@ live_secure_delta_loader_end:
 times (0x355d - 0x3400) - ($ - $$) db 0
 live_secure_persist_services_start:
 
+%ifdef LIVE_K15_PRODUCT_MODE
+; Product consumers carry their own transition and zero-window leaves.  These
+; historical ABI labels intentionally alias the abort entry so the manifest
+; can continue to describe the fixed tail without spending executable bytes
+; on callbacks the product never invokes.
+live_secure_persist_transition:
+live_secure_persist_zero_window:
+live_secure_persist_emit:
+live_secure_persist_fail:
+    ; Do not trust the active failure stack: deferred FO and later controller
+    ; transitions are allowed to destroy it.  Revoke the published app
+    ; capability before any fallible operation, validate the status-last root
+    ; frame without touching the current stack, then adopt it.
+    cli
+    cld
+    xor ax, ax
+    mov ds, ax
+    mov ss, ax
+    mov [0x06c4], al
+    cmp word [live_secure_abort_inverse], 0xa55a
+    jne live_secure_persist_emergency_reset
+    mov bx, [live_secure_abort_sp]
+    mov ax, [live_secure_abort_sp_inverse]
+    not ax
+    cmp ax, bx
+    jne live_secure_persist_emergency_reset
+    mov ax, [0x062c]
+    sub ax, 6
+    cmp ax, bx
+    jne live_secure_persist_emergency_reset
+    cmp word [bx], LIVE_K15_ROOT_RETURN
+    jne live_secure_persist_emergency_reset
+    mov sp, bx
+    sti
+
+    ; The one-sector scrub phase overwrites its retired 0x2400 workspace,
+    ; clears every remaining conventional secret span, and restores the
+    ; validated config escrow.  Only after that succeeds may the ordinary
+    ; lifecycle erase the complete video vault and restore MDA output.
+    mov ax, LIVE_K15_SCRUB_CONTROLLER_KEY
+    mov bx, 0x2400
+    call res_load_phase
+    jc live_secure_persist_emergency_reset
+    jmp bx
+live_secure_persist_product_zeroize:
+    mov ax, LIVE_K15_VAULT_LIFECYCLE_KEY
+    mov bx, LIVE_K15_VAULT_LIFECYCLE_STAGE
+    call res_load_phase
+    jc live_secure_persist_emergency_reset
+    call LIVE_K15_VAULT_ZEROIZE
+    jc live_secure_persist_emergency_reset
+    xor ax, ax
+    mov [live_secure_abort_status], al
+    stc
+    ret
+
+live_secure_persist_emergency_reset:
+    ; A corrupt frame or any failed recovery read must still revoke every
+    ; Seed-reachable secret without disk, NIC, or stack use.  Erase around the
+    ; immutable nucleus and this executing capsule, clear both possible video
+    ; vault mappings without trusting the BDA, mark a BIOS warm start, and
+    ; reset.  The reset itself re-enables MDA, so this no-return branch need
+    ; not touch its mode port.
+    cli
+    xor ax, ax
+    mov es, ax
+    mov [live_secure_abort_status], al
+    mov di, 0x0700
+    mov cx, 0x0471
+    rep stosw
+    mov di, 0x1800
+    mov cx, 0x1d5d
+    rep stosb
+    mov di, 0x3600
+    mov cx, 0x2500
+    rep stosw
+
+    mov dx, 0xb000
+    mov es, dx
+    xor di, di
+    mov cx, 0x07d0
+    rep stosw
+    mov dx, 0xb800
+    mov es, dx
+    mov di, 0x1000
+    mov cx, 0x07d0
+    rep stosw
+    mov word [0x0472], 0x1234
+    jmp 0xffff:0x0000
+
+; Six bytes are written only by the controller-entry publisher above and
+; invalidated by either terminal path.  Keeping them physically last makes a
+; torn controller entry fail closed under the inverse/status pair.
+times (0x35fa - 0x3400) - ($ - $$) db 0
+live_secure_abort_sp          dw 0
+live_secure_abort_sp_inverse  dw 0
+live_secure_abort_inverse     db 0
+live_secure_abort_status      db 0
+%else
 ; Post-deadline transitions use the immutable resident phase loader.  The
 ; critical candidate/symmetric/protected loads above still use delta_load.
 live_secure_persist_transition:
@@ -1439,6 +1994,9 @@ live_secure_persist_zero_window:
     ret
 
 live_secure_persist_emit:
+%ifdef LIVE_K15_PRODUCT_MODE
+    ret
+%else
     call live_secure_persist_serial_init
 .next:
     lodsb
@@ -1494,6 +2052,7 @@ live_secure_persist_serial_init:
     mov al, 0x03
     out dx, al
     ret
+%endif
 
 live_secure_persist_fail:
     ; Once a secret handoff may have been staged, make a best-effort cold
@@ -1504,8 +2063,37 @@ live_secure_persist_fail:
     mov ax, LIVE_K15_SCRUB_CONTROLLER_KEY
     mov bx, 0x2400
     call res_load_phase
+%ifdef LIVE_K15_PRODUCT_MODE
+    jc live_secure_persist_product_emergency
+%else
     jc .emit
+%endif
+%ifdef LIVE_K15_PRODUCT_MODE
+    call bx
+    jc live_secure_persist_product_emergency
+%else
     jmp bx
+%endif
+%ifdef LIVE_K15_PRODUCT_MODE
+live_secure_persist_product_zeroize:
+    ; The local scrub restored and erased the validated config escrow before
+    ; returning into this persistent K14 extension.  Only now may the
+    ; lifecycle phase erase the video vault and re-enable MDA output.
+    mov byte [0x06c4], 0
+    mov ax, LIVE_K15_VAULT_LIFECYCLE_KEY
+    mov bx, LIVE_K15_VAULT_LIFECYCLE_STAGE
+    call res_load_phase
+    jc live_secure_persist_product_emergency
+    call LIVE_K15_VAULT_ZEROIZE
+    jnc live_secure_persist_product_return
+live_secure_persist_product_emergency:
+    call live_secure_persist_emergency_vault_zeroize
+live_secure_persist_product_return:
+    xor ax, ax
+    stc
+    ret
+K14_PRODUCT_EMERGENCY_VAULT_ROUTINE live_secure_persist_emergency_vault_zeroize
+%else
 .emit:
     mov si, live_secure_persist_fail_text
     call live_secure_persist_emit
@@ -1514,6 +2102,8 @@ live_secure_persist_fail:
     hlt
 
 live_secure_persist_fail_text db 13,10,'FAIL',13,10,'RESULT',13,10,0
+%endif
+%endif
 live_secure_persist_services_end:
 
 %if ($ - $$) > 0x0200
@@ -1534,6 +2124,20 @@ live_secure_persist_services_end:
 %ifndef LIVE_K15_PERSIST_FAIL
 %error "secure symmetric controller requires the persistent fail service"
 %endif
+%ifdef LIVE_K15_EMBEDDED_SYM_CONTROLLER
+%ifndef LIVE_K15_STAGED_SHA256_INITIAL_STATE
+%error "embedded symmetric continuation requires staged SHA-256 initial state"
+%endif
+%ifndef LIVE_K15_SYM_SHA256_INITIAL_STATE
+%error "embedded symmetric continuation requires symmetric SHA-256 initial state"
+%endif
+%ifndef LIVE_K15_STAGED_SHA256_K
+%error "embedded symmetric continuation requires staged SHA-256 K"
+%endif
+%ifndef LIVE_K15_SYM_SHA256_K
+%error "embedded symmetric continuation requires the symmetric K destination"
+%endif
+%endif
 
 org 0x3400
 
@@ -1551,10 +2155,29 @@ live_delta_load_entry          equ 0x0f00
 
 live_secure_sym_controller:
     cld
-    ; c is already card-resident.  Preserve provisional K' in its retired low
-    ; prefix across sym_init exactly as the original controller does.
+%ifdef LIVE_K15_EMBEDDED_SYM_CONTROLLER
+    ; The continuation has already been copied to 3400.  Replace its complete
+    ; 2f80..2fff source together with the retired raw writer at 2ee0 using the
+    ; canonical initial state and K table staged by HELLO.  All later SHA
+    ; calls see an ordinary immutable in-image tail at 2ee0..2fff, which the
+    ; off-window restore sector can reproduce without low-memory state.
     push ds
     pop es
+    mov si, LIVE_K15_STAGED_SHA256_INITIAL_STATE
+    mov di, LIVE_K15_SYM_SHA256_INITIAL_STATE
+    mov cx, 16
+    rep movsw
+    mov si, LIVE_K15_STAGED_SHA256_K
+    mov di, LIVE_K15_SYM_SHA256_K
+    mov cx, 128
+    rep movsw
+%endif
+    ; c is already card-resident.  Preserve provisional K' in its retired low
+    ; prefix across sym_init exactly as the original controller does.
+%ifndef LIVE_K15_EMBEDDED_SYM_CONTROLLER
+    push ds
+    pop es
+%endif
     mov si, candidate_k_prime
     mov di, 0x08c0
     mov cx, 16
@@ -1566,8 +2189,8 @@ live_secure_sym_controller:
     jc LIVE_K15_PERSIST_FAIL
     call word [sym_init_entry]
     jc LIVE_K15_PERSIST_FAIL
-    push ds
-    pop es
+    ; The phase loader and sym_init both preserve the flat ES established
+    ; above, so the retained K' copy needs no second segment normalization.
     mov si, 0x08c0
     mov di, sym_input_shared_secret
     mov cx, 16
@@ -1585,32 +2208,6 @@ live_secure_sym_controller:
     mov bx, 0x0900
     call live_secure_sym_batch_phase
     jc LIVE_K15_PERSIST_FAIL
-
-live_secure_sym_nic_prepare:
-    ; Symmetric primitives are not required to preserve ES.  The NE receive
-    ; leaf scatters through ES:DI, so normalize before touching the queued
-    ; protected flight.
-    push ds
-    pop es
-    mov word [ne_rx_read_limit], 438
-    mov cx, 256
-.flush:
-    push cx
-    call word [res_nic_vt_receive]
-    pop cx
-    jc LIVE_K15_PERSIST_FAIL
-    cmp word [ne_rx_sample_count], 0
-    je .window_update
-    loop .flush
-    jmp LIVE_K15_PERSIST_FAIL
-.window_update:
-    call res_tcp_ack
-    jc LIVE_K15_PERSIST_FAIL
-live_secure_sym_protected_handoff:
-    ; Keep the same segment contract at the low-controller boundary even if
-    ; packet construction changed ES while advertising the new window.
-    push ds
-    pop es
     jmp 0x0900
 
 live_secure_sym_batch_phase:
@@ -1621,7 +2218,14 @@ live_secure_sym_batch_phase:
     jmp live_delta_load_entry
 
 live_secure_sym_controller_code_end:
+%ifdef LIVE_K15_EMBEDDED_SYM_CONTROLLER
+%if ($ - $$) > 0x0080
+%error "embedded secure symmetric controller exceeds its 128-byte tail slot"
+%endif
+times 0x0080 - ($ - $$) db 0
+%else
 times 0x0100 - ($ - $$) db 0
+%endif
 
 %elifdef LIVE_K15_PROTECTED_CONTROLLER
 
@@ -1663,15 +2267,23 @@ times 0x0100 - ($ - $$) db 0
 
 org 0x0900
 
+res_load_phase                 equ 0x10c4
 res_wait_ticks                 equ 0x11e5
 res_tcp_ack                    equ 0x13a6
 res_tcp_send                   equ 0x13bf
+res_build_tcp_frame            equ 0x13e2
 res_tcp_receive                equ 0x14ed
 res_parse_tcp_payload          equ 0x1522
+res_nic_vt_transmit            equ 0x15df
 res_nic_vt_receive             equ 0x15e1
 res_nic_vt_rx_fallback         equ 0x15e3
 tcp_local_seq                  equ 0x06ed
+tcp_remote_ack                 equ 0x06f1
 ne_rx_sample_count             equ 0x06d5
+ne_rx_read_limit               equ 0x06d7
+ne_tx_frame                    equ 0x0700
+tcp_window_word                equ ne_tx_frame + 34 + 14
+tcp_checksum_word              equ ne_tx_frame + 34 + 16
 tcp_rx_payload_ptr             equ 0x0fe2
 tcp_rx_payload_len             equ 0x0fe4
 timing_first_tick              equ 0x3ca0
@@ -1729,12 +2341,41 @@ flight_tail_len                equ 37
 
 live_protected_controller:
     cld
+%ifdef LIVE_K15_SECURE_FO
+    ; The peer has held the protected flight behind a zero receive window
+    ; throughout candidate/symmetric work.  Retire queued duplicates, then
+    ; advertise the ordinary window from the controller that owns the receive
+    ; parser.  Moving this prologue out of the embedded continuation frees the
+    ; latter to share one symmetric tail sector with the raw vault writer.
+    push ds
+    pop es
+    mov word [ne_rx_read_limit], 438
+    mov cx, 256
+.secure_flush:
+    push cx
+    call word [res_nic_vt_receive]
+    pop cx
+    jc LIVE_K15_PERSIST_FAIL
+    cmp word [ne_rx_sample_count], 0
+    je .secure_window_update
+    loop .secure_flush
+    jmp LIVE_K15_PERSIST_FAIL
+.secure_window_update:
+    call res_tcp_ack
+    jc LIVE_K15_PERSIST_FAIL
+%endif
     mov word [record_header_pos], 0
     mov byte [record_shape_flags], 0
 
 .receive:
+    ; Avoid quantizing every 3c501 certificate-flight segment to the next
+    ; BIOS tick.  This is the same bounded driver hook used by the committed
+    ; TLS application receiver; non-3c501 drivers return CF=1 immediately.
+    call word [res_nic_vt_rx_fallback]
+    jnc .received
     call res_tcp_receive
     jc LIVE_K15_PERSIST_FAIL
+.received:
     mov si, [tcp_rx_payload_ptr]
     mov cx, [tcp_rx_payload_len]
 
@@ -2048,7 +2689,11 @@ commit_identity_tail:
     call word [sym_transcript_update_entry]
     jc .failed
 
-    ; Freeze the compact post-socket P-256 ABI before reusing SHA work.
+    ; Freeze the compact post-socket P-256 signature ABI and the authenticated
+    ; transcript-through-Certificate hash.  Constructing the RFC 8446 signed
+    ; content digest is deliberately deferred until after the credential-free
+    ; HEAD has closed the peer deadline: neither the digest nor its eventual
+    ; exact-leaf equation grants authority before the later post-auth gate.
     mov byte [auth_output_status], 0
     mov dx, [identity_cv_der_len]
     mov [auth_input_signature_len], dx
@@ -2064,32 +2709,6 @@ commit_identity_tail:
     mov di, auth_input_signature
     mov cx, dx
     rep movsb
-
-    ; Hash RFC 8446's CertificateVerify signed content while preserving the
-    ; live transcript-through-CV context needed by server Finished.
-    call LIVE_K15_SHA256_SAVE_CONTEXT
-    call LIVE_K15_SHA256_INIT
-    push ds
-    pop es
-    mov al, 0x20
-    mov di, identity_spaces
-    mov cx, 32
-    rep stosb
-    mov si, identity_spaces
-    mov cx, 32
-    call LIVE_K15_SHA256_UPDATE
-    mov si, identity_spaces
-    mov cx, 32
-    call LIVE_K15_SHA256_UPDATE
-    mov si, identity_cv_context
-    mov cx, identity_cv_context_end - identity_cv_context
-    call LIVE_K15_SHA256_UPDATE
-    mov si, identity_cert_hash
-    mov cx, 32
-    call LIVE_K15_SHA256_UPDATE
-    mov di, auth_input_digest
-    call LIVE_K15_SHA256_FINISH
-    call LIVE_K15_SHA256_RESTORE_CONTEXT
 
     ; Finished and the TLSInnerPlaintext type have fixed positions after the
     ; CV end.  Publish verify_data only after all structural checks succeeded.
@@ -2135,22 +2754,33 @@ finish_and_report:
     mov cx, 58
     call res_tcp_send
     jc LIVE_K15_PERSIST_FAIL
+%ifdef LIVE_K15_TIMING_TELEMETRY
     mov ax, [0x046c]                  ; includes Finished TX return
     mov [timing_finished_return], ax
+%endif
 
 client_finished_sent:
-    ; Preserve the original ServerHello -> client-Finished gate.  Do not emit
-    ; its success text yet: serial output, the old redundant Finished retry,
-    ; and the receive-window update are all moved after the complete HEAD.
+    ; The historical ServerHello -> client-Finished budget is diagnostic
+    ; telemetry, not TLS state or peer authority.  Finished has already been
+    ; transmitted successfully, so both timing observations continue into the
+    ; same provisional, credential-free HEAD dialogue.
+%ifdef LIVE_K15_TIMING_DIAGNOSTIC
+    pushf
+    push ax
+    push dx
     mov ax, [timing_finished_return]
     sub ax, [timing_first_tick]
     cmp ax, deadline_ticks
-    ja .late
-    jmp short .derive
-.late:
-    mov si, deadline_late
-    call LIVE_K15_PERSIST_EMIT
-    jmp LIVE_K15_PERSIST_FAIL
+    mov al, 'd'
+    jbe .timing_marker_ready
+    mov al, 'l'
+.timing_marker_ready:
+    mov dx, 0x03f8
+    out dx, al
+    pop dx
+    pop ax
+    popf
+%endif
 .derive:
     call word [sym_derive_client_app_entry]
     jc LIVE_K15_PERSIST_FAIL
@@ -2170,23 +2800,59 @@ client_finished_sent:
 
     ; Pace the following raw ACK by one BIOS tick so it cannot replace an
     ; in-flight HEAD in a slow emulated NIC.  This wait is deliberately after
-    ; the complete request.  The post controller discards any queued response
-    ; copies and reopens the ordinary receive window at the same ACK boundary.
+    ; the complete request.  The post controller preserves any response queued
+    ; during its overlay load and reopens the ordinary receive window before
+    ; consuming it at the exact current TCP sequence.
     mov cx, 1
     call res_wait_ticks
+%ifdef LIVE_K15_PRODUCT_MODE
+    K14_PRODUCT_ZERO_WINDOW
+%else
     call LIVE_K15_PERSIST_ZERO_WINDOW
+%endif
     jc LIVE_K15_PERSIST_FAIL
 
+%ifdef LIVE_K15_IDENTITY_CAPTURE
+    ; Client Finished and the complete credential-free HEAD are now on the
+    ; wire, and the peer is held at a zero receive window.  Finish the deferred
+    ; CertificateVerify signed-content digest without extending the provider's
+    ; critical liveness window.  Preserve the transcript context because the
+    ; post controller still derives the server application traffic secret.
+    call LIVE_K15_SHA256_SAVE_CONTEXT
+    call LIVE_K15_SHA256_INIT
+    push ds
+    pop es
+    mov al, 0x20
+    mov di, identity_spaces
+    mov cx, 32
+    rep stosb
+    mov si, identity_spaces
+    mov cx, 32
+    call LIVE_K15_SHA256_UPDATE
+    mov si, identity_spaces
+    mov cx, 32
+    call LIVE_K15_SHA256_UPDATE
+    mov si, identity_cv_context
+    mov cx, identity_cv_context_end - identity_cv_context
+    call LIVE_K15_SHA256_UPDATE
+    mov si, identity_cert_hash
+    mov cx, 32
+    call LIVE_K15_SHA256_UPDATE
+    mov di, auth_input_digest
+    call LIVE_K15_SHA256_FINISH
+    call LIVE_K15_SHA256_RESTORE_CONTEXT
+%endif
+
     ; The request is now complete and the peer is held at a zero receive
-    ; window.  User-visible milestones remain outside the critical interval so
-    ; display/serial latency cannot consume the server's edge timer.
-    mov si, deadline_pass
-    call LIVE_K15_PERSIST_EMIT
+    ; window.  Keep the milestone neutral: only authenticated response/ticket
+    ; processing can establish live dialogue, and pcap owns timing telemetry.
+%ifndef LIVE_K15_PRODUCT_MODE
     mov si, head_tx_text
     call LIVE_K15_PERSIST_EMIT
+%endif
 %ifdef LIVE_K15_IDENTITY_CAPTURE
     ; The post controller uses 0x3c30+ for record/parser state.  Preserve the
-    ; already-authenticated CertificateVerify digest in retired identity-tail
+    ; deferred CertificateVerify digest in retired identity-tail
     ; scratch, outside the identity-mode plaintext scatter, until the exact
     ; HEAD+ticket record boundary commits.
     push ds
@@ -2196,9 +2862,53 @@ client_finished_sent:
     mov cx, 16
     rep movsw
 %endif
+%ifdef LIVE_K15_PRODUCT_MODE
+    ; This is the first floppy read after the original-speed critical window.
+    ; A real controller (and 86Box's original IBM path) may report the first
+    ; INT 13h read as the stopped motor spins back up.  The resident loader
+    ; deliberately performs one BIOS request per sector.  Copy the bounded
+    ; wake/reset retry below the 0x0900 destination before entering it: a
+    ; successful load replaces its caller, and a failed second-sector DMA may
+    ; have replaced an arbitrary prefix of that caller.  The 0x0700 TX/RX
+    ; scratch is dead after the zero-window transmit and becomes ordinary RX
+    ; storage again as soon as the new controller is entered.
+    push ds
+    pop es
+    mov si, product_post_load_retry_source
+    mov di, 0x0700
+    mov cx, product_post_load_retry_end - product_post_load_retry_source
+    rep movsb
+    mov bx, 0x0700
+    jmp bx
+
+product_post_load_retry_source:
+    mov bp, 3
+.load_post_controller:
+    mov ax, LIVE_K15_POST_CONTROLLER_KEY
+    mov bx, 0x0900
+    mov si, res_load_phase
+    call si
+    jnc .post_controller_loaded
+    dec bp
+    jz .post_controller_failed
+    xor ax, ax
+    mov dl, [0x060a]
+    int 0x13
+    jmp short .load_post_controller
+.post_controller_failed:
+    stc
+.post_controller_loaded:
+    jnc .enter_post_controller
+    mov bx, LIVE_K15_PERSIST_FAIL
+    jmp bx
+.enter_post_controller:
+    jmp bx
+product_post_load_retry_end:
+%else
     mov ax, LIVE_K15_POST_CONTROLLER_KEY
     mov bx, 0x0900
     jmp LIVE_K15_PERSIST_TRANSITION
+%endif
 
 reject_queued_tail:
     mov bp, 256
@@ -2226,8 +2936,6 @@ reject_queued_tail:
     clc
     ret
 
-deadline_pass db 13,10,'DEADLINE PASS',13,10,0
-deadline_late db 13,10,'DEADLINE LATE',13,10,0
 head_tx_text db 13,10,'HEAD TX',13,10,0
 
 %elifdef LIVE_K15_POST_CONTROLLER
@@ -2272,10 +2980,16 @@ org 0x0900
 res_load_phase                  equ 0x10c4
 res_tcp_ack                    equ 0x13a6
 res_tcp_send                   equ 0x13bf
+res_build_tcp_frame            equ 0x13e2
 res_tcp_receive                equ 0x14ed
+res_nic_vt_transmit            equ 0x15df
 res_nic_vt_receive             equ 0x15e1
 ne_rx_sample_count             equ 0x06d5
 ne_rx_read_limit               equ 0x06d7
+tcp_remote_ack                 equ 0x06f1
+ne_tx_frame                    equ 0x0700
+tcp_window_word                equ ne_tx_frame + 34 + 14
+tcp_checksum_word              equ ne_tx_frame + 34 + 16
 tcp_rx_payload_ptr             equ 0x0fe2
 tcp_rx_payload_len             equ 0x0fe4
 sym_entry_table                equ 0x1820
@@ -2312,6 +3026,9 @@ post_tag_pos                   equ post_plain_len + 2
 post_chunk_ptr                 equ post_tag_pos + 1
 post_chunk_len                 equ post_chunk_ptr + 2
 post_head_outstanding          equ post_chunk_len + 2
+; 0=pending, 1=fresh HEAD response complete, 2=authenticated ticket-bearing
+; close_notify.  State 2 grants no authority: the resumed route must still
+; establish authenticated HEAD liveness before publication.
 post_head_complete             equ post_head_outstanding + 1
 post_ticket_milestone          equ post_head_complete + 1
 post_http_total                equ post_ticket_milestone + 1
@@ -2327,30 +3044,17 @@ live_post_controller:
     jc LIVE_K15_PERSIST_FAIL
     ; These adjacent bytes form one zeroable/committable record-state word.
     mov word [post_header_pos], 0
-    mov byte [post_head_complete], 0
-    mov byte [post_ticket_milestone], 0
+    mov word [post_head_complete], 0
     mov word [post_http_total], 0
     mov byte [post_http_match], 0
-    mov byte [post_http_done], 0
-    mov byte [post_message_count], 0
+    mov word [post_message_count], 0
 
-    ; The peer saw a zero receive window after the complete HEAD.  Discard
-    ; unacknowledged copies accumulated during that load, then advertise the
-    ; resident 256-byte window.  The server retransmits from the exact
-    ; post-Finished application-data boundary.
-    mov word [ne_rx_read_limit], 438
-    mov bp, 256
-.flush:
-    push bp
-    call word [res_nic_vt_receive]
-    pop bp
-    jc LIVE_K15_PERSIST_FAIL
-    cmp word [ne_rx_sample_count], 0
-    je .window_update
-    dec bp
-    jnz .flush
-    jmp LIVE_K15_PERSIST_FAIL
-.window_update:
+    ; The peer saw a zero receive window after the complete HEAD.  A response
+    ; may already be queued in the NIC after the overlay load.  Preserve that
+    ; sole exact-sequence copy: a userspace NAT may have acknowledged it to the
+    ; peer already, so discarding it cannot rely on a wire retransmission.
+    ; Advertise the resident window first; tcp_receive_payload then accepts the
+    ; queued frame or waits for the peer from the same sequence boundary.
     call res_tcp_ack
     jc LIVE_K15_PERSIST_FAIL
 
@@ -2549,7 +3253,28 @@ post_process_plaintext:
     jne .failed
     cmp cx, 2
     jne .failed
+%ifdef LIVE_K15_RESUME_RECEIPT
+    ; The sole provisional alert exception is the exact TLS 1.3
+    ; warning/close_notify pair after a retained, fully parsed NST and before
+    ; any partial HTTP response.  This captures why the fresh socket ended;
+    ; it does not count as liveness and cannot publish credential access.
+    cmp word [post_quarantine], 1
+    jne .failed
+    cmp byte [post_ticket_milestone], 1
+    jne .failed
+    cmp byte [post_head_complete], 1
+    je .alert_ok
+    cmp byte [post_head_complete], 0
+    jne .failed
+    cmp word [post_http_total], 0
+    jne .failed
+    mov byte [post_head_complete], 2
+.alert_ok:
+    clc
+    ret
+%else
     jmp short .failed
+%endif
 .ticket:
     cmp dl, 0x16
     jne .failed
@@ -2605,8 +3330,10 @@ post_process_tickets:
     cmp byte [sym_ticket_present], 0
     je .failed
     mov byte [post_ticket_milestone], 1
+%ifndef LIVE_K15_PRODUCT_MODE
     mov si, post_ticket_text
     call LIVE_K15_PERSIST_EMIT
+%endif
 .success:
     clc
     ret
@@ -2642,8 +3369,10 @@ post_process_http:
     cmp byte [post_http_done], 0
     je .success
     mov byte [post_head_complete], 1
+%ifndef LIVE_K15_PRODUCT_MODE
     mov si, post_head_complete_text
     call LIVE_K15_PERSIST_EMIT
+%endif
 .success:
     clc
     ret
@@ -2730,15 +3459,29 @@ post_check_commit:
     ; Do not promote at a TCP-frame boundary inside a partial TLS record.
     cmp word [post_header_pos], 0
     jne .pending
+%ifdef LIVE_K15_RESUME_RECEIPT
+    cmp byte [post_ticket_milestone], 1
+    jne .pending
+    mov al, [post_head_complete]
+    dec al
+    cmp al, 1
+    ja .pending
+.boundary_ready:
+%else
     cmp byte [post_head_complete], 1
     jne .pending
     cmp byte [post_ticket_milestone], 1
     jne .pending
+%endif
 %ifdef LIVE_K15_SECURE_FO
     ; Retire live dialogue and freeze the tentative ticket at the exact
     ; authenticated record boundary.  The FO controller emits its first marker
     ; immediately after the one-sector transition.
+%ifdef LIVE_K15_PRODUCT_MODE
+    K14_PRODUCT_ZERO_WINDOW
+%else
     call LIVE_K15_PERSIST_ZERO_WINDOW
+%endif
     jc LIVE_K15_PERSIST_FAIL
     push ds
     pop es
@@ -2747,13 +3490,16 @@ post_check_commit:
     mov cx, 16
     rep movsw
 %ifdef LIVE_K15_RESUME_RECEIPT
-    ; This is the sole NTR1 entry edge: authenticated HTTP completion, first
-    ; retained NST, no partial TLS record, and a frozen receive window have all
-    ; been proved immediately above.  Stage the immutable one-sector file
-    ; outside K14, then copy only its measured <=0x110 bytes to 0x3400 so the
-    ; live SHA code/work and persistent fail services remain resident.  The
-    ; worker publishes/readbacks NTR1 before it reconstructs the existing FO
-    ; ticket hold and enters the unmodified FO controller.
+    ; This is the sole NTR1 entry edge: either authenticated HTTP completion
+    ; or an authenticated ticket-bearing close_notify, the first retained
+    ; NST, no partial TLS record, and a frozen receive window have all been
+    ; proved immediately above.  The close path remains provisional until the
+    ; downstream resumed route proves HEAD response/liveness.  Stage the
+    ; immutable one-sector file outside K14, then copy only its measured
+    ; <=0x110 bytes to 0x3400 so the live SHA code/work and persistent fail
+    ; services remain resident.  The worker publishes/readbacks NTR1 before it
+    ; reconstructs the existing FO ticket hold and enters the unmodified FO
+    ; controller.
 .resume_receipt_edge:
     mov ax, LIVE_K15_RESUME_RECEIPT_KEY
     mov bx, post_quarantine
@@ -2765,8 +3511,11 @@ post_check_commit:
     mov di, 0x3400
     mov cx, LIVE_K15_RESUME_RECEIPT_BYTES
     rep movsb
-    mov dx, 0x3400
-    jmp dx
+    ; post_check_commit is entered by CALL because its pending path returns.
+    ; This terminal edge cannot return, so retire exactly that continuation
+    ; before the tail-jump chain eventually returns through publication.
+    pop ax
+    jmp 0x3400
 %else
     mov si, 0x3b40
     mov di, 0x0700
@@ -2774,12 +3523,22 @@ post_check_commit:
     rep movsw
     mov ax, LIVE_K15_FO_CONTROLLER_KEY
     mov bx, 0x2400
+%ifdef LIVE_K15_PRODUCT_MODE
+    call res_load_phase
+    jc LIVE_K15_PERSIST_FAIL
+    jmp bx
+%else
     jmp LIVE_K15_PERSIST_TRANSITION
+%endif
 %endif
 %elifdef LIVE_K15_IDENTITY_CAPTURE
     ; Retire live dialogue before the long target-side signature equation.
     ; The ticket remains tentative; no credential or product state is exposed.
+%ifdef LIVE_K15_PRODUCT_MODE
+    K14_PRODUCT_ZERO_WINDOW
+%else
     call LIVE_K15_PERSIST_ZERO_WINDOW
+%endif
     jc LIVE_K15_PERSIST_FAIL
     ; Record parsing is now at an exact boundary.  Restore the captured
     ; CertificateVerify digest before either FO or identity authentication
@@ -2790,11 +3549,19 @@ post_check_commit:
     mov di, post_auth_input_digest
     mov cx, 16
     rep movsw
+%ifndef LIVE_K15_PRODUCT_MODE
     mov si, post_auth_begin_text
     call LIVE_K15_PERSIST_EMIT
+%endif
     mov ax, LIVE_K15_AUTH_CONTROLLER_KEY
     mov bx, 0x3200
+%ifdef LIVE_K15_PRODUCT_MODE
+    call res_load_phase
+    jc LIVE_K15_PERSIST_FAIL
+    jmp bx
+%else
     jmp LIVE_K15_PERSIST_TRANSITION
+%endif
 %else
     mov si, post_canary_text
     call LIVE_K15_PERSIST_EMIT
@@ -2808,8 +3575,10 @@ post_check_commit:
 
 post_http_prefix       db 'HTTP/1.1 '
 post_http_end          db 13,10,13,10
+%ifndef LIVE_K15_PRODUCT_MODE
 post_head_complete_text db 13,10,'HEAD OK',13,10,0
 post_ticket_text       db 13,10,'TICKET',13,10,0
+%endif
 %ifdef LIVE_K15_SECURE_FO
 %elifdef LIVE_K15_IDENTITY_CAPTURE
 post_auth_begin_text   db 13,10,'AUTH BEGIN',13,10,0
@@ -2837,14 +3606,30 @@ post_canary_text       db 13,10,'CANARY COMMIT',13,10,'PASS',13,10,'RESULT',13,1
 %ifndef LIVE_K15_PERSIST_EMIT
 %error "FO controller requires the persistent emit service"
 %endif
+%ifdef LIVE_K15_PRODUCT_MODE
+%ifndef LIVE_K15_VAULT_ACCESS_KEY
+%error "product FO controller requires the vault access phase"
+%endif
+%ifndef LIVE_K15_VAULT_ACCESS_STAGE
+%error "product FO controller requires the vault access stage"
+%endif
+%endif
 
 org 0x2400
 
 res_load_phase                 equ 0x10c4
 fo_kernel_entry                equ 0x1800
 fo_ticket_hold                 equ 0x0700
-fo_ticket_len                  equ 238
+fo_ticket_psk                  equ 0x38b0
+fo_ticket_identity             equ 0x3b40
+fo_ticket_psk_len              equ 32
+fo_ticket_identity_tail_len    equ 238
+fo_ticket_len                  equ \
+    fo_ticket_psk_len + fo_ticket_identity_tail_len
+fo_ticket_psk_hold             equ \
+    fo_ticket_hold + fo_ticket_identity_tail_len
 fo_expected_k                  equ fo_ticket_hold + fo_ticket_len
+fo_kernel_ticket_hold_end      equ 0x0830
 fo_handoff_a                   equ 0x0d00
 fo_handoff_b                   equ 0x0d80
 fo_auth_transition             equ 0x0d00
@@ -2861,8 +3646,23 @@ ne_tx_start                    equ 0x06cb
 
 live_fo_controller:
     cld
+    ; NTR1 already parked identity plus native metadata at 0x0700. Complete
+    ; the low hold with the PSK before any FO phase can reuse high K14 state.
+    call fo_park_ticket_psk
+%ifdef LIVE_K15_PRODUCT_MODE
+    ; The receipt worker has already rebuilt every raw-epoch page tag and
+    ; published checked mode status-last before writing/readbacking NTR1.
+    ; Install the compact ordinary access image for FO.  This grants no
+    ; capability: full FO and identity still gate publication.
+    mov ax, LIVE_K15_VAULT_ACCESS_KEY
+    mov bx, LIVE_K15_VAULT_ACCESS_STAGE
+    call res_load_phase
+    jc LIVE_K15_PERSIST_FAIL
+%endif
+%ifndef LIVE_K15_PRODUCT_MODE
     mov si, fo_begin_text
     call LIVE_K15_PERSIST_EMIT
+%endif
 
     ; Load the unchanged six-sector FO kernel.  Its end is exactly 0x2400, so
     ; this controller remains executable while the resident loader returns.
@@ -2934,17 +3734,14 @@ live_fo_controller:
     or dx, dx
     jnz fo_failed
 
-    push ds
-    pop es
-    mov si, fo_ticket_hold
-    mov di, 0x3b40
-    mov cx, fo_ticket_len / 2
-    rep movsw
+    call fo_restore_ticket_hold
     call fo_cleanup_handoffs
+%ifndef LIVE_K15_PRODUCT_MODE
     mov si, fo_valid_text
     call LIVE_K15_PERSIST_EMIT
     mov si, fo_auth_text
     call LIVE_K15_PERSIST_EMIT
+%endif
 
     ; FO work overwrote delta_load and the auth overlay will overwrite this
     ; controller.  Relocate a tiny absolute trampoline into retired low work
@@ -2956,6 +3753,28 @@ live_fo_controller:
     mov cx, fo_auth_transition_len
     rep movsb
     jmp fo_auth_transition
+
+fo_park_ticket_psk:
+    push ds
+    pop es
+    mov si, fo_ticket_psk
+    mov di, fo_ticket_psk_hold
+    mov cx, fo_ticket_psk_len / 2
+    rep movsw
+    ret
+
+fo_restore_ticket_hold:
+    push ds
+    pop es
+    mov si, fo_ticket_hold
+    mov di, fo_ticket_identity
+    mov cx, fo_ticket_identity_tail_len / 2
+    rep movsw
+    mov si, fo_ticket_psk_hold
+    mov di, fo_ticket_psk
+    mov cx, fo_ticket_psk_len / 2
+    rep movsw
+    ret
 
 ; Erase both low copies, the independent K' compare value, the retired
 ; high m', and the initial-attempt half of both secret card pages.  The second
@@ -2994,6 +3813,10 @@ fo_cleanup_handoffs_counted:
     ret
 
 fo_card_write:
+%ifdef LIVE_K15_PRODUCT_MODE
+    call LIVE_K15_NE_BUF_LOAD
+    ret
+%else
     xor bx, bx
     mov bl, [ne_tx_start]
     push bx
@@ -3003,6 +3826,7 @@ fo_card_write:
     pop bx
     mov [ne_tx_start], bl
     ret
+%endif
 
 fo_failed:
     call fo_cleanup_handoffs_full
@@ -3072,28 +3896,52 @@ fo_auth_transition_end:
 fo_auth_transition_len equ \
     fo_auth_transition_end - fo_auth_transition_source
 
+%ifndef LIVE_K15_PRODUCT_MODE
 fo_begin_text db 13,10,'FO BEGIN',13,10,0
 fo_valid_text db 13,10,'KEM VALID',13,10,0
 fo_auth_text  db 13,10,'AUTH BEGIN',13,10,0
+%endif
 
+%if (fo_expected_k + 32) > fo_kernel_ticket_hold_end
+%error "complete native ticket and expected K exceed FO preserved hold"
+%endif
 %if ($ - $$) > 0x0200
 %error "live FO controller exceeds its one-sector slot"
 %endif
 
 %elifdef LIVE_K15_SCRUB_CONTROLLER
 
+%ifdef LIVE_K15_PRODUCT_MODE
+%ifndef LIVE_K15_CONFIG_ESCROW_KEY
+%error "product scrub requires the config-escrow phase"
+%endif
+%ifndef LIVE_K15_CONFIG_ESCROW_STAGE
+%error "product scrub requires the config-escrow stage"
+%endif
+%ifndef LIVE_K15_CONFIG_ESCROW_RESTORE
+%error "product scrub requires the config-escrow restore callback"
+%endif
+%ifndef LIVE_K15_PERSIST_EMERGENCY
+%error "product scrub requires the persistent emergency-reset entry"
+%endif
+%ifndef LIVE_K15_PERSIST_PRODUCT_ZEROIZE
+%error "product scrub requires the persistent lifecycle continuation"
+%endif
+%else
 %ifndef LIVE_K15_NE_BUF_LOAD
 %error "scrub controller requires the guarded NE2000 DMA-write leaf"
 %endif
 %ifndef LIVE_K15_PERSIST_EMIT
 %error "scrub controller requires the persistent emit service"
 %endif
+%endif
 
 org 0x2400
 
+res_load_phase                 equ 0x10c4
 handoff_nic_base               equ 0x060e
 ne_tx_start                    equ 0x06cb
-scrub_expected_k               equ 0x07ee
+scrub_expected_k               equ 0x080e
 scrub_handoff_low              equ 0x0d00
 scrub_message                  equ 0x3a40
 scrub_candidate_g              equ 0x3b9c
@@ -3106,6 +3954,26 @@ live_scrub_controller:
     pop es
     xor ax, ax
 
+%ifdef LIVE_K15_PRODUCT_MODE
+    ; The phase read has already replaced the retired 0x2400..0x25ff
+    ; controller sector.  Clear every other conventional secret span while
+    ; preserving the resident nucleus, the executing scrub sector, the
+    ; immutable abort capsule, and only the reconnect-state band above the
+    ; cache destination.  The validated escrow restore republishes that cache
+    ; after the high sweep.
+    mov di, 0x0700
+    mov cx, 0x0471
+    rep stosw
+    mov di, 0x1800
+    mov cx, 0x0600
+    rep stosw
+    mov di, 0x2600
+    mov cx, 0x0f5d
+    rep stosb
+    mov di, 0x3600
+    mov cx, 0x034e
+    rep stosw
+%else
     ; Clear every local secret copy first.  On the failure path no tentative
     ; ticket can be promoted, so the overlapping high G||z range is retired.
     mov di, scrub_handoff_low
@@ -3120,20 +3988,36 @@ live_scrub_controller:
     mov di, scrub_candidate_g
     mov cx, 48
     rep stosw
+%endif
 
+%ifndef LIVE_K15_PRODUCT_MODE
     ; Use the already-zero 256-byte low handoff window as the full-page source.
     ; The helper attempts every reserved page even after a DMA error and
     ; returns the aggregate result in CF.  This terminal failure controller
     ; deliberately continues to the same fail marker either way.
     call scrub_card_pages
+%endif
 
+%ifdef LIVE_K15_PRODUCT_MODE
+    ; Restore the status-last config/UI object only after local K14 material
+    ; has been erased. The 0x2c00 phase does not overlap this controller.
+    mov ax, LIVE_K15_CONFIG_ESCROW_KEY
+    mov bx, LIVE_K15_CONFIG_ESCROW_STAGE
+    call res_load_phase
+    jc LIVE_K15_PERSIST_EMERGENCY
+    call LIVE_K15_CONFIG_ESCROW_RESTORE
+    jc LIVE_K15_PERSIST_EMERGENCY
+    jmp LIVE_K15_PERSIST_PRODUCT_ZEROIZE
+%else
     mov si, scrub_fail_text
     call LIVE_K15_PERSIST_EMIT
 .halt:
     sti
     hlt
     jmp short .halt
+%endif
 
+%ifndef LIVE_K15_PRODUCT_MODE
 ; Attempt every reserved card page and aggregate individual DMA failures.
 ; Output CF=1 if any page failed, CF=0 only when all pages were overwritten.
 scrub_card_pages:
@@ -3165,8 +4049,11 @@ scrub_card_page:
     mov [ne_tx_start], ah
 scrub_card_page_restored:
     ret
+%endif
 
+%ifndef LIVE_K15_PRODUCT_MODE
 scrub_fail_text db 13,10,'FAIL',13,10,'RESULT',13,10,0
+%endif
 
 %if ($ - $$) > 0x0200
 %error "live scrub controller exceeds its one-sector slot"
@@ -3208,14 +4095,25 @@ live_auth_controller:
     jne auth_failed
     cmp byte [0x3c9a], 1
     jne auth_failed
+%ifdef LIVE_K15_PRODUCT_MODE
+    mov ax, 1
+    clc
+    ret
+%else
     mov si, auth_pass_text
     call auth_emit
 .halt:
     sti
     hlt
     jmp short .halt
+%endif
 
 auth_failed:
+%ifdef LIVE_K15_PRODUCT_MODE
+    xor ax, ax
+    stc
+    ret
+%else
     mov si, auth_fail_text
     call auth_emit
     jmp short live_auth_controller.halt
@@ -3271,6 +4169,7 @@ auth_emit:
 
 auth_pass_text db 13,10,'IDENTITY PASS',13,10,'PASS',13,10,'RESULT',13,10,0
 auth_fail_text db 13,10,'FAIL',13,10,'RESULT',13,10,0
+%endif
 
 %else
 %error "select one LIVE_K15_* controller build"

@@ -82,12 +82,11 @@ cpu 8086
 %ifndef RESUME_PREPARE_CONT_LIMIT
 %define RESUME_PREPARE_CONT_LIMIT 0x0110
 %endif
-%ifdef RESUME_PREPARE_DIAGNOSTIC
-%ifndef RESUME_PREPARE_EXPECTED_RETURN
-%error "diagnostic PREPARE requires its fixed controller return address"
+%ifdef RESUME_PREPARE_VAULT_ACCESS_KEY
+%ifndef RESUME_PREPARE_VAULT_ACCESS_STAGE
+%error "product PREPARE requires its vault-access stage"
 %endif
 %endif
-
 prepare_native_issuer          equ 0x3600
 prepare_native_ticket_psk      equ 0x38b0
 prepare_native_identity        equ 0x3b40
@@ -113,6 +112,7 @@ prepare_readback               equ 0x0700
 ; across the BINDER -> SYM_BINDER -> EARLY chain.  Keep the executable
 ; trampoline in the retired upper half of the same page.
 prepare_transition             equ 0x0780
+prepare_sym_psk_hold           equ 0x0760
 prepare_sym_retry_count        equ 0x07fe
 prepare_restore_outcome        equ 0x07ff
 prepare_transition_terminal    equ 0xa5
@@ -124,45 +124,24 @@ prepare_lifecycle_inverse      equ prepare_lifecycle_generation + 2
 prepare_lifecycle_status       equ prepare_lifecycle_inverse + 1
 prepare_lifecycle_used_end     equ prepare_lifecycle_status + 1
 
-%macro prepare_diagnostic 1
-%ifdef RESUME_PREPARE_DIAGNOSTIC
-    push ax
-    push cx
-    push dx
-    mov ah, %1
-    mov dx, 0x03fd
-    xor cx, cx
-%%wait:
-    in al, dx
-    test al, 0x20
-    loopz %%wait
-    mov dl, 0xf8
-    mov al, ah
-    out dx, al
-    pop dx
-    pop cx
-    pop ax
-%endif
-%endmacro
-
-%macro prepare_diagnostic_nowait 1
-%ifdef RESUME_PREPARE_DIAGNOSTIC
-    push ax
-    push dx
-    mov al, %1
-    mov dx, 0x03f8
-    out dx, al
-    pop dx
-    pop ax
-%endif
-%endmacro
-
 %macro prepare_binder_mark 1
 %ifdef RESUME_PREPARE_BINDER_DIAGNOSTIC
     push ax
     mov al, %1
     call prepare_binder_diagnostic_emit
     pop ax
+%endif
+%endmacro
+
+; The complete twelve-sector symmetric image and the product vault-access leaf
+; share 0x2c00..0x2fff.  Call only after symmetric code has retired and branch
+; to the phase-specific failure path if the demand reload cannot be completed.
+%macro prepare_repin_vault_access 1
+%ifdef RESUME_PREPARE_VAULT_ACCESS_KEY
+    mov ax, RESUME_PREPARE_VAULT_ACCESS_KEY
+    mov bx, RESUME_PREPARE_VAULT_ACCESS_STAGE
+    call RESUME_PREPARE_LOAD_PHASE
+    jc %1
 %endif
 %endmacro
 
@@ -239,7 +218,6 @@ resume_prepare_broker:
     push es
     push ds
     pop es
-    prepare_diagnostic '1'
     cmp ax, 2
     jne resume_prepare_broker_failed
 
@@ -277,7 +255,6 @@ resume_prepare_broker:
     loop .entropy_nonzero
     or dx, dx
     jz resume_prepare_broker_failed
-    prepare_diagnostic '2'
 
     mov ax, [prepare_native_generation]
     or ax, ax
@@ -352,7 +329,6 @@ resume_prepare_broker:
     loop .receipt_zero
     or dx, dx
     jnz resume_prepare_broker_failed
-    prepare_diagnostic '3'
 
     ; Canonical page 0x73: issuer114 || PSK32 || identity[0:110].
     xor ax, ax
@@ -379,7 +355,6 @@ resume_prepare_broker:
     mov bx, resume_card_vault_head
     call resume_prepare_broker_verify_page
     jc resume_prepare_broker_failed
-    prepare_diagnostic '4'
 
     ; Canonical page 0x7f: identity tail, native ticket tail, ROG3 control,
     ; required zero, invalid metadata, and the target-generated random/session.
@@ -421,7 +396,6 @@ resume_prepare_broker:
     mov bx, resume_card_vault_tail
     call resume_prepare_broker_verify_page
     jc resume_prepare_broker_failed
-    prepare_diagnostic '5'
 
     ; The transition is private to operation 2 and occupies the receive frame
     ; only after its entropy/readback work is complete.  HELLO may overwrite it
@@ -549,11 +523,32 @@ org 0x3400
 
 resume_prepare_hash_entry:
     cld
-    prepare_diagnostic '6'
+    ; The access leaf and full symmetric image cannot coexist at 0x2c00.
+    ; Capture and validate both card pages while access is still leased, then
+    ; replace it with K14 and hash only the stable host copies.
+    mov bx, resume_card_vault_head
+    mov cx, 256
+    mov di, prepare_entropy_a
+    call RESUME_PREPARE_NE_BUF_READ
+    jc resume_prepare_hash_failed
+    mov bx, resume_card_vault_tail
+    mov cx, 256
+    mov di, prepare_page
+    call RESUME_PREPARE_NE_BUF_READ
+    jc resume_prepare_hash_failed
+    cmp byte [prepare_page + resume_vault_meta_status], 0
+    jne resume_prepare_hash_failed
+
     mov ax, RESUME_PREPARE_SYM_KEY
     mov bx, 0x1800
     call RESUME_PREPARE_LOAD_PHASE
     jc resume_prepare_hash_failed
+%ifdef RESUME_PREPARE_SYM_TAIL_KEY
+    mov ax, RESUME_PREPARE_SYM_TAIL_KEY
+    mov bx, 0x2e00
+    call RESUME_PREPARE_LOAD_PHASE
+    jc resume_prepare_hash_failed
+%endif
 
     call RESUME_PREPARE_SYM_SHA_INIT
     mov si, resume_prepare_hash_domain
@@ -562,21 +557,9 @@ resume_prepare_hash_entry:
     mov si, prepare_native_generation
     mov cx, 2
     call RESUME_PREPARE_SYM_SHA_UPDATE
-    mov bx, resume_card_vault_head
-    mov cx, 256
-    mov di, prepare_entropy_a
-    call RESUME_PREPARE_NE_BUF_READ
-    jc resume_prepare_hash_failed
     mov si, prepare_entropy_a
     mov cx, 256
     call RESUME_PREPARE_SYM_SHA_UPDATE
-    mov bx, resume_card_vault_tail
-    mov cx, 256
-    mov di, prepare_page
-    call RESUME_PREPARE_NE_BUF_READ
-    jc resume_prepare_hash_failed
-    cmp byte [prepare_page + resume_vault_meta_status], 0
-    jne resume_prepare_hash_failed
     mov si, prepare_page
     mov cx, resume_vault_canonical_end
     call RESUME_PREPARE_SYM_SHA_UPDATE
@@ -590,7 +573,6 @@ resume_prepare_hash_entry:
     mov di, prepare_page + resume_vault_meta_digest
     mov cx, 16
     rep movsw
-    prepare_diagnostic '7'
     mov ax, RESUME_PREPARE_COMMIT_KEY
     mov cx, RESUME_PREPARE_COMMIT_BYTES
     jmp prepare_transition
@@ -632,7 +614,9 @@ org 0x3400
 
 resume_prepare_commit_entry:
     cld
-    prepare_diagnostic '8'
+    ; HASH deliberately replaced the 0x2c00 access leaf with full K14.  SHA is
+    ; now retired, so reacquire the access lease before status-last commit.
+    prepare_repin_vault_access resume_prepare_commit_failed
     ; First publish the digest with invalid status and verify the full page.
     mov byte [prepare_page + resume_vault_meta_inverse_status], 0
     mov byte [prepare_page + resume_vault_meta_status], 0
@@ -678,7 +662,6 @@ resume_prepare_commit_entry:
     mov cx, resume_vault_control_len
     rep stosb
 
-    prepare_diagnostic '9'
     mov ax, RESUME_PREPARE_CRYPTO_KEY
     mov cx, RESUME_PREPARE_CRYPTO_BYTES
     jmp prepare_transition
@@ -761,7 +744,6 @@ org 0x3400
 
 resume_prepare_crypto_entry:
     cld
-    prepare_diagnostic_nowait 'a'
     ; Re-read d||z only after the canonical vault has retired the overlapping
     ; native identity slot.  0x3b9c is both KeyGen's input and part of the
     ; pre-vault 192-byte ticket identity, so an earlier copy would corrupt the
@@ -777,7 +759,6 @@ resume_prepare_crypto_entry:
     jc resume_prepare_crypto_failed
     call RESUME_PREPARE_KEYGEN_ENTRY
     jc resume_prepare_crypto_failed
-    prepare_diagnostic_nowait 'b'
 
     mov al, 0x74
     mov si, 0x08c0
@@ -814,7 +795,6 @@ resume_prepare_crypto_entry:
     mov di, prepare_attempt_cache + 100
     call RESUME_PREPARE_NE_BUF_READ
     jc resume_prepare_crypto_failed
-    prepare_diagnostic_nowait 'c'
 
     ; Fresh ek occupies 0x08c0..0x0d5f and therefore destroys every live RSU1
     ; low scatter.  From this point onward, the private transition must fail
@@ -1072,7 +1052,6 @@ org 0x3400
 
 resume_prepare_binder_entry:
     cld
-    prepare_diagnostic_nowait 'd'
     ; The private transition stages this phase at 0x3000, which is also the
     ; HELLO ticket-identity ABI.  Restore the identity only after the exact
     ; copy to 0x3400 has completed.
@@ -1227,6 +1206,16 @@ org 0x3400
 
 resume_prepare_sym_binder_entry:
     cld
+    ; Stage the PSK while the access lease still exists.  Loading all twelve
+    ; symmetric sectors below destroys that leaf, and sym_init clears the
+    ; ordinary high PSK slot, so retain it in the unused 32 bytes immediately
+    ; below the private transition.
+    mov bx, resume_card_vault_head + resume_vault_head_psk
+    mov cx, resume_vault_psk_len
+    mov di, prepare_sym_psk_hold
+    call RESUME_PREPARE_NE_BUF_READ
+    jc resume_prepare_sym_binder_failed
+
     ; The original-speed 5150/BIOS path deterministically altered two bytes
     ; when sectors were DMA-read directly into this reused executable window.
     ; Quarantine every read in the retired 0x0d00 transcript page, CPU-copy it
@@ -1262,6 +1251,15 @@ resume_prepare_sym_binder_entry:
     dec bp
     jnz .load_sym_sector
 
+%ifdef RESUME_PREPARE_SYM_TAIL_KEY
+    ; Replace the product deadline-only K14 tail.  The complete-image CRC
+    ; below covers this separate read too and retries any torn DMA result.
+    mov ax, RESUME_PREPARE_SYM_TAIL_KEY
+    mov bx, 0x2e00
+    call RESUME_PREPARE_LOAD_PHASE
+    jc resume_prepare_sym_binder_retry
+%endif
+
     mov dx, 0xffff
     mov si, 0x1800
     mov cx, RESUME_PREPARE_SYM_IMAGE_BYTES
@@ -1280,22 +1278,25 @@ resume_prepare_sym_binder_entry:
     cmp dx, RESUME_PREPARE_SYM_IMAGE_CRC16
     je resume_prepare_sym_binder_verified
 resume_prepare_sym_binder_retry:
-    prepare_diagnostic_nowait 'r'
     dec byte [prepare_sym_retry_count]
     jnz resume_prepare_sym_binder_entry.load_sym
     jmp resume_prepare_sym_binder_failed
 resume_prepare_sym_binder_verified:
     mov byte [prepare_sym_retry_count], 0
     prepare_binder_mark 'C'
-    prepare_diagnostic_nowait 'v'
 
     call RESUME_PREPARE_SYM_INIT
     jc resume_prepare_sym_binder_failed
-    mov bx, resume_card_vault_head + resume_vault_head_psk
-    mov cx, resume_vault_psk_len
+    push ds
+    pop es
+    mov si, prepare_sym_psk_hold
     mov di, prepare_native_ticket_psk
-    call RESUME_PREPARE_NE_BUF_READ
-    jc resume_prepare_sym_binder_failed
+    mov cx, resume_vault_psk_len / 2
+    rep movsw
+    xor ax, ax
+    mov di, prepare_sym_psk_hold
+    mov cx, resume_vault_psk_len / 2
+    rep stosw
     prepare_binder_mark 'P'
 
     mov si, 0x0700
@@ -1305,7 +1306,6 @@ resume_prepare_sym_binder_verified:
     call RESUME_PREPARE_SYM_BINDER_ENTRY
     jc resume_prepare_sym_binder_failed
     prepare_binder_mark 'B'
-    prepare_diagnostic_nowait 'm'
     mov si, RESUME_PREPARE_SYM_BINDER_VALUE
     mov di, 0x0720
     mov cx, 16
@@ -1638,6 +1638,10 @@ org 0x3000
 
 resume_prepare_restore_entry:
     cld
+    ; EARLY and every SYM_BINDER exit leave the full symmetric image resident.
+    ; No symmetric entry is called from RESTORE, so this is the final safe
+    ; access-lease handoff before publishing and verifying the early object.
+    prepare_repin_vault_access resume_prepare_restore_terminal
     xor ax, ax
     cmp byte [prepare_restore_outcome], 1
     jne .outcome_saved
@@ -1783,12 +1787,10 @@ resume_prepare_restore_entry:
     pop es
     or dx, dx
     jz .failed
-    prepare_diagnostic 'S'
     mov ax, 1
     clc
     ret
 .failed:
-    prepare_diagnostic 'F'
     xor ax, ax
     stc
     ret

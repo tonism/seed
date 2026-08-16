@@ -34,21 +34,43 @@
     "vault_hash_bridge_bytes": 110
   },
   "post_controller": {
-    "commit_entry": 3217,
+    "commit_entry": 3216,
+    "fresh_head_boundary": true,
     "hooked_bytes": 1024,
     "legacy_byte_stable": true,
-    "legacy_bytes": 1012,
-    "receipt_edge": 3259
+    "legacy_bytes": 971,
+    "other_head_states_rejected": [
+      0,
+      3
+    ],
+    "plaintext_parser": 2719,
+    "receipt_edge": 3260,
+    "ticket_close_boundary": true,
+    "ticket_close_parser_negatives": [
+      "no-ticket",
+      "fatal-level",
+      "wrong-description",
+      "wrong-inner-type",
+      "wrong-length",
+      "partial-http",
+      "duplicate-close"
+    ],
+    "ticket_close_parser_positive": "01 00 15"
   },
   "receipt_worker": {
     "bytes": 251,
+    "digest_ticket_material_bytes": 44,
     "fault_cases": 6,
+    "fo_controller_completes_hold_with_psk": true,
+    "fo_identity_metadata_hold_bytes": 238,
     "lifecycle_initialization_owner": "post-auth entry after exact-pin P-256 and LP1 publication",
     "limit": 272,
     "pre_auth_lifecycle_span": "0x3c76..0x3c9a",
     "pre_auth_lifecycle_span_preserved": true,
+    "provisional_to_live_ticket_transition_executed": true,
     "readbacks": 2,
     "status_last": true,
+    "ticket_status_excluded_from_digest_and_required_separately": true,
     "tx_restored": true,
     "writes": 2
   }

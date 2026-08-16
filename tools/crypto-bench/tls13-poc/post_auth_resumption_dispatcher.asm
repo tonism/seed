@@ -217,65 +217,10 @@ resume_dispatch_header:
 
 resume_dispatch_code:
     cld
-%ifdef RESUME_DISPATCH_DIAGNOSTIC
-    ; Compact equivalent range check leaves room for the diagnostic UART
-    ; setup inside the fixed callback page.
-    dec ax
-    cmp ax, 10
-    ja resume_dispatch_failed
-    inc ax
-%else
     cmp ax, 1
     jb resume_dispatch_failed
     cmp ax, 11
     ja resume_dispatch_failed
-%endif
-
-%ifdef RESUME_DISPATCH_DIAGNOSTIC
-    ; Temporary non-secret live marker.  A..K correspond to fixed operations
-    ; 1..11.  Preserve the complete caller register/flag state, restore the
-    ; expected line state, and wait until the UART can accept the byte.
-    pushf
-    push ax
-    push cx
-    push dx
-    add al, 'A' - 1
-    mov ah, al
-
-    ; Re-establish the same 9600 8N1 COM1 state used by the live serial
-    ; service.  A prior overlay may have left DLAB or another line mode set.
-    mov dx, 0x03fb
-    mov al, 0x80
-    out dx, al
-    mov dl, 0xf8
-    mov al, 12
-    out dx, al
-    inc dx
-    xor al, al
-    out dx, al
-    inc dx
-    inc dx
-    mov al, 0x03
-    out dx, al
-    inc dx
-    out dx, al
-    inc dx
-
-    ; Starting LOOPZ at zero provides 65,536 bounded polls.  If that bound
-    ; expires, the final OUT remains nonblocking and is only best-effort.
-    xor cx, cx
-.diagnostic_wait_thr_empty:
-    in al, dx
-    test al, 0x20
-    loopz .diagnostic_wait_thr_empty
-    mov dl, 0xf8
-    mov al, ah
-    out dx, al
-    pop dx
-    pop cx
-    pop ax
-    popf
-%endif
 
     ; Keep the RSU1 operation beneath the loader's return frame.  The fixed
     ; table entry is six bytes: mode/reserved, phase key, measured byte count.

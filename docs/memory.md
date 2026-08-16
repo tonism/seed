@@ -1,8 +1,17 @@
 # Memory Layout
 
 This appendix records how Seed fits inside the 16 KiB IBM PC 5150 target at
-important points during boot and the stage-by-stage fill-in below. The diagrams are generated from the
-assembled `SEED.SYS` plus layout constants.
+important points during boot and the stage-by-stage fill-in below. The diagrams
+are generated from the assembled `SEED.SYS` plus layout constants.
+
+> **TLS 1.3 integration note.** The maps show the stable product bands and
+> ordinary application-record/chat state. The 8088 handshake is now a
+> cold-phase schedule: different TLS 1.3 phases temporarily occupy the
+> `0x0700` and `0x1800` windows, and its product root also uses
+> `0x3400..0x35ff` before that state is retired. These bytes are phase
+> executable/scratch space, not additional user arena. The 16 KiB
+> arena/context contract remains 96/96 bytes; the 32 KiB low contract remains
+> 224/224 bytes.
 
 Refresh this file after memory-layout changes:
 
@@ -20,12 +29,12 @@ scratch/state detail you can skim on a first read.
 ```text
 █  BIOS-owned low memory
 ▓  SEED.SYS resident nucleus
-▒  K LINK window
+▒  application-record / cold TLS phase window
 h  handoff block
 t  TLS / crypto state
 w  wire / TCP / NIC state
 r  TLS receive buffer
-:  dormant reconnect-handshake scratch
+:  reloadable TLS/reconnect scratch
 a  agent config (and reconnect-safe caches)
 c  crypto constants
 m  conversation window (model-compacted context)
@@ -137,12 +146,12 @@ LINK window is still on the floppy — its 7.5 KiB slot at
   │ 0x3000 │▒▒▒▒▒▒▒▒▒▒▒▒ttrrrrttttttaaaa++||│
   └────────┴────────────────────────────────┘
 
-Densest moment. K LINK window loaded; persistent TLS state
-derived; receive buffer holding the encrypted response; the rest
-of pre-response scratch (hmac_prepared + tls_server_random /
-master_secret / handshake_hash) filled by the handshake. The
-context pool above critical scratch (caches a, arena +, window m)
-is already reserved. Nothing is free here - 16 KiB at full pack.
+Densest moment. A cold TLS 1.3 phase occupies the main executable
+window; persistent record state is derived; the receive buffer holds
+the protected response. Other cold phases use the low phase window
+and bounded scratch in turn. The context pool above critical scratch
+(caches a, arena +, window m) is already reserved. Nothing is free
+here - 16 KiB at full pack.
 ```
 <!-- END MAP: stage-tls -->
 
@@ -157,14 +166,12 @@ is already reserved. Nothing is free here - 16 KiB at full pack.
   │ 0x3000 │▒▒▒▒▒▒▒▒▒▒▒▒ttrrrrr:::::aaaa++||│
   └────────┴────────────────────────────────┘
 
-Chat loop after the first response. The K window, session keys, and
-receive buffer (the streamed response) stay resident and serve every
-turn. The ':' band is the TLS handshake scratch (HMAC pads, server
-random, master secret, transcript hash): dormant once the session keys
-exist, but reserved - a reconnect re-runs the handshake and reuses it,
-and it sits below critical scratch (the reconnect-safe line), so it can
-never be permanent pool. The context pool therefore lives ABOVE
-that line - reconnect-safe caches, user/agent arena (+), and
+Chat loop after the first response. The application-record window,
+session keys, and receive buffer serve every turn. The ':' band is
+reloadable TLS/reconnect scratch: dormant after route commit but reserved
+because one bounded reconnect rebuilds the tier there. It sits below
+critical scratch, so it can never be permanent pool. The context pool
+therefore lives above that line - reconnect-safe caches, user/agent arena (+), and
 conversation window (m) - so it survives an idle/walk-away reconnect. In
 the current native-tool layout the remaining 16 KiB pool is
 192 B, split 50/50 by hardware_setup into a 96 B arena and a 96 B
@@ -191,6 +198,10 @@ RAM, drawn to scale and filled by who owns it. Legend:
 H HMA                 F EMS page frame           X device / ROM (unusable)
 ░ real-mode gap / unpopulated
 ```
+
+The coarse 286/386 cluster pictures show memory-reach ownership and predate a
+separate glyph for the top 64 KiB TLS reservation. Use the exact 286 range
+tables below for address authority; the reservation is never arena/context.
 
 ```text
 256 KiB conventional   (cell 2 KiB · row 64 KiB)
@@ -250,7 +261,7 @@ EMS physical view (where the page frame sits)   (cell 8 KiB · row 256 KiB)
 0x00000600..0x0000062E   Seed handoff block
 0x00000700..0x00001000   cold phase / packet scratch window
 0x00001000..0x00001800   resident nucleus
-0x00001800..0x00003600   K crypto/TLS window when loaded
+0x00001800..0x00003600   application-record / cold TLS phase window
 0x00003600..0x00003E40   TLS, reconnect, config, and tool state
 0x00003E40..0x00003EA0   direct user/agent arena (96 B)
 0x00003EA0..0x00003F00   conversation context window (96 B)
@@ -267,13 +278,50 @@ turn.
 0x00003E40..0x00003F20   direct user/agent arena (224 B)
 0x00003F20..0x00004000   conversation context window (224 B)
 0x00004000..0x00004200   resident tools-schema cache
-0x00004200..0x00007A00   normal-turn loop cache / 286 secure overlay band
+0x00004230..0x00007A00   normal-turn loop cache / 286 low module overlay
 0x00007A00..0x00008000   stack guard
 ```
 
 The low-memory arena/context pool is only modestly larger than the 16 KiB floor
 because the extra RAM is buying a floppy-free normal chat turn: the K window,
 normal-turn phases, identity prompt, and tools schema live in the high cache.
+
+### 286 TLS 1.3 Floor, 512 KiB Conventional
+
+```text
+0x00010000..0x00040000   direct far arena (192 KiB)
+0x00040000..0x00070000   far conversation context (192 KiB)
+0x00070000..0x00080000   TLS 1.3 crypto reservation (64 KiB)
+```
+
+The route gate uses the BIOS Data Area conventional-memory word, not the
+16/32 KiB entry handoff ceiling. The top-relative reservation contains the
+22,528-byte module cache, generated P-256 tables, authenticated same-boot leaf
+state, volatile ticket/PSK, entropy/attempt bundles, a full-record quarantine,
+descriptors, and guards. It is never
+advertised as agent arena or context. With the current 50/50 conventional
+policy, the remaining 384 KiB far pool yields 192 KiB for each.
+
+The final connection temporarily overlays its pre-TCP acceleration state on
+the full-record quarantine. These offsets are relative to the top-relative
+64 KiB crypto reservation (`0x70000` at the 512 KiB floor):
+
+```text
++0xbd62..+0xbd64   symmetric-image inverse/READY status
++0xbd64..+0xbda4   32-byte early-derived value + bytewise complement
++0xbda4..+0xbda6   early-derived inverse/READY status
++0xbda6..+0xbda8   public-matrix inverse/READY status
++0xbf10..+0xd710   staged immutable symmetric image (6,144 B)
++0xd710..+0xe910   public ML-KEM A^T matrix (4,608 B; nine polynomials)
++0xbf10..+0x10000  full-record quarantine after cache consumption
+```
+
+The symmetric image and matrix do not reduce the 192/192 KiB user split:
+their bytes occupy quarantine space before records need it. Status is
+published last and consumed before copying/import/decapsulation. The
+early-derived value and complement are wiped immediately after import; record
+open retires the staged public image/matrix before authenticated plaintext
+occupies the same band, and abort/restart clears the full high reservation.
 
 ### 256 KiB Conventional 8088, No EMS
 
@@ -317,7 +365,8 @@ example `write to 0x00100020 -> 0x000D0020`.
 ### 286, 640 KiB Conventional + 1 MiB Native Extended
 
 ```text
-0x00010000..0x000A0000   direct conventional arena (576 KiB)
+0x00010000..0x00090000   direct conventional arena (512 KiB)
+0x00090000..0x000A0000   TLS 1.3 crypto reservation (64 KiB)
 0x00100000..0x0010FFF0   HMA direct range (almost 64 KiB)
 0x00110000..0x00138000   native extended arena below context (160 KiB)
 0x00138000..0x00200000   canonical conversation context (800 KiB)
@@ -331,7 +380,8 @@ backend for tool access.
 ### 386, 640 KiB Conventional + 3 MiB Native Extended
 
 ```text
-0x00010000..0x000A0000   direct conventional arena (576 KiB)
+0x00010000..0x00090000   direct conventional arena (512 KiB)
+0x00090000..0x000A0000   TLS 1.3 crypto reservation (64 KiB)
 0x00100000..0x0010FFF0   HMA direct range
 0x00110000..0x00300000   high arena below context
 0x00300000..0x00400000   canonical conversation context (1 MiB cap)

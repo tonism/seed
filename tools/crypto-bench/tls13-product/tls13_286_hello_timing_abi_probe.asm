@@ -1,0 +1,37 @@
+bits 16
+cpu 8086
+
+%include "tls13/tls13_286_hello.asm"
+
+db 'H286TIM2'
+dw 30
+dw hello_phase
+dw hello_mode
+dw hello_hash_enabled
+dw hello_segment
+dw hello_pending
+dw hello_crypto_seg
+dw hello_wire_message_len
+dw hello_wire_extensions_len
+dw hello_wire_tail_len
+dw hello_ticket_len_snapshot
+dw hello_ticket_age
+dw hello_random
+dw hello_session
+dw hello_client_x
+dw hello_clear_work
+dw hello_live_send_client
+dw hello_live_receive_server
+dw hello_server_begin
+dw hello_server_feed
+dw hello_server_finish
+dw hello_live_acquire
+dw hello_live_fresh
+dw sha256_init
+dw hello_phase_tx
+dw hello_mode_acquire
+dw hello_mode_resume
+dw hello_message_len
+dw hello_extensions_len
+dw hello_tail_len
+dw hello_resumption_delta
