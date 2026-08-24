@@ -5,11 +5,12 @@ layer and OpenAI endpoint, but they do **not** make the same security claim.
 This document is the authority for that distinction.
 
 > **Validation status.** Both product routes are integrated and currently
-> integration-under-validation. Their current-source offline cryptographic,
-> layout, fail-closed, exact-floor 86Box wire, reconnect, and screen gates pass;
-> the 8088 profile also passes all seven original-speed ISA profiles.
+> integration-under-validation. The RAM-only 8088 architecture passes its
+> current-source offline cryptographic, layout, composition, and fail-closed
+> gates, exact-floor wire/reconnect gate, seven-NIC matrix, and CGA/MDA display
+> cases. The conforming 286 route passes its exact-floor four-flow live gate.
 > Physical entropy characterization and additional provider-edge repetition
-> remain before either route is an unconditional secure-floor claim.
+> also remain before either route is an unconditional secure-floor claim.
 
 ## Claims at a glance
 
@@ -57,8 +58,8 @@ provisional
   ML-KEM candidate
   send client Finished
   permit only a compiled, literal, credential-free HEAD liveness request
-  retain at most the bounded same-boot ticket object as tentative state; an
-  authenticated ticket-bearing close is a receipt, not liveness
+  authenticate the HEAD response and retain at most one bounded same-boot
+  ticket as tentative state
 
 quarantine
   finish full ML-KEM re-encryption, comparison, and implicit rejection
@@ -74,19 +75,18 @@ committed
 The provisional HEAD contains no Authorization header, API key, prompt,
 account identifier, cookie, or server-derived redirect target. It is still an
 external effect: the provider may log, fingerprint, rate-limit, or count it.
-If the fresh socket closes after returning a bounded ticket but before HEAD
-liveness, Seed records only the authenticated ticket/close receipt, finishes
-FO and exact-leaf/CV proof offline, and uses that ticket once to send the same
-fixed HEAD as 0-RTT. Only its authenticated resumed response establishes
-liveness. This paired route is the narrow exception that buys enough dialogue
-time for the original machine to finish its own proof.
+The fresh socket must return both an authenticated HEAD completion and a
+bounded authenticated NewSessionTicket. A close before either completes fails
+the attempt; a ticket or close is not a substitute for liveness.
 
 A received ticket is not trusted merely because its record tag verified under
-provisional keys. It stays RAM-only and tentative. A resumed connection still
-performs fresh KEM work, sends only the fixed 0-RTT HEAD, verifies its protected
-flight and Finished, completes full FO validation and authenticated HEAD
-liveness, restores and scrubs the vault, and only then promotes the route
-status-last. Tickets and keys never survive a restart.
+provisional keys. It stays RAM-only and tentative until full FO and
+exact-leaf/CV proof complete. The final connection consumes it once, performs
+fresh KEM work with no `early_data`, verifies its protected flight and
+Finished, sends the fixed HEAD only after client Finished, completes full FO
+validation and authenticated HEAD liveness, retires its lifetime-separated
+conventional-RAM state, and only then promotes the route status-last. Tickets
+and keys never survive a restart.
 
 ### 8088 identity and rotation
 
@@ -106,11 +106,14 @@ There is no mutable leaf file and no trust-on-first-use. In particular,
 
 ### 8088 entropy status
 
-The machine gathers its own input before TCP by timing alternating reads from
-the write-protected boot floppy with PIT channel 0 and conditioning the events
-with SHA3-256 into domain-separated, one-shot attempt bundles. It does not ask
-the operator for dice rolls, use elapsed seconds as entropy, or depend on a
-trusted modern machine. The floppy reads work on read-only media.
+The machine gathers its own input before TCP without adding disk activity.
+After each already-required successful floppy sector read, the resident tail
+records one PIT channel-0 phase byte, up to 120 observations. The cold
+conditioner freezes the recorder, rejects too few samples and gross stuck/long
+run failures, and SHA3-conditions the observations into domain-separated,
+one-shot attempt material. It does not perform an entropy-only read, ask for
+dice rolls, treat elapsed seconds as entropy, or depend on a trusted modern
+machine. The mechanism works unchanged with write-protected media.
 
 The emulator proves the mechanism but receives zero entropy credit. A secure
 floor claim still requires traces from representative physical drives, a
@@ -191,15 +194,13 @@ branchless implicit rejection still run after ServerHello, and the resulting
 wrong secret cannot verify server Finished. Client Finished and credential
 publication remain after those checks.
 
-At the exact 6 MHz measurement rate, matrix generation is 45 ticks / 2.4716 s
-outside the live window. Cached full FO is 43 ticks / 2.3618 s, compared with
-88 ticks / 4.8334 s uncached. The conservative serialized CPU windows are 162
-ticks / 8.8979 s for acquisition and 168 ticks / 9.2275 s for final
-resumption. The separate exact-floor read-only four-flow pcap measures every
-fresh/resumed critical interval at 8.893, 8.628, 8.956, and 8.645 seconds and
-returns authenticated OpenAI text. The CPU/RAM, RTC/time, entropy, certificate,
-CV, Finished, FO/cache, pack, and abort negative gates pass; physical RTC/PIT
-entropy characterization remains open.
+The previous exact-floor integration checkpoint put matrix generation and
+offline authentication outside the live provider windows and passed both
+serialized CPU and four-flow wire gates. The conventional-RAM-only image must
+repeat those measurements before any earlier timing is attributed to the
+current source. CPU/RAM, RTC/time, entropy, certificate, CV, Finished,
+FO/cache, pack, and abort rejection remain mandatory; physical RTC/PIT entropy
+characterization remains open.
 
 The immutable trust object is the WE1 P-256 affine point baked into
 `SEED.SYS`. The leaf, generated tables, private state, and same-boot pin live
@@ -290,13 +291,10 @@ storage or Seed into a sandbox.
   confidentiality at rest.
 - A model-authorized native tool runs with bare-metal authority over the
   published arena. The recovery boundary is a reboot from known media.
-- The video-RAM public vault uses redundant CRC/status metadata to detect torn
-  writes and accidental corruption. It is not authentication against an
-  attacker already able to modify arbitrary local memory.
-- On MDA, confidentiality requires both output-disable and scanout redirected
-  to the zero quarantine before the first vault write, followed by complete
-  visible-page scrub before page-zero/80-column output returns. A binary-glyph
-  screen is rejected as visible vault exposure.
+- TLS state is confined to conventional system RAM below the applicable
+  machine ceiling. Video RAM remains display state and adapter RAM remains
+  device state; neither is used as a vault, escrow, scratch area, or restart
+  wipe target.
 
 ## Evidence and acceptance gates
 
@@ -307,12 +305,16 @@ feasibility record remains in
 [`crypto-feasibility.md`](crypto-feasibility.md) as historical evidence only.
 
 Current emulator evidence covers every offline TLS 1.3 product/KAT/layout
-gate, both exact-floor fresh/reuse/reconnect pcaps, the seven-profile 8088 NIC
-matrix, CGA/MDA vault lifecycle, no-card/no-driver behavior, and the
-malformed-record, identity/time/CV/Finished/FO/cache/torn-state/abort matrices.
-Before removing the integration-under-validation qualification:
+gate, including exact RAM-only acquisition/resumption composition and guards
+that keep video, adapter, config, and arena memory unchanged. Current-source
+read-only exact-floor runs prove fresh/resumed wire profiles, bounded reconnect,
+authenticated OpenAI dialogue, clean CGA/MDA display return, and all seven
+original-speed NIC profiles. The conforming 286 four-flow topology also passes
+at its exact floor. Before removing the integration-under-validation
+qualification:
 
 - repeat deadline measurements across more cold boots and provider-edge
   variation; and
-- characterize entropy and health-test behavior for the 8088 floppy source
-  and the 286 RTC/PIT source on representative physical machines.
+- characterize entropy and health-test behavior for PIT samples from the
+  8088's already-required floppy reads and for the 286 RTC/PIT source on
+  representative physical machines.

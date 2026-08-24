@@ -27,6 +27,28 @@ agent_cache_phase:
     jne .product_failed
     push ds
     pop es
+    ; Resolve the optional effort while seed_reasoning is still live. Missing
+    ; means the current product default, xhigh. A configured value must exactly
+    ; match one supported Responses effort; fixed 8-byte rows keep the check
+    ; bounded and prevent config text from becoming unescaped JSON.
+    mov bx, PHASE_LOAD_ADDR + (agent_cache_reasoning_xhigh - PHASE_BASE)
+    test byte [seed_config_flags], seed_flag_reasoning
+    jz .reasoning_ready
+    mov bx, PHASE_LOAD_ADDR + (agent_cache_reasoning_values - PHASE_BASE)
+    mov dx, agent_cache_reasoning_value_count
+.reasoning_next:
+    push bx
+    mov si, seed_reasoning
+    mov di, bx
+    mov cx, seed_reasoning_len
+    repe cmpsb
+    pop bx
+    je .reasoning_ready
+    add bx, seed_reasoning_len
+    dec dx
+    jnz .reasoning_next
+    jmp .product_failed
+.reasoning_ready:
     ; seed_key overlaps the destination cache band.  Copy it high-to-low
     ; before publishing the model; a forward copy would consume bytes it had
     ; just overwritten and silently corrupt credentials.
@@ -36,17 +58,53 @@ agent_cache_phase:
     mov cx, seed_key_len
     rep movsb
     cld
+    ; Publish the complete model/reasoning JSON tail here. R and X have only 8
+    ; and 3 bytes of phase headroom; this one-sector phase has ample room and
+    ; runs before TLS reuses the original config arena.
     mov si, seed_model
     mov di, chat_model_cache
-    mov cx, seed_model_len
-    rep movsb
+    mov cx, chat_model_value_max_len + 1
+.model_next:
+    lodsb
+    or al, al
+    jz .model_done
+    stosb
+    loop .model_next
+    jmp .product_failed
+.model_done:
+    mov si, PHASE_LOAD_ADDR + (agent_cache_reasoning_prefix - PHASE_BASE)
+    call .append_fragment
+    mov si, bx
+    call .append_fragment
+    mov ax, 0x7d22                   ; '"}' closes effort string + object
+    stosw
+    xor al, al
+    stosb
     mov byte [chat_prompt_len_cache], 0
     clc
+    ret
+.append_fragment:
+    lodsb
+    or al, al
+    jz .fragment_done
+    stosb
+    jmp .append_fragment
+.fragment_done:
     ret
 .product_failed:
     mov word [handoff_addr + handoff_net_status], 0xb613
     stc
     ret
+
+agent_cache_reasoning_prefix db '","reasoning":{"effort":"', 0
+agent_cache_reasoning_values:
+agent_cache_reasoning_none   db 'none',   0, 0, 0, 0
+agent_cache_reasoning_low    db 'low',    0, 0, 0, 0, 0
+agent_cache_reasoning_medium db 'medium', 0, 0
+agent_cache_reasoning_high   db 'high',   0, 0, 0, 0
+agent_cache_reasoning_xhigh  db 'xhigh',  0, 0, 0
+agent_cache_reasoning_max    db 'max',    0, 0, 0, 0, 0
+agent_cache_reasoning_value_count equ 6
 %else
     ; On a reconnect (chat loop, handoff ready) the key/model are already cached
     ; from the cold connect, and api_request_plain now holds the ready-request

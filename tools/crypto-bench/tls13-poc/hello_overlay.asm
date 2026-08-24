@@ -133,18 +133,40 @@ hello_phase_rx                equ 3
 hello_phase_complete          equ 4
 hello_phase_failed            equ 5
 
-; Attempt-cache ABI.  The first 64 bytes are provisional outputs consumed
-; before the candidate reuses this cache as G[64] || z[32].  Outputs instead
-; live in the low transcript handoff immediately after raw c, because the
-; candidate overwrites the attempt cache before the symmetric overlay runs.
+; Attempt-input ABI.  The legacy PoC borrows the high attempt cache.  The
+; system-RAM-only product route instead takes its fresh random and session ID
+; from the conditioned-input tail below the resident handoff.  That route is
+; fresh-only: ticket inputs remain a later resumption-phase concern.
 hello_server_x25519           equ poc_hello_server_x
 hello_transcript_digest       equ poc_hello_digest
+%ifdef HELLO_SYSTEM_RAM_INPUTS
+%ifndef HELLO_FRESH_ONLY
+%error "system-RAM HELLO inputs require the fresh-only image"
+%endif
+hello_input_random            equ 0x0560
+hello_input_session_id        equ 0x0580
+hello_attempt_used_end        equ hello_input_session_id + 32
+%elifdef HELLO_SYSTEM_RAM_RESUME_INPUTS
+%ifndef HELLO_RESUMED_ONLY
+%error "system-RAM resumed HELLO inputs require the resumed-only image"
+%endif
+; The root remains at 3400..341f until the resumed hybrid schedule commits.
+; Everything after it is one bounded attempt-input block and becomes dead
+; before c is scattered through the extension.
+hello_input_random            equ 0x3420
+hello_input_session_id        equ hello_input_random + 32
+hello_input_ticket_psk        equ hello_input_session_id + 32
+hello_input_ticket_age        equ hello_input_ticket_psk + 32
+hello_input_ticket_len        equ hello_input_ticket_age + 4
+hello_attempt_used_end        equ hello_input_ticket_len + 2
+%else
 hello_input_random            equ poc_attempt_cache_start
 hello_input_session_id        equ hello_input_random + 32
 hello_input_ticket_psk        equ hello_input_session_id + 32
 hello_input_ticket_age        equ hello_input_ticket_psk + 32 ; 4-byte wire order
 hello_input_ticket_len        equ hello_input_ticket_age + 4  ; native word
 hello_attempt_used_end        equ hello_input_ticket_len + 2
+%endif
 hello_status                  equ poc_hello_status
 %ifdef HELLO_DYNAMIC_X25519
 ; Controller/HELLO ABI: write one nonzero RFC 7748 public share here before
@@ -1558,8 +1580,18 @@ hello_sha_work_end equ hmac_prepared_outer_state + 32
 %if hello_sha_work_end > poc_k_end
 %error "hello code/work exceeds the 15-sector K window"
 %endif
+%ifdef HELLO_SYSTEM_RAM_INPUTS
+%if hello_input_random != 0x0560 || hello_attempt_used_end != 0x05a0
+%error "system-RAM HELLO input ABI drifted"
+%endif
+%elifdef HELLO_SYSTEM_RAM_RESUME_INPUTS
+%if hello_input_random != 0x3420 || hello_attempt_used_end != 0x3486
+%error "system-RAM resumed HELLO input ABI drifted"
+%endif
+%else
 %if hello_attempt_used_end > poc_attempt_cache_end
 %error "hello attempt-cache ABI reaches reconnect state"
+%endif
 %endif
 %if poc_rx_frame_end > poc_mlkem_ek
 %error "hello receive/fragment frame overlaps ek"

@@ -13,7 +13,7 @@ The current TLS acceptance matrix has two exact floors:
 
 ```text
 8088 profile     4.77 MHz, exactly 16 KiB, ROM BASIC, read-only image;
-                 seven original-speed ISA NICs plus CGA/MDA vault cases
+                 seven original-speed ISA NICs plus CGA/MDA display cases
 286 conforming   6 MHz, 512 KiB conventional RAM; acquisition, offline
                  authentication, no-0RTT PSK-DHE X25519MLKEM768 resumption
 ```
@@ -118,21 +118,22 @@ vm-net-wd8003e      Western Digital WD8003E
 vm-net-wd8003eb     Western Digital WD8003EB
 ```
 
-The current read-only exact-floor 8088 profile passes all seven profiles
-through fresh use, session reuse, a 500-second idle, and one bounded reconnect.
-The exact four-flow timings are recorded in
+The current read-only exact-floor conventional-RAM-only route passes all seven
+profiles through fresh use, session reuse, a 500-second idle, and one bounded
+reconnect. The current four-flow timings are recorded in
 [`../../../docs/testing.md`](../../../docs/testing.md).
 
-`vm` and `vm-mda` are no-card failure gates. The MDA TLS vault also needs a
-NIC-present exact-floor profile because it disables the only text page during
-the public-object lifetime and must restore it after scrub.
+`vm` and `vm-mda` are no-card failure gates. Both CGA and MDA also need a
+NIC-present exact-floor profile proving that the RAM-only TLS route leaves the
+ordinary display intact.
 
 For every original-speed NIC, the current expected route is:
 
 ```text
 family/MAC -> .DRV load -> DHCP -> DNS/ARP -> TCP
--> TLS 1.3 8088 deadline phase -> Finished + bounded ticket receipt
--> full FO + exact dated-leaf/CV -> resumed 0-RTT credential-free liveness
+-> TLS 1.3 8088 deadline phase -> Finished + credential-free HEAD
+-> authenticated fresh HEAD/ticket -> full FO + exact dated-leaf/CV
+-> no-0RTT resumption -> Finished + authenticated credential-free HEAD
 -> status-last credential unlock
 -> authenticated OpenAI response -> session reuse -> one bounded reconnect
 ```

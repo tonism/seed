@@ -62,9 +62,12 @@ agent_api_exchange:
     ; established until VM exit.
     mov al, 0x11
     call ne_transmit_tcp_flags
+    ; State 2 can still be the provisional header-shaped terminal.  If text
+    ; was rendered before the real completion marker was lost, keep it and
+    ; retire the session through the common text-seen fallback below.
     cmp byte [api_stream_completed], 2
-    je .hard_failed
     ja .success
+    times 2 nop                         ; preserve the resident extent of the retired JE
     ; All NICs: a receive/ack failure after text rendered means the answer streamed but the
     ; transport-completion marker was missed (or it cut mid-answer). Accept what rendered and
     ; invalidate the session (clean fresh connect next prompt) instead of reconnecting

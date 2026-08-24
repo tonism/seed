@@ -75,13 +75,27 @@ never by source port.
    1.3 product/PoC pcap parser for the route under test. The older
    `tools/tls-flow.py` CCS/Finished summary was written for TLS 1.2 and is not
    an acceptance oracle for the replacement path.
+
+   ```sh
+   # 8088 bounded Seed route
+   python3 tools/crypto-bench/tls13-poc/live_k15_pcap.py capture.pcap \
+     --server-ip 162.159.140.245 --expect reconnect
+
+   # 286 conforming route
+   python3 tools/crypto-bench/tls13-product/live_286_pcap.py capture.pcap \
+     --server-ip 162.159.140.245 --expect reconnect
+   ```
+
+   The analyzers enforce different ClientHello profiles. In particular, the
+   conforming 286 route deliberately omits `compress_certificate`; do not use
+   the 8088 analyzer for its capture.
 3. **Seed's TLS 1.3 fingerprint** - a large hybrid ClientHello followed by
    multi-second 8088 compute gaps, client Finished near the observed provider
    deadline, and a fixed credential-free HEAD before any credentialed OpenAI
-   request on the 8088 profile. The HEAD may establish liveness on the
-   fresh socket or as 0-RTT on the immediately paired resumed socket after a
-   bounded protected ticket/close receipt. Do not apply the old
-   ClientKeyExchange/CCS timing interpretation.
+   request on the 8088 profile. Both fresh and resumed connections send the
+   HEAD after client Finished; the resumed ClientHello must not offer
+   `early_data`. Do not apply the old ClientKeyExchange/CCS timing
+   interpretation.
 4. **"Did seed even dial out?"** - `tcpdump -nr <pcap> 'host <openai-ip>'`. Zero
    packets to OpenAI after an event means seed never opened a socket - a
    client-side bug, not a handshake or network failure. (This is exactly how the
@@ -90,27 +104,34 @@ never by source port.
 
 ## TLS 1.3 acceptance gates
 
-The TLS 1.3 source and current exact-floor emulator matrices are integrated and
-passing. Offline gates prove structure and hostile cases; they do not replace
-a live exact-floor pcap, and emulator timing receives no physical entropy
-credit.
+The TLS 1.3 source is integrated. The RAM-only 8088 route passes its offline
+structure, composition, hostile-input, exact-floor live, seven-NIC, and CGA/MDA
+display gates. The conforming 286 route passes its current exact-floor live
+reconnect gate. Offline gates never replace a live pcap, and emulator timing
+receives no physical entropy credit.
 
 Run the product-level offline gates:
 
 ```sh
-python3 tools/check-tls13-product-pack.py
-python3 tools/check-tls13-core-dispatch.py
-python3 tools/check-tls13-product-config.py
-python3 tools/check-tls13-public-vault.py
-python3 tools/check-tls13-k14-state-guard.py
-python3 tools/check-tls13-product-cold-send.py
-python3 tools/check-tls13-app.py
-python3 tools/check-tls13-record-cap.py --self-test
-python3 tools/check-tls13-product-reconnect.py
-python3 tools/check-tls13-fat-budget.py \
-  --image build/ibm_pc_5150/floppy-160k.img \
-  --tail-report build/ibm_pc_5150/tls13-286-product-tail.json
+make
+python3 tools/check-tls13-existing-read-sampler.py
+python3 tools/check-secure-warm-restart.py
+python3 tools/crypto-bench/tls13-poc/existing_read_entropy_check.py
+python3 tools/crypto-bench/tls13-poc/system_ram_hello_check.py
+python3 tools/crypto-bench/tls13-poc/system_ram_resumed_hello_check.py
+python3 tools/crypto-bench/tls13-poc/system_ram_candidate_check.py
+python3 tools/crypto-bench/tls13-poc/system_ram_fo_check.py
+python3 tools/crypto-bench/tls13-poc/system_ram_auth_check.py
+python3 tools/crypto-bench/tls13-poc/check_tls13_sym_system_ram.py
+python3 tools/crypto-bench/tls13-poc/check_tls13_sym_system_ram_resumption.py
 ```
+
+`make` builds and executes the exact RAM-only product-pack composition gate,
+core dispatch/config/application guards, reconnect/replay, 286 module and
+controller KATs, product-tail hostile matrix, FAT budget, and final image
+binding. The component commands above keep the individual 8088 ABI boundaries
+easy to rerun while debugging. The integration gate explicitly proves that
+video RAM, adapter RAM, config, and arena/context are unchanged.
 
 The 286 product directory contains the module/controller KATs. Its aggregate
 serialized exact-floor timing gate is:
@@ -120,22 +141,13 @@ python3 tools/crypto-bench/tls13-product/run_286_tls13_serialized_gate.py
 ```
 
 That result is deliberately not a live-product pass. It sums individually
-tick-aligned target operations. At the exact 6 MHz rate the expected current
-measurements are:
-
-```text
-public ML-KEM matrix precompute   45 ticks   2.4716 s   before TCP
-full FO, cached                   43 ticks   2.3618 s   after ServerHello
-full FO, uncached                 88 ticks   4.8334 s   comparison baseline
-serialized acquisition window   162 ticks   8.8979 s   conservative CPU model
-serialized final window         168 ticks   9.2275 s   conservative CPU model
-```
-
-The matrix is 4,608 bytes / nine A^T polynomials and removes 27 matrix
-SHAKE128 permutations from the live decapsulation. The v4 report measures the
-current post-connect HELLO TX/RX wrappers and protected-flight controllers,
-but still excludes named resident connect/load/NIC work and complete offline
-authentication timing. It is not an end-to-end wire measurement. Run the
+tick-aligned target operations. The matrix is 4,608 bytes / nine A^T
+polynomials and removes 27 matrix SHAKE128 permutations from live
+decapsulation. The v4 report measures post-connect HELLO TX/RX wrappers and
+protected-flight controllers, but still excludes named resident
+connect/load/NIC work and complete offline authentication timing. Do not carry
+old report numbers into release documentation: rerun the serialized gate and
+the live activity measurements from the release-bound image. Run the
 cache/controller hostile gates alongside the timing model:
 
 ```sh
@@ -174,45 +186,45 @@ focus-loss auto-pause cannot masquerade as target latency.
 
 The current read-only exact-floor reconnect capture has the required ordered
 `acquisition -> resumption -> acquisition -> resumption` topology. Its four
-ServerHello-to-client-Finished intervals are 8.8928, 8.6282, 8.9562, and
-8.6448 seconds, and the target renders the authenticated `VIOLET` response
+ServerHello-to-client-Finished intervals are 8.8880, 8.6428, 8.9518, and
+8.6425 seconds, and the target renders the authenticated `FORTYTWO` response
 before returning to DPI. The corresponding CPU/RAM, time, entropy,
-certificate/CV, Finished, FO/cache, pack, and abort rejection gates also pass.
+certificate/CV, Finished, FO/cache, pack, and abort rejection gates pass.
 Physical RTC/PIT characterization remains separate.
 
 The 8088 final gate is 4.77 MHz, exactly 16 KiB, ROM BASIC entry, read-only
-media, with fresh Finished inside the deadline, either fresh HEAD liveness or
-an exact protected ticket/close receipt paired with resumed 0-RTT HEAD
-liveness, full FO and dated exact-leaf/CV proof, status-last credential unlock,
-returned OpenAI text, reuse, and bounded reconnect. An unpaired receipt, late
-Finished, resumed flow without early HEAD, or credentialed provisional record
-must fail. Repeat representative CGA and MDA
-vault cases and all seven original-speed ISA NIC profiles. The MDA case must
-retain a clean Seed screen (or black zero quarantine on implementations that
-ignore output-disable) throughout active vault ownership, then show a clean
-redraw after scrub/restore. Dense binary/random glyphs are visible vault bytes
-and fail the run even when the wire trace is otherwise valid. Save and inspect
-both active-hold and post-restore screenshots; the CPU-only vault gate cannot
-prove adapter scanout behavior.
+media, with fresh Finished inside the deadline, authenticated fresh HEAD and
+ticket completion, full FO and dated exact-leaf/CV proof, a no-0RTT resumed
+flow with authenticated post-Finished HEAD liveness, status-last credential
+unlock, returned OpenAI text, reuse, and bounded reconnect. A close before
+fresh liveness/ticket completion, late Finished, resumed early data, or a
+credentialed provisional record must fail. Repeat both CGA and MDA display
+profiles and all seven
+original-speed ISA NIC profiles. The display must remain an ordinary Seed
+screen throughout; dense binary/random glyphs indicate unintended memory
+corruption and fail the run. The executable RAM-only gate must also retain its
+unchanged video/adapter/config/arena guards, including the exact 32 KiB
+success/abort restoration trampoline.
 
-The current read-only 8088-profile matrix passes the exact ordered
+The current RAM-only 8088 architecture passes the exact ordered
 `fresh -> resumed -> fresh -> resumed` capture on all seven original-speed
-profiles. Values are ServerHello-to-client-Finished seconds; every interval
-has a 15-second budget.
+profiles. Values are ServerHello-to-client-Finished seconds; every interval has
+a 15-second budget.
 
 | Profile | Fresh 1 | Resumed 1 | Fresh 2 | Resumed 2 |
 | --- | ---: | ---: | ---: | ---: |
-| `vm-net-3c501` | 12.409 | 12.408 | 12.613 | 12.385 |
-| `vm-net-3c503` | 13.324 | 11.627 | 12.996 | 11.632 |
-| `vm-net-ne1k` | 12.840 | 11.628 | 12.702 | 11.635 |
-| `vm-net-ne2k8` | 12.813 | 11.632 | 12.841 | 11.633 |
-| `vm-net-novell-ne1k` | 13.032 | 11.617 | 12.841 | 11.619 |
-| `vm-net-wd8003e` | 13.341 | 11.611 | 12.958 | 11.587 |
-| `vm-net-wd8003eb` | 13.369 | 11.598 | 13.371 | 11.622 |
+| `vm-net-3c501` | 12.977 | 6.487 | 12.774 | 6.433 |
+| `vm-net-3c503` | 13.790 | 7.017 | 13.600 | 7.010 |
+| `vm-net-ne1k` | 13.470 | 6.938 | 13.470 | 6.991 |
+| `vm-net-ne2k8` | 13.471 | 6.961 | 13.296 | 6.938 |
+| `vm-net-novell-ne1k` | 13.468 | 6.984 | 13.461 | 6.945 |
+| `vm-net-wd8003e` | 13.614 | 6.950 | 13.616 | 6.993 |
+| `vm-net-wd8003eb` | 13.616 | 6.847 | 13.612 | 7.005 |
 
 Each capture observes the credential-free HEAD, bounded one-reconnect policy,
-authenticated OpenAI text, and a clean DPI return. Current-source CGA and MDA
-active-hold/post-restore frames show no vault glyph leakage. The no-card and
+authenticated OpenAI text, and a clean DPI return. The NIC-present MDA display
+case passes the same four-flow gate at 13.4648, 6.9930, 13.5233, and 6.9963
+seconds; CGA is covered by the seven-profile matrix. Current no-card CGA/MDA and
 isolated no-driver images reach the documented retry/restart menus.
 
 `make basic-bootstrap` statically gates the ROM BASIC boundary. It requires the
@@ -222,9 +234,10 @@ handoff, and byte-exact reconstruction of each loader from its generated BASIC
 DATA lines. This gate is necessary but does not replace the exact-floor VM run.
 
 Emulator timing inputs receive zero entropy credit. The 8088 route still needs
-representative physical-floppy traces; the 286 route instead needs physical
-RTC-periodic/PIT traces. Conservative min-entropy estimates and calibrated
-health tests remain separate acceptance gates for both sources.
+representative physical traces of PIT phases attached to its already-required
+floppy reads; the 286 route needs physical RTC-periodic/PIT traces.
+Conservative min-entropy estimates and calibrated health tests remain separate
+acceptance gates for both sources.
 
 ## Validation recipes
 

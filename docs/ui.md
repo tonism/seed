@@ -72,13 +72,11 @@ RTC as the platform UTC clock without an interactive question. An invalid RTC
 prevents that profile; it must fail closed rather than downgrade to the 8088
 profile.
 
-During the 16 KiB MDA TLS route, Seed temporarily disables MDA output and
-redirects one-column scanout to a zero quarantine while the public-object
-vault owns the only video page. No BIOS text, scrolling, screen restore, or
-direct video write is allowed until the vault is scrubbed and ordinary
-page-zero/80-column output is restored. Seed then redraws the UI. A screen of
-binary or random glyphs is vault exposure and an acceptance failure, never a
-transitional UI state.
+The 16 KiB TLS route never borrows CGA or MDA memory for cryptographic state.
+Video RAM remains the user's display throughout cold crypto work, and output
+continues through the ordinary BIOS text path. A screen of binary or random
+glyphs is memory corruption and an acceptance failure, never a transitional
+UI state.
 
 Text fields, including `key?`, render plain typed characters. Long values stay
 inside the field row by showing the visible tail without wrapping.

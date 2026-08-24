@@ -16,9 +16,17 @@ read_abs_sector:
     mov dl, [handoff_addr + handoff_boot_drive]
     mov ax, 0x0201
     int 0x13
+    ; Keep the established read_abs_sector extent and every later resident
+    ; ABI address fixed.  The product tail records only this already-required
+    ; BIOS completion, then performs the historical register restore/return.
+%ifdef TLS13_PRODUCT_TLS13
+    jmp tls13_entropy_note_disk_read
+    nop                                 ; retain the historical 3-byte tail
+%else
     pop cx
     pop ax
     ret
+%endif
 
 ; Read the boot sector (LBA 0 = CHS 0/0/1, which is geometry-independent) and adopt its
 ; BPB sectors-per-track (0x18) + heads (0x1a). Runs once at boot, before the first phase

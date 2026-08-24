@@ -11,7 +11,10 @@
 
 bits 16
 cpu 8086
-org 0x0f00
+%ifndef DELTA_LOADER_ORIGIN
+%define DELTA_LOADER_ORIGIN 0x0f00
+%endif
+org DELTA_LOADER_ORIGIN
 
 delta_fs_spt       equ 0x138f
 delta_fs_heads     equ 0x1390

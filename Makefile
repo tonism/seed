@@ -43,15 +43,14 @@ TLS13_PACK_BASE_SYS := $(TLS13_PACK_BASE_DIR)/SEED.SYS
 TLS13_PACK_BASE_LST := $(TLS13_PACK_BASE_DIR)/SEED.SYS.lst
 TLS13_PRODUCT_PACK := $(BUILD_DIR)/tls13-k14-product-pack.bin
 TLS13_PRODUCT_ABI := $(BUILD_DIR)/tls13-k14-product-abi.inc
-TLS13_PRODUCT_PACK_CHECK := tools/check-tls13-product-pack.py
+TLS13_PRODUCT_PACK_CHECK := tools/crypto-bench/tls13-product/build_system_ram_product_pack.py
+TLS13_PRODUCT_INTEGRATION_CHECK := tools/crypto-bench/tls13-product/check_system_ram_product_pack.py
+TLS13_PRODUCT_PACK_REPORT := $(BUILD_DIR)/tls13-system-ram-product-pack.json
 TLS13_PRODUCT_PACK_SOURCE := targets/$(TARGET)/boot/tls13/k14_product_pack.asm
 TLS13_CORE_DISPATCH_CHECK := tools/check-tls13-core-dispatch.py
 TLS13_PRODUCT_RECONNECT_CHECK := tools/check-tls13-product-reconnect.py
 TLS13_APP_CHECK := tools/check-tls13-app.py
-TLS13_PUBLIC_VAULT_CHECK := tools/check-tls13-public-vault.py
 TLS13_SECURE_WARM_RESTART_CHECK := tools/check-secure-warm-restart.py
-TLS13_K14_ABORT_CHECK := tools/crypto-bench/tls13-product/check_k14_abort_capsule.py
-TLS13_K14_ABORT_REPORT := $(BUILD_DIR)/k14-abort-capsule-report.json
 TLS13_286_BOOTSTRAP_BUILDER := tools/crypto-bench/tls13-product/build_286_product_bootstrap.py
 TLS13_286_BOOTSTRAP_SOURCE := targets/$(TARGET)/boot/tls13/tls13_286_bootstrap.asm
 TLS13_286_ABI_SOURCE := targets/$(TARGET)/boot/tls13/tls13_286_abi.inc
@@ -92,7 +91,7 @@ TLS13_PRODUCT_SOURCES := $(wildcard tools/crypto-bench/tls13-poc/*.py) \
 	$(wildcard tools/crypto-bench/tls13-product/*.inc) \
 	$(wildcard targets/$(TARGET)/boot/tls13/*.asm) \
 	$(wildcard targets/$(TARGET)/boot/tls13/*.inc) \
-	tools/check-tls13-k14-state-guard.py
+	tools/check-tls13-existing-read-sampler.py
 TLS13_286_TAIL_HIDDEN_INPUTS := tools/check-p256.py \
 	tools/crypto-bench/tls13-spike/x25519_bench.asm \
 	tools/crypto-bench/tls13-spike/mlkem768_integrated_keygen.asm \
@@ -308,17 +307,18 @@ $(TLS13_PACK_BASE_LST): $(TLS13_PACK_BASE_SYS) | $(TLS13_PACK_BASE_DIR)
 		mv "$$temp_dir/SEED.SYS.lst" "$@"; \
 	fi
 
-$(TLS13_PRODUCT_PACK): $(TLS13_PRODUCT_PACK_CHECK) $(TLS13_PRODUCT_PACK_SOURCE) $(TLS13_PRODUCT_SOURCES) $(TLS13_PUBLIC_VAULT_CHECK) $(TLS13_K14_ABORT_CHECK) $(TLS13_PACK_BASE_SYS) $(TLS13_PACK_BASE_LST) | $(BUILD_DIR)
-	python3 $(TLS13_PUBLIC_VAULT_CHECK)
-	python3 $(TLS13_K14_ABORT_CHECK) \
-		--product-core $(TLS13_PACK_BASE_SYS) \
-		--product-listing $(TLS13_PACK_BASE_LST) \
-		--report $(TLS13_K14_ABORT_REPORT)
+$(TLS13_PRODUCT_PACK): Makefile $(TLS13_PRODUCT_PACK_CHECK) $(TLS13_PRODUCT_INTEGRATION_CHECK) $(TLS13_PRODUCT_PACK_SOURCE) $(TLS13_PRODUCT_SOURCES) $(TLS13_PACK_BASE_SYS) $(TLS13_PACK_BASE_LST) | $(BUILD_DIR)
 	python3 $(TLS13_PRODUCT_PACK_CHECK) \
 		--product-core $(TLS13_PACK_BASE_SYS) \
 		--product-listing $(TLS13_PACK_BASE_LST) \
 		--pack-out $@ \
-		--abi-out $(TLS13_PRODUCT_ABI)
+		--abi-out $(TLS13_PRODUCT_ABI) \
+		--report-out $(TLS13_PRODUCT_PACK_REPORT)
+	python3 $(TLS13_PRODUCT_INTEGRATION_CHECK) \
+		--product-core $(TLS13_PACK_BASE_SYS) \
+		--product-listing $(TLS13_PACK_BASE_LST) \
+		--pack $@ \
+		--report $(TLS13_PRODUCT_PACK_REPORT)
 
 # The pack is the transaction marker for its generated ABI.  Recover a lost
 # ABI through the complete checker, but never overwrite the validated pack:
@@ -326,12 +326,13 @@ $(TLS13_PRODUCT_PACK): $(TLS13_PRODUCT_PACK_CHECK) $(TLS13_PRODUCT_PACK_SOURCE) 
 $(TLS13_PRODUCT_ABI): $(TLS13_PRODUCT_PACK) $(TLS13_PACK_BASE_LST) $(TLS13_PRODUCT_PACK_CHECK) | $(BUILD_DIR)
 	@if ! test -s "$@"; then \
 		temp_dir=$$(mktemp -d "$(BUILD_DIR)/.k14-abi-recovery.XXXXXX"); \
-		trap 'rm -f "$$temp_dir/product-pack.bin" "$$temp_dir/product-abi.inc"; rmdir "$$temp_dir" 2>/dev/null || true' EXIT HUP INT TERM; \
+		trap 'rm -f "$$temp_dir/product-pack.bin" "$$temp_dir/product-abi.inc" "$$temp_dir/product-report.json"; rmdir "$$temp_dir" 2>/dev/null || true' EXIT HUP INT TERM; \
 		python3 $(TLS13_PRODUCT_PACK_CHECK) \
 			--product-core $(TLS13_PACK_BASE_SYS) \
 			--product-listing $(TLS13_PACK_BASE_LST) \
 			--pack-out "$$temp_dir/product-pack.bin" \
-			--abi-out "$$temp_dir/product-abi.inc"; \
+			--abi-out "$$temp_dir/product-abi.inc" \
+			--report-out "$$temp_dir/product-report.json"; \
 		if ! cmp -s "$$temp_dir/product-pack.bin" "$(TLS13_PRODUCT_PACK)"; then \
 			echo "error: recovered K14 ABI is not bound to the validated product pack"; \
 			exit 1; \

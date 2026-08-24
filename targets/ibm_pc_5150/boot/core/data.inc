@@ -455,11 +455,18 @@ dns_tx_len equ tls_transcript_certificate_remaining + 2
 tls_poly_app_cipher_len equ tls_app_chunk_len
 tls_poly_app_fill equ tls_app_total_len
 ; The first TLS handshake and ready-loop state reuse the AGENTS/USER config
-; arena. Preserve the chat-loop values that every request still needs.
+; arena. Preserve the chat-loop values that every request still needs. The
+; model cache is a reconnect-safe pre-serialized JSON tail beginning with the
+; model VALUE: <model>","reasoning":{"effort":"<effort>"}. Building it
+; once in agent_cache keeps the maxed R/X request phases byte-neutral.
 ; Keep DNS/TCP setup state intact through run_tcp_connect; the hot chat loop
 ; reuses the last 16K-safe bytes below the BASIC stack guard for values needed
 ; after TLS scratch takes over.
 chat_model_cache equ dns_tx_len + 2
+; This composite must terminate before chat_prompt_len_cache, whose byte is
+; live during ready turns. With the longest effort ("medium", 6 bytes):
+; 29 model + 25 prefix + 6 effort + 2 close + NUL = 63 bytes.
+chat_model_value_max_len equ 29
 chat_prompt_len_cache equ chat_model_cache + seed_model_len - 1
 chat_key_cache equ chat_model_cache + seed_model_len
 chat_cache_end equ chat_key_cache + seed_key_len

@@ -12,10 +12,12 @@ machine and selects one of two OpenAI-only routes:
 Both paths are integrated in the product source and are currently
 **integration-under-validation**. Current-source offline gates establish the
 byte layouts, ABIs, fail-closed transitions, and cryptographic known-answer
-behavior; both exact-floor live routes pass, and the 8088 profile passes
-the seven-profile original-speed matrix. Physical entropy characterization and
-additional provider-edge repetition remain before either profile is described as
-product-validated.
+behavior. Current read-only exact-floor runs prove the RAM-only 8088 fresh and
+resumed wire profiles, bounded reconnect, authenticated dialogue, all seven
+original-speed NIC profiles, and clean CGA/MDA display return. The conforming
+286 four-flow topology also passes at 6 MHz / 512 KiB. Physical entropy
+characterization and additional provider-edge repetition are still required
+before either profile is product-validated.
 
 ## 8088 security boundary
 
@@ -27,7 +29,9 @@ literal, credential-free liveness probes after provisional decapsulation. It
 does **not** make the API key or a business request reachable until the same
 machine has completed full Fujisaki-Okamoto validation, exact dated leaf
 possession/CertificateVerify validation, and status-last capability
-publication.
+publication. The fresh connection must authenticate both its HEAD response and
+tentative ticket. The final same-boot resumption offers no early data, performs
+fresh KEM work, and sends its HEAD only after client Finished.
 
 The exact leaf's issuer, hostname, purpose, and validity interval are trusted
 image-generation provenance. The 8088 does not yet have a trusted runtime
@@ -38,10 +42,14 @@ That is a deliberately narrow Seed security boundary. It must not be called a
 standards-conforming `X25519MLKEM768` handshake, a FIPS-conforming hybrid, or
 equivalent to the 286 profile.
 
-The K14 code is cold-loaded in phases. Its public objects live temporarily in
-the video-RAM vault documented in
-[`PUBLIC_VAULT_16K.md`](PUBLIC_VAULT_16K.md); no writable floppy and no NIC RAM
-are required. Private material is retired on every success and failure path.
+The K14 code is cold-loaded in phases. Public and private TLS objects use
+lifetime-separated conventional RAM below `0x4000`: scattered ciphertext is
+reshaped between KeyGen/FO epochs and compact status-last capsules bridge the
+authenticated transitions. The 32 KiB direct tier additionally uses its
+conventional stack guard for an exact 28-byte arena shadow plus a public return
+trampoline; both success and abort restore the full arena and erase the shadow.
+Video RAM, NIC RAM, config/arena memory, and writable media are not TLS
+storage. Private material is retired on every success and failure path.
 
 ## 286 conforming boundary
 
@@ -80,27 +88,27 @@ complete acquisition/offline/resumption sequence.
 
 ## Pack gate
 
-Run:
+Build and run the product gate through Make:
 
 ```sh
-python3 tools/check-tls13-product-pack.py
+make build/ibm_pc_5150/tls13-k14-product-pack.bin
 ```
 
-The checker performs no VM launch and no network access. It:
+The build performs no VM launch or network access. It independently assembles
+every fixed phase, emits the phase-key/destination ABI and 130-sector pack,
+then the mandatory integration checker rebuilds every byte and executes:
 
-1. builds a fresh credential-free K14 secure-FO/exact-leaf base;
-2. builds its fixed public synthetic post-auth composition;
-3. rejects credential-bearing or diagnostic variants;
-4. emits a temporary assembly include containing product labels, canonical
-   phase keys, load destinations, and the full padded phase slots;
-5. assembles `k14_product_pack.asm`; and
-6. compares every base and post-auth phase slot, plus the complete contiguous
-   pack, byte-for-byte with the validated research builder output.
+1. the acquisition and resumption deadline phase/load sequences;
+2. exact 1,088-byte ciphertext survival across overwritten aliases;
+3. both regenerated-KeyGen/full-FO eight-entry lifecycle paths;
+4. fragmented multi-record HTTP and authenticated NewSessionTicket handling;
+5. embedded bounded close behavior; and
+6. unchanged config, arena/context, video, and adapter-RAM guards.
 
-The generated include and extracted phase slots are build-time inputs only.
-They are not packaged as runtime files. The product scheduler loads the
-relocation-sensitive phase keys at their final `SEED.SYS` sector positions
-while preserving the checked runtime memory layout.
+The generated include and phase slots are build-time inputs only. They are not
+packaged as runtime files. The product scheduler loads the checked phase keys
+at their final `SEED.SYS` sector positions while preserving the verified
+conventional-RAM layout.
 
 The 286+ fully conforming route uses a fixed-origin asymmetric
 controller/module boundary documented in

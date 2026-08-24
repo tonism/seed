@@ -5,10 +5,8 @@ The generated include is accepted only when:
 
 * every resident callback resolves from the K14-complete prefix listing;
 * TCP connect/one-sector-close geometry agrees with the prefix phase table;
-* a freshly assembled K14 symmetric prefix, bound to the exact validated
-  product-only critical tail and already-canonical initial-state operand, is
-  byte-identical to the unique ``T13SYM02`` phase inside the validated product
-  pack; and
+* a freshly assembled canonical K14 symmetric image is byte-identical to the
+  unique ``T13SYM02`` phase inside the validated product pack; and
 * the probe trailer, symmetric header, entry table, and zero slot padding all
   agree on the same fixed-origin image.
 
@@ -167,13 +165,12 @@ def u16(value: bytes, offset: int) -> int:
 def normalize_product_symmetric_image(
     product_image: bytes, canonical_image: bytes
 ) -> tuple[bytes, tuple[int, ...]]:
-    """Convert the exact shipped 8088 K14 image to canonical K14.
+    """Validate the shipped image's canonical K14 normalization contract.
 
-    The 8088 product image owns its final 288 bytes for the critical raw-vault
-    writer/continuation.  Its one SHA-256 initial-state operand already names
-    the canonical runtime tail reconstructed after the deadline.  The 286
-    route restores that canonical SHA tail before TCP.  Accept only that exact
-    transformation; any other byte difference is a build failure.
+    The RAM-only 8088 route ships the canonical image directly.  Retain the
+    historical one-word pre-TCP normalization ABI used by the 286 controller;
+    writing 0x2ee0 over the already-canonical operand is deliberately
+    idempotent and keeps the tail/controller contract stable.
     """
 
     if (
@@ -185,16 +182,11 @@ def normalize_product_symmetric_image(
         fail("product/canonical symmetric normalization geometry drifted")
     if product_image[:8] != SYM_MAGIC or canonical_image[:8] != SYM_MAGIC:
         fail("product/canonical symmetric normalization magic drifted")
-    if (
-        product_image[PRODUCT_CRITICAL_TAIL_OFFSET:]
-        == canonical_image[PRODUCT_CRITICAL_TAIL_OFFSET:]
-    ):
-        fail("product symmetric image lost its 8088-route critical tail")
-
     normalized = bytearray(product_image)
-    normalized[PRODUCT_CRITICAL_TAIL_OFFSET:] = canonical_image[
-        PRODUCT_CRITICAL_TAIL_OFFSET:
-    ]
+    if product_image != canonical_image:
+        normalized[PRODUCT_CRITICAL_TAIL_OFFSET:] = canonical_image[
+            PRODUCT_CRITICAL_TAIL_OFFSET:
+        ]
     canonical_initial = SYM_ORIGIN + PRODUCT_CRITICAL_TAIL_OFFSET
     initial_pointer_offsets: list[int] = []
     for offset in range(PRODUCT_CRITICAL_TAIL_OFFSET - 1):
@@ -205,8 +197,8 @@ def normalize_product_symmetric_image(
             initial_pointer_offsets.append(offset)
     if len(initial_pointer_offsets) != 1 or bytes(normalized) != canonical_image:
         fail(
-            "product symmetric image is not exactly normalizable by its "
-            "canonical initial-state operand and 288-byte SHA tail"
+            "shipped symmetric image is not exactly canonical or normalizable "
+            "by its initial-state operand and 288-byte SHA tail"
         )
     return bytes(normalized), tuple(initial_pointer_offsets)
 
@@ -453,9 +445,8 @@ def generate(
     if len(critical_tail) != PRODUCT_CRITICAL_TAIL_BYTES:
         fail("validated product pack truncates the symmetric critical tail")
     with tempfile.TemporaryDirectory(prefix="seed-286-runtime-abi-") as raw:
-        product_probe = build_probe(Path(raw), critical_tail)
         canonical_probe = build_probe(Path(raw))
-    sym_offset, sym_sectors, sym = locate_sym(pack, product_probe)
+    sym_offset, sym_sectors, sym = locate_sym(pack, canonical_probe)
     canonical_bytes = u16(canonical_probe, 10)
     if (
         canonical_probe[:8] != SYM_MAGIC
@@ -569,11 +560,12 @@ def generate(
                 )]
             ),
             "fresh_prefix_plus_product_tail_byte_equivalent": True,
+            "shipped_canonical": product_image == canonical_image,
             "product_critical_tail": {
                 "offset": PRODUCT_CRITICAL_TAIL_OFFSET,
                 "bytes": PRODUCT_CRITICAL_TAIL_BYTES,
                 "sha256": sha256(critical_tail),
-                "source": "exact validated K14 pack bytes",
+                "source": "canonical exact validated K14 pack bytes",
             },
             "pre_tcp_normalization": {
                 "canonical_image_sha256": sha256(canonical_image),

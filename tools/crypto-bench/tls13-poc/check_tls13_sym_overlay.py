@@ -208,8 +208,8 @@ class Header:
     entries: tuple[int, ...]
 
 
-def parse_header(image: bytes) -> Header:
-    if image[:8] != b"T13SYM02":
+def parse_header(image: bytes, *, expected_magic: bytes = b"T13SYM02") -> Header:
+    if image[:8] != expected_magic:
         raise AssertionError("overlay header magic mismatch")
     fields = struct.unpack_from("<12H", image, 8)
     (

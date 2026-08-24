@@ -62,11 +62,12 @@ until their tier-specific capability is committed:
 
 - On the 8088 profile, only TLS handshake state, one bounded
   tentative ticket, and the compiled credential-free liveness request are
-  reachable during provisional and quarantine states. A ticket-bearing fresh
-  close may bridge to a resumed 0-RTT copy of that request, but cannot publish
-  credentials. Full ML-KEM FO validation, exact dated leaf possession,
-  CertificateVerify, authenticated resumed liveness, and status-last route
-  promotion must complete first.
+  reachable during provisional and quarantine states. The fresh connection
+  must authenticate both its HEAD response and tentative ticket; a close
+  before either completes fails the attempt. Full ML-KEM FO validation, exact
+  dated leaf possession, CertificateVerify, and a no-0RTT resumed connection
+  with authenticated post-Finished HEAD liveness must precede status-last
+  route promotion.
 - On the 286 conforming profile, acquisition may transmit only the immutable
   credential-free HEAD and retain an authenticated ticket as tentative state.
   Full ML-KEM FO comparison and strict WE1/hostname/UTC/CV authentication must

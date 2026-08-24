@@ -48,16 +48,15 @@ agent_api_stream_phase:
     phase_call_res tls_send_application_data_current_seq
     jc .prefix_failed
 .stream_chunk2:
-    ; Build 9 chunk 2: ",reasoning,instructions:"<identity> <ledger>","input":". Build 10 fix:
+    ; Build 9 chunk 2: ,"instructions":"<identity> <ledger>","input":". Build 10 fix:
     ; instructions ride their OWN record, then ledger+directive+input-open ride a second, so
     ; neither overflows the 440 B api_request_plain body. A compaction turn's COMBINED chunk 2
     ; (~586 B) overflowed it into TLS/config scratch and hung the send (16K freeze). Splitting
     ; keeps each record well under the cap; the body now spans 4 TLS records.
     mov di, api_request_plain + tls_record_header_len
     ; Build 12 native tool calling: on a NORMAL (non-compaction) ready turn, splice the tools array
-    ; right after the model. 32K+ streams the resident tools_cache; 16K reads the one-sector TOOLS
-    ; asset into tls_rx_copy and streams it through the same record-flushing copy path. The tools-open
-    ; text closes the model string, so the reasoning prefix that follows skips its own leading quote.
+    ; right after the model/reasoning tail. 32K+ streams resident tools_cache; 16K reads the one-sector
+    ; TOOLS asset into tls_rx_copy and streams it through the same record-flushing copy path.
     mov si, PHASE_LOAD_ADDR + (api_json_reasoning_prefix - PHASE_BASE)
     cmp byte [compacting_msg], 0
     jne .chunk2_do_reasoning
@@ -75,7 +74,11 @@ agent_api_stream_phase:
     call agent_api_stream_stream_contract
     jc .prefix_failed
 .chunk2_model_closed:
+%ifdef TLS13_PRODUCT_TLS13
+    mov si, PHASE_LOAD_ADDR + (api_json_reasoning_prefix - PHASE_BASE)
+%else
     mov si, PHASE_LOAD_ADDR + (api_json_reasoning_prefix - PHASE_BASE) + 1
+%endif
 .chunk2_do_reasoning:
     call agent_api_stream_append_z_to_buffer
     ; Build 11 #4: chunk 2 instructions value. CRITICAL: every TLS record's TX frame (record + ~75 B
@@ -494,7 +497,12 @@ agent_api_stream_append_prompt_screen_to_buffer:
 ; Build 11 #4: split into the JSON prefix (always sent) + the identity body (NORMAL turns only). A
 ; compaction pass sends prefix + the summarize directive instead - so the model NEVER sees the tool
 ; grammar/identity that made it "summarize" its RAM tools instead of the chat.
+%ifdef TLS13_PRODUCT_TLS13
+; chat_model_cache already closes the model and carries reasoning.effort.
+api_json_reasoning_prefix db ',"instructions":"', 0
+%else
 api_json_reasoning_prefix db '","instructions":"', 0
+%endif
 api_json_reasoning_prefix_len equ $ - api_json_reasoning_prefix - 1
 ; Build 11 #4 real compaction: the identity body (normal turns) and the compaction contract
 ; (compaction passes) are no longer inline strings - they are STREAMED off the floppy
@@ -503,10 +511,13 @@ api_json_reasoning_prefix_len equ $ - api_json_reasoning_prefix - 1
 ; from the phase image; the floppy content follows it.
 api_json_input_open_text db '","input":[', 0
 api_json_input_open_text_len equ $ - api_json_input_open_text - 1
-; Build 12: spliced right after the model on a NORMAL ready turn -- closes the model string and opens
-; the tools array key. The schema bytes stream next (resident tools_cache on 32K+, floppy on 16K), then
-; reasoning_prefix+1 (its leading model-close quote skipped, since this already closed the string).
+; Build 12: spliced after the model on a normal ready turn. The schema bytes stream next
+; (resident tools_cache on 32K+, floppy on 16K), then the instructions prefix.
+%ifdef TLS13_PRODUCT_TLS13
+api_json_tools_open_text db ',"tools":', 0
+%else
 api_json_tools_open_text db '","tools":', 0
+%endif
 api_json_tools_open_text_len equ $ - api_json_tools_open_text - 1
 ; Build 11 recall fix: vendor-agnostic role labels for the carried conversation window (the
 ; compactable layer; identity+ledger stay in "instructions"). Plain JSON-safe text - no escaping,

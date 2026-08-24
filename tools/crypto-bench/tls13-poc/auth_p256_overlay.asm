@@ -17,10 +17,10 @@
 ;   auth_input_leaf_y_be    32-byte uncompressed-SPKI y coordinate
 ;
 ; AUTH_P256_LIVE_COMPACT_INPUT is the live exact-pin profile.  Its compact
-; digest/signature/status ABI occupies 0x3c30..0x3c9b, immediately after the
-; native tentative ticket and before reconnect state.  The verified point is
-; the immutable pin itself, so no redundant caller-supplied coordinates are
-; accepted in that profile.
+; digest/signature/status ABI defaults to 0x3c30..0x3c9b.  A product phase may
+; place the same 107-byte ABI lower in conventional RAM with
+; AUTH_P256_LIVE_COMPACT_BASE.  The verified point is the immutable pin itself,
+; so no redundant caller-supplied coordinates are accepted in that profile.
 ;
 ; Call `call word [poc_k_start + 0]`.  CF=0 and AX=1 mean success.  Every
 ; rejection returns CF=1 and AX=0.  `auth_output_status` is 1 only on success;
@@ -42,12 +42,21 @@ tls_ec_coordinate_len equ 32
 ; and intentionally never read or written by target code in the default
 ; isolated profile.
 %ifdef AUTH_P256_LIVE_COMPACT_INPUT
+%ifdef AUTH_P256_LIVE_COMPACT_BASE
+auth_input_digest equ AUTH_P256_LIVE_COMPACT_BASE
+%else
 auth_input_digest equ 0x3c30
+%endif
 auth_input_signature_len equ auth_input_digest + 32
 auth_input_signature equ auth_input_signature_len + 2
 auth_input_signature_max equ 72
 auth_output_status equ auth_input_signature + auth_input_signature_max
 auth_input_end equ auth_output_status + 1
+%ifdef AUTH_P256_LIVE_COMPACT_BASE
+%if auth_input_end > 0x3b9c
+%error "compact P-256 input reaches product config"
+%endif
+%endif
 %else
 auth_input_guard_lo equ poc_attempt_cache_start
 auth_input_digest equ auth_input_guard_lo + 8

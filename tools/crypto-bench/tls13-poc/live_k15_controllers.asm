@@ -1084,10 +1084,20 @@ preconnect_failed:
 %ifndef LIVE_K15_CRYPTO_CONTROLLER_KEY
 %error "LIVE_K15_CRYPTO_CONTROLLER_KEY is required"
 %endif
+%ifndef LIVE_K15_HELLO_CONTROLLER_ORIGIN
+%define LIVE_K15_HELLO_CONTROLLER_ORIGIN 0x3400
+%endif
+%ifndef LIVE_K15_HELLO_TX_STAGE
+%define LIVE_K15_HELLO_TX_STAGE 0x2700
+%endif
+%ifndef LIVE_K15_HELLO_BODY_LEN
+%define LIVE_K15_HELLO_BODY_LEN 1210
+%endif
 %ifdef LIVE_K15_PRODUCT_MODE
 %ifndef LIVE_K15_PRECONNECT_FAIL
 %error "product HELLO failure requires the retained low cleanup"
 %endif
+%ifndef LIVE_K15_SYSTEM_RAM
 %ifndef LIVE_K15_HELLO_SHA256_INITIAL_STATE
 %error "product HELLO controller requires the internal SHA-256 initial state"
 %endif
@@ -1098,12 +1108,17 @@ preconnect_failed:
 %error "product HELLO controller requires the low initial-state destination"
 %endif
 %endif
+%endif
 
-org 0x3400
+org LIVE_K15_HELLO_CONTROLLER_ORIGIN
 
 res_load_phase                equ 0x10c4
 hello_entry_table             equ 0x1830
-hello_fresh_begin_entry       equ hello_entry_table + (0 * 2)
+%ifdef LIVE_K15_SYSTEM_RAM_RESUMED
+hello_begin_entry             equ hello_entry_table + (1 * 2)
+%else
+hello_begin_entry             equ hello_entry_table + (0 * 2)
+%endif
 hello_next_fragment_entry     equ hello_entry_table + (2 * 2)
 hello_fragment_done_entry     equ hello_entry_table + (3 * 2)
 hello_rewind_entry            equ hello_entry_table + (4 * 2)
@@ -1132,14 +1147,59 @@ timing_commit_tick            equ 0x3ca2
 timing_tx_tick                equ 0x3ca4
 timing_first_seen             equ 0x3ca6
 
-hello_tx_stage                equ 0x2700
-hello_tx_stage_end            equ 0x2800
+hello_tx_stage                equ LIVE_K15_HELLO_TX_STAGE
+hello_tx_stage_end            equ LIVE_K15_HELLO_TX_STAGE + 0x0100
 poc_rx_frame_start            equ 0x0700
 pre_sym_transition            equ 0x0f00
+%ifdef LIVE_K15_SYSTEM_RAM_RESUMED
+; The resumed-only HELLO builds its generated fragments directly at the TCP
+; payload offset so the enclosing frame header cannot overwrite live resume
+; state.  The fresh image owns the whole RX frame and starts at 0700.
+hello_first_fragment_source   equ poc_rx_frame_start + 14 + 20 + 20
+; cached_connect bounds its SYN-ACK copy to the first 96 bytes of the frame.
+; Only this prefix of the already-built first fragment can therefore be
+; overwritten.  Quarantine those 42 bytes in the later ServerHello-tail
+; handoff instead of staging all 147 bytes over the preloaded symmetric tail.
+hello_cached_frame_end        equ poc_rx_frame_start + 96
+hello_first_overlap_len       equ hello_cached_frame_end - hello_first_fragment_source
+; The tiny 0f00 deadline-transition capsule ends below 0f16.  Its otherwise
+; unused tail is the sole lifetime-spanning conventional-RAM quarantine for a
+; protected-flight prefix coalesced with ServerHello.  The low abort begins at
+; 0f60, leaving an exact 70-byte maximum (optional six-byte CCS plus the fixed
+; 64-byte resumed encrypted record).
+hello_resumed_tail_len        equ 0x0f16
+hello_resumed_tail_buffer     equ 0x0f18
+hello_resumed_tail_capacity   equ 70
+%else
+hello_first_fragment_source   equ poc_rx_frame_start
+%endif
 
 live_hello_controller:
     cld
-    call word [hello_fresh_begin_entry]
+%ifdef LIVE_K15_SYSTEM_RAM_RESUMED
+%ifndef LIVE_K15_TICKET_AGE_ENTRY
+%error "system-RAM resumed HELLO requires the late ticket-age entry"
+%endif
+    ; The transition code occupies only 0f00..0f15.  Retire any stale bytes in
+    ; its protected-tail handoff before this one-shot resumed connection can
+    ; publish a coalesced prefix there.
+    push ds
+    pop es
+    xor ax, ax
+    mov di, hello_resumed_tail_len
+    mov cx, (0x0f60 - hello_resumed_tail_len) / 2
+    rep stosw
+    ; Finalize obfuscated_ticket_age only after the HELLO image and this
+    ; controller have been read from floppy.  Sampling it in the preceding
+    ; transition under-reports the deliberately slow 8088 disk/load gap and
+    ; can make an otherwise valid PSK offer stale before it reaches the wire.
+    call LIVE_K15_TICKET_AGE_ENTRY
+    jnc .ticket_age_ok
+    jmp hello_fail
+.ticket_age_ok:
+live_hello_ticket_age_ready:
+%endif
+    call word [hello_begin_entry]
     jc hello_fail
 
     ; Build and consume the complete deterministic ClientHello once before
@@ -1159,16 +1219,35 @@ live_hello_controller:
     jc hello_fail
 
     ; Prebuild the first replay fragment while the cached connection helper
-    ; is still offline.  Its SYN/SYN-ACK frame aliases 0x0700, so retain the
-    ; complete prefix in the checked 0x2700 staging tail before connecting.
+    ; is still offline.  Its SYN/SYN-ACK frame aliases 0x0700: fresh relocates
+    ; the complete fragment to its checked staging tail, while resumed saves
+    ; only the bounded overlap in its otherwise-idle low handoff.
     call word [hello_next_fragment_entry]
     jc hello_fail
     cmp ax, 1
     jne hello_fail
-    cmp si, poc_rx_frame_start
+    cmp si, hello_first_fragment_source
     jne hello_fail
     cmp cx, hello_tx_stage_end - hello_tx_stage
     ja hello_fail
+%ifdef LIVE_K15_SYSTEM_RAM_RESUMED
+    ; The pending fragment already occupies its final TCP payload address.
+    ; Preserve only the bytes that cached_connect may replace with its bounded
+    ; SYN/SYN-ACK frame.  The pending pointer remains unchanged.
+    push si
+    push cx
+    push di
+    push es
+    push ds
+    pop es
+    mov di, hello_resumed_tail_buffer
+    mov cx, hello_first_overlap_len
+    rep movsb
+    pop es
+    pop di
+    pop cx
+    pop si
+%else
     push es
     push ds
     pop es
@@ -1180,13 +1259,31 @@ live_hello_controller:
     mov si, hello_tx_stage
     call word [hello_relocate_pending_entry]
     jc hello_fail
+%endif
 
     call word [hello_cached_connect_entry]
     jc hello_fail
 
+%ifdef LIVE_K15_SYSTEM_RAM_RESUMED
+    ; Restore the exact overlapped prefix, then erase its temporary copy so
+    ; the same low buffer can later retain a coalesced protected-flight tail.
+    push es
+    push ds
+    pop es
+    mov si, hello_resumed_tail_buffer
+    mov di, hello_first_fragment_source
+    mov cx, hello_first_overlap_len
+    rep movsb
+    xor ax, ax
+    mov di, hello_resumed_tail_buffer
+    mov cx, hello_first_overlap_len / 2
+    rep stosw
+    pop es
+%endif
+
     ; Re-read the still-pending iterator result after SYN/SYN-ACK overwrote
-    ; 0x0700.  The relocation ABI, rather than a controller literal, owns both
-    ; the staged pointer and exact length.
+    ; 0x0700.  Fresh uses the relocation ABI; resumed restored the bounded
+    ; overlap at the fragment's original final payload address.
     call word [hello_next_fragment_entry]
     jc hello_fail
     cmp ax, 1
@@ -1257,9 +1354,9 @@ live_hello_controller:
     jne hello_fail
     cmp word [hello_record_header + 1], 0x0303
     jne hello_fail
-    cmp word [hello_record_header + 3], 0xba04
+    cmp word [hello_record_header + 3], ((LIVE_K15_HELLO_BODY_LEN & 0xff) << 8) | (LIVE_K15_HELLO_BODY_LEN >> 8)
     jne hello_fail
-    mov word [hello_body_remaining], 1210
+    mov word [hello_body_remaining], LIVE_K15_HELLO_BODY_LEN
     jmp short .consume
 
 .body:
@@ -1285,21 +1382,37 @@ live_hello_controller:
 
 .boundary:
     ; tcp_receive_payload has advanced ACK across the complete TCP segment.
-    ; Rewind only a coalesced protected tail, so the zero-window ACK lands on
-    ; the exact first byte after ServerHello.
+    ; The system-RAM resumed route cannot rely on a later retransmission: a
+    ; SLiRP bridge may have already acknowledged a coalesced protected tail to
+    ; the peer.  Preserve that bounded prefix in the unused tail of the 0f00
+    ; transition capsule and leave the TCP ACK advanced across bytes now owned
+    ; by conventional RAM.  Other routes retain the established rewind.
     or cx, cx
     jz .zero_window
+%ifdef LIVE_K15_SYSTEM_RAM_RESUMED
+    cmp cx, hello_resumed_tail_capacity
+    ja hello_fail
+    mov [hello_resumed_tail_len], cx
+    push es
+    push ds
+    pop es
+    mov di, hello_resumed_tail_buffer
+    rep movsb
+    pop es
+%else
     mov di, tcp_remote_ack + 3
     sub [di], cl
     sbb [di - 1], ch
     sbb byte [di - 2], 0
     sbb byte [di - 3], 0
+%endif
 .zero_window:
     call word [hello_zero_window_entry]
     jc hello_fail
     call word [hello_server_finish_entry]
     jc hello_fail
 %ifdef LIVE_K15_PRODUCT_MODE
+%ifndef LIVE_K15_SYSTEM_RAM
     ; HELLO has authenticated its own transcript boundary.  Publish the exact
     ; immutable SHA material that the symmetric image externalizes: the
     ; initial state sits above delta_load's 0f00..0f91 extent, while K uses
@@ -1316,9 +1429,37 @@ live_hello_controller:
     mov cx, 128
     rep movsw
 %endif
+%endif
 %ifdef LIVE_K15_TIMING_TELEMETRY
     mov ax, [0x046c]
     mov [timing_commit_tick], ax
+%endif
+%ifdef LIVE_K15_SYSTEM_RAM_RESUMED
+%if hello_first_overlap_len <= 0
+%error "resumed first fragment no longer overlaps the cached-connect frame"
+%endif
+%if hello_first_overlap_len > hello_resumed_tail_capacity
+%error "resumed first-fragment overlap exceeds the low quarantine"
+%endif
+%if (hello_first_overlap_len & 1) != 0
+%error "resumed first-fragment overlap must remain word-sized for erasure"
+%endif
+%endif
+
+%ifdef LIVE_K15_SYSTEM_RAM_RESUMED
+    ; The 0x3400 crypto controller replaces the resumed input capsule.  Keep
+    ; the only two values still needed after ServerHello in conventional RAM
+    ; that the restored symmetric suffix deliberately leaves untouched.
+    push ds
+    pop es
+    mov si, 0x3400
+    mov di, 0x2fe0
+    mov cx, 16
+    rep movsw
+    mov si, 0x3460
+    mov di, 0x0dc0
+    mov cx, 16
+    rep movsw
 %endif
     mov ax, LIVE_K15_CRYPTO_CONTROLLER_KEY
     jmp pre_sym_transition
@@ -2244,6 +2385,11 @@ times 0x0100 - ($ - $$) db 0
 %ifndef LIVE_K15_POST_CONTROLLER_KEY
 %error "post-Finished controller key is required"
 %endif
+%ifdef LIVE_K15_SYSTEM_RAM
+%ifndef LIVE_K15_SYSTEM_OFFLINE_KEY
+%error "system-RAM protected flight requires its offline continuation"
+%endif
+%endif
 %ifdef LIVE_K15_IDENTITY_CAPTURE
 %ifndef LIVE_K15_SYM_TRANSCRIPT_SNAPSHOT
 %error "identity capture requires symmetric SHA/transcript addresses"
@@ -2289,7 +2435,14 @@ tcp_rx_payload_len             equ 0x0fe4
 timing_first_tick              equ 0x3ca0
 timing_commit_tick             equ 0x3ca2
 timing_finished_return         equ 0x3ca4
+%ifdef LIVE_K15_SYSTEM_RAM
+; This 32-byte slot is the future authentication digest/signature header.
+; The record parser owns it only until the enclosing AEAD tag commits, after
+; which the CV digest deliberately replaces the now-dead parser state.
+record_header                  equ 0x2f80
+%else
 record_header                  equ 0x3c30
+%endif
 record_header_pos              equ record_header + 5
 record_state                   equ record_header_pos + 1
 record_wire_remaining          equ record_state + 1
@@ -2321,9 +2474,24 @@ deadline_ticks                 equ 273
 ; Its executable must end below this retired-handshake scratch.  The final
 ; 117 plaintext bytes always comprise a suffix of CompressedCertificate,
 ; the complete bounded CertificateVerify, server Finished, and inner type.
+%ifdef LIVE_K15_SYSTEM_RAM
+identity_tail                  equ 0x0d68
+%else
 identity_tail                  equ 0x0e00
+%endif
 identity_tail_len              equ 117
 identity_cv_end                equ identity_tail + 80
+%ifdef LIVE_K15_SYSTEM_RAM
+identity_cert_hash             equ 0x2f80
+identity_spaces                equ identity_tail
+identity_cv_ptr                equ 0x3b3d
+identity_cv_der_len            equ 0x3b3f
+auth_input_digest              equ 0x2f80
+auth_input_signature_len       equ 0x2fa0
+auth_input_signature           equ 0x2fa2
+auth_input_signature_max       equ 72
+auth_output_status             equ 0x2fea
+%else
 identity_cert_hash             equ 0x0e80
 identity_spaces                equ 0x0ea0
 identity_cv_ptr                equ 0x0ec0
@@ -2333,6 +2501,7 @@ auth_input_signature_len       equ 0x3c50
 auth_input_signature           equ 0x3c52
 auth_input_signature_max       equ 72
 auth_output_status             equ 0x3c9a
+%endif
 flight_tail                    equ identity_tail
 flight_tail_len                equ identity_tail_len
 %else
@@ -2669,7 +2838,11 @@ commit_identity_tail:
 
 .found:
     mov [identity_cv_ptr], si
+%ifdef LIVE_K15_SYSTEM_RAM
+    mov [identity_cv_der_len], dl
+%else
     mov [identity_cv_der_len], dx
+%endif
     ; Complete the transcript through CompressedCertificate, snapshot it for
     ; the CertificateVerify signed input, then append the complete CV message.
     mov si, identity_tail
@@ -2695,7 +2868,12 @@ commit_identity_tail:
     ; HEAD has closed the peer deadline: neither the digest nor its eventual
     ; exact-leaf equation grants authority before the later post-auth gate.
     mov byte [auth_output_status], 0
+%ifdef LIVE_K15_SYSTEM_RAM
+    xor dx, dx
+    mov dl, [identity_cv_der_len]
+%else
     mov dx, [identity_cv_der_len]
+%endif
     mov [auth_input_signature_len], dx
     push ds
     pop es
@@ -2703,7 +2881,12 @@ commit_identity_tail:
     mov di, auth_input_signature
     mov cx, auth_input_signature_max / 2
     rep stosw
+%ifdef LIVE_K15_SYSTEM_RAM
+    xor dx, dx
+    mov dl, [identity_cv_der_len]
+%else
     mov dx, [identity_cv_der_len]
+%endif
     mov si, [identity_cv_ptr]
     add si, 8
     mov di, auth_input_signature
@@ -2723,6 +2906,12 @@ commit_identity_tail:
     mov di, sym_received_finish
     mov cx, 32
     rep movsb
+%ifdef LIVE_K15_SYSTEM_RAM
+    ; Capture authority is published last.  The later exact-leaf overlay
+    ; clears this byte before evaluating the P-256 equation and commits 1 only
+    ; on success.
+    mov byte [auth_output_status], 0x5a
+%endif
     clc
     ret
 .failed:
@@ -2855,12 +3044,14 @@ client_finished_sent:
     ; deferred CertificateVerify digest in retired identity-tail
     ; scratch, outside the identity-mode plaintext scatter, until the exact
     ; HEAD+ticket record boundary commits.
+%ifndef LIVE_K15_SYSTEM_RAM
     push ds
     pop es
     mov si, auth_input_digest
     mov di, 0x0ee0
     mov cx, 16
     rep movsw
+%endif
 %endif
 %ifdef LIVE_K15_PRODUCT_MODE
     ; This is the first floppy read after the original-speed critical window.
@@ -2884,7 +3075,11 @@ client_finished_sent:
 product_post_load_retry_source:
     mov bp, 3
 .load_post_controller:
+%ifdef LIVE_K15_SYSTEM_RAM
+    mov ax, LIVE_K15_SYSTEM_OFFLINE_KEY
+%else
     mov ax, LIVE_K15_POST_CONTROLLER_KEY
+%endif
     mov bx, 0x0900
     mov si, res_load_phase
     call si

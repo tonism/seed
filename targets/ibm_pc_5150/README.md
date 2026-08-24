@@ -91,10 +91,11 @@ effective ML-KEM-only Seed boundary, not a standards-conforming
 `X25519MLKEM768` hybrid.
 
 Before full FO and dated exact-leaf/CertificateVerify proof, Seed can complete
-the TLS handshake, retain one bounded tentative NewSessionTicket, and transmit
-only the compiled credential-free HEAD. A fresh ticket-bearing close is a
-quarantined timing bridge, not liveness: after offline proof, the same-boot
-resumed connection must send the fixed HEAD as 0-RTT and authenticate its
+the TLS handshake, transmit only the compiled credential-free HEAD, and retain
+one bounded tentative NewSessionTicket after authenticating the fresh HEAD
+response. A close before either fresh result completes fails the attempt.
+After offline proof, the same-boot no-0RTT resumed connection performs fresh
+KEM work, sends the fixed HEAD after client Finished, and authenticates its
 response before status-last route commit. The API key, prompt, context,
 redirects, and business request remain unreachable throughout. The ticket is
 volatile and survives neither restart nor failed proof.
@@ -103,18 +104,15 @@ The leaf's hostname/issuer/purpose/validity interval are image-generation
 provenance. The 8088 has no trusted runtime clock, so image expiry is an
 explicit operational limit and requires a refreshed trusted image.
 
-Public objects use a guarded video-RAM vault:
-
-```text
-CGA  B800:1000..1cff payload, B800:1d00..1dff metadata
-MDA  B000:0000..0cff payload, B000:0d00..0dff metadata
-```
-
-The MDA display is disabled and its scanout is redirected to a zero quarantine
-for the vault lifetime, then restored and redrawn only after the visible page
-is scrubbed. Binary/random glyphs during this interval are a security failure,
-not expected progress. No NIC RAM or writable floppy slot is part of the
-architecture.
+The route is conventional-RAM-only. It scatters the 1,088-byte ML-KEM
+ciphertext around live code/state, reshapes it between regenerated KeyGen and
+full FO, and carries only compact status-last capsules across phase epochs.
+The bounded post-handshake receiver reuses retired conventional-RAM ranges.
+Exact executable composition gates guard config, arena/context, all display
+apertures, and adapter RAM. No video RAM, NIC RAM, or writable floppy slot is
+part of TLS storage. On the 32 KiB direct tier, the fixed low root frame's 26
+aliased arena bytes are shadowed in the conventional stack guard and restored
+on both success and abort, preserving the 224-byte arena and 224-byte context.
 
 ### 286 conforming floor
 
@@ -153,28 +151,29 @@ after import, and the matrix feeds complete full FO after ServerHello. Full
 ciphertext comparison and implicit rejection still precede server Finished,
 client Finished, and credential publication.
 
-At the 6 MHz floor, matrix generation measures 45 ticks / 2.4716 s outside the
-live window. Cached full FO measures 43 ticks / 2.3618 s versus 88 ticks /
-4.8334 s uncached. The current conservative serialized CPU windows are 162
-ticks / 8.8979 s for acquisition and 168 ticks / 9.2275 s for final
-resumption. A read-only exact-floor live reconnect capture passes all four
-fresh/resumed deadlines at 8.8928, 8.6282, 8.9562, and 8.6448 seconds. The 286
-negative-path gates and the 8088 seven-profile NIC, CGA/MDA vault, and
-no-card/no-driver matrices pass in 86Box; physical entropy remains a separate
-acceptance gate.
+At the 6 MHz floor, the last measurement baseline put matrix generation at 45
+ticks / 2.4716 s outside the live window and cached full FO at 43 ticks /
+2.3618 s versus 88 ticks / 4.8334 s uncached. Earlier serialized and live
+figures were below the observed provider deadline. Release-bound timing and
+activity figures will be remeasured from the final RAM-only image rather than
+carried forward as current acceptance evidence.
 
-Both product routes are integrated and pass their current-source emulator
-acceptance gates, but still require physical-entropy characterization and more
-provider-edge repetition. See
+Both product routes are integrated and pass their current-source offline
+composition gates. Current read-only exact-floor runs prove fresh/resumed wire
+validity, bounded reconnect, authenticated dialogue, all seven original-speed
+NIC profiles, and clean CGA/MDA display cases. The conforming 286 four-flow
+topology also passes at 6 MHz / 512 KiB. Physical-entropy characterization and
+more provider-edge variation remain. See
 [`../../docs/security.md`](../../docs/security.md).
 
 ## Read-only and reconnect contract
 
 Both routes gather private input and perform all proofs on the target. The 8088
-uses read-only floppy timing; the 286 samples the AT RTC periodic source against
-the PIT and performs no entropy-only disk reads. Emulator timing receives zero
-entropy credit until each physical source is characterized. Read-only media
-simply repeats the cold proof after restart.
+records PIT phase bytes after floppy sectors Seed already had to read and adds
+no entropy-only disk activity. The 286 samples the AT RTC periodic source
+against the PIT and likewise performs no entropy-only disk reads. Emulator
+timing receives zero credit until each physical source is characterized.
+Read-only media simply repeats the cold proof after restart.
 
 Once committed, the TLS session is reused. A human request that fails before
 any text appears gets exactly one fresh route and exact same-request resend.

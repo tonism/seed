@@ -38,15 +38,16 @@ RX_INPUT_ADDR = 0x4000
 RX_OUTPUT_ADDR = 0x8000
 STACK_TOP = 0xFFF0
 RAM_BYTES = 0x10000
-VIDEO_ADDR = 0xB8000
+CGA_VIDEO_ADDR = 0xB8000
+MDA_VIDEO_ADDR = 0xB0000
 VIDEO_BYTES = 0x4000
-AUTH_SPOOL_LEN = 0x3000
-MDA_SPOOL_ADDR = 0x2E00
-MDA_SPOOL_LEN = 0x0800
-MDA_GUARD_LEN = 16
-MDA_PREFIX_GUARD = bytes([0x6D]) * MDA_GUARD_LEN
-MDA_SUFFIX_GUARD = bytes([0xA6]) * MDA_GUARD_LEN
-MDA_SPOOL_FILL = bytes([0xE1]) * MDA_SPOOL_LEN
+AUTH_SPOOL_ADDR = 0x2E00
+AUTH_SPOOL_LEN = 0x0800
+AUTH_SPOOL_GUARD_LEN = 16
+AUTH_SPOOL_PREFIX_GUARD = bytes([0x6D]) * AUTH_SPOOL_GUARD_LEN
+AUTH_SPOOL_SUFFIX_GUARD = bytes([0xA6]) * AUTH_SPOOL_GUARD_LEN
+AUTH_SPOOL_FILL = bytes([0xE1]) * AUTH_SPOOL_LEN
+VIDEO_FILL = bytes([0x93]) * VIDEO_BYTES
 
 
 def load_module(name: str, path: Path):
@@ -149,8 +150,10 @@ def execute_returning(machine: Uc, entry: int) -> int:
 def make_machine(image: bytes) -> Uc:
     machine = Uc(UC_ARCH_X86, UC_MODE_16)
     machine.mem_map(0, RAM_BYTES)
-    machine.mem_map(VIDEO_ADDR, VIDEO_BYTES)
+    machine.mem_map(MDA_VIDEO_ADDR, 0x10000)
     machine.mem_write(ORIGIN, image)
+    machine.mem_write(MDA_VIDEO_ADDR, VIDEO_FILL)
+    machine.mem_write(CGA_VIDEO_ADDR, VIDEO_FILL)
     for register in (UC_X86_REG_CS, UC_X86_REG_DS, UC_X86_REG_ES, UC_X86_REG_SS):
         machine.reg_write(register, 0)
     return machine
@@ -339,10 +342,12 @@ def initialize_receive_case(
         constants["tls_server_record_seq"], sequence.to_bytes(8, "big")
     )
     machine.mem_write(
-        MDA_SPOOL_ADDR - MDA_GUARD_LEN, MDA_PREFIX_GUARD
+        AUTH_SPOOL_ADDR - AUTH_SPOOL_GUARD_LEN, AUTH_SPOOL_PREFIX_GUARD
     )
-    machine.mem_write(MDA_SPOOL_ADDR, MDA_SPOOL_FILL)
-    machine.mem_write(MDA_SPOOL_ADDR + MDA_SPOOL_LEN, MDA_SUFFIX_GUARD)
+    machine.mem_write(AUTH_SPOOL_ADDR, AUTH_SPOOL_FILL)
+    machine.mem_write(
+        AUTH_SPOOL_ADDR + AUTH_SPOOL_LEN, AUTH_SPOOL_SUFFIX_GUARD
+    )
     write_u16(machine, constants["video_seg"], video_segment)
     write_u16(
         machine, labels["nic_vt_rx_fallback"], labels["tls13_test_rx_fallback"]
@@ -358,25 +363,31 @@ def initialize_receive_case(
     return output_fill, output_guard
 
 
-def assert_mda_spool_guards(machine: Uc, case: str) -> None:
+def assert_system_spool_guards(machine: Uc, case: str) -> None:
     if (
         bytes(
             machine.mem_read(
-                MDA_SPOOL_ADDR - MDA_GUARD_LEN, MDA_GUARD_LEN
+                AUTH_SPOOL_ADDR - AUTH_SPOOL_GUARD_LEN,
+                AUTH_SPOOL_GUARD_LEN,
             )
         )
-        != MDA_PREFIX_GUARD
+        != AUTH_SPOOL_PREFIX_GUARD
     ):
-        raise AssertionError(f"{case}: MDA spool prefix guard changed")
+        raise AssertionError(f"{case}: system spool prefix guard changed")
     if (
         bytes(
             machine.mem_read(
-                MDA_SPOOL_ADDR + MDA_SPOOL_LEN, MDA_GUARD_LEN
+                AUTH_SPOOL_ADDR + AUTH_SPOOL_LEN,
+                AUTH_SPOOL_GUARD_LEN,
             )
         )
-        != MDA_SUFFIX_GUARD
+        != AUTH_SPOOL_SUFFIX_GUARD
     ):
-        raise AssertionError(f"{case}: MDA spool suffix guard changed")
+        raise AssertionError(f"{case}: system spool suffix guard changed")
+    if bytes(machine.mem_read(MDA_VIDEO_ADDR, VIDEO_BYTES)) != VIDEO_FILL:
+        raise AssertionError(f"{case}: MDA video RAM changed")
+    if bytes(machine.mem_read(CGA_VIDEO_ADDR, VIDEO_BYTES)) != VIDEO_FILL:
+        raise AssertionError(f"{case}: CGA video RAM changed")
 
 
 def assert_rejected_without_publish(
@@ -413,7 +424,7 @@ def assert_rejected_without_publish(
         != sequence.to_bytes(8, "big")
     ):
         raise AssertionError(f"{case}: rejected record consumed a server sequence")
-    assert_mda_spool_guards(machine, case)
+    assert_system_spool_guards(machine, case)
 
 
 def run_receive_valid_case(
@@ -493,23 +504,83 @@ def run_receive_valid_case(
         raise AssertionError(
             f"opener sequence mismatch len={plain_len}, seq={sequence:#x}"
         )
-    assert_mda_spool_guards(
+    assert_system_spool_guards(
         machine,
         f"valid len={plain_len}, pad={padding_len}, video={video_segment:#x}",
     )
-    if video_segment == 0xB000:
-        inner_len = plain_len + 1 + padding_len
-        if bytes(
-            machine.mem_read(
-                MDA_SPOOL_ADDR + inner_len, MDA_SPOOL_LEN - inner_len
-            )
-        ) != MDA_SPOOL_FILL[inner_len:]:
-            raise AssertionError(
-                f"MDA opener wrote beyond inner len={inner_len}"
-            )
-    elif bytes(machine.mem_read(MDA_SPOOL_ADDR, MDA_SPOOL_LEN)) != MDA_SPOOL_FILL:
-        raise AssertionError("CGA opener unexpectedly touched conventional MDA spool")
+    inner_len = plain_len + 1 + padding_len
+    if bytes(
+        machine.mem_read(
+            AUTH_SPOOL_ADDR + inner_len, AUTH_SPOOL_LEN - inner_len
+        )
+    ) != AUTH_SPOOL_FILL[inner_len:]:
+        raise AssertionError(
+            f"opener wrote beyond conventional spool inner len={inner_len}"
+        )
     return hashlib.sha256(actual).hexdigest()
+
+
+def run_receive_alert_case(
+    image: bytes,
+    entry: int,
+    labels: dict[str, int],
+    constants: dict[str, int],
+) -> str:
+    machine = make_machine(image)
+    initialize_runtime_constants(machine, constants)
+    key = hashlib.sha256(b"Seed TLS 1.3 authenticated alert key").digest()
+    iv = hashlib.sha256(b"Seed TLS 1.3 authenticated alert iv").digest()[:12]
+    sequence = 2
+    alert = b"\x02\x14"  # fatal, bad_record_mac
+    wire = server_record(
+        key,
+        iv,
+        sequence,
+        alert,
+        inner_type=0x15,
+        padding_len=5,
+    )
+    output_fill, output_guard = initialize_receive_case(
+        machine,
+        labels,
+        constants,
+        wire,
+        key,
+        iv,
+        sequence,
+        chunk=7,
+    )
+    status_addr = constants["handoff_addr"] + constants["handoff_net_status"]
+    error_addr = constants["handoff_addr"] + constants["handoff_net_error"]
+    machine.mem_write(status_addr, b"\xa5\xa6")
+    if not execute_returning(machine, entry):
+        raise AssertionError("authenticated TLS alert was accepted as application data")
+    if read_u16(machine, labels["tls13_test_publish_len"]) != 0:
+        raise AssertionError("authenticated TLS alert published plaintext")
+    if read_u16(machine, labels["tls13_test_publish_calls"]) != 0:
+        raise AssertionError("authenticated TLS alert entered the product parser")
+    if machine.mem_read(error_addr, 1)[0] != constants["net_error_tls"]:
+        raise AssertionError("authenticated TLS alert did not publish the TLS error class")
+    if machine.mem_read(status_addr, 1)[0] != alert[1]:
+        raise AssertionError("authenticated TLS alert lost its description")
+    if (
+        bytes(machine.mem_read(constants["tls_server_record_seq"], 8))
+        != sequence.to_bytes(8, "big")
+    ):
+        raise AssertionError("terminal TLS alert consumed a reusable server sequence")
+    if bytes(machine.mem_read(RX_OUTPUT_ADDR, len(output_fill))) != output_fill:
+        raise AssertionError("authenticated TLS alert changed parser output")
+    if (
+        bytes(machine.mem_read(RX_OUTPUT_ADDR - len(output_guard), len(output_guard)))
+        != output_guard
+        or bytes(
+            machine.mem_read(RX_OUTPUT_ADDR + len(output_fill), len(output_guard))
+        )
+        != output_guard
+    ):
+        raise AssertionError("authenticated TLS alert changed an output canary")
+    assert_system_spool_guards(machine, "authenticated TLS alert")
+    return hashlib.sha256(alert).hexdigest()
 
 
 def run_receive_valid_nst_case(
@@ -574,7 +645,7 @@ def run_receive_valid_nst_case(
         != next_sequence(sequence).to_bytes(8, "big")
     ):
         raise AssertionError("NST drain did not consume exactly one server record")
-    assert_mda_spool_guards(machine, "valid NST drain")
+    assert_system_spool_guards(machine, "valid NST drain")
     return hashlib.sha256(plain).hexdigest()
 
 
@@ -787,7 +858,7 @@ def run_receive_rejection_cases(
     )
     fingerprints.append(hashlib.sha256(oversized).hexdigest())
 
-    mda_oversized_plain = bytes(MDA_SPOOL_LEN)
+    mda_oversized_plain = bytes(AUTH_SPOOL_LEN)
     mda_oversized = server_record(
         key, iv, sequence, mda_oversized_plain
     )
@@ -814,8 +885,8 @@ def run_receive_rejection_cases(
         output_guard,
         "mda-oversized-inner",
     )
-    if bytes(machine.mem_read(MDA_SPOOL_ADDR, MDA_SPOOL_LEN)) != MDA_SPOOL_FILL:
-        raise AssertionError("MDA oversized record touched the conventional spool")
+    if bytes(machine.mem_read(AUTH_SPOOL_ADDR, AUTH_SPOOL_LEN)) != AUTH_SPOOL_FILL:
+        raise AssertionError("oversized MDA record touched the conventional spool")
     fingerprints.append(hashlib.sha256(mda_oversized).hexdigest())
 
     # The first TCP payload may contain a complete authenticated record followed
@@ -922,7 +993,7 @@ def run_receive_buffered_pair(
             f"buffered pair chunk={chunk}, pad={padding_len}: "
             "sequence did not advance twice"
         )
-    assert_mda_spool_guards(
+    assert_system_spool_guards(
         machine, f"buffered pair chunk={chunk}, pad={padding_len}"
     )
     return hashlib.sha256(actual).hexdigest()
@@ -950,6 +1021,10 @@ def main() -> int:
         "video_seg",
         "low_static_constants_start",
         "low_static_constants_len",
+        "handoff_addr",
+        "handoff_net_status",
+        "handoff_net_error",
+        "net_error_tls",
     )
     missing = [name for name in required if name not in constants]
     if missing:
@@ -977,28 +1052,24 @@ def main() -> int:
     ):
         raise AssertionError("authenticated receive spool/checker capacity drifted")
     if not re.search(
-        rf"^tls13_mda_auth_spool_offset\s+equ\s+{MDA_SPOOL_ADDR:#x}\s*$",
-        tls13_source,
-        re.MULTILINE,
-    ) or not re.search(
-        rf"^tls13_mda_auth_spool_len\s+equ\s+{MDA_SPOOL_LEN:#x}\s*$",
+        rf"^tls13_auth_spool_offset\s+equ\s+{AUTH_SPOOL_ADDR:#x}\s*$",
         tls13_source,
         re.MULTILINE,
     ):
-        raise AssertionError("MDA authenticated spool/checker geometry drifted")
+        raise AssertionError("system authenticated spool/checker geometry drifted")
 
     with tempfile.TemporaryDirectory(prefix="seed-tls13-app-") as raw_work:
         work = Path(raw_work)
         image, listing = build_image(work)
         app_code_end = listing_symbol_address(listing, "tls13_app_code_end")
         linked_k_end = listing_symbol_address(listing, "core_link_window_end")
-        if app_code_end > MDA_SPOOL_ADDR:
+        if app_code_end > AUTH_SPOOL_ADDR:
             raise AssertionError(
-                f"TLS 1.3 app ends at {app_code_end:#x}, inside MDA spool"
+                f"TLS 1.3 app ends at {app_code_end:#x}, inside system spool"
             )
-        if linked_k_end > (MDA_SPOOL_ADDR - MDA_GUARD_LEN):
+        if linked_k_end > (AUTH_SPOOL_ADDR - AUTH_SPOOL_GUARD_LEN):
             raise AssertionError(
-                f"oracle K ends at {linked_k_end:#x}, inside MDA prefix guard"
+                f"oracle K ends at {linked_k_end:#x}, inside spool prefix guard"
             )
         seal_entry = listing_symbol_address(
             listing, "tls_build_application_data_record"
@@ -1027,6 +1098,12 @@ def main() -> int:
             (63, 3),
             (64, 4),
             (65, 5),
+            # Exact 16 KiB cold Responses request observed after the
+            # credential-free HEAD: 360 plaintext bytes at application
+            # sequence 1.  Keep this product geometry alongside the primitive
+            # block-boundary cases so a valid min/max result cannot mask a
+            # length-specific live-wire failure.
+            (360, 1),
             (439, 0x7FFFFFFFFFFFFFFF),
             (440, 0xFFFFFFFFFFFFFFFF),
         )
@@ -1045,13 +1122,13 @@ def main() -> int:
             (577, 6, 384, 0xB800),
             (1024, 0x7FFFFFFFFFFFFFFF, 577, 0xB800),
             (AUTH_SPOOL_LEN - 1, 0xFFFFFFFFFFFFFFFE, 384, 0xB800),
-            (AUTH_SPOOL_LEN, 7, 383, 0xB800),
+            (AUTH_SPOOL_LEN - 1, 7, 383, 0xB800),
             (0, 11, 1, 0xB000),
             (1, 12, 5, 0xB000),
             (63, 13, 17, 0xB000),
             (575, 14, 127, 0xB000),
-            (2047, 15, 191, 0xB000),
-            (MDA_SPOOL_LEN - 1, 16, 383, 0xB000),
+            (1536, 15, 191, 0xB000),
+            (AUTH_SPOOL_LEN - 1, 16, 383, 0xB000),
         )
         open_fingerprints = [
             run_receive_valid_case(
@@ -1073,11 +1150,11 @@ def main() -> int:
             (64, 20, 64, 65, 0xB800),
             (443, 21, 384, 1, 0xB800),
             (1024, 22, 577, 127, 0xB800),
-            (AUTH_SPOOL_LEN - 1, 23, 383, 1, 0xB800),
+            (AUTH_SPOOL_LEN - 2, 23, 383, 1, 0xB800),
             (0, 24, 1, 1, 0xB000),
             (63, 25, 17, 64, 0xB000),
             (1536, 26, 191, 511, 0xB000),
-            (MDA_SPOOL_LEN - 2, 27, 383, 1, 0xB000),
+            (AUTH_SPOOL_LEN - 2, 27, 383, 1, 0xB000),
         )
         padded_open_fingerprints = [
             run_receive_valid_case(
@@ -1150,6 +1227,9 @@ def main() -> int:
         rejection_fingerprints = run_receive_rejection_cases(
             image, open_entry, labels, constants
         )
+        alert_fingerprint = run_receive_alert_case(
+            image, open_entry, labels, constants
+        )
         # Exercise both the host-capture shape and the guest's advertised-MSS
         # split.  The first TLS record spans the 384-byte boundary while the
         # second record is coalesced into the final 106-byte TCP payload.
@@ -1167,6 +1247,7 @@ def main() -> int:
             + open_fingerprints
             + padded_open_fingerprints
             + nst_open_fingerprints
+            + [alert_fingerprint]
             + rejection_fingerprints
             + buffered_fingerprints
         ).encode()
@@ -1174,23 +1255,20 @@ def main() -> int:
     print("TLS 1.3 product application-record seal/open: PASS")
     print(
         f"  cpu: 8086 ({len(seal_cases)} seal + {len(open_cases)} unpadded open "
-        f"+ {len(padded_open_cases)} padded open "
-        f"+ {len(nst_open_cases)} NST drain "
-        f"+ {len(rejection_fingerprints)} reject + buffered-pair cases)"
+            f"+ {len(padded_open_cases)} padded open "
+            f"+ {len(nst_open_cases)} NST drain "
+            "+ 1 authenticated alert "
+            f"+ {len(rejection_fingerprints)} reject + buffered-pair cases)"
     )
     print(
         f"  outbound plaintext: 0..{constants['api_request_plain_len']} bytes"
     )
     print(f"  record capacity: {constants['tls13_app_record_buffer_len']} bytes")
-    print(f"  authenticated CGA plaintext: 0..{AUTH_SPOOL_LEN} bytes")
-    print(
-        f"  authenticated MDA plaintext: 0..{MDA_SPOOL_LEN - 1} bytes "
-        f"(inner <= {MDA_SPOOL_LEN})"
-    )
+    print(f"  authenticated plaintext: 0..{AUTH_SPOOL_LEN - 1} bytes")
     print(
         f"  linked app/oracle K end: {app_code_end:#x}/{linked_k_end:#x}; "
-        f"MDA spool: {MDA_SPOOL_ADDR:#x}.."
-        f"{MDA_SPOOL_ADDR + MDA_SPOOL_LEN:#x}"
+        f"system spool: {AUTH_SPOOL_ADDR:#x}.."
+        f"{AUTH_SPOOL_ADDR + AUTH_SPOOL_LEN:#x}"
     )
     print(
         "  peer hint: advertise record_size_limit=2048; "

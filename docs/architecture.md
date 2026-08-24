@@ -119,8 +119,8 @@ network          3c501, 3c503, NE/WD80x3, PCnet/LANCE, DEC Tulip, RTL8139,
 runtime file     one visible SEED.SYS plus optional external SEED/DRIVERS/*.DRV NIC files
 ```
 
-Current TLS 1.3 integration image (`tools/core-sys-info.py`; live product
-validation pending):
+Current TLS 1.3 integration image (`tools/core-sys-info.py`; exact-floor live
+gates pass, physical-source validation pending):
 
 ```text
 SEED.SYS total bytes:        150016
@@ -435,9 +435,11 @@ agent phase "o"
   -> dispatch by CPU/RAM capability:
        8088 profile:
          escrow config -> collect local floppy timing -> cold-load K14 phases
-         -> connect -> provisional TLS 1.3 Finished + bounded ticket receipt
+         -> connect -> provisional TLS 1.3 Finished + literal HEAD
+         -> authenticate HEAD response + bounded tentative ticket
          -> full FO + exact dated-leaf/CV proof
-         -> one-shot resumed 0-RTT HEAD + authenticated liveness
+         -> one-shot no-0RTT resumption with fresh KEM work
+         -> client Finished + literal HEAD + authenticated liveness
          -> atomic credential unlock
        286 / 512 KiB conforming route:
          N: silently obtain a coherent platform-UTC RTC value and preserve the
@@ -528,9 +530,9 @@ cold phases load at `0x0700`. This
 phase-streaming design is what lets a TLS 1.3 record path — ChaCha20-Poly1305,
 SHA-256, HTTP/1.1, SSE streaming — run in 16 KiB on a 4.77 MHz 8088: only the
 nucleus and the crypto window stay resident, while the other phases stream from
-the floppy and take turns in one small window. The public vault and
-provisional/quarantine schedule are what keep the full 8088 route from
-displacing the 96/96-byte user pool.
+the floppy and take turns in one small window. The RAM-only product pack's
+lifetime-separated ciphertext, key, authentication, and ticket layouts keep
+the full 8088 route from displacing the 96/96-byte user pool.
 
 ## Demo: A Tool-Called Request
 
@@ -574,22 +576,24 @@ The 8088 profile has three timing domains:
 
 ```text
 before TCP
-  collect and condition local read-only floppy timings
+  condition PIT phases already sampled after required floppy reads
   generate the ML-KEM-768 keypair
   resolve the fixed OpenAI target and preload the deadline phase
 
 fresh provider deadline
   send TLS 1.3 ClientHello
   verify protected flight and exact server Finished under the provisional candidate
-  send client Finished and attempt one literal credential-free HEAD
-  retain one bounded tentative same-boot ticket; an authenticated
-    ticket-bearing close is a quarantined receipt, not liveness
+  send client Finished and one literal credential-free HEAD
 
-after the deadline, still on the 8088
+after client Finished, still on the fresh connection
+  authenticate the HEAD response and one bounded same-boot ticket
+
+offline, still on the 8088
   complete full ML-KEM FO validation and traffic-secret comparison
   verify possession of the image's dated exact leaf and the saved CertificateVerify
   resume with fresh KEM work and the one-shot tentative ticket
-  send the same fixed HEAD as 0-RTT and authenticate its response
+  verify resumed Finished, send the same fixed HEAD with no early data,
+    and authenticate its response
   restore/scrub volatile state, then publish credential access status-last
 ```
 
@@ -605,20 +609,43 @@ trusted runtime clock. Leaf rotation or the image object's validity end
 requires a refreshed trusted image.
 
 The exact-floor route must put fresh client Finished on the wire before the
-provider close. Credential-free liveness may complete on that socket or on the
-immediately paired resumed 0-RTT connection after an authenticated ticket/close
-receipt and offline proof. These are measured compatibility boundaries, not a
-service SLA; the provider's observed close is near 15 seconds and may vary.
+provider's handshake close, then authenticate the fresh HEAD response and
+ticket on that connection. The final resumed connection offers no early data;
+its HEAD follows client Finished. These are measured compatibility boundaries,
+not a service SLA; the provider's observed handshake close is near 15 seconds
+and may vary.
 
 The route stays inside 16 KiB by loading one immutable phase at a time and
-placing 3,328 bytes of public objects in a guarded video-RAM vault. On MDA the
-guard combines output-disable with one-column scanout redirected to a zeroed
-out-of-page quarantine; ordinary scanout returns only after the visible page
-is scrubbed. The vault
-is neither NIC RAM nor writable-floppy scratch. Its 867-byte stateless access
-leaf is duplicated or staged by consuming phases, and all vault state is
-zeroized at route completion or failure. The user-facing low pool remains a
-96-byte executable arena plus 96-byte context window.
+reusing conventional-RAM regions only after the previous object has been
+retired. The 1,088-byte ML-KEM ciphertext is scattered around live code/state,
+then reshaped for regenerated KeyGen and full FO; compact status-last capsules
+carry only the root, provisional result, authentication input, traffic keys,
+and same-boot ticket state across those epochs. The application receiver uses
+the otherwise-dead `0x2e00..0x35ff` spool plus bounded low fragments. Exact
+composition gates execute both deadline paths, both eight-entry lifecycle
+paths, fragmented multi-record HTTP/NST processing, and assert that config,
+arena/context, video RAM, and adapter RAM remain unchanged. No video/NIC RAM
+or writable-floppy slot is TLS storage. The user-facing low pool remains a
+96-byte executable arena plus 96-byte context window. The fixed 28-byte
+root/UI frame, including the durable DPI prompt-row marker, lies at
+`0x3f00..0x3f1c` on the floor. On direct-entry tiers that
+address temporarily aliases the larger low arena, so root shadows exactly
+those bytes plus its caller return at `0x7a00..0x7a1e`, returns through a carry-preserving trampoline,
+restores the full 224/224-byte pool on both success and abort, and erases the
+shadow. This is conventional stack-guard RAM, not video or adapter memory.
+
+The complete 12-sector route-specific symmetric image is loaded before TCP.
+Key generation and ClientHello construction overwrite only its retired prefix,
+leaving the immutable final-sector prefix at `0x2e00`: 320 bytes for fresh
+acquisition and 480 bytes for resumption. The deadline controller consumes that
+pre-staged prefix and performs no floppy read in either provider window. On the
+resumed route, the cached SYN/SYN-ACK frame can overwrite only 42 bytes of the
+already-built first ClientHello fragment at `0x0736`. Those 42 bytes are saved
+temporarily at `0x0f18`, restored after cached connect, and immediately erased;
+the full 480-byte symmetric tail is never displaced. The exact preconnect gate
+clobbers all 96 cached-frame bytes, requires the byte-exact 1,632-byte resumed
+ClientHello, checks all eight fragment lengths, retains the symmetric tail, and
+requires zero critical phase reads.
 
 ### 286: conforming hybrid with certificate work off the timer
 
@@ -685,13 +712,15 @@ cache produces the rejection secret and cannot pass server Finished. The
 record-open path retires the staged public bytes before authenticated plaintext
 uses the quarantine, and abort/restart scrubs the reservation.
 
-Exact 6 MHz, 512 KiB tick-aligned target measurements show why this schedule is
-useful: public matrix generation costs 45 ticks / 2.4716 s before TCP; full FO
-costs 43 ticks / 2.3618 s with the cache versus 88 ticks / 4.8334 s without it.
-The current conservative serialized CPU windows are 162 ticks / 8.8979 s for
-acquisition and 168 ticks / 9.2275 s for final resumption. The exact-floor
-read-only live reconnect capture independently measures all four fresh/resumed
-critical intervals below nine seconds and returns authenticated OpenAI text.
+The structural 6 MHz timing gate shows why this schedule is useful: its latest
+measured baseline put public matrix generation at 45 ticks / 2.4716 s before
+TCP and full FO at 43 ticks / 2.3618 s with the cache versus 88 ticks / 4.8334 s
+without it. The current read-only 6 MHz / 512 KiB live reconnect capture has the
+required `acquisition -> resumption -> acquisition -> resumption` topology and
+measures 8.8880, 8.6428, 8.9518, and 8.6425 seconds from ServerHello to client
+Finished. The target returns authenticated OpenAI text and a clean DPI prompt.
+Full boot/activity graphs should still be remeasured from the release-bound
+image after timing-affecting work has stopped.
 
 The candidate ML-KEM path is deliberately not an authority boundary. The
 offline full FO comparison, X.509/hostname/time/WE1/CV checks, and
@@ -705,13 +734,16 @@ provider-edge repetition remain open.
 ### Entropy and validation boundary
 
 Both routes generate private material on the target and work from a
-write-protected floppy. The 8088 route SHA3-conditions PIT-bracketed floppy-read
-timings. The 286 route performs no entropy-only disk reads: it polls the AT
-RTC's 4,096 Hz periodic flag, samples that independent oscillator against PIT
-channel 0, applies online health tests, then uses SHA3 and HMAC_DRBG. Emulator
-runs receive zero entropy credit. Representative physical traces,
-source-specific conservative min-entropy estimates, and calibrated health
-cutoffs remain open before a secure-floor claim.
+write-protected floppy. The 8088 adds no entropy-only disk activity: its
+resident read tail records one PIT phase byte after each already-required
+successful sector read, up to 120 samples, and its cold conditioner applies
+gross stuck/run checks before SHA3 derivation. The 286 performs no entropy-only
+disk reads either: it polls the AT RTC's 4,096 Hz periodic flag, samples that
+independent oscillator against PIT channel 0, applies online health tests,
+then uses SHA3 and HMAC_DRBG. Emulator runs receive zero entropy credit.
+Representative physical traces, source-specific conservative min-entropy
+estimates, and calibrated health cutoffs remain open before a secure-floor
+claim.
 
 ### Session reuse and bounded reconnect
 
@@ -730,13 +762,13 @@ tickets cannot make application credentials reachable.
 - The provider close near 15 seconds is observed behavior, not an SLA. Both
   exact-floor routes have current live margin evidence but need more repetition
   across cold boots and edge variation. The 8088 profile requires fresh
-  Finished plus bounded ticket/close receipt before the
-  paired resumed 0-RTT liveness exchange; the conforming route still requires
-  its complete acquisition/HEAD/ticket exchange. Both need further live
-  margin characterization.
-- Emulator entropy has zero credit. The physical 8088 floppy source and 286
-  RTC/PIT source may not support their provisional min-entropy assumptions or
-  health cutoffs.
+  Finished plus authenticated HEAD/ticket completion before its no-0RTT
+  resumed liveness exchange; the conforming route likewise requires its
+  complete acquisition/HEAD/ticket exchange. Both need further live margin
+  characterization.
+- Emulator entropy has zero credit. PIT phases from the physical 8088's
+  already-required floppy reads and the 286 RTC/PIT source may not support
+  their provisional min-entropy assumptions or health cutoffs.
 - The 8088 exact-leaf route lacks trusted runtime time and general issuer-based
   rotation. Its image object has an operational expiry/update requirement.
 - A ticket may be absent, malformed, rejected, or expire before offline proof
@@ -746,14 +778,14 @@ tickets cannot make application credentials reachable.
   packaging guard, leaving zero usable `SEED.SYS` sector-growth headroom.
   Further cold code needs deletion/compression, a larger media profile that
   does not fragment the user experience, or revised package geometry.
-- The video-RAM vault has extensive CPU-emulated hostile gates and clean 86Box
-  CGA/MDA active-hold plus post-scrub redraw evidence. Physical adapter scanout
-  behavior remains unverified. MDA intentionally has no changing live UI
-  during the vault lifetime; any binary/random glyph screen is an acceptance
-  failure.
-- The product 8088 profile passes all seven original-speed NIC profiles;
-  this does not grant permission to disturb the stable driver surface. Shared
-  TCP/TLS changes continue to require the documented NIC regression matrix.
+- The RAM-only 8088 composition gate proves video/adapter/config/arena guards
+  under exact emulated phase execution, including direct-tier arena restoration.
+  Current-source read-only exact-floor runs pass bounded reconnect on all seven
+  original-speed NIC profiles, plus NIC-present CGA and MDA display cases.
+  Current no-card CGA/MDA and isolated no-driver images reach their documented
+  retry/restart menus. This evidence does not grant permission to disturb the
+  stable driver surface; shared packet, timing, or TLS changes still require the
+  matrix.
 - OpenAI is the only current wire profile. Adding a provider is an explicit
   certificate/protocol/timing architecture task, not another config row.
 

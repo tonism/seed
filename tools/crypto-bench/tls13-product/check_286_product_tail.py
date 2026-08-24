@@ -125,7 +125,6 @@ PRODUCT_CRITICAL_TAIL_OFFSET = 0x16E0
 PRODUCT_CRITICAL_TAIL_BYTES = 0x0120
 PRODUCT_SHA256_INITIAL_STATE = 0x2EE0
 CANONICAL_SHA256_INITIAL_STATE = 0x2EE0
-PRODUCT_INITIAL_POINTER_OFF = 0x0E10
 
 ABI_NAMES = {
     "TLS13_286_PRODUCT_TAIL_START_SECTOR",
@@ -185,7 +184,7 @@ def put_word(value: bytearray, offset: int, item: int) -> None:
 def normalize_product_symmetric_image(
     product: bytes, canonical: bytes
 ) -> tuple[bytes, tuple[int, ...]]:
-    """Independently prove the exact pre-TCP product-to-canonical rewrite."""
+    """Prove the exact or idempotently normalized canonical K14 image."""
 
     if (
         len(product) != PRODUCT_SYM_BYTES
@@ -196,16 +195,11 @@ def normalize_product_symmetric_image(
         fail("K14 symmetric normalization geometry drifted")
     if product[:8] != b"T13SYM02" or canonical[:8] != b"T13SYM02":
         fail("K14 symmetric normalization magic drifted")
-    if (
-        product[PRODUCT_CRITICAL_TAIL_OFFSET:]
-        == canonical[PRODUCT_CRITICAL_TAIL_OFFSET:]
-    ):
-        fail("8088 K14 product tail unexpectedly equals canonical SHA tail")
-
     normalized = bytearray(product)
-    normalized[PRODUCT_CRITICAL_TAIL_OFFSET:] = canonical[
-        PRODUCT_CRITICAL_TAIL_OFFSET:
-    ]
+    if product != canonical:
+        normalized[PRODUCT_CRITICAL_TAIL_OFFSET:] = canonical[
+            PRODUCT_CRITICAL_TAIL_OFFSET:
+        ]
     pointer_offsets: list[int] = []
     for offset in range(PRODUCT_CRITICAL_TAIL_OFFSET - 1):
         if (
@@ -213,10 +207,10 @@ def normalize_product_symmetric_image(
             and word(canonical, offset) == CANONICAL_SHA256_INITIAL_STATE
         ):
             pointer_offsets.append(offset)
-    if tuple(pointer_offsets) != (PRODUCT_INITIAL_POINTER_OFF,):
+    if len(pointer_offsets) != 1:
         fail(f"K14 symmetric normalization pointer set drifted: {pointer_offsets!r}")
     if bytes(normalized) != canonical:
-        fail("pre-TCP K14 symmetric normalization is not byte exact")
+        fail("K14 symmetric image is neither canonical nor byte-exact normalizable")
     return bytes(normalized), tuple(pointer_offsets)
 
 

@@ -234,9 +234,8 @@ status and network error.
 
 The TLS phase follows the dark `","` internet phase. It uses a dark `"o"` for
 connection prep, a normal `"o"` for local key/proof work, and a bright `"o"`
-only after the selected TLS 1.3 route commits. On MDA, the 8088 profile
-temporarily disables output while its public vault owns the only text page,
-then scrubs and redraws it.
+only after the selected TLS 1.3 route commits. The 8088 profile keeps all TLS
+state in conventional RAM; CGA and MDA memory remain ordinary display state.
 
 OpenAI is the only current provider route. The runtime validates the shipped
 declaration and optional saved OpenAI values, resolves `api.openai.com`, and

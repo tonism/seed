@@ -12,7 +12,10 @@ before that client Finished.
 The live_k15 filename is historical; the analyzer is independent of the
 guest's K-window geometry.  Product captures can additionally require either
 one fresh/resumed pair (connection reuse) or exactly two ordered pairs (one
-bounded reconnect).
+bounded reconnect).  A normal product pair may establish liveness with a
+post-Finished HEAD on each connection.  The historical ticket/close timing
+bridge remains recognizable only when the resumed connection carries the
+fixed HEAD as 0-RTT.
 
 The observed 15-second budget is reported separately from wire-profile
 validity.  It is a performance observation, not TLS state or proof that the
@@ -315,6 +318,16 @@ def _parse_client_key_share(value: bytes) -> None:
     exchange = value[6:]
     if not any(exchange[:-32]):
         raise ValueError("zero ML-KEM public key")
+    # FIPS 203 public-key input checking rejects any 12-bit coefficient that
+    # is not the canonical encoding of an element modulo q=3329.  A phase
+    # load once overwrote part of regenerated ek while leaving the overall
+    # ClientHello structurally valid, so enforce this at the wire boundary.
+    public_key = exchange[:-32]
+    for offset in range(0, 1152, 3):
+        first = public_key[offset] | ((public_key[offset + 1] & 0x0F) << 8)
+        second = (public_key[offset + 1] >> 4) | (public_key[offset + 2] << 4)
+        if first >= 3329 or second >= 3329:
+            raise ValueError("non-canonical ML-KEM public key")
     if exchange[-32:] != b"\x09" + b"\x00" * 31:
         raise ValueError("wrong client X25519 coordinate")
 
@@ -1060,21 +1073,24 @@ def analyze(
         if [result.get("profile") for result in pair] != ["fresh", "resumed"]:
             return False
         acquisition, resumed_flow = pair
-        acquisition_valid = bool(acquisition.get("passed")) or bool(
-            acquisition.get("acquisition_ticket_close_wire_candidate")
-        )
         resumed_liveness = (
             bool(resumed_flow.get("passed"))
+            and 1
+            <= int(resumed_flow.get("ticket_identity_bytes") or 0)
+            <= 192
+        )
+        if not resumed_liveness:
+            return False
+        if bool(acquisition.get("passed")):
+            return True
+        return (
+            bool(acquisition.get("acquisition_ticket_close_wire_candidate"))
             and resumed_flow.get("client_early_data") is True
             and resumed_flow.get("early_head_record_bytes")
             == EARLY_HEAD_RECORD_BYTES
             and resumed_flow.get("credential_free_head_before_server_fin")
             is not False
-            and 1
-            <= int(resumed_flow.get("ticket_identity_bytes") or 0)
-            <= 192
         )
-        return acquisition_valid and resumed_liveness
 
     if expect == "reuse":
         capture_profile = "fresh+resumed"
@@ -1235,7 +1251,10 @@ def _fixture_client_hello(
         raise AssertionError(
             "early-data fixture requires a resumed product ClientHello"
         )
-    public_key = bytes((index % 251) + 1 for index in range(1184))
+    # The first 1,152 bytes encode pairs of 12-bit ML-KEM coefficients.
+    # 0x01,0x01,0x01 decodes to 257 and 16, both canonical modulo q=3329;
+    # the final 32 bytes are the public rho seed.
+    public_key = b"\x01" * 1152 + bytes(range(32))
     exchange = public_key + b"\x09" + b"\x00" * 31
     key_share_entry = (
         struct.pack(">HH", HYBRID_GROUP_ID, len(exchange)) + exchange
@@ -1729,11 +1748,10 @@ def self_test() -> None:
             client_port=49164,
             client_sequence=25000,
             server_sequence=31000,
-            client_hello=product_resumed_client,
+            client_hello=resumed_client,
             server_flight=resumed_server + EXACT_CCS_RECORD + protected,
             server_hello_time=33.0,
             client_finished_time=41.0,
-            client_early_records=early_head,
         )
         _write_fixture_pcap(
             product_reuse_path,
@@ -1949,6 +1967,15 @@ def self_test() -> None:
         raise AssertionError(
             f"required reuse profile did not pass: {reuse_result}"
         )
+    reuse_resumed = reuse_result["flows"][1]
+    if (
+        reuse_resumed.get("client_early_data") is not False
+        or reuse_resumed.get("client_first_application_record_bytes") != 72
+    ):
+        raise AssertionError(
+            "normal no-0RTT reuse profile drifted: "
+            f"{reuse_result}"
+        )
     if ticket_receipt_single_result["passed"]:
         raise AssertionError(
             "ticket/close acquisition passed without an explicit paired profile"
@@ -2024,7 +2051,7 @@ def self_test() -> None:
         )
     print(
         "live TLS 1.3 pcap analyzer self-test: PASS "
-        "(fresh + resumed + product 0-RTT/EOED ordering, "
+        "(fresh + resumed + normal no-0RTT reuse + fallback 0-RTT/EOED ordering, "
         "reuse + bounded reconnect capture shape, "
         "exact resumed 64/58-byte flight, "
         "HEAD-before-FIN or paired ticket/close -> resumed-0RTT liveness, "

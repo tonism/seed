@@ -9,6 +9,13 @@ agent_loop_max equ 8
 core_load_addr equ 0x1000
 handoff_addr equ 0x0600
 low_sha256_k equ 0x0500
+; TLS 1.3 product entropy input is harvested from disk reads Seed already
+; performs.  The raw byte ring shares the otherwise-free pre-route constants
+; page and is consumed before any callback or SHA table is installed there.
+tls13_entropy_read_samples equ low_sha256_k
+tls13_entropy_read_sample_capacity equ 120
+tls13_entropy_read_sample_count equ low_sha256_k + 0x00fe
+tls13_entropy_read_sample_frozen equ low_sha256_k + 0x00ff
 runtime_stack_top equ 0x8000
 runtime_stack_guard_len equ 1536
 ; Build 12 Stage C: the legacy/default far context segment. Hardware setup recomputes

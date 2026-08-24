@@ -22,16 +22,12 @@ org 0x1000
 ; identical resident dispatcher so every fixed callback remains byte-exact.
 %ifdef TLS13_PRODUCT_PACK_BASE
 %define TLS13_K14_PRODUCT_PACK_SECTORS 130
-%define TLS13_K14_PRODUCT_ROOT_PHASE_KEY 0x012d
+%define TLS13_K14_PRODUCT_ROOT_PHASE_KEY 0x0193
 %define TLS13_K14_PRODUCT_ROOT_DESTINATION 0x3400
 %define TLS13_K14_PRODUCT_ROOT_ENTRY 0x3400
-%define TLS13_K14_PRODUCT_STATE_GUARD_PHASE_KEY 0x0242
-%define TLS13_K14_PRODUCT_STATE_GUARD_DESTINATION 0x0700
-%define TLS13_K14_PRODUCT_STATE_GUARD_ENTRY 0x0700
 %else
 %include "tls13-k14-product-abi.inc"
 %endif
-%include "tls13/k14_product_state_guard_abi.inc"
 %ifndef TLS13_PRODUCT_PACK_BASE
 %ifndef TLS13_PRODUCT_286_TAIL_BASE
 %include "tls13-286-tail-abi.inc"

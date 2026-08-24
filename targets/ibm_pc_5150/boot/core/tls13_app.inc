@@ -20,21 +20,15 @@
 ; text, mutate the conversation, dispatch a tool, or steer post-handshake
 ; state.
 ;
-; The visible 80x25 page occupies less than 0x1000 bytes of B800 memory.  The
-; remaining 12 KiB is the authenticated-record spool on the 16-KiB floor.
-; One extra byte is accepted because the only byte beyond that spool is the
-; withheld encrypted TLSInnerPlaintext.type.  MDA must remain visible, so its
-; backend uses the unused conventional K tail at 0000:2e00 instead of display
-; memory.  Its exact 2-KiB span matches the product ClientHello's advertised
-; record_size_limit=2048.  A peer need not negotiate that extension; these
-; local backend ceilings remain the authoritative fail-closed boundary.
+; Every adapter uses the same conventional-RAM authenticated-record spool.
+; Video RAM belongs exclusively to the display and is never TLS scratch.  The
+; exact 2-KiB span matches the product ClientHello's advertised
+; record_size_limit=2048.  A peer need not negotiate that extension; this
+; local ceiling remains the authoritative fail-closed boundary.
 
-tls13_auth_spool_offset equ 0x1000
-tls13_auth_spool_len equ 0x3000
-tls13_auth_spool_max_inner equ tls13_auth_spool_len + 1
-tls13_mda_auth_spool_offset equ 0x2e00
-tls13_mda_auth_spool_len equ 0x800
-tls13_mda_auth_spool_max_inner equ tls13_mda_auth_spool_len
+tls13_auth_spool_offset equ 0x2e00
+tls13_auth_spool_len equ 0x800
+tls13_auth_spool_max_inner equ tls13_auth_spool_len
 tls13_auth_replay_chunk equ 576
 tls13_nst_record_max equ tls13_auth_replay_chunk
 
@@ -247,14 +241,6 @@ tls_receive_application_data:
     jb .failed
     mov dx, ax
     sub dx, tls_aead_tag_len
-    cmp word [video_seg], color_video_seg
-    je .color_limit
-    cmp word [video_seg], 0xb000
-    jne .failed
-    cmp dx, tls13_mda_auth_spool_max_inner
-    ja .failed
-    jmp .limit_ready
-.color_limit:
     cmp dx, tls13_auth_spool_max_inner
     ja .failed
 .limit_ready:
@@ -427,32 +413,19 @@ tls_receive_large_application_record:
     stc
     ret
 
-; Select the authenticated spool without touching the visible MDA page.
-; Returns segment in AX, offset in BX, and byte capacity in DX.
+; Select the conventional-RAM authenticated spool.  Returns segment in AX,
+; offset in BX, and byte capacity in DX.  Video RAM is never selected.
 tls_get_auth_spool_geometry:
-    cmp word [video_seg], color_video_seg
-    jne .mda
-    mov ax, color_video_seg
+    xor ax, ax
     mov bx, tls13_auth_spool_offset
     mov dx, tls13_auth_spool_len
     clc
     ret
-.mda:
-    cmp word [video_seg], 0xb000
-    jne .failed
-    xor ax, ax
-    mov bx, tls13_mda_auth_spool_offset
-    mov dx, tls13_mda_auth_spool_len
-    clc
-    ret
-.failed:
-    stc
-    ret
 
 ; Copy one ciphertext fragment to the selected authenticated spool.  SI and CX
-; remain caller-owned.  At most one byte can exceed the 12-KiB CGA span; that
-; byte is the final encrypted inner byte (content type or padding).  MDA's
-; conventional spool never permits an overflow byte.
+; Copy one ciphertext fragment to the conventional authenticated spool.  SI
+; and CX remain caller-owned.  The advertised 2-KiB record ceiling includes
+; the encrypted inner type, so no overflow byte is permitted.
 tls_stage_authenticated_cipher:
     push ax
     push bx
@@ -566,6 +539,8 @@ tls_check_staged_inner_type:
     cmp al, 0x17
     je .type_ready
     cmp al, 0x16
+    je .type_ready
+    cmp al, 0x15
     jne .failed
 .type_ready:
     mov [tls_stream_skip_remaining], bp
@@ -585,10 +560,16 @@ tls_check_staged_inner_type:
 tls_replay_authenticated_plaintext:
     ; tls_check_staged_inner_type published the content length after removing
     ; both the nonzero type byte and any authenticated zero padding.
+    cmp byte [tls_app_content_type], 0x15
+    je .alert_size
     cmp byte [tls_app_content_type], 0x16
     jne .type_ready
     cmp word [tls_stream_skip_remaining], tls13_nst_record_max
     ja .failed
+    jmp short .type_ready
+.alert_size:
+    cmp word [tls_stream_skip_remaining], 2
+    jne .failed
 .type_ready:
     mov word [tls_tx_len], 0
     mov word [chacha_key_ptr], tls_server_write_key
@@ -598,7 +579,8 @@ tls_replay_authenticated_plaintext:
     mov byte [tls_large_chacha_offset], chacha_block_len
 .next:
     mov cx, [tls_stream_skip_remaining]
-    jcxz .done
+    or cx, cx
+    jz .done
     cmp cx, tls13_auth_replay_chunk
     jbe .count_ready
     mov cx, tls13_auth_replay_chunk
@@ -624,6 +606,8 @@ tls_replay_authenticated_plaintext:
     call tls_xor_large_app_chunk
     mov word [tls_app_data_ptr], tls_rx_copy
     mov [tls_app_len], dx
+    cmp byte [tls_app_content_type], 0x15
+    je .alert
     cmp byte [tls_app_content_type], 0x16
     je .new_session_ticket
     push dx
@@ -639,6 +623,27 @@ tls_replay_authenticated_plaintext:
     call tls_validate_post_handshake_nst
     pop dx
     jc .failed
+    jmp short .published
+.alert:
+    ; The record tag and inner type have already authenticated.  Alerts never
+    ; enter the HTTP/SSE parser and never publish plaintext.  Preserve the
+    ; peer's description in the ordinary error detail before retiring this
+    ; connection; malformed levels still fail without accepting the record.
+    cmp dx, 2
+    jne .failed
+    cmp word [tls_tx_len], 0
+    jne .failed
+    mov al, [tls_rx_copy]
+    cmp al, 1
+    je .alert_level_ready
+    cmp al, 2
+    jne .failed
+.alert_level_ready:
+    mov al, [tls_rx_copy + 1]
+    mov [handoff_addr + handoff_net_status], al
+    mov byte [handoff_addr + handoff_net_error], net_error_tls
+    stc
+    ret
 .published:
     add [tls_tx_len], dx
     sub [tls_stream_skip_remaining], dx
@@ -1103,8 +1108,8 @@ tls_write_be16:
     ret
 
 tls13_app_code_end:
-%if (core_load_addr + (tls13_app_code_end - $$)) > tls13_mda_auth_spool_offset
-%error "TLS 1.3 application code overlaps the MDA authenticated-record spool"
+%if (core_load_addr + (tls13_app_code_end - $$)) > tls13_auth_spool_offset
+%error "TLS 1.3 application code overlaps the authenticated-record spool"
 %endif
 
 %ifdef TLS13_APP_ORACLE_CHECK

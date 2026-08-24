@@ -28,13 +28,14 @@ These rules hold for every supported adapter:
   follow-up prompts. Do not pay a fresh hybrid exchange per turn.
 - **Credential quarantine.** Before either route commits, only its literal
   credential-free HEAD probe may enter application records. On the 8088
-  profile, a bounded fresh ticket/close receipt may bridge to the same HEAD as
-  resumed 0-RTT, but the receipt is not liveness or credential authority. API
-  credentials, prompts, context, cookies, redirects, and tool continuations
-  remain unreachable. On the 286, the authenticated acquisition ticket remains
-  tentative until offline full FO/X.509/CV proof, then the final no-0RTT
-  PSK-DHE resumption must complete before credential publication. Tentative
-  and promoted tickets remain same-boot RAM state.
+  profile, the fresh connection must authenticate its HEAD response and
+  tentative ticket. After offline proof, the resumed connection sends the
+  same HEAD after Finished with no early data and must authenticate its
+  response before credential publication. API credentials, prompts, context,
+  cookies, redirects, and tool continuations remain unreachable. On the 286,
+  the authenticated acquisition ticket remains tentative until offline full
+  FO/X.509/CV proof, then the final no-0RTT PSK-DHE resumption must complete.
+  Tentative and promoted tickets remain same-boot RAM state.
 - **Text-seen fallback.** If receive or ACK handling fails after output text
   has rendered, accept the visible answer and retire the channel. Never replay
   a partially visible answer automatically.
@@ -105,8 +106,8 @@ The 3c501 is the single-buffer outlier.
 ### NE1000 / NE2000 and Novell NE1000
 
 - After response text begins, use render-before-ACK pacing for long replies.
-- The 16 KiB TLS public vault is video RAM, not NE card RAM. No product path
-  may assume an NE adapter or borrow its packet pages for crypto state.
+- The 16 KiB TLS route uses conventional system RAM only. No product path may
+  assume an NE adapter or borrow packet pages or display RAM for crypto state.
 - Treat NE1000, NE2000, and Novell NE1000 as separate original-speed gates.
 
 ### WD80x3

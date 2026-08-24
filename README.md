@@ -20,12 +20,12 @@ memory contract and leaves the remaining machine to the user and model. A
 reboot from known, preferably write-protected media is the recovery boundary.
 
 > **Current status.** TLS 1.3 has replaced the TLS 1.2 product path on this
-> work branch. Both CPU routes are integrated; their current-source offline,
-> fail-closed, exact-floor 86Box wire, reconnect, and screen gates pass. The
-> 8088 profile also passes the seven-profile original-speed NIC matrix.
-> Repeated provider-edge characterization and physical entropy-source
-> validation remain open, so this is not yet an unconditional secure-floor or
-> release claim.
+> work branch. Both CPU routes are integrated. The RAM-only 8088
+> rearchitecture passes its current-source offline, fail-closed composition
+> gates and the read-only exact-floor wire/reconnect matrix. The 286 route also
+> passes its read-only exact-floor four-flow gate. Repeated provider-edge
+> characterization and physical entropy-source validation remain open, so
+> this is not yet an unconditional secure-floor or release claim.
 
 ## Why it is interesting
 
@@ -33,8 +33,9 @@ reboot from known, preferably write-protected media is the recovery boundary.
   function calls. Seed executes `read_mem`, `write_mem`, `exec`, `save_env`,
   and `load_env`, then feeds structured results back with `store:false`.
 - **TLS 1.3 at the 16 KiB floor.** A four-sector nucleus streams cold phases
-  from a read-only floppy. Public KEM/certificate objects temporarily live in
-  a guarded video-RAM vault, not NIC RAM or a writable disk slot.
+  from a read-only floppy. Lifetime-separated KEM, certificate, and session
+  state stays in conventional RAM below the 16 KiB ceiling; video RAM, NIC RAM,
+  and writable media are not crypto storage.
 - **One artifact, automatic profile selection.** Users do not choose an
   architecture-specific floppy. CPU and RAM detection select the 8088 or
   286 conforming profile inside the same `SEED.SYS`.
@@ -52,15 +53,16 @@ reboot from known, preferably write-protected media is the recovery boundary.
 | 4.77 MHz 8088, 16 KiB | TLS 1.3 wire protocol, SHA-256, ChaCha20-Poly1305, genuine ML-KEM-768 contribution; fixed X25519 `u=9` | bounded Seed credential-release boundary; effective ML-KEM-only and deferred authentication, not standards-conforming hybrid TLS |
 | 6 MHz 286, 512 KiB | real ML-KEM-768 + real X25519, strict WE1/leaf/time/CV authentication | fully standards-conforming TLS 1.3 `X25519MLKEM768` protocol path |
 
-The 8088 permits only TLS handshake completion, a bounded tentative ticket,
-and the compiled credential-free HEAD probe before full Fujisaki-Okamoto
-validation and exact dated-leaf possession complete. If the fresh socket
-closes after issuing the ticket but before accepting the HEAD, Seed finishes
-its proof offline and establishes credential-free liveness with that same-boot
-ticket's resumed 0-RTT HEAD. The API key, prompt, context, redirects, and
-business request remain unreachable until status-last route promotion. The
-ticket is volatile, survives neither restart nor failed proof, and grants no
-credential access by itself.
+The 8088 permits only TLS handshake completion, the compiled credential-free
+HEAD probe, and a bounded tentative ticket before full Fujisaki-Okamoto
+validation and exact dated-leaf possession complete. The fresh connection
+must authenticate both the HEAD response and ticket; a close before either
+fails the attempt. After offline proof, a no-0RTT resumed connection performs
+fresh KEM work, sends its HEAD only after Finished, and authenticates that
+response before status-last route promotion. The API key, prompt, context,
+redirects, and business request remain unreachable throughout. The ticket is
+volatile, survives neither restart nor failed proof, and grants no credential
+access by itself.
 
 The 286 first authenticates a credential-free acquisition: candidate ML-KEM
 plus real X25519, protected-flight/Finished verification, client Finished, the
@@ -73,11 +75,12 @@ PSK are volatile; there is no 0-RTT, mutable leaf file, persisted ticket, or
 no-time expiry bypass. Seed silently treats a coherent, valid PC/AT RTC as the
 platform UTC clock; invalid or out-of-range time fails the conforming profile.
 
-These protocol designs and their exact-floor emulator matrices are
-implemented and passing. Physical entropy-source characterization and
-additional provider-edge repetition remain before the validation qualifier can
-be removed. See [security.md](docs/security.md) for the precise boundary and
-open risks.
+These protocol designs are implemented. Their offline composition gates,
+read-only exact-floor wire/reconnect runs, authenticated dialogue, full
+original-speed NIC matrix, and CGA/MDA display cases pass. Physical
+entropy-source characterization and additional provider-edge repetition remain
+before the validation qualifier can be removed. See
+[security.md](docs/security.md) for the precise boundary and open risks.
 
 ## Try it
 
@@ -151,15 +154,16 @@ local effects.
   it is not conforming hybrid TLS.
 - Its exact-leaf object is dated image provenance; without trusted runtime
   time, the 8088 cannot independently enforce that validity interval.
-- The 286 conservative serialized CPU windows measure 8.8979 seconds for
-  acquisition and 9.2275 seconds for final resumption at the exact floor. Its
-  exact-floor four-flow live reconnect and negative-path gates pass.
-- The 8088 profile passes fresh/resumed/reconnect/resumed on all seven
-  original-speed ISA profiles, plus CGA/MDA vault and no-card/no-driver gates
-  in 86Box. Emulator results do not establish physical entropy quality.
+- The previous 286 integration checkpoint passed its serialized CPU, live
+  reconnect, and negative-path gates. The RAM-only replacement must be
+  remeasured at the exact floor before those results become current again.
+- The prior 8088 architecture passed fresh/resumed/reconnect/resumed on all
+  seven original-speed ISA profiles. The RAM-only replacement must repeat that
+  wire/NIC matrix before inheriting the result.
 - Emulator timing sources receive zero entropy credit; representative physical
-  characterization of the 8088 floppy source and 286 RTC/PIT source, plus
-  health-test calibration, remain open.
+  characterization of PIT samples attached to the 8088's already-required
+  floppy reads and of the 286 RTC/PIT source, plus health-test calibration,
+  remain open.
 - `USER.CFG` and `ENV.DAT` are plaintext convenience state.
 - Long replies can take minutes to render on the original machine.
 

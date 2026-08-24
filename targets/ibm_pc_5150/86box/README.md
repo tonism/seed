@@ -241,7 +241,7 @@ media        host/read-only Seed image
 wire         fresh TLS 1.3 Finished near the deadline, credential-free HEAD,
              full FO + dated exact-leaf/CV, status-last credential unlock
 result       authenticated OpenAI response, live-session reuse, one bounded reconnect
-matrix       seven original-speed ISA NIC profiles; CGA and MDA vault cases
+matrix       seven original-speed ISA NIC profiles; CGA and MDA display cases
 ```
 
 For the 286 conforming route:

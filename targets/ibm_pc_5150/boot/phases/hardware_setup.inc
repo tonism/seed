@@ -147,6 +147,13 @@ hardware_setup_phase_display:
     mov ah, dpi_prompt_row
     mov [scroll_br], ax
     pop ax
+    ; ROM BASIC is allowed to leave a nonzero text page selected.  Every Seed
+    ; BIOS text primitive intentionally targets page 0, so make that page
+    ; visible before the first clear/splash instead of executing behind a
+    ; stale BASIC page.  This selects a display page; it does not switch video
+    ; mode or use display RAM for runtime state.
+    mov ax, 0x0500
+    int 0x10
     ; Build 10 (agentic loop): the loop flags live in low_phase_state (persists across phase
     ; loads -> no resident cost) but are NOT boot-cleared, and the cold greeting runs before the
     ; tool phase's per-turn reset. Clear both here (one word write, count is adjacent) so the

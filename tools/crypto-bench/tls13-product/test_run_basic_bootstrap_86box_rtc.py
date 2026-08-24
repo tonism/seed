@@ -415,8 +415,8 @@ class DenseGlyphScreenTests(unittest.TestCase):
         width, height = 640, 400
         pixels = bytearray(width * height * 3)
         # Fill 25 text rows and 80 columns with varied high-density glyph
-        # strokes.  This is the visible shape produced when character/attribute
-        # pairs from an MDA vault are scanned as text.
+        # strokes. This is the visible shape produced when corrupted
+        # character/attribute pairs are scanned as text.
         for cell_y in range(25):
             for cell_x in range(80):
                 for dy in range(16):

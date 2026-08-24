@@ -1,10 +1,9 @@
 ; Product-owned flat-pack root for the validated 8088/K14 TLS 1.3 phases.
 ;
-; The first integration gate deliberately keeps the research phase geometry
-; unchanged.  tools/check-tls13-product-pack.py generates the include named by
-; TLS13_PRODUCT_GENERATED_INCLUDE from a fresh secure, diagnostic-free research
-; build, then assembles this file and compares the complete flat pack with the
-; research SEED.SYS phase range.
+; The RAM-only product builder generates the include named by
+; TLS13_PRODUCT_GENERATED_INCLUDE from independently assembled and checked
+; conventional-RAM phases, then assembles this wrapper and byte-compares the
+; complete flat pack with its phase ledger.
 ;
 ; This is source organization only.  The eventual product integration includes
 ; these phases in the one flat SEED.SYS image; it does not load a new runtime

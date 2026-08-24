@@ -97,6 +97,9 @@ the boot loader and the BASIC loader can find the same runtime image.
 - Both TLS routes must remain self-contained on the target and work with a
   write-protected floppy. Do not depend on a trusted modern helper, persisted
   private key, writable scratch slot, or mutable leaf file.
+- TLS state belongs only in conventional system RAM. Video RAM is exclusively
+  display state and adapter RAM is exclusively device state; neither may be a
+  crypto vault, escrow, scratch area, or warm-restart scrub target.
 - 3c501, 3c503, NE1000/NE2000, and WD80x3 station-address PROM reads must stay
   non-fatal.
 - The current first packet path covers the
@@ -194,8 +197,10 @@ a live pcap showing the fresh TLS 1.3 deadline phase, credential-free liveness,
 full FO and exact-leaf/CV proof, status-last credential unlock, authenticated
 OpenAI response, session reuse, and the bounded one-reconnect policy. Then
 repeat the relevant first-response/reuse/reconnect gates across the seven
-original-speed ISA NIC profiles. CGA and MDA vault lifecycles, read-only media,
-corruption/torn-state cases, and complete zeroization are mandatory.
+original-speed ISA NIC profiles. Conventional-RAM lifetime guards, read-only
+media, corruption/torn-state cases, and complete zeroization are mandatory.
+Video and adapter RAM must remain unchanged outside their ordinary display and
+device operations.
 
 For the conforming floor, use a 6 MHz 286 with 512 KiB conventional RAM. The
 gate is CPU286+ AND BDA memory >=512 KiB. Acceptance needs a live pcap of the
@@ -205,11 +210,12 @@ before the provider close, authenticated OpenAI application data, reuse, and
 bounded reconnect. Exercise wrong CPU/RAM, RTC refusal/bad time, certificate,
 CV, Finished, FO, pack, and entropy failures with no downgrade.
 
-Run all current TLS 1.3 offline gates before live claims, including product
-pack/dispatch/config, public vault, application record bounds, K14 state guard,
-cold send, FAT budget, reconnect/replay, 286 module KATs and serialized timing.
-Physical floppy entropy characterization remains a separate secure-floor gate;
-86Box receives zero entropy credit.
+Run all current TLS 1.3 offline gates before live claims, including the exact
+RAM-only product pack/composition, dispatch/config guards, application record
+bounds, existing-read sampler, cold send, FAT budget, reconnect/replay, 286
+module KATs and serialized timing. Physical characterization of PIT samples
+attached to already-required 8088 floppy reads remains a separate secure-floor
+gate; 86Box receives zero entropy credit.
 
 Stable driver/NIC work remains a regression surface. A TLS change must not
 alter driver metadata, selection, PROM-read non-fatal behavior, station MAC,

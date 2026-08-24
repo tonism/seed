@@ -86,18 +86,15 @@ agent_response_phase:
     ; duplicate terminal idempotent while avoiding another matcher state.
     or byte [api_stream_completed], 2
 .done_ready:
-    cmp byte [tool_fc_state], 4
-    jne .done_maybe_fc
+    mov al, [tool_fc_state]
+    cmp al, 3
+    je .done_freeze_fc
+    cmp al, 4
+    jb .completion_ready
 .done_clear_fc:
     xor ax, ax
     mov [tool_fc_state], al
     mov [fc_capture_len], ax
-    jmp .completion_ready
-.done_maybe_fc:
-    cmp byte [tool_fc_state], 3
-    je .done_freeze_fc
-    cmp byte [tool_fc_state], 5
-    je .done_clear_fc
     jmp .completion_ready
 .done_freeze_fc:
     mov byte [tool_fc_state], 1
@@ -114,8 +111,8 @@ agent_response_phase:
     ret
 
 .scan_delta:
-    ; load the 0/1/2 state once and walk it down (ah is dead here; write_char_direct resets it),
-    ; cheaper than three cmp-immediates - keeps room for native function-call capture.
+    ; Load the 0/1/2/3 state once and walk it down. State 3 means the exact
+    ; output-text event value was seen and its later delta key is now armed.
     mov ah, [api_stream_state]
     or ah, ah
     je .scan_idle
@@ -123,7 +120,9 @@ agent_response_phase:
     je .scan_string
     dec ah
     je .scan_escaped
-    ret
+    mov si, PHASE_LOAD_ADDR + (delta_key_pattern - PHASE_BASE)
+    mov dl, 1
+    jmp .probe_stream_pattern
 
 .scan_idle:
     cmp byte [handoff_addr + handoff_status], handoff_status_ready
@@ -166,19 +165,15 @@ agent_response_phase:
 %endif
 	ret
 .fc_no_match:
-    cmp byte [tool_fc_state], 4
-    je .parser_ret
-    cmp byte [tool_fc_state], 3
-    je .parser_ret
-    cmp byte [tool_fc_state], 1
-    je .parser_ret
-    cmp byte [tool_fc_state], 5
-    je .parser_ret
-    mov si, PHASE_LOAD_ADDR + (delta_key_pattern - PHASE_BASE)
+    cmp byte [tool_fc_state], 0
+    jne .parser_ret
+    mov si, PHASE_LOAD_ADDR + (output_text_event_pattern - PHASE_BASE)
+    mov dl, 3
+.probe_stream_pattern:
     mov di, api_stream_delta_match
     call .match_char
     jc .parser_ret
-    mov byte [api_stream_state], 1
+    mov [api_stream_state], dl
     ret
 .scan_string:
     cmp al, '"'
@@ -471,6 +466,7 @@ done_pattern equ completed_pattern
 http_terminal_pattern db '0', 13, 10, 13, 10, 0
 output_done_pattern db 'output_item.done', 0
 fc_start_pattern db '"function_call"', 0
+output_text_event_pattern db '"response.output_text.delta"', 0
 delta_key_pattern db 'delta":"', 0
 
 ; Keep-alive GET template. It lives in this phase instead of persistent RAM: agent_response is loaded

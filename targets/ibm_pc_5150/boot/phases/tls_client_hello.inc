@@ -166,9 +166,9 @@ tls_seed_client_random_phase:
     pop ax
     ret
 
-; Build 12 286 secure tier: generate the client ephemeral ECDHE keypair. Loads the P-256 module (a
-; floppy read -- fine here: pre-connect, before the ~15s handshake race), mixes a real entropy pool
-; into a SHA-256 client scalar, then computes client_public = scalar x G into the module. CF=1 on a
+; Build 12 286 secure tier: generate the client ephemeral ECDHE keypair. Loads the required P-256
+; module before connect (this is not an entropy-only floppy read), mixes a real entropy pool into a
+; SHA-256 client scalar, then computes client_public = scalar x G into the module. CF=1 on a
 ; module-load or degenerate-keypair failure (the caller retries). The 86Box emulator is cycle-exact,
 ; so the pool is reproducible under test; on real hardware the BIOS tick + PIT phase carry entropy
 ; (keystrokes are unavailable at boot). The pool is REAL; its emulated determinism is documented, and

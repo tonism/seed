@@ -247,6 +247,9 @@ There is still one self-selecting `SEED.SYS` and one floppy:
 provider          OpenAI/api.openai.com only
 8088 floor        4.77 MHz, 16 KiB; bounded Seed boundary, effective
                   ML-KEM-only KEX, deferred FO and exact-leaf/CV proof
+8088 route        provisional Finished + authenticated credential-free
+                  HEAD/NST; offline full FO/exact-leaf/CV; final no-0RTT
+                  resumption with fresh KEM work and post-Finished HEAD
 286 floor         6 MHz, 512 KiB; fully conforming X25519MLKEM768,
                   WE1/hostname/UTC-validity/CV authentication
 286 route         provisional acquisition + credential-free HEAD/NST;
@@ -257,18 +260,17 @@ provider          OpenAI/api.openai.com only
                   state operand verified;
                   complemented early-derived value; 4,608-byte / nine-polynomial
                   public ML-KEM matrix; all status-last, one-shot, and fail-closed
-286 6 MHz timing  matrix 45 ticks / 2.4716 s outside TCP; cached full FO
-                  43 / 2.3618 s versus uncached 88 / 4.8334 s; serialized
-                  CPU windows acquisition 162 / 8.8979 s and final resumption
-                  168 / 9.2275 s
-286 live gate     read-only exact-floor fresh/resumed/reconnect/resumed pcap;
-                  four deadlines 8.8928 / 8.6282 / 8.9562 / 8.6448 s;
-                  authenticated VIOLET response and DPI return
-8088 live gate    read-only exact-floor four-flow captures pass on all seven
-                  original-speed ISA profiles; worst interval 13.3708 s;
+286 timing        current serialized 6 MHz structural gate passes; refresh the
+                  full boot/activity graph from the release-bound image
+286 live gate     current read-only exact-floor four-flow gate passes at
+                  8.8880 / 8.6428 / 8.9518 / 8.6425 s; authenticated
+                  FORTYTWO response and DPI return
+8088 live gate    current read-only 16 KiB four-flow captures pass on all seven
+                  original-speed ISA profiles; worst interval 13.7898 s;
                   authenticated response, reuse, and bounded reconnect
-failure/visual    hostile/torn/abort gates pass; CGA/MDA active-hold and
-                  post-restore screens are clean; no-card/no-driver menus pass
+failure/visual    hostile/torn/abort and conventional-RAM guard gates pass;
+                  NIC-present CGA/MDA screens are clean; current no-card
+                  CGA/MDA and isolated no-driver retry/restart menus pass
 read-only         target-generated private state; cold phases and packs read
                   from floppy; no writable scratch, leaf cache, or helper host
 reconnect         one fresh same-request retry only for a human no-text failure;
@@ -285,17 +287,14 @@ FAT budget        293 runtime + 15 auxiliary sectors use 308/309 data sectors;
 16/32 KiB pool    96/96-byte and 224/224-byte arena/context contracts unchanged
 ```
 
-The integrated source is now a working emulator checkpoint: exact-floor live
-pcaps, authenticated responses, reuse/reconnect, tamper/failure, the 8088
-NIC regression matrix, read-only media, and CGA/MDA lifecycle gates pass. Do
-not mark the release/security qualification complete until representative
-physical floppy and RTC/PIT entropy sources are characterized and deadline
-margin has more cold-boot/provider-edge repetition. The cache timing above is
-tick-aligned structural evidence; the live pcaps remain the wire evidence.
-The tracked hashes, exact timing rows, evidence boundaries, and remaining
-release gates are frozen in
-[`acceptance_checkpoint.json`](../tools/crypto-bench/tls13-product/acceptance_checkpoint.json);
-the large raw pcaps and screenshots remain ignored build artifacts.
+The conventional-RAM-only source is a working emulator checkpoint: exact pack
+composition, lifecycle, hostile-input, application-record, warm-restart,
+module, dispatch, FAT, driver/image build, both exact-floor live routes,
+reuse/reconnect, CGA/MDA display, read-only media, failure menus, and the
+seven-NIC matrix pass. Representative physical timing samples from the 8088's
+already-required floppy reads and from the 286 RTC/PIT source, plus more
+cold-boot/provider-edge repetition, remain release gates. Refresh the full
+boot/activity timing graphs only after the release-bound schedule is stable.
 
 ## Forward-looking ideas
 

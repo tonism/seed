@@ -741,6 +741,7 @@ def build_keygen_source() -> str:
     )
     mapping = r"""
 keygen_input       equ fixture_d_z
+keygen_z_input     equ keygen_input + 32
 keygen_s_hat0      equ generated_dk
 keygen_s_hat1      equ generated_dk + 384
 keygen_s_hat2      equ generated_dk + 768

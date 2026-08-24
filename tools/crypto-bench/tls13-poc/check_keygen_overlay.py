@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import importlib.util
 import os
@@ -14,10 +15,13 @@ from pathlib import Path
 
 from unicorn import UC_ARCH_X86, UC_HOOK_CODE, UC_HOOK_MEM_WRITE, UC_MODE_16, Uc
 from unicorn.x86_const import (
+    UC_X86_REG_AX,
+    UC_X86_REG_DI,
     UC_X86_REG_DS,
     UC_X86_REG_EFLAGS,
     UC_X86_REG_ES,
     UC_X86_REG_IP,
+    UC_X86_REG_SI,
     UC_X86_REG_SP,
     UC_X86_REG_SS,
 )
@@ -34,6 +38,11 @@ STACK_TOP = 0x4000
 K14 = os.environ.get("TLS13_POC_K14") == "1"
 
 ATTEMPT_SEED = 0x3B9C
+SYSTEM_D_SEED = 0x08B8
+SYSTEM_Z_SEED = 0x0DC0
+SYSTEM_ROOT = 0x0700
+SYSTEM_REGENERATE_DOMAIN = b"S13 8088 attempt v2\0"
+SYSTEM_NONCES = 0x3420
 PUBLIC_EK = 0x08C0
 S_HAT0 = 0x3600
 H_EK = 0x3780
@@ -61,7 +70,7 @@ def load_keygen_oracle():
 ORACLE = load_keygen_oracle()
 
 
-def assemble(directory: Path) -> tuple[bytes, list[str]]:
+def assemble(directory: Path, *, system_ram: bool) -> tuple[bytes, list[str]]:
     binary = directory / "keygen_overlay.bin"
     listing = directory / "keygen_overlay.lst"
     command = [
@@ -76,8 +85,18 @@ def assemble(directory: Path) -> tuple[bytes, list[str]]:
             str(binary),
             str(SOURCE),
     ]
+    defines: list[str] = []
     if K14:
-        command[3:3] = ["-DTLS13_POC_K14=1"]
+        defines.append("-DTLS13_POC_K14=1")
+    if system_ram:
+        defines.extend(
+            (
+                f"-DMLKEM_KEYGEN_INPUT=0x{SYSTEM_D_SEED:04x}",
+                f"-DMLKEM_KEYGEN_Z_INPUT=0x{SYSTEM_Z_SEED:04x}",
+                "-DMLKEM_KEYGEN_RUNTIME_ROOT=1",
+            )
+        )
+    command[3:3] = defines
     subprocess.run(command, check=True)
     return binary.read_bytes(), listing.read_text().splitlines()
 
@@ -102,8 +121,17 @@ def interval_allowed(address: int, size: int, ranges: tuple[tuple[int, int], ...
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--system-ram",
+        action="store_true",
+        help="exercise the split low-RAM d/z regeneration handoff",
+    )
+    parser.add_argument("--epoch", type=int, choices=(0, 1), default=0)
+    args = parser.parse_args()
+
     with tempfile.TemporaryDirectory(prefix="seed-tls13-poc-keygen-") as temp:
-        image, listing = assemble(Path(temp))
+        image, listing = assemble(Path(temp), system_ram=args.system_ram)
 
     entry = label_address(listing, "mlkem_keygen_overlay")
     mutable_start = label_address(listing, "round_index")
@@ -113,18 +141,48 @@ def main() -> None:
         raise AssertionError("KeyGen overlay reaches its two-polynomial work area")
 
     fixture_seed, openssl_dk = ORACLE.expected_fixture()
+    system_root = hashlib.sha256(b"Seed system-RAM regeneration root").digest()
+    if args.system_ram:
+        fixture_seed = b"".join(
+            hashlib.sha3_256(
+                SYSTEM_REGENERATE_DOMAIN
+                + bytes((args.epoch, index))
+                + system_root
+            ).digest()
+            for index in range(2)
+        )
     independent_dk = ORACLE.fips_keygen_internal(fixture_seed)
-    if independent_dk != openssl_dk:
+    if not args.system_ram and independent_dk != openssl_dk:
         raise AssertionError("independent KeyGen oracle differs from OpenSSL fixture")
 
     machine = Uc(UC_ARCH_X86, UC_MODE_16)
     machine.mem_map(0, 0x10000)
-    machine.mem_write(0, bytes([0xA5]) * STACK_TOP)
+    machine.mem_write(0, bytes([0xA5]) * 0x10000)
     machine.mem_write(ORIGIN, image)
-    machine.mem_write(ATTEMPT_SEED, fixture_seed)
+    if args.system_ram:
+        machine.mem_write(SYSTEM_ROOT, system_root)
+    else:
+        machine.mem_write(ATTEMPT_SEED, fixture_seed)
     protected_before = [
         bytes(machine.mem_read(start, end - start)) for start, end, _name in PROTECTED
     ]
+    system_preserved = (
+        (0x0500, SYSTEM_D_SEED, "root/compact state and resident handoff"),
+        (0x0D60, SYSTEM_Z_SEED, "ciphertext prefix slices"),
+        (0x0DE0, 0x0F00, "ciphertext tail slice"),
+        (0x3400, SYSTEM_NONCES, "ciphertext extension prefix"),
+        (SYSTEM_NONCES + 64, 0x3600, "ciphertext extension suffix"),
+        (0xB000, 0xC000, "MDA/CGA video RAM"),
+        (0xD000, 0xE000, "NIC/card RAM"),
+    )
+    system_before = (
+        [
+            bytes(machine.mem_read(start, end - start))
+            for start, end, _name in system_preserved
+        ]
+        if args.system_ram
+        else []
+    )
 
     machine.reg_write(UC_X86_REG_DS, 0)
     machine.reg_write(UC_X86_REG_ES, 0)
@@ -132,6 +190,9 @@ def main() -> None:
     machine.reg_write(UC_X86_REG_EFLAGS, 2)
     machine.reg_write(UC_X86_REG_SP, STACK_TOP - 2)
     machine.mem_write(STACK_TOP - 2, struct.pack("<H", RETURN_SENTINEL))
+    if args.system_ram:
+        machine.reg_write(UC_X86_REG_AX, args.epoch)
+        machine.reg_write(UC_X86_REG_SI, SYSTEM_ROOT)
 
     writes: list[tuple[int, int]] = []
 
@@ -157,6 +218,29 @@ def main() -> None:
         sp = machine.reg_read(UC_X86_REG_SP)
         raise RuntimeError(f"KeyGen emulator stopped at IP={ip:#06x}, SP={sp:#06x}") from error
 
+    if args.system_ram:
+        if machine.reg_read(UC_X86_REG_EFLAGS) & 1:
+            raise AssertionError("runtime-root KeyGen rejected a valid epoch")
+        nonce_entry = label_address(listing, "mlkem_keygen_attempt_nonces")
+        machine.mem_write(STACK_TOP - 2, struct.pack("<H", RETURN_SENTINEL))
+        machine.reg_write(UC_X86_REG_SP, STACK_TOP - 2)
+        machine.reg_write(UC_X86_REG_AX, args.epoch)
+        machine.reg_write(UC_X86_REG_SI, SYSTEM_ROOT)
+        machine.reg_write(UC_X86_REG_DI, SYSTEM_NONCES)
+        machine.emu_start(nonce_entry, 0, count=20_000_000)
+        if machine.reg_read(UC_X86_REG_EFLAGS) & 1:
+            raise AssertionError("attempt nonce derivation rejected a valid epoch")
+        expected_nonces = b"".join(
+            hashlib.sha3_256(
+                SYSTEM_REGENERATE_DOMAIN
+                + bytes((args.epoch, index))
+                + system_root
+            ).digest()
+            for index in (2, 3)
+        )
+        if bytes(machine.mem_read(SYSTEM_NONCES, 64)) != expected_nonces:
+            raise AssertionError("attempt nonce derivation differs from common domain")
+
     allowed_writes = (
         (mutable_start, image_end),
         POLY_WORK,
@@ -167,6 +251,14 @@ def main() -> None:
         (S_HAT1, S_HAT1 + 384),
         (S_HAT2, S_HAT2 + 384),
         (0x3F00, STACK_TOP),
+    ) + (
+        (
+            (SYSTEM_D_SEED, SYSTEM_D_SEED + 32),
+            (SYSTEM_Z_SEED, SYSTEM_Z_SEED + 32),
+            (SYSTEM_NONCES, SYSTEM_NONCES + 64),
+        )
+        if args.system_ram
+        else ()
     )
     bad_writes = [
         (address, size)
@@ -182,7 +274,18 @@ def main() -> None:
         if after != before:
             raise AssertionError(f"KeyGen changed protected {name}")
 
-    if bytes(machine.mem_read(ATTEMPT_SEED, 64)) != fixture_seed:
+    if args.system_ram:
+        if bytes(machine.mem_read(SYSTEM_D_SEED, 8)) != fixture_seed[:8]:
+            raise AssertionError("KeyGen changed d before the ek overlap")
+        if bytes(machine.mem_read(SYSTEM_Z_SEED, 32)) != fixture_seed[32:]:
+            raise AssertionError("KeyGen did not retain regenerated z input")
+        for (start, end, name), before in zip(
+            system_preserved, system_before, strict=True
+        ):
+            after = bytes(machine.mem_read(start, end - start))
+            if after != before:
+                raise AssertionError(f"KeyGen changed system-RAM {name}")
+    elif bytes(machine.mem_read(ATTEMPT_SEED, 64)) != fixture_seed:
         raise AssertionError("KeyGen changed its d||z input")
 
     dk_pke = (
@@ -206,12 +309,18 @@ def main() -> None:
         f"  code/state={len(image)} bytes ({(len(image) + 511) // 512} sectors), "
         f"free-before-work={POLY_WORK[0] - rounded_end} bytes, "
         f"variant={'K14' if K14 else 'K15'}"
+        f"{'-system-RAM' if args.system_ram else ''}"
     )
     print(
         "  exact split output="
         f"{hashlib.sha256(split_dk).hexdigest()}, stack-high-water={stack_bytes} bytes"
     )
     print("  write-set and resident/driver/reconnect/arena/context sentinels: PASS")
+    if args.system_ram:
+        print(
+            f"  epoch={args.epoch} d/z + random/session derive from one root domain"
+        )
+        print("  ciphertext/config/video/NIC-RAM canaries: PASS")
 
 
 if __name__ == "__main__":

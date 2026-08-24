@@ -86,7 +86,22 @@ fail:
 %endif
 
 %ifdef TLS13_POC_OVERLAY
+%ifdef MLKEM_KEYGEN_INPUT
+keygen_input       equ MLKEM_KEYGEN_INPUT
+%else
 keygen_input       equ poc_attempt_cache_start
+%endif
+%ifdef MLKEM_KEYGEN_Z_INPUT
+keygen_z_input     equ MLKEM_KEYGEN_Z_INPUT
+%else
+keygen_z_input     equ keygen_input + 32
+%endif
+%ifdef MLKEM_KEYGEN_ROOT_INPUT
+%define MLKEM_KEYGEN_ROOT_DERIVATION 1
+%endif
+%ifdef MLKEM_KEYGEN_RUNTIME_ROOT
+%define MLKEM_KEYGEN_ROOT_DERIVATION 1
+%endif
 keygen_s_hat0      equ poc_s_hat0
 keygen_s_hat1      equ poc_s_hat1
 keygen_s_hat2      equ poc_s_hat2
@@ -97,6 +112,7 @@ poly_s             equ poc_poly_u
 poly_acc           equ poc_poly_acc
 %else
 keygen_input       equ fixture_d_z
+keygen_z_input     equ keygen_input + 32
 keygen_s_hat0      equ generated_dk
 keygen_s_hat1      equ generated_dk + 384
 keygen_s_hat2      equ generated_dk + 768
@@ -111,6 +127,21 @@ keygen_z           equ generated_dk + 2368
 
 %ifdef TLS13_POC_OVERLAY
 mlkem_keygen_overlay:
+%ifdef MLKEM_KEYGEN_RUNTIME_ROOT
+    cmp al, 1
+    ja .invalid_epoch
+    mov [keygen_root_epoch], al
+    mov [keygen_root_ptr], si
+    call derive_regenerated_d_z
+    call mlkem_keygen_internal
+    clc
+    ret
+.invalid_epoch:
+    stc
+    ret
+%elifdef MLKEM_KEYGEN_ROOT_INPUT
+    call derive_regenerated_d_z
+%endif
 %endif
 mlkem_keygen_internal:
     call derive_rho_sigma
@@ -180,7 +211,7 @@ mlkem_keygen_internal:
     mov cx, 32
     rep movsb
     call hash_public_key
-    mov si, keygen_input + 32
+    mov si, keygen_z_input
     mov di, keygen_z
     mov cx, 32
     rep movsb
@@ -202,6 +233,103 @@ derive_rho_sigma:
     mov cx, 64
     rep movsb
     ret
+
+%ifdef MLKEM_KEYGEN_ROOT_DERIVATION
+; Derive a fresh deterministic ML-KEM attempt from the same-boot entropy root.
+; This is deliberately part of the slow regenerated KeyGen phase: no extra
+; entropy collection or retained 64-byte d||z object is needed after the
+; credential-free dialogue.  Acquisition and resumption are independent:
+; SHA3-256(domain || epoch || index || root), epoch 0/1 and index 0/1.
+derive_regenerated_d_z:
+    xor dx, dx
+.next:
+    mov [keygen_root_index], dl
+    call clear_keccak
+    mov si, keygen_regenerate_domain
+    mov di, keccak_state
+    mov cx, keygen_regenerate_domain_len
+    rep movsb
+%ifdef MLKEM_KEYGEN_RUNTIME_ROOT
+    mov al, [keygen_root_epoch]
+%else
+%ifndef MLKEM_KEYGEN_ROOT_EPOCH
+%define MLKEM_KEYGEN_ROOT_EPOCH 0
+%endif
+    mov al, MLKEM_KEYGEN_ROOT_EPOCH
+%endif
+    stosb
+    mov al, [keygen_root_index]
+    stosb
+%ifdef MLKEM_KEYGEN_RUNTIME_ROOT
+    mov si, [keygen_root_ptr]
+%else
+    mov si, MLKEM_KEYGEN_ROOT_INPUT
+%endif
+    mov cx, 32
+    rep movsb
+    mov bx, di
+    sub bx, keccak_state
+    mov byte [keccak_state + bx], 0x06
+    mov byte [keccak_state + 135], 0x80
+    push dx
+    call keccak_f1600
+    pop dx
+    mov si, keccak_state
+    mov di, keygen_input
+    or dx, dx
+    jz .copy
+    mov di, keygen_z_input
+.copy:
+    mov cx, 32
+    rep movsb
+    inc dx
+    cmp dx, 2
+    jb .next
+    ret
+
+%ifdef MLKEM_KEYGEN_RUNTIME_ROOT
+; Derive the two public ClientHello nonce fields from the same attempt epoch.
+; Entry ABI: AL=epoch 0/1, SI=root[32], DI=random[32] || session_id[32].
+mlkem_keygen_attempt_nonces:
+    cmp al, 1
+    ja .invalid_epoch
+    mov [keygen_root_epoch], al
+    mov [keygen_root_ptr], si
+    mov [keygen_root_output], di
+    mov byte [keygen_root_index], 2
+.next_nonce:
+    call clear_keccak
+    mov si, keygen_regenerate_domain
+    mov di, keccak_state
+    mov cx, keygen_regenerate_domain_len
+    rep movsb
+    mov al, [keygen_root_epoch]
+    stosb
+    mov al, [keygen_root_index]
+    stosb
+    mov si, [keygen_root_ptr]
+    mov cx, 32
+    rep movsb
+    mov bx, di
+    sub bx, keccak_state
+    mov byte [keccak_state + bx], 0x06
+    mov byte [keccak_state + 135], 0x80
+    call keccak_f1600
+    mov si, keccak_state
+    mov di, [keygen_root_output]
+    mov cx, 32
+    rep movsb
+    mov [keygen_root_output], di
+    inc byte [keygen_root_index]
+    cmp byte [keygen_root_index], 4
+    jb .next_nonce
+    clc
+    ret
+.invalid_epoch:
+    stc
+    ret
+%endif
+%endif
 
 ; H(ekPKE) = SHA3-256 over 1184 bytes: eight full 136-byte blocks and a
 ; final 96-byte block.
@@ -721,6 +849,10 @@ str_ck db ' ck=', 0
 str_check db ' N=1 dt=0 ck=', 0
 %endif
 cbd2_nibbles db 0,1,1,2,-1,0,0,1,-1,0,0,1,-2,-1,-1,0
+%ifdef MLKEM_KEYGEN_ROOT_DERIVATION
+keygen_regenerate_domain db 'S13 8088 attempt v2',0
+keygen_regenerate_domain_len equ $ - keygen_regenerate_domain
+%endif
 
 align 2
 %ifndef TLS13_POC_OVERLAY
@@ -739,6 +871,14 @@ pk_output_ptrs:
     dw keygen_ek, keygen_ek + 384, keygen_ek + 768
 
 round_index dw 0
+%ifdef MLKEM_KEYGEN_RUNTIME_ROOT
+keygen_root_ptr dw 0
+keygen_root_output dw 0
+keygen_root_epoch db 0
+keygen_root_index db 0
+%elifdef MLKEM_KEYGEN_ROOT_INPUT
+keygen_root_index db 0
+%endif
 rot_outputs dw 0
 rot_bits db 0
 rot_inv_bits db 0

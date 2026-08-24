@@ -47,7 +47,11 @@ fo_object_ek                 equ 0
 fo_object_c                  equ 1
 
 ; Preserve this entire band for a live ticket identity/metadata hold.
+%ifdef FO_TICKET_HOLD_ADDR
+fo_ticket_hold               equ FO_TICKET_HOLD_ADDR
+%else
 fo_ticket_hold               equ poc_low_scratch_start
+%endif
 fo_ticket_hold_len           equ 0x0130
 fo_ticket_hold_end           equ fo_ticket_hold + fo_ticket_hold_len
 
@@ -71,11 +75,25 @@ fo_lane_tmp                  equ fo_keccak_d + 40
 fo_keccak_work_end           equ fo_lane_tmp + 8
 fo_poly_acc                  equ poc_poly_acc
 
+%ifdef FO_MESSAGE_ADDR
+fo_message                   equ FO_MESSAGE_ADDR
+%else
 fo_message                   equ poc_tls_vault_start
+%endif
+%ifdef FO_CANDIDATE_G_ADDR
+fo_selected_secret           equ FO_CANDIDATE_G_ADDR
+fo_candidate_k               equ FO_CANDIDATE_G_ADDR
+fo_reencrypt_coins           equ FO_CANDIDATE_G_ADDR + 32
+%else
 fo_selected_secret           equ poc_candidate_g
 fo_candidate_k               equ poc_candidate_g
 fo_reencrypt_coins           equ poc_candidate_g + 32
+%endif
+%ifdef FO_Z_ADDR
+fo_z                         equ FO_Z_ADDR
+%else
 fo_z                         equ poc_candidate_z
+%endif
 
 fo_overlay_start:
 

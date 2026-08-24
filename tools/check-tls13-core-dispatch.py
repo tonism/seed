@@ -51,10 +51,8 @@ HEADER_TOTAL_SECTORS = 17
 NIC_ENTER_STUB = 0x0500
 NIC_RESTORE_STUB = 0x0520
 X_PHASE_ENTRY = 0x0900
-K14_GUARD_ENTRY = 0x0700
 K14_ROOT_ENTRY = 0x3400
-K14_GUARD_KEY = 0x0242
-K14_ROOT_KEY = 0x012D
+K14_ROOT_KEY = 0x0193
 TIER286_ROOT_ENTRY = 0x0700
 TIER286_ROOT_KEY = 0x0329
 TIER286_ROOT_DESTINATION = 0x0700
@@ -557,63 +555,70 @@ def test_application_lease(
 
 
 def test_text_seen_retirement(core: bytes, listing: str) -> None:
-    machine = ResidentMachine(core, listing)
-    machine.w8(TLS_READY, 1)
-    machine.w8(API_STREAM_TEXT_SEEN, 1)
-    machine.w8(API_STREAM_COMPLETED, 0)
-    machine.w8(resolve_symbol(listing, "ka_sent_count"), 0)
-    machine.uc.reg_write(UC_X86_REG_ES, 0x4321)
-    machine.uc.mem_write(
-        TLS_APP_STATE_START,
-        b"\xA5" * (TLS_APP_STATE_END - TLS_APP_STATE_START),
-    )
-    machine.leaf(
-        machine.symbols["load_core_sectors_at"],
-        "load",
-        carry=False,
-    )
-    machine.leaf(
-        resolve_symbol(listing, "tls_receive_application_data"),
-        "receive",
-        carry=True,
-    )
-    machine.leaf(
-        resolve_symbol(listing, "ne_transmit_tcp_flags"),
-        "close",
-        carry=False,
-    )
-
-    carry = machine.execute(machine.symbols["agent_api_exchange"])
-    require(not carry, "text-seen transport fallback discarded rendered-answer success")
-    require(
-        machine.calls.get("load", 0) == 1
-        and machine.calls.get("receive", 0) == 1
-        and machine.calls.get("close", 0) == 1,
-        f"text-seen transport fallback dispatch drifted: {machine.calls!r}",
-    )
-    require(machine.u8(TLS_READY) == 0, "text-seen fallback left TLS ready")
-    require(
-        bytes(
-            machine.uc.mem_read(
-                TLS_APP_STATE_START,
-                TLS_APP_STATE_END - TLS_APP_STATE_START,
-            )
+    for completed in (0, 2):
+        machine = ResidentMachine(core, listing)
+        machine.w8(TLS_READY, 1)
+        machine.w8(API_STREAM_TEXT_SEEN, 1)
+        machine.w8(API_STREAM_COMPLETED, completed)
+        machine.w8(resolve_symbol(listing, "ka_sent_count"), 0)
+        machine.uc.reg_write(UC_X86_REG_ES, 0x4321)
+        machine.uc.mem_write(
+            TLS_APP_STATE_START,
+            b"\xA5" * (TLS_APP_STATE_END - TLS_APP_STATE_START),
         )
-        == b"\0" * (TLS_APP_STATE_END - TLS_APP_STATE_START),
-        "text-seen fallback did not retire the full key/IV/sequence band",
-    )
-    require(
-        machine.uc.reg_read(UC_X86_REG_ES) == 0x4321,
-        "text-seen application retirement clobbered caller ES",
-    )
+        machine.leaf(
+            machine.symbols["load_core_sectors_at"],
+            "load",
+            carry=False,
+        )
+        machine.leaf(
+            resolve_symbol(listing, "tls_receive_application_data"),
+            "receive",
+            carry=True,
+        )
+        machine.leaf(
+            resolve_symbol(listing, "ne_transmit_tcp_flags"),
+            "close",
+            carry=False,
+        )
+
+        carry = machine.execute(machine.symbols["agent_api_exchange"])
+        require(
+            not carry,
+            f"state {completed} text-seen fallback discarded rendered-answer success",
+        )
+        require(
+            machine.calls.get("load", 0) == 1
+            and machine.calls.get("receive", 0) == 1
+            and machine.calls.get("close", 0) == 1,
+            f"state {completed} text-seen fallback dispatch drifted: "
+            f"{machine.calls!r}",
+        )
+        require(
+            machine.u8(TLS_READY) == 0,
+            f"state {completed} text-seen fallback left TLS ready",
+        )
+        require(
+            bytes(
+                machine.uc.mem_read(
+                    TLS_APP_STATE_START,
+                    TLS_APP_STATE_END - TLS_APP_STATE_START,
+                )
+            )
+            == b"\0" * (TLS_APP_STATE_END - TLS_APP_STATE_START),
+            f"state {completed} text-seen fallback did not retire the full "
+            "key/IV/sequence band",
+        )
+        require(
+            machine.uc.reg_read(UC_X86_REG_ES) == 0x4321,
+            f"state {completed} text-seen retirement clobbered caller ES",
+        )
 
 
 def test_k14_route(
     resident: bytes,
     listing: str,
     *,
-    guard_pre_fails: bool = False,
-    guard_post_fails: bool = False,
     root_load_fails: bool = False,
     root_fails: bool = False,
 ) -> None:
@@ -629,53 +634,27 @@ def test_k14_route(
         TLS_APP_STATE_START,
         b"\xA5" * (TLS_APP_STATE_END - TLS_APP_STATE_START),
     )
-    guard_modes: list[int] = []
-    acquired = 0
+    root_modes: list[int] = []
 
     def load_phase(uc: Uc) -> None:
         key = uc.reg_read(UC_X86_REG_AX) & 0xFFFF
         poison_gp(uc)
         near_return(uc, root_load_fails and key == K14_ROOT_KEY)
 
-    def guard(uc: Uc) -> None:
-        mode = uc.reg_read(UC_X86_REG_AX) & 0xFF
-        guard_modes.append(mode)
-        if mode == 2:
-            require(
-                machine.u8(TLS_READY) == 0,
-                "K14 root result was visible before POST validation",
-            )
-        failed = (
-            (mode in (0, 1) and guard_pre_fails)
-            or (mode == 2 and guard_post_fails)
-        )
-        poison_gp(uc)
-        near_return(uc, failed)
-
     def root(uc: Uc) -> None:
-        nonlocal acquired
-        acquired += 1
-        # The real root publishes READY status-last before returning.  The
-        # resident scheduler hides that byte during POST validation, then
-        # republishes it only after POST succeeds.
-        if not root_fails:
-            uc.mem_write(TLS_READY, b"\1")
+        root_modes.append(uc.reg_read(UC_X86_REG_AX) & 0xFF)
+        # The RAM-only root owns the NIC-enter half of the lease.  Its final
+        # success/abort capsule returns carry only; the resident caller hides
+        # READY until after the matching NIC restore has completed.
+        machine.calls["enter"] = machine.calls.get("enter", 0) + 1
         poison_gp(uc)
         near_return(uc, root_fails)
 
     machine.on(
         machine.symbols["load_core_sectors_at"], "load", load_phase
     )
-    machine.on(K14_GUARD_ENTRY, "guard", guard)
     machine.on(K14_ROOT_ENTRY, "root", root)
-    expected_failure = any(
-        (
-            guard_pre_fails,
-            guard_post_fails,
-            root_load_fails,
-            root_fails,
-        )
-    )
+    expected_failure = root_load_fails or root_fails
     # A successful route is independently callable.  Every failure is
     # exercised through the real endpoint scheduler so its one bounded retry,
     # application-state retirement, and call-frame unwind are part of the
@@ -689,13 +668,15 @@ def test_k14_route(
     )
     require(carry is expected_failure, "K14 route carry mismatch")
     attempts = 2 if expected_failure else 1
-    expected_lease = (
-        0 if (guard_pre_fails or root_load_fails) else attempts
-    )
+    expected_lease = 0 if root_load_fails else attempts
     require(
-        (acquired, machine.calls.get("restore", 0))
-        == (expected_lease, expected_lease),
-        f"K14 NIC lease imbalance: {machine.calls!r}, acquired={acquired}",
+        (
+            machine.calls.get("root", 0),
+            machine.calls.get("enter", 0),
+            machine.calls.get("restore", 0),
+        )
+        == (expected_lease, expected_lease, expected_lease),
+        f"K14 NIC lease imbalance: {machine.calls!r}",
     )
     require(
         machine.u8(TLS_READY) == (0 if expected_failure else 1),
@@ -716,18 +697,10 @@ def test_k14_route(
         ),
         "K14 failure did not retire the full key/IV/sequence band",
     )
-    if guard_pre_fails or root_load_fails:
-        expected_modes = [0, 3] * attempts
-        require(
-            guard_modes == expected_modes,
-            f"K14 pre/load failure did not abort guard state: {guard_modes!r}",
-        )
-    else:
-        expected_modes = [0, 2] * attempts
-        require(
-            guard_modes == expected_modes,
-            f"K14 route did not bracket PRE/POST: {guard_modes!r}",
-        )
+    require(
+        root_modes == [0] * expected_lease,
+        f"K14 root received the wrong fresh-route mode: {root_modes!r}",
+    )
     require(
         machine.u8(DPI_REACHED) == 0,
         "cold K14 route restored an invalid DPI gate",
@@ -955,9 +928,10 @@ def assert_source_contract() -> None:
         "application X dispatch is not fixed-address/BX-independent",
     )
     require(
-        "jc .guard_pre_failed" in product
-        and "jc .guard_post_load_failed" in product,
-        "K14 PRE/POST carry is not propagated",
+        "call TLS13_K14_PRODUCT_ROOT_ENTRY" in product
+        and "call [nic_vt_restore]" in product
+        and "TLS13_K14_PRODUCT_STATE_GUARD" not in product,
+        "K14 RAM-only root/lease dispatch drifted",
     )
     require(
         "TLS13_286_PRODUCT_ROOT_ENTRY" in product,
@@ -1076,8 +1050,6 @@ def main() -> None:
     # check-tls13-product-reconnect.py.
     test_text_seen_retirement(base, base_listing)
     test_k14_route(resident, base_listing)
-    test_k14_route(resident, base_listing, guard_pre_fails=True)
-    test_k14_route(resident, base_listing, guard_post_fails=True)
     test_k14_route(resident, base_listing, root_load_fails=True)
     test_k14_route(resident, base_listing, root_fails=True)
     test_286_route(resident, base_listing)

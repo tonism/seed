@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import importlib.util
+import json
 import re
 import struct
 from pathlib import Path
@@ -56,6 +57,32 @@ PROMPT = (
     b"Explain why one durable human prompt survives a dead TLS channel, "
     b"including this wrapped tail: {same-request:true}."
 )
+LIVE_PROMPT = (
+    b"What is six times seven? Reply with the answer in uppercase English "
+    b"letters, with no spaces or punctuation."
+)
+DEFAULT_REASONING_EFFORT = b"xhigh"
+
+
+def wire_model_tail(model: bytes, effort: bytes = DEFAULT_REASONING_EFFORT) -> bytes:
+    """Return agent_cache's reconnect-safe model/reasoning JSON tail."""
+
+    return model + b'","reasoning":{"effort":"' + effort + b'"}'
+
+
+def install_wire_model_cache(
+    machine: object,
+    model: bytes,
+    effort: bytes = DEFAULT_REASONING_EFFORT,
+) -> None:
+    tail = wire_model_tail(model, effort) + b"\0"
+    require(
+        len(tail) < STREAM["seed_model_len"],
+        "wire model/reasoning tail reaches the live prompt-length byte",
+    )
+    machine.uc.mem_write(  # type: ignore[attr-defined]
+        STREAM["chat_model_cache"], tail.ljust(STREAM["seed_model_len"], b"\0")
+    )
 
 
 def load_dispatch_gate():
@@ -285,9 +312,8 @@ def assert_source_contract() -> None:
         "cmp byte [api_stream_completed], 3\n"
         "    jne .receive" in exchange
         and "cmp byte [api_stream_completed], 2\n"
-        "    je .hard_failed\n"
         "    ja .success" in exchange,
-        "provisional HTTP terminal no longer drains to success or bounded failure",
+        "provisional HTTP terminal no longer preserves rendered text or bounded failure",
     )
     require(
         request.index("call .validate_stream_inputs")
@@ -595,10 +621,10 @@ class ProductHarness:
         )
         self.pending_exchange_outcomes = pending
 
-    def install_text_seen_transport_failure(self) -> None:
+    def install_text_seen_transport_failure(self, completed: int = 0) -> None:
         machine = self.machine
         machine.w8(D.API_STREAM_TEXT_SEEN, 1)
-        machine.w8(D.API_STREAM_COMPLETED, 0)
+        machine.w8(D.API_STREAM_COMPLETED, completed)
         machine.w8(D.resolve_symbol(self.listing, "ka_sent_count"), 0)
         machine.leaf(
             D.resolve_symbol(
@@ -692,6 +718,93 @@ def stream_bounds_machine(
     return machine
 
 
+def test_product_agent_cache(core: bytes, listing: str) -> None:
+    """Bind parsed reasoning config to the reconnect-safe request tail."""
+
+    sector, sectors, destination = D.phase_geometry(core, b"V")
+    require(
+        (sectors, destination) == (1, STREAM["low_scratch_start"]),
+        "agent-cache phase escaped its one-sector low window",
+    )
+    phase = core[sector * 512 : (sector + sectors) * 512]
+    entry = phase_runtime_label(core, listing, b"V", "agent_cache_phase")
+    model = b"gpt-5.6-sol"
+    key = b"sk-seed-cache-overlap-gate"
+
+    def configured_machine(effort: bytes | None, configured_model: bytes = model):
+        machine = D.ResidentMachine(core, listing)
+        machine.uc.mem_write(destination, phase)
+        machine.uc.mem_write(
+            STREAM["seed_agent_id"],
+            b"openai\0".ljust(STREAM["agent_id_len"], b"\0"),
+        )
+        machine.uc.mem_write(
+            STREAM["seed_model"],
+            (configured_model + b"\0").ljust(STREAM["seed_model_len"], b"\0"),
+        )
+        key_image = (key + b"\0").ljust(STREAM["seed_key_len"], b"\0")
+        machine.uc.mem_write(STREAM["seed_key"], key_image)
+        reasoning_image = ((effort or b"") + b"\0").ljust(
+            STREAM["seed_reasoning_len"], b"\0"
+        )
+        machine.uc.mem_write(STREAM["seed_reasoning"], reasoning_image)
+        machine.w8(
+            STREAM["seed_config_flags"],
+            STREAM["seed_flag_reasoning"] if effort is not None else 0,
+        )
+        return machine, key_image
+
+    cases = (
+        (None, DEFAULT_REASONING_EFFORT),
+        (b"none", b"none"),
+        (b"low", b"low"),
+        (b"medium", b"medium"),
+        (b"high", b"high"),
+        (b"xhigh", b"xhigh"),
+        (b"max", b"max"),
+    )
+    for configured, expected in cases:
+        machine, key_image = configured_machine(configured)
+        require(
+            not machine.execute(entry),
+            f"agent cache rejected reasoning effort {configured!r}",
+        )
+        expected_tail = (wire_model_tail(model, expected) + b"\0").ljust(
+            STREAM["seed_model_len"], b"\0"
+        )
+        require(
+            bytes(
+                machine.uc.mem_read(
+                    STREAM["chat_model_cache"], STREAM["seed_model_len"]
+                )
+            )
+            == expected_tail,
+            f"agent cache serialized the wrong wire tail for {configured!r}",
+        )
+        require(
+            bytes(
+                machine.uc.mem_read(
+                    STREAM["chat_key_cache"], STREAM["seed_key_len"]
+                )
+            )
+            == key_image,
+            f"agent cache corrupted the overlapping credential for {configured!r}",
+        )
+
+    invalid, _key_image = configured_machine(b'bad"')
+    require(
+        invalid.execute(entry),
+        "agent cache accepted an unescaped/unsupported reasoning effort",
+    )
+    too_long, _key_image = configured_machine(
+        None, b"m" * (STREAM["chat_model_value_max_len"] + 1)
+    )
+    require(
+        too_long.execute(entry),
+        "agent cache accepted a model that reaches the prompt-length byte",
+    )
+
+
 def test_response_http_terminal_drain(core: bytes, listing: str) -> None:
     """Do not publish completion until the authenticated HTTP terminal.
 
@@ -777,6 +890,80 @@ def test_response_http_terminal_drain(core: bytes, listing: str) -> None:
     )
 
 
+def test_response_output_event_filter(core: bytes, listing: str) -> None:
+    """Render output-text deltas, never reasoning-stream deltas."""
+
+    resident_bytes = u16(core, 15) * 512
+    machine = D.ResidentMachine(core[:resident_bytes], listing)
+    sector, sectors, destination = D.phase_geometry(core, b"T")
+    require(sectors == 2, "response event filter escaped its two-sector window")
+    machine.uc.mem_write(
+        destination,
+        core[sector * 512 : (sector + sectors) * 512],
+    )
+    entry = phase_runtime_label(core, listing, b"T", "agent_response_phase")
+    input_buffer = STREAM["tls_rx_copy"]
+    app_data_pointer = D.resolve_symbol(listing, "tls_app_data_ptr")
+    rendered = bytearray()
+
+    def print_char(uc: Uc) -> None:
+        rendered.append(uc.reg_read(UC_X86_REG_AX) & 0xFF)
+        machine.w8(
+            STREAM["cursor_col"],
+            (machine.u8(STREAM["cursor_col"]) + 1) & 0xFF,
+        )
+        D.near_return(uc, False)
+
+    machine.on(D.resolve_symbol(listing, "print_char"), "output-char", print_char)
+    machine.leaf(
+        D.resolve_symbol(listing, "agent_api_keepalive"),
+        "output-keepalive",
+        carry=False,
+    )
+    machine.w8(HANDOFF_STATUS, HANDOFF_STATUS_READY)
+    machine.w8(SCREEN_COLS, 80)
+    machine.w8(STREAM["cursor_row"], 0)
+    machine.w8(STREAM["cursor_col"], 0)
+    machine.w8(STREAM["render_last_type"], 0)
+    machine.w8(D.API_STREAM_COMPLETED, 0)
+    machine.w8(D.API_STREAM_TEXT_SEEN, 0)
+    machine.w8(STREAM["api_stream_state"], 0)
+    machine.w8(STREAM["api_stream_delta_match"], 0)
+    machine.w8(D.TOOL_FC_STATE, 0)
+    machine.w8(STREAM["api_stream_done_match"], 0)
+    machine.w8(STREAM["api_http_state"], 0)
+
+    payload = (
+        b'data: {"type":"response.reasoning_summary_text.delta",'
+        b'"delta":"Ready."}\n\n'
+        b'data: {"type":"response.output_text.delta",'
+        b'"delta":"42"}\n\n'
+        b'data: {"type":"response.completed"}\n\n0\r\n\r\n'
+    )
+    split_points = (17, 61, 109, len(payload))
+    start = 0
+    for stop in split_points:
+        fragment = payload[start:stop]
+        machine.uc.mem_write(input_buffer, fragment)
+        machine.w16(app_data_pointer, input_buffer)
+        machine.w16(STREAM["tls_app_len"], len(fragment))
+        machine.execute(entry)
+        start = stop
+
+    require(
+        bytes(rendered) == b"42",
+        f"response event filter rendered {bytes(rendered)!r}, expected b'42'",
+    )
+    require(
+        machine.u8(D.API_STREAM_TEXT_SEEN) == 1,
+        "output-text delta did not publish text-seen",
+    )
+    require(
+        machine.u8(D.API_STREAM_COMPLETED) == 3,
+        "filtered response did not reach authenticated HTTP completion",
+    )
+
+
 def test_512k_ready_turn_from_floppy(
     core: bytes, listing: str, image_path: Path
 ) -> dict[str, object]:
@@ -828,6 +1015,10 @@ def test_512k_ready_turn_from_floppy(
         start = lba * 512
         require(start + 512 <= len(image), f"guest requested out-of-image LBA {lba}")
         uc.mem_write(destination, image[start : start + 512])
+        # Host-side BIOS emulation writes may replace a phase at an address
+        # Unicorn has already translated.  Real x86 fetches the new bytes;
+        # invalidate the corresponding TB so this harness does too.
+        uc.ctl_remove_cache(destination, destination + 511)
         reads.append((lba, destination))
         events.append(f"read-{lba}")
         D.near_return(uc, False)
@@ -902,7 +1093,7 @@ def test_512k_ready_turn_from_floppy(
 
     model = b"gpt-5"
     key = b"sk-seed-ready-turn-gate"
-    machine.uc.mem_write(STREAM["chat_model_cache"], model + b"\0")
+    install_wire_model_cache(machine, model)
     machine.uc.mem_write(STREAM["chat_key_cache"], key + b"\0")
     machine.w8(D.DPI_INPUT_LEN, len(PROMPT))
     machine.w8(D.CHAT_PROMPT_LEN, len(PROMPT))
@@ -1029,6 +1220,15 @@ def test_512k_ready_turn_from_floppy(
     match = re.search(rb"(?:^|\r\n)Content-Length:([0-9]+)(?:\r\n|$)", header)
     require(match is not None, "ready-turn request has no Content-Length")
     require(int(match.group(1)) == len(body), "ready-turn Content-Length does not match streamed body")
+    try:
+        document = json.loads(body)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise AssertionError(f"ready-turn request is invalid JSON: {exc}") from exc
+    require(
+        document.get("model") == model.decode("ascii")
+        and document.get("reasoning") == {"effort": "xhigh"},
+        "ready-turn request lost its model/reasoning contract",
+    )
     flattened_tools = bytes(value if value >= 32 else 32 for value in tools)
     flattened_identity = bytes(value if value >= 32 else 32 for value in identity)
     require(
@@ -1054,18 +1254,289 @@ def test_512k_ready_turn_from_floppy(
     }
 
 
+def test_16k_reconnect_request_from_floppy(
+    core: bytes, listing: str, image_path: Path
+) -> dict[str, object]:
+    """Execute both exact 16 KiB R -> X request builds around a dead session.
+
+    Unlike ``ProductHarness``, this uses the packaged R/X images and their real
+    floppy prompt streamers.  The first authenticated application channel is
+    failed before any response text, the route leaf destroys receive scratch,
+    and the resident scheduler must rebuild the same complete HTTP/JSON request
+    from the on-screen human prompt on its one fresh channel.
+    """
+
+    image, data_start, assets = parse_product_image(image_path, core)
+    identity_cluster, identity_size, identity = assets["identity"]
+    compact_cluster, compact_size, _compact = assets["compact"]
+    tools_cluster, tools_size, tools = assets["tools"]
+    identity_lba = data_start + identity_cluster - 2
+    tools_lba = data_start + tools_cluster - 2
+
+    resident_bytes = u16(core, 15) * 512
+    require(resident_bytes == 2048, "16K reconnect gate requires the four-sector nucleus")
+    machine = D.ResidentMachine(core[:resident_bytes], listing)
+    read_sector = D.resolve_symbol(listing, "read_abs_sector")
+    tls_app_plain_ptr = D.resolve_symbol(listing, "tls_app_plain_ptr")
+    reads: list[tuple[int, int]] = []
+    records: list[bytes] = []
+    requests: list[bytes] = []
+    events: list[str] = []
+
+    def write32(address: int, value: int) -> None:
+        machine.uc.mem_write(address, struct.pack("<I", value & 0xFFFFFFFF))
+
+    def disk_read(uc: Uc) -> None:
+        lba = uc.reg_read(UC_X86_REG_AX) & 0xFFFF
+        destination = (
+            ((uc.reg_read(UC_X86_REG_ES) & 0xFFFF) << 4)
+            + (uc.reg_read(UC_X86_REG_BX) & 0xFFFF)
+        )
+        start = lba * 512
+        require(start + 512 <= len(image), f"guest requested out-of-image LBA {lba}")
+        uc.mem_write(destination, image[start : start + 512])
+        uc.ctl_remove_cache(destination, destination + 511)
+        reads.append((lba, destination))
+        events.append(f"read-{lba}")
+        D.near_return(uc, False)
+
+    machine.on(read_sector, "disk-read-16k", disk_read)
+    machine.w16(
+        STREAM["handoff_addr"] + STREAM["handoff_ram_top"],
+        STREAM["basic_sidecar_stack_top_16k"],
+    )
+    machine.w16(STREAM["handoff_addr"] + STREAM["handoff_flags"], 0)
+    machine.w16(
+        STREAM["handoff_addr"] + STREAM["handoff_net_status"],
+        STREAM["net_status_tcp_connected"],
+    )
+    machine.w8(HANDOFF_STATUS, HANDOFF_STATUS_READY)
+    machine.w16(D.resolve_symbol(listing, "loop_cache_count"), 0)
+    machine.w16(STREAM["prompt_id_cluster"], identity_cluster)
+    machine.w16(STREAM["prompt_id_size"], identity_size)
+    machine.w16(STREAM["prompt_compact_cluster"], compact_cluster)
+    machine.w16(STREAM["prompt_compact_size"], compact_size)
+    machine.w16(STREAM["prompt_tools_cluster"], tools_cluster)
+    machine.w16(STREAM["prompt_tools_size"], tools_size)
+
+    machine.w8(D.TLS_READY, 1)
+    machine.w8(D.AGENT_LOOP_PENDING, 0)
+    machine.w8(D.TOOL_FC_STATE, 0)
+    machine.w8(D.COMPACTING, 0)
+    machine.w8(STREAM["compact_next"], 0)
+    machine.w16(STREAM["chat_context_len_var"], STREAM["chat_context_len"])
+    machine.w16(
+        STREAM["chat_compact_threshold"],
+        (STREAM["chat_context_len"] * 3) // 4,
+    )
+    machine.w16(STREAM["chat_effective_cap"], STREAM["chat_context_len"])
+    machine.w16(STREAM["chat_context_used"], 0)
+    machine.w16(STREAM["note_len"], 0)
+    machine.w16(STREAM["far_log_seg_var"], 0)
+    write32(STREAM["far_flushed_len"], 0)
+    write32(STREAM["far_flushed_esc"], 0)
+    write32(STREAM["far_window_cap"], 0)
+    write32(STREAM["far_arena_base"], 0x10000)
+    write32(STREAM["far_arena_top"], 0x10000)
+    write32(STREAM["far_ctx_base"], 0x10000)
+    machine.w16(STREAM["ems_page_count"], 0)
+    machine.uc.mem_write(
+        D.TLS_APP_STATE_START,
+        b"\xA5" * (D.TLS_APP_STATE_END - D.TLS_APP_STATE_START),
+    )
+
+    model = b"gpt-5.6-sol"
+    key = b"sk-seed-16k-reconnect-gate"
+    install_wire_model_cache(machine, model)
+    machine.uc.mem_write(STREAM["chat_key_cache"], key + b"\0")
+    machine.w8(D.DPI_INPUT_LEN, len(LIVE_PROMPT))
+    machine.w8(D.CHAT_PROMPT_LEN, len(LIVE_PROMPT))
+    machine.w16(D.VIDEO_SEG, 0xB800)
+    machine.w8(SCREEN_COLS, 80)
+    machine.w8(DPI_PROMPT_MARKER_ROW, 0x80 | 5)
+    machine.uc.mem_write(DPI_INPUT_BUF, b"\xCC" * len(LIVE_PROMPT))
+    column = PROMPT_COLUMN
+    row = 5
+    for character in LIVE_PROMPT:
+        address = (0xB800 << 4) + (row * 80 + column) * 2
+        machine.uc.mem_write(address, bytes((character, 0x07)))
+        column += 1
+        if column == 80:
+            row += 1
+            column = PROMPT_COLUMN
+
+    machine.w16(D.EXPECTED_CALLBACKS["nic_vt_enter"], D.NIC_ENTER_STUB)
+    machine.w16(D.EXPECTED_CALLBACKS["nic_vt_restore"], D.NIC_RESTORE_STUB)
+
+    def enter(uc: Uc) -> None:
+        events.append("nic-enter")
+        D.poison_gp(uc)
+        D.near_return(uc, False)
+
+    def restore(uc: Uc) -> None:
+        events.append("nic-restore")
+        D.poison_gp(uc)
+        D.near_return(uc, True)
+
+    def prepare_receive(uc: Uc) -> None:
+        events.append("prepare-send")
+        D.near_return(uc, False)
+
+    def send(uc: Uc) -> None:
+        pointer = u16(bytes(uc.mem_read(tls_app_plain_ptr, 2)), 0)
+        length = u16(bytes(uc.mem_read(STREAM["tls_app_len"], 2)), 0)
+        require(
+            pointer == STREAM["api_request_plain"] + STREAM["tls_record_header_len"]
+            and 0 < length <= STREAM["api_request_plain_len"],
+            "16K reconnect record has invalid plaintext geometry "
+            f"{pointer:#x}/{length}; tail={events[-12:]!r}",
+        )
+        records.append(bytes(uc.mem_read(pointer, length)))
+        events.append(f"send-{length}")
+        D.near_return(uc, False)
+
+    outcomes = [True, False]
+
+    def exchange(uc: Uc) -> None:
+        require(outcomes, "16K reconnect gate performed an unbudgeted exchange")
+        require(records, "16K reconnect exchange had no request records")
+        requests.append(b"".join(records))
+        records.clear()
+        failed = outcomes.pop(0)
+        events.append("exchange-failed" if failed else "exchange-succeeded")
+        if failed:
+            uc.mem_write(DPI_INPUT_BUF, b"\xD3" * len(LIVE_PROMPT))
+        else:
+            machine.w8(D.API_STREAM_TEXT_SEEN, 1)
+            machine.w8(D.API_STREAM_COMPLETED, 3)
+        D.near_return(uc, failed)
+
+    def establish(uc: Uc) -> None:
+        require(machine.u8(D.TLS_READY) == 0, "fresh route began before old state was retired")
+        require(
+            machine.u8(D.CHAT_PROMPT_LEN) == len(LIVE_PROMPT),
+            "fresh route lost the durable prompt length",
+        )
+        uc.mem_write(DPI_INPUT_BUF, b"\xE1" * len(LIVE_PROMPT))
+        uc.mem_write(
+            D.TLS_APP_STATE_START,
+            b"\x5A" * (D.TLS_APP_STATE_END - D.TLS_APP_STATE_START),
+        )
+        machine.w8(D.TLS_READY, 1)
+        events.append("fresh-route")
+        D.near_return(uc, False)
+
+    machine.on(D.NIC_ENTER_STUB, "16k-enter", enter)
+    machine.on(D.NIC_RESTORE_STUB, "16k-restore", restore)
+    machine.leaf(
+        D.resolve_symbol(listing, "tls_prepare_3c501_receive"),
+        "16k-prepare-send",
+        carry=False,
+    )
+    machine.on(
+        D.resolve_symbol(listing, "tls_send_application_data_current_seq"),
+        "16k-send",
+        send,
+    )
+    machine.on(machine.symbols["agent_api_exchange"], "16k-exchange", exchange)
+    machine.on(
+        machine.symbols["tls13_product_establish_route"],
+        "16k-establish",
+        establish,
+    )
+
+    require(
+        not machine.execute(machine.symbols["prepare_agent_endpoint_path"]),
+        "exact 16K request reconnect returned failure",
+    )
+    require(not outcomes and not records, "16K reconnect did not consume both exact requests")
+    require(
+        machine.calls.get("16k-exchange", 0) == 2
+        and machine.calls.get("16k-establish", 0) == 1
+        and machine.calls.get("16k-enter", 0) == 2
+        and machine.calls.get("16k-restore", 0) == 2,
+        f"16K reconnect topology drifted: {machine.calls!r}",
+    )
+
+    parsed: list[dict[str, object]] = []
+    for index, wire in enumerate(requests, 1):
+        require(
+            wire.startswith(b"POST /v1/responses HTTP/1.1\r\n")
+            and b"\r\n\r\n" in wire,
+            f"16K request {index} has no complete HTTP prefix",
+        )
+        header, body = wire.split(b"\r\n\r\n", 1)
+        match = re.search(rb"(?:^|\r\n)Content-Length:([0-9]+)(?:\r\n|$)", header)
+        require(match is not None, f"16K request {index} has no Content-Length")
+        require(
+            int(match.group(1)) == len(body),
+            f"16K request {index} Content-Length does not match its body",
+        )
+        try:
+            document = json.loads(body)
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise AssertionError(f"16K request {index} is invalid JSON: {exc}") from exc
+        require(isinstance(document, dict), f"16K request {index} JSON is not an object")
+        parsed.append(document)
+
+    require(requests[0] == requests[1], "fresh 16K route did not replay the identical request")
+    expected_tools = json.loads(tools)
+    flattened_identity = bytes(value if value >= 32 else 32 for value in identity).decode("ascii")
+    for index, document in enumerate(parsed, 1):
+        input_items = document.get("input")
+        require(
+            document.get("model") == model.decode("ascii")
+            and document.get("reasoning") == {"effort": "xhigh"}
+            and document.get("tools") == expected_tools
+            and isinstance(document.get("instructions"), str)
+            and document["instructions"].startswith(flattened_identity),
+            f"16K request {index} lost model/reasoning/tools/identity",
+        )
+        require(
+            input_items
+            == [
+                {
+                    "role": "user",
+                    "content": "U:" + LIVE_PROMPT.decode("ascii"),
+                }
+            ],
+            f"16K request {index} carried the wrong human input: {input_items!r}",
+        )
+        require(
+            requests[index - 1].count(LIVE_PROMPT) == 1,
+            f"16K request {index} did not carry the exact prompt once",
+        )
+
+    require(
+        reads.count((identity_lba, STREAM["tls_rx_copy"])) == 2
+        and reads.count((tools_lba, STREAM["tls_rx_copy"])) == 2,
+        "16K request pair did not stream IDENTITY/TOOLS once per build",
+    )
+    return {
+        "requests": len(requests),
+        "records": [len(wire) for wire in requests],
+        "disk_reads": len(reads),
+        "identity_reads": reads.count((identity_lba, STREAM["tls_rx_copy"])),
+        "tools_reads": reads.count((tools_lba, STREAM["tls_rx_copy"])),
+    }
+
+
 def test_cold_request_wire(core: bytes, listing: str) -> None:
     """Execute R's real cold builder and compare the complete HTTP request."""
 
     machine = stream_bounds_machine(core, listing, ready=False)
-    model = b"gpt-5"
-    key = b"sk-seed-wire-gate"
+    # Match the shipped user configuration's geometry without embedding its
+    # credential: the live 16 KiB cold turn currently carries an 11-byte
+    # model name and a 167-byte bearer token.  A short synthetic token here
+    # would miss a first-turn request-prefix overflow before any TLS I/O.
+    model = b"m" * 11
+    key = b"k" * 167
     require(
         len(model) < STREAM["seed_model_len"]
         and len(key) < STREAM["seed_key_len"],
         "cold-wire fixture exceeds the product config cache",
     )
-    machine.uc.mem_write(STREAM["chat_model_cache"], model + b"\0")
+    install_wire_model_cache(machine, model)
     machine.uc.mem_write(STREAM["chat_key_cache"], key + b"\0")
 
     entry = phase_runtime_label(core, listing, b"R", "agent_request_phase")
@@ -1082,7 +1553,8 @@ def test_cold_request_wire(core: bytes, listing: str) -> None:
     body = (
         b'{"model":"'
         + model
-        + b'","input":"Greet.","store":false,"stream":true}'
+        + b'","reasoning":{"effort":"xhigh"},'
+        + b'"input":"Greet.","store":false,"stream":true}'
     )
     expected = (
         b"POST /v1/responses HTTP/1.1\r\n"
@@ -1578,33 +2050,36 @@ def test_route_failure_unwinds(core: bytes, listing: str) -> None:
 
 
 def test_text_seen_retirement(core: bytes, listing: str) -> None:
-    harness = ProductHarness(core, listing, ready=True)
-    harness.observe_real_route()
-    harness.install_text_seen_transport_failure()
-    require(
-        not harness.run(),
-        "text-seen transport fallback discarded rendered-answer success",
-    )
-    require(
-        harness.build_prompts == [PROMPT]
-        and harness.sent_prompts == [PROMPT],
-        "text-seen fallback rebuilt or replayed the request",
-    )
-    require(
-        harness.machine.calls.get("route-attempt", 0) == 0,
-        "text-seen fallback established a fresh route",
-    )
-    require(
-        harness.machine.calls.get("receive", 0) == 1
-        and harness.machine.calls.get("close", 0) == 1,
-        f"real text-seen fallback path drifted: {harness.machine.calls!r}",
-    )
-    require(
-        harness.machine.u8(D.TLS_READY) == 0
-        and harness.app_state() == b"\0" * len(harness.app_state())
-        and harness.machine.u8(D.CHAT_PROMPT_LEN + 1) == 0xFF,
-        "text-seen fallback did not retire the full application capability",
-    )
+    for completed in (0, 2):
+        harness = ProductHarness(core, listing, ready=True)
+        harness.observe_real_route()
+        harness.install_text_seen_transport_failure(completed)
+        require(
+            not harness.run(),
+            f"state {completed} text-seen fallback discarded rendered-answer success",
+        )
+        require(
+            harness.build_prompts == [PROMPT]
+            and harness.sent_prompts == [PROMPT],
+            f"state {completed} text-seen fallback rebuilt or replayed the request",
+        )
+        require(
+            harness.machine.calls.get("route-attempt", 0) == 0,
+            f"state {completed} text-seen fallback established a fresh route",
+        )
+        require(
+            harness.machine.calls.get("receive", 0) == 1
+            and harness.machine.calls.get("close", 0) == 1,
+            f"state {completed} text-seen fallback path drifted: "
+            f"{harness.machine.calls!r}",
+        )
+        require(
+            harness.machine.u8(D.TLS_READY) == 0
+            and harness.app_state() == b"\0" * len(harness.app_state())
+            and harness.machine.u8(D.CHAT_PROMPT_LEN + 1) == 0xFF,
+            f"state {completed} text-seen fallback did not retire the full "
+            "application capability",
+        )
 
 
 def test_tcp_route_state_matrix(core: bytes, listing: str) -> None:
@@ -1746,6 +2221,7 @@ def main() -> None:
     listing = args.listing.read_text(encoding="utf-8")
 
     assert_source_contract()
+    test_product_agent_cache(core, listing)
     test_cold_request_wire(core, listing)
     test_first_ready_stale_dialogue(core, listing)
     test_r_input_bounds(core, listing)
@@ -1758,11 +2234,14 @@ def main() -> None:
     test_text_seen_retirement(core, listing)
     test_tcp_route_state_matrix(core, listing)
     test_response_http_terminal_drain(core, listing)
-    ready = (
-        test_512k_ready_turn_from_floppy(core, listing, args.image)
-        if args.image is not None
-        else None
-    )
+    test_response_output_event_filter(core, listing)
+    ready = None
+    reconnect_16k = None
+    if args.image is not None:
+        ready = test_512k_ready_turn_from_floppy(core, listing, args.image)
+        reconnect_16k = test_16k_reconnect_request_from_floppy(
+            core, listing, args.image
+        )
     ready_text = ""
     if ready is not None:
         ready_text = (
@@ -1771,13 +2250,19 @@ def main() -> None:
             f", records={ready['record_lengths']}"
             f", x-to-t={ready['response_sector']}+{ready['response_sectors']}"
         )
+    if reconnect_16k is not None:
+        ready_text += (
+            ", exact-16k-replay=1"
+            f", request-bytes={reconnect_16k['records']}"
+            f", reads={reconnect_16k['disk_reads']}"
+        )
     print(
         "TLS 1.3 product reconnect/replay: PASS "
-        "(cold-wire=1, r-input-bounds=11, x-stream-bounds=18, cold-prefix-bounds=3, "
+        "(config-wire=9, cold-wire=1, r-input-bounds=11, x-stream-bounds=18, cold-prefix-bounds=3, "
         "first-ready-stale=1, "
         "reuse=1, replay=1, "
         "exhausted=1, continuations=4, route-failure=1, text-seen=1, "
-        f"c-route-matrix=4, http-terminal=1{ready_text})"
+        f"c-route-matrix=4, http-terminal=1, output-event-filter=1{ready_text})"
     )
 
 

@@ -11,7 +11,9 @@
 ;   2  sym_transcript_update       SI=bytes, CX=len
 ;   3  sym_critical_schedule       fixed 64-byte hybrid + hello hash
 ;   4  sym_server_hs_open_begin    AX=plaintext transcript-prefix bytes
-;   5  sym_server_app_open_begin   no transcript hashing
+;   5  sym_server_app_open_begin   no transcript hashing; the conventional-
+;                                  RAM product variants consume their private
+;                                  sym_record_header slot directly
 ;   6  sym_open_chunk              SI=mutable ciphertext, CX=1..384
 ;   7  sym_open_finish             SI=received 16-byte tag
 ;   8  sym_verify_server_finished  fixed received verify_data
@@ -37,6 +39,29 @@
 bits 16
 cpu 8086
 org 0x1800
+
+%ifdef TLS13_SYM_SYSTEM_RAM
+%ifdef TLS13_SYM_SYSTEM_RAM_RESUMPTION
+%ifdef TLS13_SYM_ACQUISITION_ONLY
+%error "system-RAM symmetric image cannot be acquisition-only and resumption-only"
+%endif
+%else
+%ifndef TLS13_SYM_ACQUISITION_ONLY
+%error "system-RAM symmetric image requires an explicit lifetime profile"
+%endif
+%endif
+%ifndef TLS13_POC_K14
+%error "system-RAM symmetric image requires the K14 schedule"
+%endif
+%endif
+%ifdef TLS13_SYM_SYSTEM_RAM_RESUMPTION
+%ifdef TLS13_SYM_ACQUISITION_ONLY
+%error "system-RAM resumption image cannot be acquisition-only"
+%endif
+%ifndef TLS13_POC_K14
+%error "system-RAM resumption image requires the K14 schedule"
+%endif
+%endif
 
 sha256_digest_len equ 32
 sha256_block_size equ 64
@@ -112,7 +137,13 @@ sym_ticket_nonce_max equ 32
 sym_shared_secret_len equ TLS13_SHARED_SECRET_LEN
 
 sym_overlay_header:
+%ifdef TLS13_SYM_SYSTEM_RAM_RESUMPTION
+    db 'T13SRR2!'
+%elifdef TLS13_SYM_SYSTEM_RAM
+    db 'T13SRA2!'
+%else
     db 'T13SYM02'
+%endif
     dw 2
     dw sym_overlay_end - sym_overlay_header
     dw sym_low_scratch_base
@@ -143,13 +174,30 @@ sym_entry_table:
     dw sym_derive_application
     dw sym_build_head
     dw sym_parse_nst
+%ifdef TLS13_SYM_ACQUISITION_ONLY
+    dw sym_unsupported
+    dw sym_unsupported
+%else
     dw sym_resumption_binder
     dw sym_resumption_handshake
+%endif
     dw sym_transcript_import
     dw sym_derive_client_application
     dw sym_derive_server_application
+%ifdef TLS13_SYM_ACQUISITION_ONLY
+    dw sym_unsupported
+%else
     dw sym_authenticate_resumed_flight
+%endif
 sym_entry_count equ ($ - sym_entry_table) / 2
+
+%ifdef TLS13_SYM_ACQUISITION_ONLY
+; Preserve the 19-slot ABI while making accidental entry into a resumption-
+; only operation fail closed in the acquisition image.
+sym_unsupported:
+    stc
+    ret
+%endif
 
 ; ---------------------------------------------------------------------------
 ; Public orchestration entries
@@ -165,11 +213,24 @@ sym_init:
     pop es
     xor ax, ax
     mov di, sym_pre_finished_hash
+%ifdef TLS13_SYM_SYSTEM_RAM_RESUMPTION
+    ; Candidate K' lives in the unused tail of the resumed record quarantine
+    ; until the schedule consumes it and the lifecycle packs it.  No resumed
+    ; protected record or fixed HEAD reaches this 32-byte span.
+    mov cx, 0x3a60 - sym_pre_finished_hash
+    rep stosb
+    mov di, 0x3a80
+    mov cx, sym_high_state_end - 0x3a80
+%else
     mov cx, sym_high_state_end - sym_pre_finished_hash
+%endif
     rep stosb
     mov di, sym_low_runtime_clear_start
     mov cx, sym_low_runtime_clear_end - sym_low_runtime_clear_start
     rep stosb
+%ifdef TLS13_SYM_SYSTEM_RAM
+    mov word [sym_ticket_present], 0
+%endif
     call sha256_init
     pop es
     pop di
@@ -307,6 +368,7 @@ sym_server_hs_open_begin:
     mov word [sym_record_iv_ptr], sym_server_hs_iv
     mov word [sym_record_seq_ptr], sym_server_hs_seq
     mov [sym_record_hash_remaining], ax
+    mov si, sym_io_base
     jmp sym_open_begin
 
 sym_server_app_open_begin:
@@ -314,8 +376,16 @@ sym_server_app_open_begin:
     mov word [sym_record_iv_ptr], sym_server_app_iv
     mov word [sym_record_seq_ptr], sym_server_app_seq
     mov word [sym_record_hash_remaining], 0
+%ifdef TLS13_SYM_SYSTEM_RAM
+    mov si, sym_record_header
+%elifdef TLS13_SYM_SYSTEM_RAM_RESUMPTION
+    mov si, sym_record_header
+%else
+    mov si, sym_io_base
+%endif
     jmp sym_open_begin
 
+%ifndef TLS13_SYM_ACQUISITION_ONLY
 ; Authenticate one exact unpadded resumed server flight without loading a
 ; separate transcript-page worker.  AX=1 means authenticated early-data
 ; acceptance; AX=2 means authenticated early-data rejection.  The caller
@@ -359,6 +429,7 @@ sym_authenticate_resumed_flight:
     xor ax, ax
     stc
     ret
+%endif
 
 ; The transcript currently ends immediately before the 36-byte server Finished.
 ; Verify its body, then append the complete Finished message and snapshot the
@@ -658,6 +729,7 @@ sym_parse_nst:
     ; later messages without changing the retained ticket's metadata or PSK.
     cmp byte [sym_ticket_present], 0
     jne .drained
+%ifndef TLS13_SYM_SYSTEM_RAM
     mov ax, [sym_parse_lifetime_hi]
     mov [sym_ticket_lifetime_hi], ax
     mov ax, [sym_parse_lifetime_lo]
@@ -670,17 +742,54 @@ sym_parse_nst:
     mov [sym_ticket_nonce_len], ax
     mov ax, [sym_parse_identity_len]
     mov [sym_ticket_identity_len], ax
+%endif
 
     push ds
     pop es
+%ifdef TLS13_SYM_SYSTEM_RAM
+    ; The authenticated NST is quarantined in sym_io.  The compact retained
+    ; ticket intentionally reuses that same buffer after validation.  Save the
+    ; nonce first, then move the later identity down, so neither overlapping
+    ; copy can destroy source bytes that have not yet been consumed.
+    mov si, [sym_parse_nonce_ptr]
+    mov di, sym_system_nonce_hold
+    mov cx, [sym_parse_nonce_len]
+    rep movsb
+%else
     mov si, [sym_parse_nonce_ptr]
     mov di, sym_ticket_nonce
     mov cx, [sym_ticket_nonce_len]
     rep movsb
+%endif
     mov si, [sym_parse_identity_ptr]
     mov di, sym_ticket_identity
+%ifdef TLS13_SYM_SYSTEM_RAM
+    mov cx, [sym_parse_identity_len]
+%else
     mov cx, [sym_ticket_identity_len]
+%endif
     rep movsb
+%ifdef TLS13_SYM_SYSTEM_RAM
+    mov si, sym_system_nonce_hold
+    mov di, sym_ticket_nonce
+    mov cx, [sym_parse_nonce_len]
+    rep movsb
+    ; The maximum authenticated NST source extends through the future compact
+    ; metadata slots.  Publish metadata only after both variable-length
+    ; sources have moved; doing it earlier corrupts the identity tail.
+    mov ax, [sym_parse_lifetime_hi]
+    mov [sym_ticket_lifetime_hi], ax
+    mov ax, [sym_parse_lifetime_lo]
+    mov [sym_ticket_lifetime_lo], ax
+    mov ax, [sym_parse_age_add]
+    mov [sym_ticket_age_add], ax
+    mov ax, [sym_parse_age_add + 2]
+    mov [sym_ticket_age_add + 2], ax
+    mov ax, [sym_parse_nonce_len]
+    mov [sym_ticket_nonce_len], ax
+    mov ax, [sym_parse_identity_len]
+    mov [sym_ticket_identity_len], ax
+%endif
 
     mov si, sym_resumption_master_secret
     call tls13_prepare_secret
@@ -707,6 +816,7 @@ sym_parse_nst:
     stc
     ret
 
+%ifndef TLS13_SYM_ACQUISITION_ONLY
 ; PSK-DHE resumption is a two-step surface because the binder must be emitted
 ; before ServerHello provides the fresh X25519MLKEM768 ciphertext/share.
 ;
@@ -738,6 +848,21 @@ sym_resumption_binder:
     call tls13_hmac_once
     jc .done
 
+%ifdef TLS13_SYM_SYSTEM_RAM_RESUMPTION
+    ; HELLO already constructed and emitted the exact binder while the ticket
+    ; input occupied its pre-candidate capsule.  After the candidate, only the
+    ; PSK survives in retired low HELLO state.  Derive the early-derived value
+    ; needed by the handshake schedule without duplicating binder work/state.
+    mov si, sym_handshake_secret
+    call tls13_prepare_secret
+    ; The key length is the fixed SHA-256 digest length, so prepare cannot take
+    ; its sole (>64-byte key) failure path.  CX is still 0x0020 because both
+    ; HMAC helpers preserve it; changing CL therefore forms the one-descriptor
+    ; count without growing the resumption-only image into the root hold.
+    mov si, tls13_group_resumption_early + 9
+    mov cl, 1
+    call tls13_expand_group
+%else
     ; binder_key = Derive-Secret(early, "res binder", "")
     ; early_derived = Derive-Secret(early, "derived", "")
     mov si, sym_handshake_secret
@@ -763,6 +888,7 @@ sym_resumption_binder:
     mov cx, sha256_digest_len
     mov di, sym_resumption_binder_value
     call tls13_hmac_once
+%endif
 .done:
     ret
 
@@ -775,8 +901,12 @@ sym_resumption_handshake:
     mov cx, sym_shared_secret_len
     mov di, sym_handshake_secret
     call tls13_hmac_once
-    jc sym_derive_handshake_traffic.done
+    ; Both HMAC operands have compile-time-valid SHA-256 lengths, so the
+    ; helper's only failure condition is unreachable in this fixed profile.
+    ; Keeping the direct tail call also leaves the final 32-byte image padding
+    ; available for the conventional-RAM resumption root.
     jmp sym_derive_handshake_traffic
+%endif
 
 ; ---------------------------------------------------------------------------
 ; Streaming TLS 1.3 ChaCha20-Poly1305 record open
@@ -785,11 +915,11 @@ sym_resumption_handshake:
 sym_open_begin:
     cmp byte [sym_record_active], 0
     jne .failed
-    cmp byte [sym_io_base], 0x17
+    cmp byte [si], 0x17
     jne .failed
-    cmp word [sym_io_base + 1], 0x0303
+    cmp word [si + 1], 0x0303
     jne .failed
-    mov ax, [sym_io_base + 3]
+    mov ax, [si + 3]
     xchg al, ah
     cmp ax, tls_aead_tag_len + 1
     jb .failed
@@ -803,7 +933,6 @@ sym_open_begin:
 
     push ds
     pop es
-    mov si, sym_io_base
     mov di, sym_record_header
     mov cx, 5
     rep movsb
@@ -1271,8 +1400,10 @@ tls13_label_s_ap_traffic db 's ap traffic'
 tls13_label_s_ap_traffic_len equ $ - tls13_label_s_ap_traffic
 tls13_label_res_master db 'res master'
 tls13_label_res_master_len equ $ - tls13_label_res_master
+%ifndef TLS13_SYM_ACQUISITION_ONLY
 tls13_label_res_binder db 'res binder'
 tls13_label_res_binder_len equ $ - tls13_label_res_binder
+%endif
 tls13_label_resumption db 'resumption'
 tls13_label_resumption_len equ $ - tls13_label_resumption
 tls13_empty_context:
@@ -1355,6 +1486,7 @@ tls13_group_resumption_master:
                      sym_client_finished_hash, sha256_digest_len, \
                      sym_resumption_master_secret, sha256_digest_len
 
+%ifndef TLS13_SYM_ACQUISITION_ONLY
 tls13_group_resumption_early:
     TLS13_DESCRIPTOR tls13_label_res_binder, tls13_label_res_binder_len, \
                      tls13_empty_hash, sha256_digest_len, \
@@ -1368,6 +1500,7 @@ tls13_group_resumption_binder_finished:
     TLS13_DESCRIPTOR tls13_label_finished, tls13_label_finished_len, \
                      tls13_empty_context, 0, sym_client_finished_key, \
                      sha256_digest_len
+%endif
 
 chacha_constants:
     dw 0x7865,0x6170,0x646e,0x3320
@@ -1376,6 +1509,19 @@ poly1305_prime:
     db 0xfb
     times 15 db 0xff
     db 0x03
+%ifdef TLS13_POC_K14
+%ifndef TLS13_SYM_SYSTEM_RAM
+%ifndef TLS13_SYM_SYSTEM_RAM_RESUMPTION
+; The 286 tail's normalization ABI addresses this canonical constant page at
+; 0x2ee0.  Keep that internal boundary fixed when preceding code shrinks;
+; the two RAM-only 8088 images have independent, tighter tail layouts.
+%if ($ - sym_overlay_header) > 0x16e0
+%error "canonical K14 symmetric code grew into the fixed SHA-256 tail"
+%endif
+times 0x16e0 - ($ - sym_overlay_header) db 0
+%endif
+%endif
+%endif
 %ifdef TLS13_PRODUCT_CRITICAL_TAIL_PATH
 %ifndef TLS13_PRODUCT_SHA256_INITIAL_STATE
 %error "product critical tail requires the canonical SHA-256 initial-state address"
@@ -1440,6 +1586,42 @@ sha256_k:
     dw 0xa3f7,0xbef9,0x78f2,0xc671
 %endif
 
+%ifdef TLS13_SYM_SYSTEM_RAM
+%ifdef TLS13_SYM_ACQUISITION_ONLY
+; Long-lived acquisition facts that must survive the symmetric dialogue are
+; deliberately ordinary conventional RAM inside an inert part of the K image.
+; The controller publishes them status-last and moves them before loading the
+; regenerated KeyGen/FO phases.  No display or adapter RAM is involved.
+align 16, db 0
+sym_system_hold:
+sym_system_root             equ sym_system_hold
+sym_system_provisional_k    equ sym_system_root + 32
+sym_system_auth_digest      equ sym_system_provisional_k + 32
+sym_system_auth_signature_len equ sym_system_auth_digest + 32
+sym_system_auth_signature  equ sym_system_auth_signature_len + 2
+sym_system_auth_signature_max equ 72
+sym_system_auth_status      equ sym_system_auth_signature + \
+                                  sym_system_auth_signature_max
+sym_system_hold_end         equ sym_system_auth_status + 1
+times 176 db 0
+%if (sym_system_hold_end - sym_system_hold) != 171
+%error "system-RAM retained acquisition object changed size"
+%endif
+%endif
+%endif
+
+%ifdef TLS13_SYM_SYSTEM_RAM_RESUMPTION
+; Keep the resumption phase at its fixed twelve-sector product ABI even though
+; the RAM-only early-secret path omits duplicate binder machinery.
+times (12 * 512) - ($ - sym_overlay_header) db 0
+%elifdef TLS13_POC_K14
+%ifndef TLS13_SYM_SYSTEM_RAM
+; The canonical K14 image is shared verbatim with the 286 tail and therefore
+; retains its exact twelve-sector ABI even when code-size improvements leave a
+; few otherwise-unused bytes at the end of the image.
+times (12 * 512) - ($ - sym_overlay_header) db 0
+%endif
+%endif
 sym_overlay_end:
 
 ; ---------------------------------------------------------------------------
@@ -1534,7 +1716,7 @@ sym_k_work_end equ poly_j + 1
 
 %ifdef TLS13_POC_K14
 ; Primitive SHA/HMAC/AEAD work stays in K through
-; sym_k_work_end (currently 0x33f8). The 77-byte runtime tail follows the cold symmetric
+; sym_k_work_end. The 77-byte runtime tail follows the cold symmetric
 ; controller in K14's persistent extension.  This leaves the complete
 ; 0e00..0fff sector available for protected-flight disk staging without
 ; destroying either the retained candidate handoff at 0700 or live state.
@@ -1610,7 +1792,14 @@ sym_client_app_iv equ sym_high_state_base + 0x258
 sym_server_app_key equ sym_high_state_base + 0x264
 sym_server_app_iv equ sym_high_state_base + 0x284
 sym_resumption_master_secret equ sym_high_state_base + 0x290
+%ifdef TLS13_SYM_SYSTEM_RAM_RESUMPTION
+; PREPARE keeps the authenticated ticket PSK below resident code.  The normal
+; high slot is thereby dead immediately after the resumed schedule and can be
+; reclaimed by the RAM-only ciphertext/root lifetime.
+sym_ticket_psk equ 0x0dc0
+%else
 sym_ticket_psk equ sym_high_state_base + 0x2b0
+%endif
 sym_client_hs_seq equ sym_high_state_base + 0x2d0
 sym_server_hs_seq equ sym_high_state_base + 0x2d8
 sym_client_app_seq equ sym_high_state_base + 0x2e0
@@ -1623,19 +1812,66 @@ sym_resumption_binder_value equ sym_client_finished_verify
 sym_client_finished_message equ sym_high_state_base + 0x360
 sym_io_base equ sym_high_state_base + 0x3a0
 sym_io_end equ sym_io_base + 5 + sym_mss_max + tls_aead_tag_len
+%ifdef TLS13_SYM_SYSTEM_RAM
+; Once a complete post-handshake record authenticates, its <=384-byte
+; plaintext quarantine is no longer needed.  Pack the first retained NST over
+; that dead buffer, entirely below the product config cache at 0x3b9c.
+sym_ticket_identity equ sym_io_base
+sym_ticket_nonce equ sym_ticket_identity + sym_ticket_identity_max
+sym_ticket_lifetime_hi equ sym_ticket_nonce + sym_ticket_nonce_max
+%elifdef TLS13_SYM_SYSTEM_RAM_RESUMPTION
+; The final route consumes the acquisition ticket before this image begins.
+; Keep the otherwise-unused retained-ticket ABI over the dead IO quarantine
+; so no address reaches the product config cache.
+sym_ticket_identity equ sym_io_base
+sym_ticket_nonce equ sym_ticket_identity + sym_ticket_identity_max
+sym_ticket_lifetime_hi equ sym_ticket_nonce + sym_ticket_nonce_max
+%else
 sym_ticket_identity equ sym_high_state_base + 0x540
 sym_ticket_nonce equ sym_high_state_base + 0x600
 sym_ticket_lifetime_hi equ sym_high_state_base + 0x620
+%endif
 sym_ticket_lifetime_lo equ sym_ticket_lifetime_hi + 2
 sym_ticket_age_add equ sym_ticket_lifetime_lo + 2
 sym_ticket_nonce_len equ sym_ticket_age_add + 4
 sym_ticket_identity_len equ sym_ticket_nonce_len + 2
+%ifdef TLS13_SYM_SYSTEM_RAM
+; The incoming maximum-size NST occupies the compact ticket destination while
+; it is being validated.  Keep status/control in the three otherwise inert
+; bytes following the retained acquisition object in the acquisition image,
+; or immediately after the dead resumed IO quarantine in the resumption image.
+%ifdef TLS13_SYM_SYSTEM_RAM_RESUMPTION
+sym_ticket_present equ sym_io_end
+%else
+sym_ticket_present equ sym_system_hold_end
+%endif
+sym_client_finished_state equ sym_ticket_present + 1
+%elifdef TLS13_SYM_SYSTEM_RAM_RESUMPTION
+sym_ticket_present equ sym_io_end
+sym_client_finished_state equ sym_ticket_present + 1
+%else
 sym_ticket_present equ sym_ticket_identity_len + 2
 sym_client_finished_state equ sym_ticket_present + 1
 sym_high_state_end equ sym_client_finished_state + 1
+%endif
+%ifdef TLS13_SYM_SYSTEM_RAM
+sym_high_state_end equ sym_io_end
+sym_system_nonce_hold equ sym_verify_work
+%elifdef TLS13_SYM_SYSTEM_RAM_RESUMPTION
+sym_high_state_end equ sym_client_finished_state + 1
+%endif
 
 %if sym_high_state_end > sym_high_security_state_limit
 %error "symmetric retained state exceeds its security-state window"
+%endif
+%ifdef TLS13_SYM_SYSTEM_RAM
+%if sym_record_header != 0x3524
+%error "RAM-only acquisition private record-header ABI drifted"
+%endif
+%elifdef TLS13_SYM_SYSTEM_RAM_RESUMPTION
+%if sym_record_header != 0x3524
+%error "RAM-only resumption private record-header ABI drifted"
+%endif
 %endif
 
 %if (sym_overlay_end - sym_overlay_header) > (sym_overlay_limit - sym_overlay_base)
@@ -1668,8 +1904,12 @@ sym_high_state_end equ sym_client_finished_state + 1
 %if sym_hello_context_end > sym_optional_low_work_end
 %error "HELLO transcript handoff exceeds optional low scratch"
 %endif
+%ifndef TLS13_SYM_SYSTEM_RAM
+%ifndef TLS13_SYM_SYSTEM_RAM_RESUMPTION
 %if sym_io_end > sym_ticket_identity
 %error "TLS 1.3 symmetric IO overlaps ticket identity"
+%endif
+%endif
 %endif
 %if (sym_ticket_identity + sym_ticket_identity_max) > sym_ticket_nonce
 %error "TLS 1.3 ticket identity exceeds its fixed slot"

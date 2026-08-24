@@ -2288,11 +2288,11 @@ def classify_86box_screen(path: Path) -> tuple[str, str]:
     )
 
     # A screen whose glyphs span nearly every row and column is not a normal
-    # Seed splash/prompt oracle.  In particular, MDA vault bytes rendered as
-    # character/attribute pairs otherwise look like a very large gray splash
-    # and were previously misclassified as success.  Keep legitimately dense
-    # conversation screens conservative too: they require inspection instead
-    # of being accepted from this coarse shape oracle.
+    # Seed splash/prompt oracle. Corrupted memory rendered as character/
+    # attribute pairs can otherwise look like a very large gray splash and be
+    # misclassified as success. Keep legitimately dense conversation screens
+    # conservative too: they require inspection instead of being accepted
+    # from this coarse shape oracle.
     if (
         active_glyph_rows * 4 >= sampled_height * 3
         and active_glyph_columns * 10 >= sampled_width * 9
@@ -2666,7 +2666,11 @@ def classify_running_vm(
         not args.no_screen_ocr
     )
     if should_ocr:
-        engine, lines = screen_ocr_lines(args.oracle_screenshot, args.screen_ocr_timeout)
+        engine, lines = screen_ocr_lines_for_expected(
+            args.oracle_screenshot,
+            args.screen_ocr_timeout,
+            args.screen_expect_text,
+        )
 
     verdict = shape_verdict
     detail = shape_detail
@@ -2795,9 +2799,10 @@ def wait_for_dpi_prompt(
                 )
                 print(f"{label}: kept {args.oracle_screenshot}")
                 return False
-            last_engine, last_lines = screen_ocr_lines(
+            last_engine, last_lines = screen_ocr_lines_for_expected(
                 args.oracle_screenshot,
                 args.screen_ocr_timeout,
+                [expected_response_text] if expected_response_text else [],
             )
             if ocr_lines_suggest_seed_failure_menu(last_lines):
                 print(f"{label}: failure menu before DPI prompt")
@@ -3293,6 +3298,33 @@ def missing_expected_ocr_text(lines: list[str], expected_text: list[str]) -> lis
     return missing
 
 
+def screen_vision_ocr_lines(path: Path, timeout: float) -> tuple[str | None, list[str]]:
+    swift = shutil.which("swift")
+    if swift is None or not DEFAULT_OCR_SCRIPT.exists():
+        return None, []
+    cache_root = Path(tempfile.gettempdir()) / "seed-swift-module-cache"
+    cache_root.mkdir(parents=True, exist_ok=True)
+    env = os.environ.copy()
+    env["CLANG_MODULE_CACHE_PATH"] = str(cache_root)
+    env["SWIFT_MODULE_CACHE_PATH"] = str(cache_root)
+    try:
+        result = subprocess.run(
+            [swift, str(DEFAULT_OCR_SCRIPT), str(path)],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            env=env,
+            timeout=timeout,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None, []
+    if result.returncode != 0:
+        return None, []
+    return "vision", unique_nonempty_lines(result.stdout)
+
+
 def screen_ocr_lines(path: Path, timeout: float) -> tuple[str | None, list[str]]:
     if not path.exists():
         return None, []
@@ -3352,30 +3384,31 @@ def screen_ocr_lines(path: Path, timeout: float) -> tuple[str | None, list[str]]
     if copied_ocr_path is not None:
         copied_ocr_path.unlink(missing_ok=True)
 
-    swift = shutil.which("swift")
-    if swift is None or not DEFAULT_OCR_SCRIPT.exists():
-        return None, []
-    cache_root = Path(tempfile.gettempdir()) / "seed-swift-module-cache"
-    cache_root.mkdir(parents=True, exist_ok=True)
-    env = os.environ.copy()
-    env["CLANG_MODULE_CACHE_PATH"] = str(cache_root)
-    env["SWIFT_MODULE_CACHE_PATH"] = str(cache_root)
-    try:
-        result = subprocess.run(
-            [swift, str(DEFAULT_OCR_SCRIPT), str(path)],
-            cwd=ROOT,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            env=env,
-            timeout=timeout,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return None, []
-    if result.returncode != 0:
-        return None, []
-    return "vision", unique_nonempty_lines(result.stdout)
+    return screen_vision_ocr_lines(path, timeout)
+
+
+def screen_ocr_lines_for_expected(
+    path: Path,
+    timeout: float,
+    expected_text: list[str],
+) -> tuple[str | None, list[str]]:
+    """Use exact Vision text only when the primary OCR misses an expectation."""
+    engine, lines = screen_ocr_lines(path, timeout)
+    if (
+        not expected_text
+        or engine == "vision"
+        or not missing_expected_ocr_text(lines, expected_text)
+    ):
+        return engine, lines
+
+    vision_engine, vision_lines = screen_vision_ocr_lines(path, timeout)
+    if vision_engine is None or not vision_lines:
+        return engine, lines
+    combined_lines = unique_nonempty_lines("\n".join([*lines, *vision_lines]))
+    combined_engine = (
+        f"{engine}+{vision_engine}" if engine is not None else vision_engine
+    )
+    return combined_engine, combined_lines
 
 
 def unique_nonempty_lines(text: str) -> list[str]:

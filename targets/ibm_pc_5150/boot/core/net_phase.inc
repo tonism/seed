@@ -133,17 +133,8 @@ tls13_product_establish_route:
     test word [handoff_addr + handoff_flags], handoff_flag_cpu_286plus
     jnz tls13_product_establish_286
 
-    mov ax, TLS13_K14_PRODUCT_STATE_GUARD_PHASE_KEY
-    mov bx, TLS13_K14_PRODUCT_STATE_GUARD_DESTINATION
-    call load_core_sectors_at
-    jc .route_load_failed
-    pop ax
-    push ax
-    call TLS13_K14_PRODUCT_STATE_GUARD_ENTRY
-    jc .guard_pre_failed
-
-    ; PRE_HUMAN owns the complete three-fact MDA boundary and returns carry
-    ; unless every non-empty volatile prompt was published status-last.
+    ; The 8088 root now owns only conventional RAM.  There is no hidden video
+    ; state to snapshot or restore around it, so enter the root directly.
     mov ax, TLS13_K14_PRODUCT_ROOT_PHASE_KEY
     mov bx, TLS13_K14_PRODUCT_ROOT_DESTINATION
     call load_core_sectors_at
@@ -153,33 +144,16 @@ tls13_product_establish_route:
     pushf
     call [nic_vt_restore]
     ; Root success publishes READY=1, while its disk-independent abort returns
-    ; with READY=0.  Hide either result without underflow until POST validates
-    ; the restored state/UI boundary.
+    ; with READY=0.  Keep the capability hidden until the root return itself
+    ; has committed.
     mov byte [tls_key_schedule_ready], 0
-
-    ; Root success is not visible to the chat loop until POST has rebuilt all
-    ; scrubbed low constants/UI and invalidated its prompt snapshot.
-    mov ax, TLS13_K14_PRODUCT_STATE_GUARD_PHASE_KEY
-    mov bx, TLS13_K14_PRODUCT_STATE_GUARD_DESTINATION
-    call load_core_sectors_at
-    jc .guard_post_load_failed
-    mov al, k14_guard_mode_post_route
-    call TLS13_K14_PRODUCT_STATE_GUARD_ENTRY
-    jc .guard_post_load_failed
     popf
     jc .restore_dpi_failed
     inc byte [tls_key_schedule_ready]
     jmp tls13_product_route_mode
 
-.guard_post_load_failed:
-.route_load_failed:
-    pop ax                              ; discard saved root flags/route mode
-    jmp .restore_dpi_failed
 .root_load_failed:
-.guard_pre_failed:
     pop ax                              ; discard saved route mode
-    mov al, k14_guard_mode_abort
-    call TLS13_K14_PRODUCT_STATE_GUARD_ENTRY
 .restore_dpi_failed:
     call tls13_product_route_mode
 .failed:
@@ -187,11 +161,15 @@ tls13_product_establish_route:
     ret
 
 tls13_product_establish_286:
+    ; The 286 bootstrap reuses 0500..05ff for its low immutable constants.
+    ; Freeze the existing-read sampler before that publication so later
+    ; required phase reads cannot append into the replaced corpus.
+    mov byte [tls13_entropy_read_sample_frozen], 0xa5
     ; N revalidates the 286/512 KiB gates and silently publishes a fresh,
     ; coherent platform-UTC BIOS RTC value. Failure is indistinguishable from
     ; any other unavailable secure route; there is no interactive clock gate.
     run_net_phase core_ntp_setup_phase_start, core_ntp_setup_phase_end
-    jc tls13_product_establish_route.route_load_failed
+    jc tls13_product_establish_route.root_load_failed
     mov ax, TLS13_286_PRODUCT_ROOT_PHASE_KEY
     mov bx, TLS13_286_PRODUCT_ROOT_DESTINATION
     call load_core_sectors_at
@@ -205,6 +183,32 @@ tls13_product_establish_286:
     ; the bootstrap reads that fixed low address directly and does not trust
     ; a register across the intervening disk load.
     jmp TLS13_286_PRODUCT_ROOT_ENTRY
+
+; Append one raw PIT-channel-0 phase byte after each successful BIOS sector
+; read.  The low byte at 05fe is the sample count; the high byte is a freeze
+; marker.  A count of 120 or a nonzero marker makes the unsigned word >=120,
+; so one comparison enforces both the capacity and the one-shot lifetime.
+;
+; Entry is a tail jump from read_abs_sector with its saved CX/AX still on the
+; stack and BIOS CF live.  Return is byte-for-byte equivalent to the old tail.
+tls13_entropy_note_disk_read:
+    jc .done
+    push bx
+    mov bx, [tls13_entropy_read_sample_count]
+    cmp bx, tls13_entropy_read_sample_capacity
+    jae .restore_bx
+    mov al, 0
+    out 0x43, al
+    in al, 0x40
+    mov [bx + tls13_entropy_read_samples], al
+    inc byte [tls13_entropy_read_sample_count]
+    clc                                 ; preserve the successful BIOS result
+.restore_bx:
+    pop bx
+.done:
+    pop cx
+    pop ax
+    ret
 
 tls13_product_net_block_end:
 %if (tls13_product_net_block_end - tls13_product_net_block_start) > 333

@@ -219,8 +219,12 @@ load_core_sectors_at:
 
 clear_runtime_scratch:
     xor ax, ax
-    mov di, low_runtime_state_start
-    mov cx, (low_runtime_state_end - low_runtime_state_start + 1) / 2
+    ; 0500..05ff is free before the first cold phase.  Clear it with the
+    ; ordinary low runtime state so read_abs_sector can append PIT completion
+    ; samples from reads Seed already performs.  A secure root freezes the
+    ; recorder before this page becomes a callback/constants overlay.
+    mov di, low_sha256_k
+    mov cx, (low_runtime_state_end - low_sha256_k + 1) / 2
     rep stosw
     mov di, high_crypto_scratch_start
     mov cx, (critical_scratch_end - high_crypto_scratch_start) / 2

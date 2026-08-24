@@ -391,8 +391,9 @@ agent_request_phase:
     mov cx, seed_model_len
     call agent_request_phase_append_z_bounded_to_buffer
     jc .request_failed
-    ; Build 9 streaming: R builds only chunk 1 = headers + {"model":"<model> . The stream phase
-    ; then builds+sends chunk 2 (",reasoning,instructions:"<identity> <ledger>","input":") and
+    ; Build 9 streaming: R builds only chunk 1 = headers + {"model":"<cached wire tail>. The
+    ; TLS 1.3 tail closes the model and carries reasoning.effort. The stream phase then
+    ; builds+sends chunk 2 (,"instructions":"<identity> <ledger>","input":") and
     ; chunk 3 (<prompt>","stream":true}), so no single record must hold the whole prefix.
     ; Content-Length (compute_ready_body_lengths) is the total body across all 3 records.
     mov ax, di
@@ -550,12 +551,15 @@ agent_request_phase:
     add ax, api_json_model_text_len
     add ax, api_json_reasoning_prefix_len + api_json_input_open_text_len
     ; Build 12 native tool calling: on a normal (non-compaction) ready turn, agent_api_stream splices
-    ; '","tools":' + the schema bytes after the model, and shortens the reasoning prefix by 1 (skips
-    ; its leading model-close quote). Mirror that EXACTLY into Content-Length, whether the schema streams
-    ; from 32K tools_cache or the 16K floppy fallback.
+    ; the tools key + schema after the model/reasoning tail. Mirror that EXACTLY into Content-Length,
+    ; whether the schema streams from 32K tools_cache or the 16K floppy fallback.
     cmp byte [compacting_msg], 0
     jne .no_tools_len
+%ifdef TLS13_PRODUCT_TLS13
+    add ax, api_json_tools_open_text_len
+%else
     add ax, api_json_tools_open_text_len - 1
+%endif
     add ax, [prompt_tools_size]
 .no_tools_len:
     ; instructions value = the compaction contract (compaction) OR identity + ledger (normal turn).
@@ -741,7 +745,12 @@ http_content_length_text db 'Content-Type:application/json', 13, 10, 'Content-Le
 agent_request_host_openai_text db 'api.openai.com', 0
 api_json_model_text db '{"model":"', 0
 api_json_model_text_len equ $ - api_json_model_text - 1
+%ifdef TLS13_PRODUCT_TLS13
+; chat_model_cache already closes the model and carries reasoning.effort.
+api_json_input_text db ',"input":"', 0
+%else
 api_json_input_text db '","input":"', 0
+%endif
 ; Build 9: the tiered ready input-prefix templates were removed; identity+ledger + the
 ; instructions/input-open templates now live in agent_api_stream.inc (built/sent as chunk 2).
 api_json_boot_prompt_text db 'Greet.', 0

@@ -39,12 +39,45 @@ mlkem_poly_words             equ 256
 mlkem_poly_bytes             equ 512
 mlkem_state_bytes            equ 200
 
+%ifdef MLKEM_RAW_C_ADDR
+mlkem_raw_c                  equ MLKEM_RAW_C_ADDR
+%else
 mlkem_raw_c                  equ poc_mlkem_ciphertext
+%endif
 mlkem_poly_u                 equ poc_poly_u
 mlkem_poly_acc               equ poc_poly_acc
+%ifdef MLKEM_MESSAGE_ADDR
+mlkem_message                equ MLKEM_MESSAGE_ADDR
+%else
 mlkem_message                equ poc_tls_vault_start
+%endif
+%ifdef MLKEM_CANDIDATE_G_ADDR
+mlkem_candidate_g            equ MLKEM_CANDIDATE_G_ADDR
+%else
 mlkem_candidate_g            equ poc_candidate_g
+%endif
+%ifdef MLKEM_CANDIDATE_Z_ADDR
+mlkem_candidate_z            equ MLKEM_CANDIDATE_Z_ADDR
+%else
 mlkem_candidate_z            equ poc_candidate_z
+%endif
+%ifdef MLKEM_INTERNAL_HOLDS
+mlkem_h_ek_hold              equ mlkem_internal_h_ek_hold
+mlkem_z_hold                 equ mlkem_internal_z_hold
+%define MLKEM_SEPARATE_Z_HOLD
+%elifdef MLKEM_H_EK_HOLD_ADDR
+mlkem_h_ek_hold              equ MLKEM_H_EK_HOLD_ADDR
+%else
+mlkem_h_ek_hold              equ mlkem_candidate_g
+%endif
+%ifndef MLKEM_INTERNAL_HOLDS
+%ifdef MLKEM_Z_HOLD_ADDR
+mlkem_z_hold                 equ MLKEM_Z_HOLD_ADDR
+%define MLKEM_SEPARATE_Z_HOLD
+%else
+mlkem_z_hold                 equ mlkem_candidate_z
+%endif
+%endif
 
 ; These buffers reuse dead KeyGen secret storage only after the third component
 ; has been multiplied into mlkem_poly_acc.  They are disposable when the
@@ -55,6 +88,16 @@ mlkem_keccak_c               equ mlkem_keccak_b + 200
 mlkem_keccak_d               equ mlkem_keccak_c + 40
 mlkem_lane_tmp               equ mlkem_keccak_d + 40
 mlkem_keccak_work_end        equ mlkem_lane_tmp + 8
+
+%ifdef MLKEM_SCATTERED_C
+%macro MLKEM_C_LODSB 0
+    call mlkem_scattered_c_lodsb
+%endmacro
+%else
+%macro MLKEM_C_LODSB 0
+    lodsb
+%endmacro
+%endif
 
 mlkem_overlay_start:
 
@@ -68,11 +111,11 @@ mlkem_candidate_entry:
 
     ; sHat[0] expansion later destroys H(ek) and z.  Preserve both first.
     mov si, poc_h_ek
-    mov di, mlkem_candidate_g
+    mov di, mlkem_h_ek_hold
     mov cx, poc_h_ek_len / 2
     rep movsw
     mov si, poc_z
-    mov di, mlkem_candidate_z
+    mov di, mlkem_z_hold
     mov cx, poc_z_len / 2
     rep movsw
 
@@ -113,6 +156,24 @@ mlkem_candidate_entry:
     call mlkem_decode_poly4
     call mlkem_decrypt_message
     call mlkem_sha3_512_message_h
+%ifdef MLKEM_SEPARATE_Z_HOLD
+    mov si, mlkem_z_hold
+    mov di, mlkem_candidate_z
+    mov cx, 16
+    rep movsw
+%endif
+%ifdef MLKEM_STAGE_EK_FOR_FO
+    ; The following low lifecycle load occupies 0900..0cff.  Preserve that
+    ; middle 1024-byte public-ek span directly in its final FO destination;
+    ; the lifecycle copies only the 64-byte prefix and 96-byte suffix around
+    ; its own phase image.  Candidate work below 3000 is dead at this point.
+    push ds
+    pop es
+    mov si, 0x0900
+    mov di, 0x2440
+    mov cx, 1024 / 2
+    rep movsw
+%endif
     mov ax, mlkem_candidate_g
     ret
 
@@ -147,15 +208,15 @@ mlkem_decode_poly10:
     mov di, mlkem_poly_u
     mov word [mlkem_decode_groups], 64
 .group:
-    lodsb
+    MLKEM_C_LODSB
     mov [mlkem_decode_b0], al
-    lodsb
+    MLKEM_C_LODSB
     mov [mlkem_decode_b1], al
-    lodsb
+    MLKEM_C_LODSB
     mov [mlkem_decode_b2], al
-    lodsb
+    MLKEM_C_LODSB
     mov [mlkem_decode_b3], al
-    lodsb
+    MLKEM_C_LODSB
     mov [mlkem_decode_b4], al
 
     xor ax, ax
@@ -215,7 +276,7 @@ mlkem_decode_poly4:
     mov di, mlkem_poly_u
     mov cx, 128
 .pair:
-    lodsb
+    MLKEM_C_LODSB
     mov dl, al
     and ax, 0x000f
     call mlkem_decompress4
@@ -230,6 +291,92 @@ mlkem_decode_poly4:
     stosw
     loop .pair
     ret
+
+; The ordinary deadline candidate reads the contiguous ServerHello c at
+; 08c0..0cff.  The post-dialogue standards-complete FO pass deliberately
+; regenerates KeyGen at the same address, so its second candidate reads c from
+; bounded conventional-RAM slices instead.  Keeping the logical SI ABI makes the
+; cryptographic code byte-for-byte common; only this slow, off-window byte
+; accessor differs.
+%ifdef MLKEM_SCATTERED_C
+%ifndef MLKEM_C_SEG0_ADDR
+%error "scattered c requires segment 0"
+%endif
+%ifndef MLKEM_C_SEG0_LEN
+%error "scattered c requires segment 0 length"
+%endif
+%ifndef MLKEM_C_SEG1_ADDR
+%error "scattered c requires segment 1"
+%endif
+%ifndef MLKEM_C_SEG1_LEN
+%error "scattered c requires segment 1 length"
+%endif
+%ifndef MLKEM_C_SEG2_ADDR
+%error "scattered c requires segment 2"
+%endif
+%ifndef MLKEM_C_SEG2_LEN
+%error "scattered c requires segment 2 length"
+%endif
+%ifndef MLKEM_C_SEG3_ADDR
+%error "scattered c requires segment 3"
+%endif
+%ifndef MLKEM_C_SEG3_LEN
+%error "scattered c requires segment 3 length"
+%endif
+; Four slices are sufficient after the system-RAM symmetric phase consolidates
+; its temporary 77-byte gap.  Retain an optional fifth slice for experiments
+; whose physical schedule needs one more discontinuity.
+%ifndef MLKEM_C_SEG4_ADDR
+%define MLKEM_C_SEG4_ADDR 0
+%endif
+%ifndef MLKEM_C_SEG4_LEN
+%define MLKEM_C_SEG4_LEN 0
+%endif
+%if (MLKEM_C_SEG0_LEN + MLKEM_C_SEG1_LEN + MLKEM_C_SEG2_LEN + \
+     MLKEM_C_SEG3_LEN + MLKEM_C_SEG4_LEN) != poc_mlkem_ciphertext_len
+%error "scattered c segments do not cover exactly ML-KEM-768 c"
+%endif
+
+mlkem_scattered_c_lodsb:
+    push bx
+    mov bx, si
+    sub bx, mlkem_raw_c
+    cmp bx, MLKEM_C_SEG0_LEN
+    jb .seg0
+    sub bx, MLKEM_C_SEG0_LEN
+    cmp bx, MLKEM_C_SEG1_LEN
+    jb .seg1
+    sub bx, MLKEM_C_SEG1_LEN
+    cmp bx, MLKEM_C_SEG2_LEN
+    jb .seg2
+    sub bx, MLKEM_C_SEG2_LEN
+    cmp bx, MLKEM_C_SEG3_LEN
+    jb .seg3
+    sub bx, MLKEM_C_SEG3_LEN
+    cmp bx, MLKEM_C_SEG4_LEN
+    jae .outside
+    mov al, [bx + MLKEM_C_SEG4_ADDR]
+    jmp short .done
+.seg0:
+    mov al, [bx + MLKEM_C_SEG0_ADDR]
+    jmp short .done
+.seg1:
+    mov al, [bx + MLKEM_C_SEG1_ADDR]
+    jmp short .done
+.seg2:
+    mov al, [bx + MLKEM_C_SEG2_ADDR]
+    jmp short .done
+.seg3:
+    mov al, [bx + MLKEM_C_SEG3_ADDR]
+    jmp short .done
+.outside:
+    xor al, al
+.done:
+    inc si
+    pop bx
+    ret
+
+%endif
 
 ; AX in [0,1023] -> round(q*AX/2^10), exact FIPS Decompress_10.
 mlkem_decompress10:
@@ -384,7 +531,7 @@ mlkem_sha3_512_message_h:
     mov di, mlkem_keccak_state
     mov cx, 32
     rep movsb
-    mov si, mlkem_candidate_g
+    mov si, mlkem_h_ek_hold
     mov cx, 32
     rep movsb
     mov byte [mlkem_keccak_state + 64], 0x06
@@ -861,6 +1008,10 @@ mlkem_round_index            dw 0
 mlkem_rot_outputs            dw 0
 mlkem_rot_bits               db 0
 mlkem_rot_inv_bits           db 0
+%ifdef MLKEM_INTERNAL_HOLDS
+mlkem_internal_h_ek_hold     times 32 db 0
+mlkem_internal_z_hold        times 32 db 0
+%endif
 mlkem_mutable_end:
 mlkem_overlay_end:
 

@@ -28,10 +28,12 @@ PHASES = BOOT / "phases"
 LOAD = 0x0700
 CALLBACK = 0x0500
 SEED_START = 0x0600
-FIXED_SWEEP_END = 0xA0600
-MDA_VAULT = 0xB0000
-CGA_VAULT = 0xB9000
-VAULT_BYTES = 4000
+FIXED_SWEEP_END = 0xA0000
+VIDEO_GUARDS = {
+    "EGA/VGA": (0xA0000, 0x10000, 0xA4),
+    "MDA": (0xB0000, 0x08000, 0xB6),
+    "CGA": (0xB8000, 0x08000, 0xC7),
+}
 RESET_VECTOR = 0xFFFF0
 MEMORY_BYTES = 0x110000
 
@@ -106,8 +108,8 @@ def execute(image: bytes) -> dict[str, object]:
     low_guard = bytes((index * 37 + 11) & 0xFF for index in range(CALLBACK))
     uc.mem_write(0, low_guard)
     uc.mem_write(SEED_START, b"\xA5" * (FIXED_SWEEP_END - SEED_START))
-    uc.mem_write(MDA_VAULT, b"\xB6" * VAULT_BYTES)
-    uc.mem_write(CGA_VAULT, b"\xC7" * VAULT_BYTES)
+    for address, length, value in VIDEO_GUARDS.values():
+        uc.mem_write(address, bytes([value]) * length)
     uc.mem_write(LOAD, image)
 
     uc.reg_write(UC_X86_REG_CS, 0)
@@ -151,11 +153,7 @@ def execute(image: bytes) -> dict[str, object]:
             write_violation = "warm flag used the wrong width or value"
             machine.emu_stop()
             return
-        if (
-            any(machine.mem_read(SEED_START, FIXED_SWEEP_END - SEED_START))
-            or any(machine.mem_read(MDA_VAULT, VAULT_BYTES))
-            or any(machine.mem_read(CGA_VAULT, VAULT_BYTES))
-        ):
+        if any(machine.mem_read(SEED_START, FIXED_SWEEP_END - SEED_START)):
             write_violation = "warm flag was published before complete erasure"
             machine.emu_stop()
             return
@@ -176,14 +174,11 @@ def execute(image: bytes) -> dict[str, object]:
         == bytes(FIXED_SWEEP_END - SEED_START),
         "fixed conventional sweep left live bytes",
     )
-    require(
-        bytes(uc.mem_read(MDA_VAULT, VAULT_BYTES)) == bytes(VAULT_BYTES),
-        "MDA vault was not erased",
-    )
-    require(
-        bytes(uc.mem_read(CGA_VAULT, VAULT_BYTES)) == bytes(VAULT_BYTES),
-        "CGA vault was not erased",
-    )
+    for name, (address, length, value) in VIDEO_GUARDS.items():
+        require(
+            bytes(uc.mem_read(address, length)) == bytes([value]) * length,
+            f"{name} video RAM changed",
+        )
 
     after_low = bytes(uc.mem_read(0, CALLBACK))
     require(after_low[:0x0472] == low_guard[:0x0472], "IVT/BDA prefix changed")
@@ -215,8 +210,7 @@ def execute(image: bytes) -> dict[str, object]:
         "conventional_first": f"0x{SEED_START:05x}",
         "conventional_last": f"0x{FIXED_SWEEP_END - 1:05x}",
         "conventional_bytes": FIXED_SWEEP_END - SEED_START,
-        "mda_vault_bytes": VAULT_BYTES,
-        "cga_vault_bytes": VAULT_BYTES,
+        "video_guard_bytes": sum(length for _, length, _ in VIDEO_GUARDS.values()),
         "warm_flag": "0x1234",
         "reset_vector": "ffff:0000",
     }
@@ -236,8 +230,7 @@ def main() -> None:
     )
     print(
         "  "
-        f"MDA={result['mda_vault_bytes']} B "
-        f"CGA={result['cga_vault_bytes']} B "
+        f"video-unchanged={result['video_guard_bytes']} B "
         f"flag={result['warm_flag']} reset={result['reset_vector']}"
     )
 
