@@ -145,10 +145,12 @@ tick-aligned target operations. The matrix is 4,608 bytes / nine A^T
 polynomials and removes 27 matrix SHAKE128 permutations from live
 decapsulation. The v4 report measures post-connect HELLO TX/RX wrappers and
 protected-flight controllers, but still excludes named resident
-connect/load/NIC work and complete offline authentication timing. Do not carry
-old report numbers into release documentation: rerun the serialized gate and
-the live activity measurements from the release-bound image. Run the
-cache/controller hostile gates alongside the timing model:
+connect/load/NIC work and complete offline authentication timing. The current
+live exact-floor monitors are recorded in
+[`architecture.md`](architecture.md#current-exact-floor-activity-timelines).
+Rerun both the serialized gate and those monitors after timing-affecting source,
+model, or provider changes; do not substitute the structural report for a live
+measurement. Run the cache/controller hostile gates alongside the timing model:
 
 ```sh
 python3 tools/crypto-bench/tls13-product/check_mlkem_product_modules.py
@@ -238,6 +240,23 @@ representative physical traces of PIT phases attached to its already-required
 floppy reads; the 286 route needs physical RTC-periodic/PIT traces.
 Conservative min-entropy estimates and calibrated health tests remain separate
 acceptance gates for both sources.
+
+### Activity timing sweep
+
+The three canonical current monitors—8088 cold start, a reused 8088 dialogue
+turn, and 286 cold start—live in
+[`architecture.md`](architecture.md#current-exact-floor-activity-timelines).
+Capture them at the exact CPU/RAM floors from a read-only image, using the same
+short `FORTYTWO` prompt and recording both pcap timestamps and screen-oracle DPI
+timestamps. The current baseline uses `gpt-5.6-sol` with `xhigh` reasoning.
+
+For a reusable-turn endpoint, set `--post-dpi-wait 0` and poll for the prompt;
+a fixed post-DPI delay produces only an upper bound. Keep a 35-second capture
+delay for the ROM BASIC sidecar so the harness does not mistake the typed BASIC
+listing for a dense corrupted Seed screen. A 286 timing sweep may retain a
+bounded failed pre-text route as provider-edge characterization, but it is not
+the strict topology gate. The authoritative 286 acceptance artifact remains
+the clean ordered four-flow capture described above.
 
 ## Validation recipes
 

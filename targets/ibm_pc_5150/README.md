@@ -151,12 +151,12 @@ after import, and the matrix feeds complete full FO after ServerHello. Full
 ciphertext comparison and implicit rejection still precede server Finished,
 client Finished, and credential publication.
 
-At the 6 MHz floor, the last measurement baseline put matrix generation at 45
-ticks / 2.4716 s outside the live window and cached full FO at 43 ticks /
-2.3618 s versus 88 ticks / 4.8334 s uncached. Earlier serialized and live
-figures were below the observed provider deadline. Release-bound timing and
-activity figures will be remeasured from the final RAM-only image rather than
-carried forward as current acceptance evidence.
+At the 6 MHz floor, matrix generation measures 45 ticks / 2.4716 s outside the
+live window and cached full FO measures 43 ticks / 2.3618 s versus 88 ticks /
+4.8334 s uncached. Current exact-floor wire and full activity measurements are
+recorded in
+[`../../docs/architecture.md`](../../docs/architecture.md#current-exact-floor-activity-timelines)
+and [`../../docs/testing.md`](../../docs/testing.md).
 
 Both product routes are integrated and pass their current-source offline
 composition gates. Current read-only exact-floor runs prove fresh/resumed wire

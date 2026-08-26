@@ -16,8 +16,9 @@ bigger arena to build in. That principle is the spine of everything below.
 > validation: lifetime-ordered low memory, one self-selecting `SEED.SYS`,
 > external NIC drivers, native function tools, and RAM scaling from the 16 KiB
 > floor through EMS / 286 native extended / 386 unreal mode. The 8088 and 286
-> TLS routes are linked, but live original-speed product acceptance is still
-> running; PoC measurements are labeled as such. Byte-level maps are in
+> TLS routes pass their current-source exact-floor emulator gates. Physical
+> entropy characterization and additional provider-edge repetition remain;
+> PoC and historical measurements are labeled as such. Byte-level maps are in
 > [`memory.md`](memory.md), and the exact security claims are in
 > [`security.md`](security.md).
 
@@ -125,9 +126,9 @@ gates pass, physical-source validation pending):
 ```text
 SEED.SYS total bytes:        150016
 SEED.SYS total sectors:      293
-resident nucleus sectors:    4   (2048 B; 1495 nonzero B)
+resident nucleus sectors:    4   (2048 B; 1536 nonzero B)
 ordinary phase entries:      29
-application K executable:    10 sectors (inside its 15-sector physical slot)
+application K executable:    5310 B / 11 sectors (inside its 15-sector slot)
 8088 TLS 1.3 cold pack:      130 sectors, file sectors 45..174
 286 TLS 1.3 tail:            82 sectors, file sectors 212..293
   module cache:              44 sectors / 22528 bytes
@@ -137,8 +138,9 @@ application K executable:    10 sectors (inside its 15-sector physical slot)
 
 The resident nucleus is still fixed at four sectors; current growth is cold
 phases and high-memory modules, not a larger always-resident Seed. The
-15-sector K slot retains five sectors of geometry headroom; those padded file
-sectors are not executable arena. The current 160 KiB composition uses 308 of
+15-sector K slot retains 2,370 padding bytes, or four complete sectors of load
+geometry headroom; those padded file sectors are not executable arena. The
+current 160 KiB composition uses 308 of
 309 FAT data sectors: 293 runtime sectors plus 15 auxiliary sectors. One FAT
 data cluster (one sector on this image) remains free as a required packaging
 guard. Consequently, the current universal `SEED.SYS` has zero usable
@@ -491,7 +493,7 @@ Current 29-phase layout (regenerate with `make inspect` / `tools/core-sys-info.p
 
 ```text
 id  sectors  load addr  responsibility
-K   10/15    0x1800     10-sector TLS 1.3 application executable in a 15-sector slot
+K   11/15    0x1800     5310-byte TLS 1.3 application executable in a 15-sector slot
 F   2        0x0700     failure action UI
 H   4        0x0700     hardware/display/NIC discovery
 2   2        0x0700     scan/load suitable NIC driver from SEED/DRIVERS/*.DRV
@@ -719,8 +721,6 @@ without it. The current read-only 6 MHz / 512 KiB live reconnect capture has the
 required `acquisition -> resumption -> acquisition -> resumption` topology and
 measures 8.8880, 8.6428, 8.9518, and 8.6425 seconds from ServerHello to client
 Finished. The target returns authenticated OpenAI text and a clean DPI prompt.
-Full boot/activity graphs should still be remeasured from the release-bound
-image after timing-affecting work has stopped.
 
 The candidate ML-KEM path is deliberately not an authority boundary. The
 offline full FO comparison, X.509/hostname/time/WE1/CV checks, and
@@ -730,6 +730,119 @@ a substitute for the live pcap. The integrated 6 MHz / 512 KiB single-profile
 wire/reconnect trace and the injected CPU/RAM/time/entropy/auth/Finished/FO/
 pack/abort gates pass. Physical entropy characterization and additional
 provider-edge repetition remain open.
+
+### Current exact-floor activity timelines
+
+These monitors use the current conventional-RAM-only image, read-only media,
+the exact 4.77 MHz / 16 KiB and 6 MHz / 512 KiB floors, and the same short
+`FORTYTWO` dialogue on `gpt-5.6-sol` with `xhigh` reasoning. They are wall-clock
+activity measurements, not entropy evidence or a provider SLA. Network
+timestamps come from the live pcap; DPI endpoints come from the screen oracle.
+Rounded parts can differ from totals by 0.1 second.
+
+The phase letters distinguish work by security lifetime:
+
+```text
+B  firmware or ROM BASIC sidecar entry before the Seed-runtime timing boundary
+P  local pre-TCP key generation, conditioning, phase loading, and network setup
+F  fresh/acquisition live connection; provider handshake deadline is active
+O  first offline FO and identity proof; no provider handshake deadline
+R  final resumption live connection; provider handshake deadline is active
+C  final post-Finished FO/liveness proof, retirement, and credential commit
+D  initial authenticated dialogue through return to the DPI prompt
+X  one failed pre-text route plus its bounded fresh rebuild
+```
+
+`F` and `R` perform no floppy reads. Cold phase reads in `P`, `O`, or `C` are
+outside the corresponding provider handshake window. The bars show elapsed
+phase ownership, not sampled bus-utilization percentages.
+
+#### 8088 cold start
+
+```text
+4.77 MHz 8088, exactly 16 KiB, ROM BASIC sidecar, read-only floppy
+scale: one cell ~= 10 seconds
+
+power-on  BBBBBBPPPPPFFOOOOOOOOOOOOOOORCCCCCCCDDDDD  DPI
+          |     |    | |              ||      |
+          0    59  107 122          276 284  354   404 s
+
+B   59.1 s   harnessed ROM BASIC sidecar entry
+P   47.8 s   target-local pre-TCP preparation
+F   14.5 s   fresh SYN through credential-free HEAD/ticket response
+              ServerHello -> client Finished: 13.269 s
+O  154.6 s   full FO plus dated exact-leaf/CertificateVerify proof
+R    8.2 s   resumed SYN through credential-free HEAD/ticket response
+              ServerHello -> client Finished: 7.003 s
+C   69.4 s   resumed full FO/liveness completion and status-last commit
+D   50.8 s   initial request, provider response, record scan/render, DPI
+
+Seed-runtime boundary -> DPI: 345.2 s
+harnessed power-on -> DPI:     404.3 s
+```
+
+The 59.1-second `B` span includes the harness waiting for ROM BASIC and typing
+the generated sidecar; it is entry-method latency, not Seed cryptographic work.
+The two server-timed windows total only 22.7 seconds and are separated from the
+much longer target-local proofs. This is why total boot time can be several
+minutes without threatening either observed handshake deadline.
+
+#### Reused 8088 dialogue turn
+
+The same connection then handled a 107-character prompt and the literal
+`FORTYTWO` answer without a new TLS handshake:
+
+```text
+dialogue-only symbols; scale: one cell ~= 2 seconds
+
+submit  QQEEEWNAAAAAAAAAAAAAAAAAAAAAAAAAAA  DPI
+
+Q    4.5 s   local request construction and demand-loaded turn phases
+E    4.8 s   encrypt and send the request records
+W    0.8 s   provider wait after the last request record
+N    0.9 s   encrypted response arrival
+A   53.3 s   authenticate, scan SSE events, render, and restore the prompt
+total 64.3 s   submission -> DPI; no handshake or reconnect
+```
+
+Visible answer length is not a useful predictor of this floor's turn time. The
+short answer still arrived inside a much larger encrypted Responses event
+stream, and the 8088 spent most of the turn authenticating and scanning those
+records. The graph therefore keeps provider wait, wire transfer, and target
+processing separate.
+
+#### 286 cold start and observed edge variation
+
+The clean-route timing uses the successful acquisition/resumption pair from
+the activity sweep. The same source also has a strict four-flow acceptance
+capture whose ServerHello-to-Finished intervals are the 8.8880 / 8.6428 /
+8.9518 / 8.6425-second values above.
+
+```text
+6 MHz 286, 512 KiB, direct boot, platform UTC, read-only floppy
+scale: one cell ~= 10 seconds
+
+nominal   BBPPPPPFOOOOOORDD                        186.7 s to DPI
+observed  BBPPPPPXXXXXXXXXXXXFOOOOOORDD            304.5 s to DPI
+
+B   24.4 s   firmware/direct-entry and harness boundary
+P   52.3 s   pre-TCP entropy, key generation, tables, and phase staging
+F   12.1 s   successful acquisition SYN through clean close
+              ServerHello -> client Finished: 8.949 s
+O   64.8 s   full FO, WE1/X.509/hostname/UTC/CV proof and final preparation
+R    9.5 s   final resumption SYN through credential-free HEAD/ticket response
+              ServerHello -> client Finished: 8.646 s
+D   23.6 s   commit, initial request/response processing, and DPI return
+X  117.8 s   one earlier acquisition route and its bounded pre-text rebuild
+```
+
+The 304.5-second wall-clock sample completed authenticated dialogue but is not
+used as the strict topology acceptance artifact because it contains the extra
+acquisition. It is retained here as useful provider-edge characterization: the
+route was abandoned before text or credential-bearing dialogue, and the
+bounded fresh route recovered. The nominal 186.7-second line removes that
+observed `X` span and uses the successful pair's measured phases; it is a normalized
+activity view, not a claim that every cold boot completes in that time.
 
 ### Entropy and validation boundary
 

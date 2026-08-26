@@ -194,13 +194,11 @@ branchless implicit rejection still run after ServerHello, and the resulting
 wrong secret cannot verify server Finished. Client Finished and credential
 publication remain after those checks.
 
-The previous exact-floor integration checkpoint put matrix generation and
-offline authentication outside the live provider windows and passed both
-serialized CPU and four-flow wire gates. The conventional-RAM-only image must
-repeat those measurements before any earlier timing is attributed to the
-current source. CPU/RAM, RTC/time, entropy, certificate, CV, Finished,
-FO/cache, pack, and abort rejection remain mandatory; physical RTC/PIT entropy
-characterization remains open.
+The conventional-RAM-only image repeats the exact-floor serialized CPU and
+four-flow wire gates with matrix generation and offline authentication outside
+the live provider windows. CPU/RAM, RTC/time, entropy, certificate, CV,
+Finished, FO/cache, pack, and abort rejection gates pass. Physical RTC/PIT
+entropy characterization remains open.
 
 The immutable trust object is the WE1 P-256 affine point baked into
 `SEED.SYS`. The leaf, generated tables, private state, and same-boot pin live

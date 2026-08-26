@@ -260,14 +260,19 @@ provider          OpenAI/api.openai.com only
                   state operand verified;
                   complemented early-derived value; 4,608-byte / nine-polynomial
                   public ML-KEM matrix; all status-last, one-shot, and fail-closed
-286 timing        current serialized 6 MHz structural gate passes; refresh the
-                  full boot/activity graph from the release-bound image
+286 timing        current serialized 6 MHz structural gate passes; normalized
+                  successful cold route is 186.7 s power-on-to-DPI
 286 live gate     current read-only exact-floor four-flow gate passes at
                   8.8880 / 8.6428 / 8.9518 / 8.6425 s; authenticated
                   FORTYTWO response and DPI return
 8088 live gate    current read-only 16 KiB four-flow captures pass on all seven
                   original-speed ISA profiles; worst interval 13.7898 s;
                   authenticated response, reuse, and bounded reconnect
+8088 activity     404.3 s harnessed power-on-to-DPI: 59.1 s ROM BASIC entry
+                  plus 345.2 s Seed runtime; reused test turn is 64.3 s
+286 activity      one provider-edge sweep exercised a 117.8 s bounded pre-text
+                  retry and completed in 304.5 s; strict clean topology remains
+                  the four-flow acceptance capture above
 failure/visual    hostile/torn/abort and conventional-RAM guard gates pass;
                   NIC-present CGA/MDA screens are clean; current no-card
                   CGA/MDA and isolated no-driver retry/restart menus pass
@@ -293,8 +298,9 @@ module, dispatch, FAT, driver/image build, both exact-floor live routes,
 reuse/reconnect, CGA/MDA display, read-only media, failure menus, and the
 seven-NIC matrix pass. Representative physical timing samples from the 8088's
 already-required floppy reads and from the 286 RTC/PIT source, plus more
-cold-boot/provider-edge repetition, remain release gates. Refresh the full
-boot/activity timing graphs only after the release-bound schedule is stable.
+cold-boot/provider-edge repetition, remain release gates. The exact-floor
+boot/activity timelines are current; repeat them if timing-affecting source or
+the measured model/reasoning profile changes.
 
 ## Forward-looking ideas
 
@@ -304,11 +310,6 @@ their details belong in the focused docs linked from the Build 12 section.
 Polish:
 
 ```text
-TLS activity accounting - after the TLS 1.3 paths freeze for a release
-  candidate, remeasure cold boot-to-DPI on both exact floors and refresh the
-  architecture activity graphs with CPU, floppy, network wait, offline proof,
-  and live deadline spans kept distinct. Do not freeze those numbers while the
-  integration schedule is still changing.
 render-phase room - free a safe 2-sector render phase for glyph mapping and future renderer work;
   likely by tightening the RX read window. This touches receive/handshake behavior, so it needs
   handshake and multi-NIC re-validation.

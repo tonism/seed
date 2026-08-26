@@ -154,12 +154,12 @@ local effects.
   it is not conforming hybrid TLS.
 - Its exact-leaf object is dated image provenance; without trusted runtime
   time, the 8088 cannot independently enforce that validity interval.
-- The previous 286 integration checkpoint passed its serialized CPU, live
-  reconnect, and negative-path gates. The RAM-only replacement must be
-  remeasured at the exact floor before those results become current again.
-- The prior 8088 architecture passed fresh/resumed/reconnect/resumed on all
-  seven original-speed ISA profiles. The RAM-only replacement must repeat that
-  wire/NIC matrix before inheriting the result.
+- The RAM-only 286 route passes its exact-floor serialized, live reconnect,
+  and negative-path gates. The RAM-only 8088 route passes the corresponding
+  seven-profile original-speed wire/NIC matrix.
+- Cold start remains deliberately slow: target-local FO and identity proofs
+  run outside the short provider handshake windows. Current activity timelines
+  are in [architecture.md](docs/architecture.md#current-exact-floor-activity-timelines).
 - Emulator timing sources receive zero entropy credit; representative physical
   characterization of PIT samples attached to the 8088's already-required
   floppy reads and of the 286 RTC/PIT source, plus health-test calibration,

@@ -166,6 +166,7 @@ EncryptedExtensions-to-Finished, client Finished before credential
 publication, authenticated application data, reuse, and bounded reconnect.
 
 Driver-family evidence remains valid only for the hardware work it exercised.
-TLS 1.3 acceptance remains open until the current exact-floor matrix passes.
-See [`../../../docs/testing.md`](../../../docs/testing.md) for commands and
+The current exact-floor TLS 1.3 matrix passes; physical entropy-source
+characterization and additional provider-edge repetition remain open. See
+[`../../../docs/testing.md`](../../../docs/testing.md) for commands and
 [`../../../docs/builds.md`](../../../docs/builds.md) for dated history.
