@@ -1308,8 +1308,8 @@ def main() -> None:
         },
         "live_certificate_verify_fixture": live_certificate_verify,
         "limitations": [
-            "The production pin is the first certificate currently tracked in ecdsa_live_chain.pem and expires on 8 August 2026.",
-            "The compact live pin is a dated integration checkpoint for the checked-in leaf and expires on 6 October 2026.",
+            "The standalone default pin uses the historical first leaf in ecdsa_live_chain.pem, valid through 8 August 2026.",
+            "The compact live pin is an image-dated checkpoint; its validity interval is recorded in the checked-in leaf fixture.",
             "No Brotli, X.509, hostname, validity-time, WE1 recertification, TLS transcript construction, or socket code is part of this overlay.",
             "Exact-leaf rotation must fail closed until a separately authenticated pin update is designed.",
         ],

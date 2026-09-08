@@ -145,10 +145,13 @@ WE1 SPKI SHA-256:
 ```
 
 `issuer_auth_live_leaf.pem` and `issuer_auth_live_vector.json` are a
-credential-free capture from `api.openai.com:443` at
-2026-07-25T20:10:59Z. The captured leaf has SPKI
-`244339974d38f7ddbbec30b6b4719e70859f225d7df6c1f80aa33fd30d1b1ec0`
-and expires 6 October 2026.
+credential-free capture from `api.openai.com:443` on 8 September 2026. The
+captured leaf has SPKI
+`94655ad1e178ae4e1a28f7bfc97c0b0e48684f4b6370c639ab988a27d11e028f`
+and expires 4 December 2026. The host capture uses X25519 and
+TLS_CHACHA20_POLY1305_SHA256, completes the authenticated handshake, and sends
+no application request. It supplies a real CertificateVerify fixture; target
+hybrid-route acceptance still requires the live product gate.
 
 The checker independently:
 

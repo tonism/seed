@@ -534,6 +534,9 @@ sysram_high_abort:
     mov di, 0x0700
     mov cx, (0x1000 - 0x0700) / 2
     rep stosw
+    ; The helper lives below 35a0. Restore the low prompt/capability state
+    ; while it is executable, before the next clear retires its bytes.
+    call sysram_restore_prompt_state
     mov di, 0x1800
     mov cx, (0x35a0 - 0x1800) / 2
     rep stosw
@@ -544,7 +547,6 @@ sysram_high_abort:
     mov di, runtime_state_start
     mov cx, runtime_state_words
     rep movsw
-    call sysram_restore_prompt_state
     mov sp, bx
     mov di, root_frame_sp
     mov cx, (root_frame_end - root_frame_sp) / 2

@@ -813,23 +813,30 @@ def root_state_gate(images: dict[str, Any]) -> dict[str, Any]:
         ) != bytes(DIRECT_ROOT_TRAMPOLINE - DIRECT_ROOT_SHADOW):
             raise AssertionError("direct-tier cleanup retained its arena shadow")
 
-    direct_abort = direct_root_machine()
-    direct_abort.mem_write(
-        RUNTIME_STATE_START,
-        deterministic(b"direct overwritten UI/control state", len(expected_state)),
+    high_abort_entry = BUILDER.label_address(
+        images["auth_return"].listing, "sysram_high_abort", 0x3550
     )
-    direct_abort.mem_write(DPI_PROMPT_MARKER_ROW, b"\x2a")
-    for start, end in ((0x0500, 0x0600), (0x0700, 0x0F60), (0x1800, 0x3B9C)):
+    for abort_origin, abort_entry, abort_image in (
+        (0x0F60, 0x0F60, images["abort"]),
+        (0x3550, high_abort_entry, images["auth_return"]),
+    ):
+        direct_abort = direct_root_machine()
         direct_abort.mem_write(
-            start,
-            deterministic(f"direct abort private {start:04x}".encode(), end - start),
+            RUNTIME_STATE_START,
+            deterministic(b"direct overwritten UI/control state", len(expected_state)),
         )
-    direct_abort.mem_write(0x0F60, images["abort"].data)
-    finish_direct_return(direct_abort, 0x0F60, True)
-    if bytes(direct_abort.mem_read(RUNTIME_STATE_START, len(expected_state))) != expected_state:
-        raise AssertionError("direct-tier abort did not restore UI/control state")
-    if direct_abort.mem_read(DPI_PROMPT_MARKER_ROW, 1) != expected_prompt_marker:
-        raise AssertionError("direct-tier abort did not restore the DPI prompt marker row")
+        direct_abort.mem_write(DPI_PROMPT_MARKER_ROW, b"\x2a")
+        for start, end in ((0x0500, 0x0600), (0x0700, 0x0F60), (0x1800, 0x3B9C)):
+            direct_abort.mem_write(
+                start,
+                deterministic(f"direct abort private {start:04x}".encode(), end - start),
+            )
+        direct_abort.mem_write(abort_origin, abort_image.data)
+        finish_direct_return(direct_abort, abort_entry, True)
+        if bytes(direct_abort.mem_read(RUNTIME_STATE_START, len(expected_state))) != expected_state:
+            raise AssertionError("direct-tier abort did not restore UI/control state")
+        if direct_abort.mem_read(DPI_PROMPT_MARKER_ROW, 1) != expected_prompt_marker:
+            raise AssertionError("direct-tier abort did not restore the DPI prompt marker row")
 
     direct_success = direct_root_machine()
     direct_success.mem_write(0x0F00, images["success"].data)
@@ -840,11 +847,118 @@ def root_state_gate(images: dict[str, Any]) -> dict[str, Any]:
         "root_frame": f"{ROOT_FRAME_START:#06x}..{ROOT_FRAME_END:#06x}",
         "root_snapshot_status_last": True,
         "low_abort_restored_state": True,
+        "direct_high_auth_abort_restored_state": True,
         "direct_arena_shadow": (
             f"{DIRECT_ROOT_SHADOW:#06x}..{DIRECT_ROOT_RETURN + 2:#06x}"
         ),
         "direct_success_abort_restored_arena": True,
         "direct_trampoline_preserved_carry": True,
+    }
+
+
+def high_auth_abort_gate(
+    images: dict[str, Any], named: dict[str, Any]
+) -> dict[str, Any]:
+    """Execute rejected authentication through the real high cleanup capsule."""
+    origin = named["auth_return"].destination
+    entry = BUILDER.label_address(
+        images["auth_return"].listing, "sysram_high_abort", origin
+    )
+    expected_state = deterministic(b"high abort UI", RUNTIME_STATE_END - RUNTIME_STATE_START)
+    expected_prompt = b"\x93"
+    cases = (
+        ("certificate_verify_rejected", origin, 0, 0, True),
+        ("wrong_result", origin, 0, 1, False),
+        ("uncommitted_status", origin, 1, 0, False),
+        ("auth_image_load_failed", entry, 0, 0, True),
+        ("symmetric_reload_failed", origin, 1, 1, False),
+    )
+    for name, start_ip, result_ax, status, carry in cases:
+        machine = Uc(UC_ARCH_X86, UC_MODE_16)
+        machine.mem_map(0, RAM_BYTES)
+        machine.mem_write(0, bytes(RAM_BYTES))
+        for start, end in ((0x0500, 0x0600), (0x0700, 0x1000), (0x1800, 0x3B9C)):
+            machine.mem_write(start, deterministic(name.encode(), end - start))
+        machine.mem_write(origin, images["auth_return"].data)
+        guards = install_machine_guards(machine)
+        guards.pop("root return frame")
+        resident = deterministic(b"high abort resident/driver", 0x800)
+        machine.mem_write(0x1000, resident)
+        guards["resident/driver"] = (0x1000, resident)
+        root_sp = STACK_TOP - 2
+        machine.mem_write(ROOT_FRAME_START, struct.pack("<3H", root_sp, (~root_sp) & 0xFFFF, 0xA55A))
+        machine.mem_write(ROOT_FRAME_STATE, expected_state)
+        machine.mem_write(ROOT_FRAME_PROMPT_MARKER, expected_prompt)
+        machine.mem_write(root_sp, struct.pack("<H", RETURN))
+        machine.mem_write(0x34AA, bytes([status]))
+        machine.mem_write(0x06C4, b"\x7f")
+        for register in (UC_X86_REG_CS, UC_X86_REG_DS, UC_X86_REG_ES, UC_X86_REG_SS):
+            machine.reg_write(register, 0)
+        machine.reg_write(UC_X86_REG_SP, 0x3F80)
+        machine.reg_write(UC_X86_REG_AX, result_ax)
+        machine.reg_write(UC_X86_REG_EFLAGS, 2 | int(carry))
+        returned = False
+        loads = []
+        erased = set()
+
+        def stop_return(uc: Uc, _address: int, _size: int, _user: object) -> None:
+            nonlocal returned
+            returned = True
+            uc.emu_stop()
+
+        def fail_reload(uc: Uc, _address: int, _size: int, _user: object) -> None:
+            loads.append((uc.reg_read(UC_X86_REG_AX), uc.reg_read(UC_X86_REG_BX)))
+            # A partial failed read may have overwritten the old K image.
+            uc.mem_write(0x1800, bytes(64))
+            near_return(uc, carry=True)
+
+        def record_erase(
+            _uc: Uc, _access: int, address: int, size: int, value: int, _user: object
+        ) -> None:
+            if value == 0:
+                erased.update(range(address, address + size))
+
+        def reject_erased_code(uc: Uc, address: int, _size: int, _user: object) -> None:
+            if address in erased:
+                raise AssertionError(f"{name} executed zeroized auth-return code at {address:#06x}")
+
+        machine.hook_add(UC_HOOK_CODE, stop_return, begin=RETURN, end=RETURN)
+        machine.hook_add(UC_HOOK_CODE, fail_reload, begin=0x10C4, end=0x10C4)
+        machine.hook_add(UC_HOOK_MEM_WRITE, record_erase, begin=origin, end=entry - 1)
+        machine.hook_add(UC_HOOK_CODE, reject_erased_code, begin=origin, end=entry - 1)
+        install_io_rejection(machine)
+        machine.emu_start(start_ip, 0, count=100_000)
+        if not returned or machine.reg_read(UC_X86_REG_SP) != STACK_TOP:
+            raise AssertionError(f"{name} did not return on the captured root stack")
+        if not machine.reg_read(UC_X86_REG_EFLAGS) & 1:
+            raise AssertionError(f"{name} lost its failure carry")
+        expected_loads = [(named["acq_sym"].key, 0x1800)] if name == "symmetric_reload_failed" else []
+        if loads != expected_loads:
+            raise AssertionError(f"{name} requested unexpected phase loads: {loads}")
+        if bytes(machine.mem_read(RUNTIME_STATE_START, len(expected_state))) != expected_state:
+            raise AssertionError(f"{name} did not restore resident UI/control state")
+        if machine.mem_read(DPI_PROMPT_MARKER_ROW, 1) != expected_prompt:
+            raise AssertionError(f"{name} did not restore the prompt marker")
+        for start, end in (
+            (0x0500, 0x0600),
+            (0x0700, DPI_PROMPT_MARKER_ROW),
+            (DPI_PROMPT_MARKER_ROW + 1, RUNTIME_STATE_START),
+            (RUNTIME_STATE_END, 0x1000),
+            (0x1800, entry),
+            (0x3600, 0x3B9C),
+            (ROOT_FRAME_START, ROOT_FRAME_END),
+        ):
+            if any(machine.mem_read(start, end - start)):
+                raise AssertionError(f"{name} retained private bytes at {start:#06x}..{end:#06x}")
+        if machine.mem_read(0x06C4, 1) != b"\0":
+            raise AssertionError(f"{name} retained the route capability")
+        assert_machine_guards(machine, guards)
+    return {
+        "cases": [case[0] for case in cases],
+        "disk_independent_cleanup": True,
+        "zeroized_code_never_executed": True,
+        "private_state_retired": True,
+        "resident_config_arena_video_adapter_unchanged": True,
     }
 
 
@@ -2835,6 +2949,7 @@ def main() -> int:
             "schema": "seed-tls13-system-ram-product-integration-v1",
             "pack_sha256": report["pack"]["sha256"],
             "root_state": root_state_gate(images),
+            "high_auth_abort": high_auth_abort_gate(images, named),
             "preconnect": {
                 "resumption": resumed_hello_preconnect_gate(images, named),
             },

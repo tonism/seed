@@ -1,37 +1,37 @@
 {
   "schema": "seed-tls13-issuer-auth-live-vector-v1",
-  "captured_utc": "2026-07-25T20:10:59.839388+00:00",
+  "captured_utc": "2026-09-08T19:36:59.058018+00:00",
   "target": "api.openai.com:443",
   "credential_sent": false,
-  "request": "one literal credential-free HEAD after client Finished",
+  "request": "authenticated TLS handshake only; no application data",
   "wire_profile": {
-    "group": "X25519MLKEM768",
-    "client_hello_bytes": 1376,
-    "server_hello_bytes": 1210,
-    "protected_server_record_bytes": 1945,
+    "group": "X25519",
+    "cipher_suite": "TLS_CHACHA20_POLY1305_SHA256",
+    "client_hello_bytes": 229,
+    "server_hello_bytes": 122,
     "server_handshake_message_bytes": [
       10,
-      1799,
-      78,
+      2494,
+      79,
       36
     ]
   },
   "leaf": {
     "pem": "issuer_auth_live_leaf.pem",
-    "der_bytes": 903,
-    "sha256_fingerprint": "76e49dae8cbc1f012fc9fb6e822060f8ed3a56dd3ea33ba3fb2b78cbe8cce64c",
-    "spki_sha256": "244339974d38f7ddbbec30b6b4719e70859f225d7df6c1f80aa33fd30d1b1ec0",
-    "tbs_sha256": "19426cac2ffe9cecb34d51f75d7d1e92733abadb36cf93815f60c20716b9d026",
+    "der_bytes": 902,
+    "sha256_fingerprint": "fabf4da3abcc692e524df400362d90cc638125adca67cc2e6619cc87c1301c58",
+    "spki_sha256": "94655ad1e178ae4e1a28f7bfc97c0b0e48684f4b6370c639ab988a27d11e028f",
+    "tbs_sha256": "7ec7219588425b93a0060dd9c4c85c97e670178006b4c19aa84f4aedddd18a91",
     "subject": "CN=api.openai.com",
     "issuer": "C=US, O=Google Trust Services, CN=WE1",
-    "not_before": "Jul  8 02:04:42 2026 GMT",
-    "not_after": "Oct  6 03:04:17 2026 GMT"
+    "not_before": "Sep  5 02:28:35 2026 GMT",
+    "not_after": "Dec  4 03:28:32 2026 GMT"
   },
   "certificate_verify": {
     "signature_scheme": "ecdsa_secp256r1_sha256",
-    "transcript_sha256": "1f55204f9beedbc99d3c74030f2413bde4d254c314d897787a79bdb10912190a",
-    "signed_input_sha256": "932131c6aa5ac7d0bbabc2c0f34c9744b0a25eb8cc28d791fe81a55caf5a2967",
-    "signature_der": "3044022045cf8637e5ddb8666bebc32bf3d8b66653f2807e0c9f6b1d067be4f222794af6022021a325601782e0c266b5e778d1ca052a70ca462b2046fc8a23226a802704f452"
+    "transcript_sha256": "b8e2d9cbceb86b782da2bd6673a6dc426c38934985e3c2e990d6e36ae6647b01",
+    "signature_der": "304502203ed8896474bc4a95f6fcf08cb519d082be83ace663c8492fb134b98048a80a8f022100f64b8309aff1fbaea29131742578321bfc108c9133c21150b9471d5b08d721f4",
+    "signed_input_sha256": "4ad478b7e53836c7ec6ee499e28d73370597f5645b838e7d116ddf726bab0457"
   },
-  "scope": "dated credential-free provider observation used as a deterministic checked-in target vector; not a provider SLA"
+  "scope": "dated independently WE1/hostname/time/purpose-validated provider CertificateVerify fixture; host capture is not target acceptance or a runtime helper"
 }
