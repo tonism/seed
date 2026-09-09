@@ -121,15 +121,22 @@ poly1305_add_block:
     ret
 
 poly1305_mul_acc_r:
+    ; Exact 136-bit accumulator x 128-bit r, using 72 word products.
+    ; Each row adds a_i*r_j + product[i+j] + carry.  With base B=65536,
+    ; (B-1)^2 + 2*(B-1) = B^2-1, so DX:AX retains every carry.
+    ; The final accumulator byte is zero-extended without reading past it.
+    ; BP holds the row multiplier; the saved caller registers are the only
+    ; stack state, and no new persistent scratch is needed.
     push ax
     push bx
     push cx
     push dx
     push si
     push di
+    push bp
     push es
-    push ds
-    pop es
+    mov ax, ds
+    mov es, ax
     mov di, poly_product
     mov cx, poly1305_product_len
     xor al, al
@@ -137,42 +144,39 @@ poly1305_mul_acc_r:
 
     mov byte [poly_i], 0
 .outer:
-    cmp byte [poly_i], poly1305_acc_len
-    jae .done
-    mov byte [poly_j], 0
-.inner:
-    cmp byte [poly_j], poly1305_r_len
-    jae .next_outer
+    xor bx, bx
     mov bl, [poly_i]
-    xor bh, bh
-    mov si, poly_acc
-    add si, bx
-    mov al, [si]
-    mov bl, [poly_j]
-    xor bh, bh
-    mov si, poly_r
-    add si, bx
-    mul byte [si]
-    mov bl, [poly_i]
-    add bl, [poly_j]
-    xor bh, bh
+    xor ax, ax
+    mov al, [poly_acc + bx]
+    cmp bl, poly1305_acc_len - 1
+    je .multiplier_ready
+    mov ah, [poly_acc + bx + 1]
+.multiplier_ready:
+    mov bp, ax
     add bx, poly_product
-    add [bx], ax
-    inc bx
-    inc bx
-.propagate:
-    adc byte [bx], 0
-    jnc .mul_done
-    inc bx
-    jmp .propagate
-.mul_done:
-    inc byte [poly_j]
-    jmp .inner
-.next_outer:
-    inc byte [poly_i]
-    jmp .outer
-.done:
+    mov di, poly_r
+    xor si, si
+    mov cx, poly1305_r_len / 2
+.inner:
+    mov ax, bp
+    mul word [di]
+    add ax, [bx]
+    adc dx, 0
+    add ax, si
+    adc dx, 0
+    mov [bx], ax
+    mov si, dx
+    add bx, 2
+    add di, 2
+    loop .inner
+    ; Prior rows end one word earlier; this high word was still zero.
+    mov [bx], si
+    add byte [poly_i], 2
+    cmp byte [poly_i], poly1305_acc_len
+    jb .outer
+
     pop es
+    pop bp
     pop di
     pop si
     pop dx

@@ -45,6 +45,7 @@ TLS13_PRODUCT_PACK := $(BUILD_DIR)/tls13-k14-product-pack.bin
 TLS13_PRODUCT_ABI := $(BUILD_DIR)/tls13-k14-product-abi.inc
 TLS13_PRODUCT_PACK_CHECK := tools/crypto-bench/tls13-product/build_system_ram_product_pack.py
 TLS13_PRODUCT_INTEGRATION_CHECK := tools/crypto-bench/tls13-product/check_system_ram_product_pack.py
+TLS13_POLY1305_MULTIPLY_CHECK := tools/crypto-bench/tls13-product/check_poly1305_multiply.py
 TLS13_PRODUCT_PACK_REPORT := $(BUILD_DIR)/tls13-system-ram-product-pack.json
 TLS13_PRODUCT_PACK_SOURCE := targets/$(TARGET)/boot/tls13/k14_product_pack.asm
 TLS13_CORE_DISPATCH_CHECK := tools/check-tls13-core-dispatch.py
@@ -308,6 +309,7 @@ $(TLS13_PACK_BASE_LST): $(TLS13_PACK_BASE_SYS) | $(TLS13_PACK_BASE_DIR)
 	fi
 
 $(TLS13_PRODUCT_PACK): Makefile $(TLS13_PRODUCT_PACK_CHECK) $(TLS13_PRODUCT_INTEGRATION_CHECK) $(TLS13_PRODUCT_PACK_SOURCE) $(TLS13_PRODUCT_SOURCES) $(TLS13_PACK_BASE_SYS) $(TLS13_PACK_BASE_LST) | $(BUILD_DIR)
+	python3 $(TLS13_POLY1305_MULTIPLY_CHECK)
 	python3 $(TLS13_PRODUCT_PACK_CHECK) \
 		--product-core $(TLS13_PACK_BASE_SYS) \
 		--product-listing $(TLS13_PACK_BASE_LST) \
