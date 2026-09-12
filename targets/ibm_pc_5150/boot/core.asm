@@ -151,10 +151,12 @@ align 512, db 0
 
 core_link_window_start:
 %ifdef TLS13_PRODUCT_APP_ENABLED
-; Product-integration size/relocation gate.  The shipping switch happens only
-; after the cold TLS 1.3 bootstrap is linked; until then normal builds remain
-; byte-for-byte on the TLS 1.2 checkpoint.
+; Handshake controllers carry their own SHA/HMAC code. Application records
+; need only ChaCha20/Poly1305, so K does not load an uncalled SHA/HMAC copy.
+%ifndef TLS13_PRODUCT_TLS13
+; The standalone compile-check image still links the historical controller.
 %include "core/sha256.inc"
+%endif
 ; The block entry clears CX before its rounds. Use byte rotations in product
 ; application K, inlining ROL8 inside ROL12 to retain the existing stack peak.
 %define CHACHA_COMPACT_FAST_ROTATES 1

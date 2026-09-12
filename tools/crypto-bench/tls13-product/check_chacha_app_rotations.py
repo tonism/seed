@@ -68,12 +68,15 @@ def vectors() -> list[tuple[bytes, bytes, int]]:
 
 def check(core: bytes, listing: str) -> dict[str, object]:
     resolve = lambda name: RECONNECT.D.resolve_symbol(listing, name)
-    start, end = resolve("core_link_window_start"), resolve("core_link_window_end")
+    sector, loaded_sectors, start = RECONNECT.D.phase_geometry(core, b"K")
+    end = resolve("core_link_window_end")
     entry = resolve("chacha20_block")
     if start != 0x1800 or not start < end < 0x2E00:
         raise AssertionError("application K no longer fits before the existing spool")
     sector_bytes = ((end - start + 511) // 512) * 512
-    code = core[start - 0x1000:start - 0x1000 + sector_bytes]
+    if loaded_sectors * 512 != sector_bytes:
+        raise AssertionError("phase table does not load the complete application K")
+    code = core[sector * 512:sector * 512 + sector_bytes]
     if len(code) != sector_bytes:
         raise AssertionError("truncated application K")
     owned = [(S[name], S[name] + 64) for name in ("chacha_state", "chacha_work", "chacha_block")]
