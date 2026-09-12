@@ -147,12 +147,19 @@ chacha_quarter_round:
     ret
 
 %ifdef CHACHA_COMPACT_FAST_ROTATES
-; The TLS 1.3 overlay enters the round loop with CX=0 after REP MOVSW, and
+; The block entry reaches the round loop with CX=0 after REP MOVSW, and
 ; every bit-rotate below exits with CX=0.  Preserve that internal invariant to
 ; express ROL8 as an exact byte permutation and ROL12 as ROL8+ROL4 without
 ; growing across the overlay's 16-byte mutable-work alignment boundary.
 chacha_rotl12_axdx:
+%ifdef CHACHA_INLINE_ROTL12
+    ; Application K has room for three bytes to avoid a nested rotation call.
+    xchg al, dh
+    xchg ah, dl
+    xchg ah, dh
+%else
     call chacha_rotl8_axdx
+%endif
     mov cl, 4
     jmp chacha_rotl32_axdx
 

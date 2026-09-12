@@ -46,6 +46,7 @@ TLS13_PRODUCT_ABI := $(BUILD_DIR)/tls13-k14-product-abi.inc
 TLS13_PRODUCT_PACK_CHECK := tools/crypto-bench/tls13-product/build_system_ram_product_pack.py
 TLS13_PRODUCT_INTEGRATION_CHECK := tools/crypto-bench/tls13-product/check_system_ram_product_pack.py
 TLS13_POLY1305_MULTIPLY_CHECK := tools/crypto-bench/tls13-product/check_poly1305_multiply.py
+TLS13_CHACHA_APP_ROTATIONS_CHECK := tools/crypto-bench/tls13-product/check_chacha_app_rotations.py
 TLS13_PRODUCT_PACK_REPORT := $(BUILD_DIR)/tls13-system-ram-product-pack.json
 TLS13_PRODUCT_PACK_SOURCE := targets/$(TARGET)/boot/tls13/k14_product_pack.asm
 TLS13_CORE_DISPATCH_CHECK := tools/check-tls13-core-dispatch.py
@@ -282,9 +283,10 @@ $(TLS13_286_BOOTSTRAP_GATE): $(TLS13_286_BOOTSTRAP) $(TLS13_286_PRODUCT_ABI) $(T
 # generated ABI.  The ABI is replaced first and this pack target last, making
 # the pack Make's transaction marker for the pair.  Final SEED.SYS incbin's the
 # blob; this is build-time source composition, not runtime module loading.
-$(TLS13_PACK_BASE_SYS): $(CORE_SRC) Makefile $(CORE_INCLUDES) $(CORE_PHASE_INCLUDES) $(TLS13_LOW_STATIC_CONSTANTS_SOURCE) $(TLS13_286_BOOTSTRAP) $(TLS13_286_PRODUCT_ABI) $(TLS13_286_BOOTSTRAP_GATE) $(SEED_SYS_INFO) $(LAYOUT_CHECK) $(TLS13_PRODUCT_RECONNECT_CHECK) $(TLS13_APP_CHECK) $(TLS13_CORE_DISPATCH_CHECK) $(TLS13_SECURE_WARM_RESTART_CHECK) | $(TLS13_PACK_BASE_DIR)
+$(TLS13_PACK_BASE_SYS): $(CORE_SRC) Makefile $(CORE_INCLUDES) $(CORE_PHASE_INCLUDES) $(TLS13_LOW_STATIC_CONSTANTS_SOURCE) $(TLS13_286_BOOTSTRAP) $(TLS13_286_PRODUCT_ABI) $(TLS13_286_BOOTSTRAP_GATE) $(SEED_SYS_INFO) $(LAYOUT_CHECK) $(TLS13_PRODUCT_RECONNECT_CHECK) $(TLS13_APP_CHECK) $(TLS13_CORE_DISPATCH_CHECK) $(TLS13_SECURE_WARM_RESTART_CHECK) $(TLS13_CHACHA_APP_ROTATIONS_CHECK) | $(TLS13_PACK_BASE_DIR)
 	python3 $(TLS13_SECURE_WARM_RESTART_CHECK)
 	nasm $(NASM_FLAGS) -DTLS13_PRODUCT_TLS13=1 -DTLS13_PRODUCT_PACK_BASE=1 -f bin -l $(TLS13_PACK_BASE_LST) -o $@ $<
+	python3 $(TLS13_CHACHA_APP_ROTATIONS_CHECK) --core $@ --listing $(TLS13_PACK_BASE_LST)
 	python3 $(SEED_SYS_INFO) --check $@
 	python3 $(LAYOUT_CHECK) $@
 	python3 $(TLS13_PRODUCT_RECONNECT_CHECK) \

@@ -155,7 +155,13 @@ core_link_window_start:
 ; after the cold TLS 1.3 bootstrap is linked; until then normal builds remain
 ; byte-for-byte on the TLS 1.2 checkpoint.
 %include "core/sha256.inc"
+; The block entry clears CX before its rounds. Use byte rotations in product
+; application K, inlining ROL8 inside ROL12 to retain the existing stack peak.
+%define CHACHA_COMPACT_FAST_ROTATES 1
+%define CHACHA_INLINE_ROTL12 1
 %include "core/chacha20.inc"
+%undef CHACHA_INLINE_ROTL12
+%undef CHACHA_COMPACT_FAST_ROTATES
 %include "core/poly1305.inc"
 %include "core/tls13_app.inc"
 %include "core/agent_api.inc"
