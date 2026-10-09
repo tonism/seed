@@ -33,6 +33,11 @@ P256_MODULE_SRC := targets/$(TARGET)/boot/core/p256_module.asm
 BASIC_BOOT_SRC := targets/$(TARGET)/basic/bootstrap.asm
 CORE_INCLUDES := $(wildcard targets/$(TARGET)/boot/core/*.inc)
 CORE_PHASE_INCLUDES := $(wildcard targets/$(TARGET)/boot/phases/*.inc)
+HTTP2_SOURCES := $(wildcard targets/$(TARGET)/boot/phases/http2/*.asm) $(wildcard targets/$(TARGET)/boot/phases/http2/*.inc)
+HTTP2_BUILDER := tools/crypto-bench/tls13-product/build_http2_runtime.py
+HTTP2_BUILD := $(BUILD_DIR)/http2
+HTTP2_MARKER := $(HTTP2_BUILD)/build.json
+TLS13_286_H2_HELPER := $(BUILD_DIR)/tls13-286-h2-helper.bin
 BOOT_BIN := $(BUILD_DIR)/boot.bin
 LOADER_BIN := $(BUILD_DIR)/loader.bin
 SEED_SYS := $(BUILD_DIR)/SEED.SYS
@@ -51,7 +56,9 @@ TLS13_PRODUCT_PACK_REPORT := $(BUILD_DIR)/tls13-system-ram-product-pack.json
 TLS13_PRODUCT_PACK_SOURCE := targets/$(TARGET)/boot/tls13/k14_product_pack.asm
 TLS13_CORE_DISPATCH_CHECK := tools/check-tls13-core-dispatch.py
 TLS13_PRODUCT_RECONNECT_CHECK := tools/check-tls13-product-reconnect.py
+TLS13_CHAT_RECOVERY_CHECK := tools/check-tls13-chat-recovery.py
 TLS13_APP_CHECK := tools/check-tls13-app.py
+TLS13_SEND_BOUNDS_CHECK := tools/check-tls13-send-bounds.py
 TLS13_SECURE_WARM_RESTART_CHECK := tools/check-secure-warm-restart.py
 TLS13_286_BOOTSTRAP_BUILDER := tools/crypto-bench/tls13-product/build_286_product_bootstrap.py
 TLS13_286_BOOTSTRAP_SOURCE := targets/$(TARGET)/boot/tls13/tls13_286_bootstrap.asm
@@ -91,6 +98,10 @@ TLS13_PRODUCT_SOURCES := $(wildcard tools/crypto-bench/tls13-poc/*.py) \
 	$(wildcard tools/crypto-bench/tls13-product/*.py) \
 	$(wildcard tools/crypto-bench/tls13-product/*.asm) \
 	$(wildcard tools/crypto-bench/tls13-product/*.inc) \
+	$(wildcard tools/crypto-bench/tls13-product/http2/*.py) \
+	$(wildcard tools/crypto-bench/tls13-product/http2/*.asm) \
+	tools/crypto-bench/tls13-product/http2/requirements.txt \
+	$(HTTP2_SOURCES) \
 	$(wildcard targets/$(TARGET)/boot/tls13/*.asm) \
 	$(wildcard targets/$(TARGET)/boot/tls13/*.inc) \
 	tools/check-tls13-existing-read-sampler.py
@@ -165,7 +176,7 @@ COMPACT_PROMPT := prompts/compact.txt
 # to one sector so the 32K context pool remains usable. Unlike identity/compact it is literal JSON, so
 # its quotes are structural (NOT run through the "no quotes" guard).
 TOOLS_SCHEMA := prompts/tools.json
-NASM_FLAGS := -DLOADER_SECTORS=$(LOADER_SECTORS) -Itargets/$(TARGET)/boot/ -I$(BUILD_DIR)/
+NASM_FLAGS := -DLOADER_SECTORS=$(LOADER_SECTORS) -Itargets/$(TARGET)/boot/ -I$(BUILD_DIR)/ -I$(HTTP2_BUILD)/ -Itargets/$(TARGET)/boot/phases/http2/
 # 360 KiB double-sided geometry (the 286 tier — the IBM AT's drive rejects the
 # single-sided 160K image). Same SEED.SYS + same FAT12 internal layout (data at
 # LBA 11); only the physical geometry the AT requires differs. The .asm geometry
@@ -283,7 +294,10 @@ $(TLS13_286_BOOTSTRAP_GATE): $(TLS13_286_BOOTSTRAP) $(TLS13_286_PRODUCT_ABI) $(T
 # generated ABI.  The ABI is replaced first and this pack target last, making
 # the pack Make's transaction marker for the pair.  Final SEED.SYS incbin's the
 # blob; this is build-time source composition, not runtime module loading.
-$(TLS13_PACK_BASE_SYS): $(CORE_SRC) Makefile $(CORE_INCLUDES) $(CORE_PHASE_INCLUDES) $(TLS13_LOW_STATIC_CONSTANTS_SOURCE) $(TLS13_286_BOOTSTRAP) $(TLS13_286_PRODUCT_ABI) $(TLS13_286_BOOTSTRAP_GATE) $(SEED_SYS_INFO) $(LAYOUT_CHECK) $(TLS13_PRODUCT_RECONNECT_CHECK) $(TLS13_APP_CHECK) $(TLS13_CORE_DISPATCH_CHECK) $(TLS13_SECURE_WARM_RESTART_CHECK) $(TLS13_CHACHA_APP_ROTATIONS_CHECK) | $(TLS13_PACK_BASE_DIR)
+$(HTTP2_MARKER): $(HTTP2_BUILDER) $(HTTP2_SOURCES) $(CORE_SRC) $(CORE_INCLUDES) $(CORE_PHASE_INCLUDES) $(TLS13_286_BOOTSTRAP) $(TLS13_286_PRODUCT_ABI) | $(BUILD_DIR)
+	python3 $(HTTP2_BUILDER) --output-dir $(HTTP2_BUILD)
+
+$(TLS13_PACK_BASE_SYS): $(CORE_SRC) Makefile $(CORE_INCLUDES) $(CORE_PHASE_INCLUDES) $(HTTP2_MARKER) $(TLS13_LOW_STATIC_CONSTANTS_SOURCE) $(TLS13_286_BOOTSTRAP) $(TLS13_286_PRODUCT_ABI) $(TLS13_286_BOOTSTRAP_GATE) $(SEED_SYS_INFO) $(LAYOUT_CHECK) $(TLS13_PRODUCT_RECONNECT_CHECK) $(TLS13_CHAT_RECOVERY_CHECK) $(TLS13_APP_CHECK) $(TLS13_CORE_DISPATCH_CHECK) $(TLS13_SECURE_WARM_RESTART_CHECK) $(TLS13_CHACHA_APP_ROTATIONS_CHECK) | $(TLS13_PACK_BASE_DIR)
 	python3 $(TLS13_SECURE_WARM_RESTART_CHECK)
 	nasm $(NASM_FLAGS) -DTLS13_PRODUCT_TLS13=1 -DTLS13_PRODUCT_PACK_BASE=1 -f bin -l $(TLS13_PACK_BASE_LST) -o $@ $<
 	python3 $(TLS13_CHACHA_APP_ROTATIONS_CHECK) --core $@ --listing $(TLS13_PACK_BASE_LST)
@@ -292,6 +306,7 @@ $(TLS13_PACK_BASE_SYS): $(CORE_SRC) Makefile $(CORE_INCLUDES) $(CORE_PHASE_INCLU
 	python3 $(TLS13_PRODUCT_RECONNECT_CHECK) \
 		--core $@ \
 		--listing $(TLS13_PACK_BASE_LST)
+	python3 $(TLS13_CHAT_RECOVERY_CHECK) --core $@ --listing $(TLS13_PACK_BASE_LST)
 	python3 $(TLS13_APP_CHECK)
 
 # NASM emits the listing beside the checked binary.  If only that side output
@@ -344,11 +359,16 @@ $(TLS13_PRODUCT_ABI): $(TLS13_PRODUCT_PACK) $(TLS13_PACK_BASE_LST) $(TLS13_PRODU
 		mv "$$temp_dir/product-abi.inc" "$@"; \
 	fi
 
-# Bind the 16-bit 286 tail directory to a complete K14 product prefix.  This
-# intermediate includes the validated K14 pack and every ordinary phase but
-# deliberately omits only the appended 286 tail.  Its header therefore gives
-# the exact tail start without creating a second runtime or FAT file.
-$(TLS13_286_TAIL_BASE_SYS): $(CORE_SRC) Makefile $(CORE_INCLUDES) $(CORE_PHASE_INCLUDES) $(TLS13_286_BOOTSTRAP) $(TLS13_286_PRODUCT_ABI) $(TLS13_286_BOOTSTRAP_GATE) $(TLS13_PRODUCT_PACK) $(TLS13_PRODUCT_ABI) $(TLS13_PACK_BASE_LST) $(SEED_SYS_INFO) $(LAYOUT_CHECK) $(TLS13_CORE_DISPATCH_CHECK) | $(TLS13_286_TAIL_BASE_DIR)
+# Bind the 286 H2 adapter to the resident callbacks and shared parser before
+# composing the tail prefix. Its ABI comes from the validated pack-base image,
+# avoiding a dependency cycle through the adapter's own reserved sector.
+$(TLS13_286_H2_HELPER): $(TLS13_286_RUNTIME_ABI) $(TLS13_PRODUCT_SOURCES) $(HTTP2_MARKER) | $(BUILD_DIR)
+	python3 tools/crypto-bench/tls13-product/build_286_flight_sym.py
+	python3 tools/crypto-bench/tls13-product/build_286_flight.py
+
+# Include every ordinary phase and the adapter, omitting only the appended
+# 286 tail. The header gives the exact tail start in the same flat runtime.
+$(TLS13_286_TAIL_BASE_SYS): $(CORE_SRC) Makefile $(CORE_INCLUDES) $(CORE_PHASE_INCLUDES) $(TLS13_286_H2_HELPER) $(TLS13_286_BOOTSTRAP) $(TLS13_286_PRODUCT_ABI) $(TLS13_286_BOOTSTRAP_GATE) $(TLS13_PRODUCT_PACK) $(TLS13_PRODUCT_ABI) $(TLS13_PACK_BASE_LST) $(SEED_SYS_INFO) $(LAYOUT_CHECK) $(TLS13_CORE_DISPATCH_CHECK) | $(TLS13_286_TAIL_BASE_DIR)
 	nasm $(NASM_FLAGS) -DTLS13_PRODUCT_TLS13=1 -DTLS13_PRODUCT_286_TAIL_BASE=1 -f bin -l $(TLS13_286_TAIL_BASE_LST) -o $@ $<
 	python3 $(SEED_SYS_INFO) --check $@
 	python3 $(LAYOUT_CHECK) $@
@@ -375,20 +395,20 @@ $(TLS13_286_TAIL_BASE_LST): $(TLS13_286_TAIL_BASE_SYS) | $(TLS13_286_TAIL_BASE_D
 # exact resident prefix and the exact T13SYM02 image in the validated K14 pack.
 # The builder independently reassembles the symmetric phase and requires byte
 # identity with the packed image before publishing either output.
-$(TLS13_286_RUNTIME_ABI): $(TLS13_286_RUNTIME_ABI_BUILDER) $(TLS13_286_RUNTIME_ABI_PROBE) $(TLS13_286_TAIL_BASE_SYS) $(TLS13_286_TAIL_BASE_LST) $(TLS13_PRODUCT_PACK) | $(BUILD_DIR)
+$(TLS13_286_RUNTIME_ABI): $(TLS13_286_RUNTIME_ABI_BUILDER) $(TLS13_286_RUNTIME_ABI_PROBE) $(TLS13_PACK_BASE_SYS) $(TLS13_PACK_BASE_LST) $(TLS13_PRODUCT_PACK) | $(BUILD_DIR)
 	python3 $(TLS13_286_RUNTIME_ABI_BUILDER) \
-		--core $(TLS13_286_TAIL_BASE_SYS) \
-		--listing $(TLS13_286_TAIL_BASE_LST) \
+		--core $(TLS13_PACK_BASE_SYS) \
+		--listing $(TLS13_PACK_BASE_LST) \
 		--pack $(TLS13_PRODUCT_PACK) \
 		--output $@ \
 		--report $(TLS13_286_RUNTIME_ABI_REPORT)
 	@touch $(TLS13_286_RUNTIME_ABI_REPORT) $@
 
-$(TLS13_286_RUNTIME_ABI_REPORT): $(TLS13_286_RUNTIME_ABI) $(TLS13_286_RUNTIME_ABI_BUILDER) $(TLS13_286_RUNTIME_ABI_PROBE) $(TLS13_286_TAIL_BASE_SYS) $(TLS13_286_TAIL_BASE_LST) $(TLS13_PRODUCT_PACK) | $(BUILD_DIR)
+$(TLS13_286_RUNTIME_ABI_REPORT): $(TLS13_286_RUNTIME_ABI) $(TLS13_286_RUNTIME_ABI_BUILDER) $(TLS13_286_RUNTIME_ABI_PROBE) $(TLS13_PACK_BASE_SYS) $(TLS13_PACK_BASE_LST) $(TLS13_PRODUCT_PACK) | $(BUILD_DIR)
 	@if ! test -s $@; then \
 		python3 $(TLS13_286_RUNTIME_ABI_BUILDER) \
-			--core $(TLS13_286_TAIL_BASE_SYS) \
-			--listing $(TLS13_286_TAIL_BASE_LST) \
+			--core $(TLS13_PACK_BASE_SYS) \
+			--listing $(TLS13_PACK_BASE_LST) \
 			--pack $(TLS13_PRODUCT_PACK) \
 			--output $(TLS13_286_RUNTIME_ABI) \
 			--report $@; \
@@ -555,6 +575,8 @@ $(FLOPPY_IMG): FORCE $(BOOT_BIN) $(LOADER_BIN) $(SEED_SYS) $(FAT_DRIVER_DEPS) $(
 		--core $(SEED_SYS) \
 		--listing $(SEED_SYS_LST) \
 		--image $@
+	python3 $(TLS13_CHAT_RECOVERY_CHECK) --core $(SEED_SYS) --listing $(SEED_SYS_LST)
+	python3 $(TLS13_SEND_BOUNDS_CHECK) --core $(SEED_SYS) --listing $(SEED_SYS_LST)
 
 $(BOOT_360K_BIN): $(BOOT_SRC) | $(BUILD_DIR)
 	nasm $(NASM_FLAGS_360K) -f bin -o $@ $<

@@ -23,6 +23,9 @@ RAW = BUILD / "tls13-286-flight.bin"
 COMPONENT = BUILD / "tls13-286-flight-component.bin"
 ABI_OUT = BUILD / "tls13-286-flight-component-abi.inc"
 REPORT = BUILD / "tls13-286-flight.json"
+HELPER = BUILD / "tls13-286-h2-helper.bin"
+HTTP_BUILD = BUILD / "http2"
+BOOT = ROOT / "targets/ibm_pc_5150/boot"
 
 LOAD = 0x6300
 LIMIT = 0x7380
@@ -97,22 +100,64 @@ def main() -> None:
     if not RUNTIME_ABI.is_file() or not SYM_ABI.is_file():
         raise SystemExit("build the generated 286 runtime/symmetric ABIs first")
     with tempfile.TemporaryDirectory(prefix="seed-286-flight-", dir=BUILD) as temp:
-        output = Path(temp) / "flight.bin"
-        subprocess.run(
-            [
-                "nasm",
-                "-f",
-                "bin",
-                "-Itargets/ibm_pc_5150/boot/",
-                "-Ibuild/ibm_pc_5150/",
-                "-o",
-                str(output),
-                str(SOURCE),
-            ],
-            cwd=ROOT,
-            check=True,
-        )
-        raw = output.read_bytes()
+        work = Path(temp)
+
+        def assemble(name: str, source: Path) -> bytes:
+            output = work / f"{name}.bin"
+            subprocess.run([
+                "nasm", "-f", "bin",
+                *(f"-I{path}/" for path in (work, HTTP_BUILD, BOOT / "phases/http2", BOOT,
+                                            ROOT / "tools/crypto-bench/tls13-poc", BUILD, ROOT)),
+                "-l", str(work / f"{name}.lst"), "-o", str(output), str(source),
+            ], cwd=ROOT, check=True)
+            return output.read_bytes()
+
+        # Probe actual labels rather than duplicating offsets in a hand ABI.
+        names = ("h2_init", "h2_new_frame", "h2_payload_byte", "h2_frame_done")
+        source = work / "post-probe.asm"
+        source.write_text('%include "h2_post.asm"\n' + "".join(f"dw {name}\n" for name in names))
+        post = assemble("post-probe", source)
+        shared = (HTTP_BUILD / "h2_post.bin").read_bytes()
+        if post[:-8] != shared:
+            raise AssertionError("286 parser probe differs from the shared application parser")
+        values = {f"FLIGHT_{name.upper()}": value for name, value in
+                  zip(names, struct.unpack("<4H", post[-8:]), strict=True)}
+        values.update(FLIGHT_H2_BYTES=len(shared), FLIGHT_H2_CRC=crc16(shared),
+                      FLIGHT_H2_SEG=0x02a3, FLIGHT_H2_DELTA=0x2a30)
+        names = ("sym_seal_record", "sym_record_key_ptr", "sym_record_iv_ptr", "sym_record_seq_ptr")
+        source = work / "sym-probe.asm"
+        source.write_text('%define TLS13_POC_K14\n%define TLS13_POC_286\n%include "tls13_sym_overlay.asm"\n' +
+                          "".join(f"dw {name}\n" for name in names))
+        sym = assemble("sym-probe", source)
+        if sym[:-8] != (BUILD / "tls13-286-flight-sym.bin").read_bytes():
+            raise AssertionError("286 H2 sealing ABI differs from the exact flight SYM")
+        values.update({f"FLIGHT_{name.upper()}": value for name, value in
+                       zip(names, struct.unpack("<4H", sym[-8:]), strict=True)})
+        (work / "h2-286-post-abi.inc").write_text("".join(
+            f"{name} equ 0x{value:04x}\n" for name, value in values.items()))
+
+        # Helper references affect its CRC but never the fixed-width flight
+        # instructions. Require an actual fixed point before publication.
+        refs = dict(flight_crc16=0, flight_wire_left=0, flight_h2_send=0)
+        source = work / "flight-probe.asm"
+        source.write_text('%include "tls13/tls13_286_flight.asm"\n' +
+                          "".join(f"dw {name}\n" for name in refs))
+        for _attempt in range(3):
+            (work / "h2-helper-refs.inc").write_text('%include "tls13-286-runtime-abi.inc"\n' +
+                "".join(f"{name} equ 0x{value:04x}\n" for name, value in refs.items()))
+            helper = assemble("helper", BOOT / "tls13/h2_286_helper.asm")
+            if not 0 < len(helper) <= 512:
+                raise AssertionError("286 H2 adapter exceeds its one-sector slot")
+            (work / "h2-helper-crc.inc").write_text(
+                f"%define H2_HELPER_BYTES {len(helper)}\n%define H2_HELPER_CRC {crc16(helper)}\n")
+            probe = assemble("flight-probe", source)
+            updated = dict(zip(refs, struct.unpack("<3H", probe[-6:]), strict=True))
+            if refs == updated:
+                break
+            refs = updated
+        else:
+            raise AssertionError("286 H2 helper binding did not stabilize")
+        raw = probe[:-6]
     if not 0 < len(raw) <= LIMIT - LOAD:
         raise AssertionError("286 flight escaped its fixed coordinator window")
     if raw[:8] != MAGIC:
@@ -151,6 +196,8 @@ def main() -> None:
         "stored_bytes": stored_bytes,
         "component_sectors": sectors,
         "component_sha256": hashlib.sha256(component).hexdigest(),
+        "h2_helper_bytes": len(helper),
+        "h2_helper_sha256": hashlib.sha256(helper).hexdigest(),
     }
     include = f"""; Generated by build_286_flight.py; do not edit.
 %define TLS13_286_FLIGHT_COMPONENT_LOAD 0x{LOAD:04x}
@@ -164,6 +211,7 @@ def main() -> None:
     atomic_write(RAW, raw)
     atomic_write(COMPONENT, component)
     atomic_write(ABI_OUT, include)
+    atomic_write(HELPER, helper.ljust(512, b"\0"))
     atomic_write(
         REPORT,
         (json.dumps(report, indent=2, sort_keys=True) + "\n").encode("utf-8"),

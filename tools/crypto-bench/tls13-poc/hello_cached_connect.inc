@@ -41,7 +41,10 @@ hello_el1_rcvptr                 equ 0x0a
 hello_el1_rx_cmd_good            equ 0x80
 hello_tcp_offset                 equ 14 + 20
 hello_tcp_rx_read_len            equ 96
-hello_tcp_wait_count             equ 4
+; One slice is a PIT wrap (~55 ms), unlike the normal connector's two-tick
+; slice. Four wraps abandoned all three attempts in under a second. Allow
+; roughly 1.75 seconds per attempt while keeping the retry count bounded.
+hello_tcp_wait_count             equ 32
 hello_tcp_wait_count_3c501       equ 128
 hello_tcp_syn_retry_count        equ 3
 

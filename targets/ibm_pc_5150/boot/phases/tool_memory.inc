@@ -61,7 +61,6 @@ tool_memory_phase:
     call .out_str
     pop ax
     call .out_putc
-    call .compute_fc_suffix_len
     ret
 .do_exec_ext:
     mov ax, .word_execute
@@ -103,12 +102,10 @@ tool_memory_phase:
     call .out_str
     pop ax
     call .out_putc
-    call .compute_fc_suffix_len
     ret
 .exec_range_fail:
     mov ax, .word_execute_failed
     call .res_fail_range
-    call .compute_fc_suffix_len
     ret
 
 .do_read:
@@ -181,12 +178,10 @@ tool_memory_phase:
 .read_done:
 .read_eol:
     call .res_close
-    call .compute_fc_suffix_len
     ret
 .read_range_fail:
     mov ax, .word_read_failed
     call .res_fail_range
-    call .compute_fc_suffix_len
     ret
 
 .do_write:
@@ -253,12 +248,10 @@ tool_memory_phase:
     mov ax, .word_wrote
     call .res_line
     call .res_close
-    call .compute_fc_suffix_len
     ret
 .write_range_fail:
     mov ax, .word_write_failed
     call .res_fail_range
-    call .compute_fc_suffix_len
     ret
 
 ; ---- flat 32-bit address -> far/HMA/EMS access (Build 12 M1/M2/M3) ----
@@ -835,14 +828,11 @@ align 8, db 0
     jb .nl_inc
     push bx
     push bp
-    mov ah, 0x06
-    mov al, 1
-    mov bh, 0x07
+    mov ax, 0x0601
     mov cx, 0x0100
-    mov dh, dpi_prompt_row
-    mov dl, [screen_cols]
-    dec dl
-    int 0x10
+    phase_call_res scroll_text_area
+    ; Native continuation rereads the submitted prompt from ordinary video.
+    dec byte [dpi_prompt_marker_row]
     pop bp
     pop bx
     mov byte [cursor_row], dpi_prompt_row - 1
@@ -853,36 +843,6 @@ align 8, db 0
     shl ax, 1
     mov di, ax
     mov byte [cursor_col], 0
-    ret
-
-.compute_fc_suffix_len:
-    mov ax, api_fc_call_open_text_len + api_fc_name_mid_text_len + api_fc_args_mid_text_len
-    add ax, api_fc_output_open_text_len + api_fc_output_mid_text_len + api_stream_json_close_text_len
-    xor bh, bh
-    mov bl, [fc_call_id_len]
-    add ax, bx
-    add ax, bx
-    mov bl, [fc_name_len]
-    add ax, bx
-    add ax, [fc_args_len]
-    mov bl, [fc_output_len]
-    add ax, bx
-    call .add_prev_fc_suffix_len
-    mov [fc_suffix_len], ax
-    ret
-.add_prev_fc_suffix_len:
-    cmp byte [fc_match_state], 0
-    je .ap_done
-    add ax, api_fc_call_open_text_len + api_fc_name_mid_text_len + api_fc_args_mid_text_len + 1
-    add ax, api_fc_output_open_text_len + api_fc_output_mid_text_len
-    mov bl, [fc_match_state]
-    add ax, bx
-    add ax, bx
-    mov bl, [fc_capture_len + 1]
-    add ax, bx
-    mov bl, [fc_capture_len]
-    add ax, bx
-.ap_done:
     ret
 
 .word_read           db 'read from ', 0

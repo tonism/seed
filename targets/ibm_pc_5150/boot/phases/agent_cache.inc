@@ -81,6 +81,7 @@ agent_cache_phase:
     xor al, al
     stosb
     mov byte [chat_prompt_len_cache], 0
+    mov [chat_turn_failed], al
     clc
     ret
 .append_fragment:

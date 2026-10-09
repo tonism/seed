@@ -127,7 +127,7 @@
     db '1', 0
     dw (core_tool_replay_prev_phase_start - $$) / 512
     dw (core_tool_replay_prev_phase_end - core_tool_replay_prev_phase_start + 511) / 512
-    dw low_scratch_start
+    dw 0x2c00
     dw 0
     db 'O', 0
     dw (core_tool_memory_phase_start - $$) / 512

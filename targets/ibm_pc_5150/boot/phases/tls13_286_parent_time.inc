@@ -38,6 +38,8 @@ tls13_286_parent_time_phase:
     jz .failed
     cmp word [0x0413], 512
     jb .failed
+    call .restore_human_prompt
+    jc .failed
     call .derive_high_es
     mov di, tls13_286_rtc_publication_off
     xor ax, ax
@@ -67,6 +69,77 @@ tls13_286_parent_time_phase:
     dec bp
     jnz .attempt
 .failed:
+    stc
+    ret
+
+; RX and failed-request retirement own the old DPI input buffer. Reconstruct
+; the pending human prompt from its durable display copy before the bootstrap
+; checks and escrows it. No executed tool continuation may enter this route.
+.restore_human_prompt:
+    cmp byte [agent_loop_pending], 0
+    jne .prompt_bad
+    cmp byte [tool_fc_state], 2
+    je .prompt_bad
+    cmp byte [tool_fc_state], 5
+    ja .prompt_bad
+    xor ax, ax
+    mov di, dpi_input_buf
+    mov cx, 256 / 2
+    rep stosw
+    mov cl, [chat_resend_prompt_len]
+    mov [dpi_input_len_byte], cl
+    jcxz .prompt_ready
+    mov al, [screen_cols]
+    cmp al, 20
+    jb .prompt_bad
+    cmp al, 80
+    ja .prompt_bad
+    mov bl, al
+    mov al, 25
+    mul bl
+    shl ax, 1
+    mov bp, ax
+    mov al, [dpi_prompt_marker_row]
+    and al, 0x7f
+    cmp al, 25
+    jae .prompt_bad
+    mul bl
+    add ax, 2
+    shl ax, 1
+    mov si, ax
+    mov ax, [video_seg]
+    cmp ax, 0xb000
+    je .prompt_video
+    cmp ax, 0xb800
+    jne .prompt_bad
+.prompt_video:
+    mov es, ax
+    mov di, dpi_input_buf
+    mov dl, 2
+.prompt_byte:
+    cmp si, bp
+    jae .prompt_bad
+    mov al, [es:si]
+    mov [di], al
+    inc di
+    add si, 2
+    inc dl
+    cmp dl, bl
+    jb .prompt_count
+    add si, 4
+    mov dl, 2
+.prompt_count:
+    loop .prompt_byte
+.prompt_ready:
+    mov byte [tool_fc_state], 0
+    mov word [fc_capture_len], 0
+    push ds
+    pop es
+    clc
+    ret
+.prompt_bad:
+    push ds
+    pop es
     stc
     ret
 

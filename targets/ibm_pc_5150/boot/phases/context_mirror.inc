@@ -12,8 +12,15 @@ context_mirror_phase:
     mov ds, ax
     cmp word [far_log_seg_var], 0
     je .done
+%ifdef TLS13_PRODUCT_TLS13
+    ; Pending compaction still owns the complete far dialogue. Only actual
+    ; summary text replaces it; a no-text reconnect must mirror the same tail.
+    cmp byte [compacting_msg], 2
+    jne .not_compacted_note
+%else
     cmp byte [compacting_msg], 0
     je .not_compacted_note
+%endif
     xor ax, ax
     mov [far_flushed_len], ax
     mov [far_flushed_len + 2], ax

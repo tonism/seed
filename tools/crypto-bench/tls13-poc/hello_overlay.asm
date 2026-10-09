@@ -80,11 +80,9 @@ sha256_k_len equ 256
 hello_version                 equ 1
 hello_mss_max                 equ 384
 %ifdef TLS13_PRODUCT_TLS13
-; RFC 8449 record_size_limit = 2048.  This is an offer, not an assumption:
-; the protected-record receiver keeps its own fail-closed staging bound even
-; when a server (including the current OpenAI edge) omits the extension from
-; EncryptedExtensions.
-hello_product_extension_delta equ 6
+; H2 flow control bounds application DATA independently of TLS records.
+; Offer ALPN only; do not negotiate a second peer record-size contract.
+hello_product_extension_delta equ 9
 %else
 hello_product_extension_delta equ 0
 %endif
@@ -1333,9 +1331,8 @@ hello_fresh_tail:
 %endif
 hello_fresh_tail_suffix:
 %ifdef TLS13_PRODUCT_TLS13
-    ; record_size_limit = 2048.  Keep it ahead of padding and, on resumed
-    ; handshakes, ahead of the mandatory-final pre_shared_key extension.
-    db 0x00,0x1c,0x00,0x02,0x08,0x00
+    ; ALPN stays before padding and the mandatory-final PSK extension.
+    db 0x00,0x10,0x00,0x05,0x00,0x03,0x02,'h2' ; ALPN: only h2
 %endif
     db 0x00,0x15,0x00,0x0e
     times 14 db 0

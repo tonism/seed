@@ -397,6 +397,8 @@ def parse_client_hello(stream: bytes) -> dict[str, object]:
 
     base_kinds = (0, 43, 10, 13, 27, 51, 21)
     product_base_kinds = (0, 43, 10, 13, 27, 51, 28, 21)
+    h2_base_kinds = (0, 43, 10, 13, 27, 51, 16, 21)
+    alpn = None
     record_size_limit: int | None = None
     early_data = False
     if kinds == base_kinds:
@@ -432,6 +434,13 @@ def parse_client_hello(stream: bytes) -> dict[str, object]:
         record_size_limit = 2048
         early_data = True
         expected_length = None
+    elif kinds in (h2_base_kinds, h2_base_kinds + (45,),
+                   h2_base_kinds + (45, 41)):
+        alpn = "h2"
+        profile = "resumed" if kinds[-1] == 41 else "fresh"
+        requests_ticket = 45 in kinds
+        expected_length = (PRODUCT_FRESH_TICKET_CLIENT_HELLO_BYTES
+                           if requests_ticket else PRODUCT_FRESH_CLIENT_HELLO_BYTES) + 3
     else:
         raise ValueError(f"wrong ClientHello extension order {kinds}")
 
@@ -448,6 +457,7 @@ def parse_client_hello(stream: bytes) -> dict[str, object]:
         13: b"\x00\x02\x04\x03",
         27: b"\x02\x00\x02",
         28: b"\x08\x00",
+        16: b"\x00\x03\x02h2",
         21: b"\x00" * 14,
         45: b"\x01\x01",
         42: b"",
@@ -465,6 +475,7 @@ def parse_client_hello(stream: bytes) -> dict[str, object]:
             1429
             + identity_length
             + (6 if record_size_limit is not None else 0)
+            + (9 if alpn == "h2" else 0)
             + (4 if early_data else 0)
         )
     if expected_length != len(message):
@@ -479,6 +490,7 @@ def parse_client_hello(stream: bytes) -> dict[str, object]:
         "record_bytes": 5 + len(message),
         "identity_bytes": identity_length,
         "record_size_limit": record_size_limit,
+        "alpn": alpn,
         "early_data": early_data,
     }
 
@@ -616,6 +628,7 @@ def analyze_flow(flow: Flow) -> dict[str, object] | None:
             "client_hello_record_bytes": client_hello["record_bytes"],
             "client_requests_ticket": client_hello["requests_ticket"],
             "client_record_size_limit": client_hello["record_size_limit"],
+            "client_alpn": client_hello["alpn"],
             "client_early_data": client_hello["early_data"],
         }
     )
@@ -778,9 +791,10 @@ def analyze_flow(flow: Flow) -> dict[str, object] | None:
         if (
             protected_type != 23
             or protected_version != TLS12_LEGACY_VERSION
-            or protected_length != RESUMED_PROTECTED_RECORD_BYTES - 5
-            or server[protected_offset : protected_offset + 5]
-            != RESUMED_PROTECTED_HEADER
+            or protected_length not in (
+                (68, 72) if client_hello["alpn"] == "h2"
+                else (RESUMED_PROTECTED_RECORD_BYTES - 5,)
+            )
         ):
             result.update(
                 {
@@ -794,7 +808,7 @@ def analyze_flow(flow: Flow) -> dict[str, object] | None:
             {
                 "server_ccs_present": ccs_present,
                 "server_protected_record_offset": protected_offset,
-                "server_protected_record_bytes": RESUMED_PROTECTED_RECORD_BYTES,
+                "server_protected_record_bytes": 5 + protected_length,
             }
         )
 
@@ -929,7 +943,8 @@ def analyze_flow(flow: Flow) -> dict[str, object] | None:
             and app_version == TLS12_LEGACY_VERSION
             and app_offset < len(client_times)
         ):
-            post_finished_head = 5 + app_length == EARLY_HEAD_RECORD_BYTES
+            liveness_record_bytes = 79 if client_hello["alpn"] == "h2" else EARLY_HEAD_RECORD_BYTES
+            post_finished_head = 5 + app_length == liveness_record_bytes
             app_time = client_times[app_offset]
             if post_finished_head and credential_free_head_time is None:
                 credential_free_head_time = app_time
@@ -938,7 +953,7 @@ def analyze_flow(flow: Flow) -> dict[str, object] | None:
                     "client_first_application_offset": app_offset,
                     "client_first_application_record_bytes": 5 + app_length,
                     "client_first_application_matches_fixed_head_geometry": (
-                        5 + app_length == 72
+                        5 + app_length == liveness_record_bytes
                     ),
                     "client_first_application_timestamp": app_time,
                     "client_finished_to_first_application_seconds": (
@@ -1244,6 +1259,7 @@ def _fixture_client_hello(
     *,
     resumed: bool,
     product: bool = False,
+    alpn_h2: bool = False,
     early_data: bool = False,
     identity: bytes = b"T" * 192,
 ) -> bytes:
@@ -1280,7 +1296,8 @@ def _fixture_client_hello(
                 struct.pack(">H", len(key_share_entry)) + key_share_entry,
             ),
             *(
-                (_fixture_extension(28, b"\x08\x00"),)
+                (_fixture_extension(16, b"\x00\x03\x02h2"),)
+                if alpn_h2 else (_fixture_extension(28, b"\x08\x00"),)
                 if product
                 else ()
             ),
@@ -1319,12 +1336,12 @@ def _fixture_client_hello(
     expected = (
         1429
         + len(identity)
-        + (6 if product else 0)
+        + (9 if alpn_h2 else 6 if product else 0)
         + (4 if early_data else 0)
         if resumed
         else (
-            PRODUCT_FRESH_TICKET_CLIENT_HELLO_BYTES
-            if product
+            PRODUCT_FRESH_TICKET_CLIENT_HELLO_BYTES + (3 if alpn_h2 else 0)
+            if product or alpn_h2
             else FRESH_TICKET_CLIENT_HELLO_BYTES
         )
     )

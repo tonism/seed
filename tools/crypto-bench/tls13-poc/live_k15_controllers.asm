@@ -1169,7 +1169,7 @@ hello_first_overlap_len       equ hello_cached_frame_end - hello_first_fragment_
 ; 64-byte resumed encrypted record).
 hello_resumed_tail_len        equ 0x0f16
 hello_resumed_tail_buffer     equ 0x0f18
-hello_resumed_tail_capacity   equ 70
+hello_resumed_tail_capacity   equ 72
 %else
 hello_first_fragment_source   equ poc_rx_frame_start
 %endif
@@ -1310,7 +1310,6 @@ live_hello_ticket_age_ready:
     call word [hello_server_begin_entry]
     jc hello_fail
     mov byte [hello_header_pos], 0
-    mov word [hello_body_remaining], 0
 %ifdef LIVE_K15_TIMING_TELEMETRY
     mov byte [timing_first_seen], 0
 %endif
@@ -1390,15 +1389,25 @@ live_hello_ticket_age_ready:
     or cx, cx
     jz .zero_window
 %ifdef LIVE_K15_SYSTEM_RAM_RESUMED
-    cmp cx, hello_resumed_tail_capacity
+    cmp cx, 83
     ja hello_fail
     mov [hello_resumed_tail_len], cx
-    push es
+    ; Controller entry establishes ES=DS; HELLO entries preserve it.
     push ds
     pop es
     mov di, hello_resumed_tail_buffer
+    cmp cx, hello_resumed_tail_capacity
+    jbe .copy_tail
+    sub cx, hello_resumed_tail_capacity
+    xchg dx, cx
+    mov cx, hello_resumed_tail_capacity
     rep movsb
-    pop es
+    ; Nine extra public ciphertext bytes fit above the retained c scatter
+    ; (which ends at 3b90), below immutable user configuration at 3b9c.
+    mov di, 0x3b90
+    xchg cx, dx
+.copy_tail:
+    rep movsb
 %else
     mov di, tcp_remote_ack + 3
     sub [di], cl
@@ -2456,6 +2465,9 @@ chunk_len                      equ chunk_ptr + 2
 record_shape_flags             equ chunk_len + 2
 record_shape_ccs               equ 0x01
 record_shape_encrypted         equ 0x02
+%ifdef LIVE_K15_SYSTEM_RAM
+record_alpn_bad                equ record_shape_flags + 1
+%endif
 sym_entry_table                equ 0x1820
 sym_transcript_update_entry    equ sym_entry_table + (2 * 2)
 sym_hs_open_begin_entry        equ sym_entry_table + (4 * 2)
@@ -2535,6 +2547,9 @@ live_protected_controller:
 %endif
     mov word [record_header_pos], 0
     mov byte [record_shape_flags], 0
+%ifdef LIVE_K15_SYSTEM_RAM
+    mov byte [record_alpn_bad], 0
+%endif
 
 .receive:
     ; Avoid quantizing every 3c501 certificate-flight segment to the next
@@ -2631,11 +2646,17 @@ live_protected_controller:
     jne .consume
     or cx, cx
     jnz LIVE_K15_PERSIST_FAIL
-    cmp byte [finished_tail_count], flight_tail_len
-    jne LIVE_K15_PERSIST_FAIL
+    ; Public record counters prove complete tail coverage: start_record
+    ; bounds its length and every cipher byte passes capture_flight_tail.
     mov si, sym_received_tag
     call word [sym_open_finish_entry]
     jc LIVE_K15_PERSIST_FAIL
+%ifdef LIVE_K15_SYSTEM_RAM
+    ; Validate only after the complete record has authenticated this prefix.
+    mov si, auth_input_signature
+    call h2_validate_ee
+    jc LIVE_K15_PERSIST_FAIL
+%endif
     call commit_finished_tail
     jc LIVE_K15_PERSIST_FAIL
     call res_tcp_ack
@@ -2657,97 +2678,38 @@ live_protected_controller:
     jc LIVE_K15_PERSIST_FAIL
     jmp .receive
 
-start_record:
-    cmp word [record_header + 1], 0x0303
-    jne .failed
-    xor ax, ax
-    mov ah, [record_header + 3]
-    mov al, [record_header + 4]
-    mov [record_wire_remaining], ax
-    cmp byte [record_header], 0x14
-    jne .encrypted
-    test byte [record_shape_flags], record_shape_ccs | record_shape_encrypted
-    jnz .failed
-    cmp ax, 1
-    jne .failed
-    or byte [record_shape_flags], record_shape_ccs
-    mov byte [record_state], 1
-    clc
-    ret
-.encrypted:
-    cmp byte [record_header], 0x17
-    jne .failed
-    test byte [record_shape_flags], record_shape_encrypted
-    jnz .failed
-    cmp ax, 16 + flight_tail_len
-    jb .failed
-    sub ax, 16
-    cmp ax, 4096
-    ja .failed
-    mov [record_cipher_remaining], ax
-    sub ax, flight_tail_len
-    mov [record_finished_prefix], ax
-    mov word [record_plain_offset], 0
-    mov byte [record_tag_pos], 0
-    mov byte [finished_tail_count], 0
-    push es
-    push ds
-    pop es
-    mov si, record_header
-    mov di, sym_io
-    mov cx, 5
-    rep movsb
-    pop es
-    mov ax, [record_finished_prefix]
-    call word [sym_hs_open_begin_entry]
-    jc .failed
-    or byte [record_shape_flags], record_shape_encrypted
-    mov byte [record_state], 2
-    clc
-    ret
-.failed:
-    stc
-    ret
-
 capture_flight_tail:
-    push ax
-    push bx
-    push cx
+    ; Caller needs SI and DX only. Branches depend on public byte positions.
     push dx
-    push di
     push si
     mov si, [chunk_ptr]
     mov cx, [chunk_len]
     mov bx, [record_plain_offset]
 .byte:
+%ifdef LIVE_K15_SYSTEM_RAM
+    cmp bx, 19
+    jae .tail
+    mov al, [si]
+    mov [auth_input_signature + bx], al
+.tail:
+%endif
     cmp bx, [record_finished_prefix]
     jb .next
-    mov dx, bx
-    sub dx, [record_finished_prefix]
-    cmp dx, flight_tail_len
-    jae .failed
-    mov di, flight_tail
-    add di, dx
+    mov di, bx
+    sub di, [record_finished_prefix]
     mov al, [si]
-    mov [di], al
-.count:
-    inc byte [finished_tail_count]
+    mov [flight_tail + di], al
 .next:
     inc si
     inc bx
     loop .byte
-    clc
-    jmp short .done
-.failed:
-    stc
-.done:
     pop si
-    pop di
     pop dx
-    pop cx
-    pop bx
-    pop ax
+    clc
     ret
+%ifdef LIVE_K15_SYSTEM_RAM
+%include "h2_encrypted_extensions.inc"
+%endif
 
 finished_header db 0x14,0x00,0x00,0x20
 %ifndef LIVE_K15_IDENTITY_CAPTURE
@@ -2980,10 +2942,10 @@ client_finished_sent:
     ; post-controller load that missed the edge timer in the first live run.
     call word [sym_build_head_entry]
     jc LIVE_K15_PERSIST_FAIL
-    cmp ax, 72
+    cmp ax, 79
     jne LIVE_K15_PERSIST_FAIL
     mov si, sym_io
-    mov cx, 72
+    mov cx, 79
     call res_tcp_send
     jc LIVE_K15_PERSIST_FAIL
 
@@ -3131,8 +3093,67 @@ reject_queued_tail:
     clc
     ret
 
-head_tx_text db 13,10,'HEAD TX',13,10,0
 
+
+
+%if ($-$$)>0x468
+%error "persistent protected code reaches identity tail"
+%endif
+start_record:
+    cmp word [record_header + 1], 0x0303
+    jne .failed
+    xor ax, ax
+    mov ah, [record_header + 3]
+    mov al, [record_header + 4]
+    mov [record_wire_remaining], ax
+    cmp byte [record_header], 0x14
+    jne .encrypted
+    test byte [record_shape_flags], record_shape_ccs | record_shape_encrypted
+    jnz .failed
+    cmp ax, 1
+    jne .failed
+    or byte [record_shape_flags], record_shape_ccs
+    mov byte [record_state], 1
+    clc
+    ret
+.encrypted:
+    cmp byte [record_header], 0x17
+    jne .failed
+    test byte [record_shape_flags], record_shape_encrypted
+    jnz .failed
+    cmp ax, 16 + flight_tail_len
+    jb .failed
+    sub ax, 16
+    cmp ax, 4096
+    ja .failed
+    mov [record_cipher_remaining], ax
+    sub ax, flight_tail_len
+    mov [record_finished_prefix], ax
+    mov word [record_plain_offset], 0
+    mov byte [record_tag_pos], 0
+    push es
+    push ds
+    pop es
+    mov si, record_header
+    mov di, sym_io
+    mov cx, 5
+    rep movsb
+    pop es
+    mov ax, [record_finished_prefix]
+    call word [sym_hs_open_begin_entry]
+    jc .failed
+    or byte [record_shape_flags], record_shape_encrypted
+    mov byte [record_state], 2
+    clc
+    ret
+.failed:
+    stc
+    ret
+
+
+%if ($-$$)>0x4e0
+%error "protected header parser reaches retained ciphertext"
+%endif
 %elifdef LIVE_K15_POST_CONTROLLER
 
 %ifndef LIVE_K15_PERSIST_FAIL

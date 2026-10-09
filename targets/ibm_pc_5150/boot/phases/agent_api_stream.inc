@@ -10,63 +10,43 @@
     dw %1 - (PHASE_LOAD_ADDR + ($ - PHASE_BASE) + 2)
 %endmacro
 
-api_ctx_native_chunk equ tls_rx_copy + 0x30
+api_ctx_native_chunk equ 0x2e70
 
 agent_api_stream_phase:
     push ds
     pop es
     cld
-    cmp byte [handoff_addr + handoff_status], handoff_status_ready
-    je .ready_tail
-    ; Cold greeting: the banner is already drawn (early, at hal_start), so nothing to draw here -- the
-    ; greeting just flows from the current cursor (below the banner / config). No absolute positioning.
-%ifdef TLS13_PRODUCT_TLS13
-    ; TLS 1.2 sent this already-built cold request from its handshake probe.
-    ; The TLS 1.3 route publishes a clean application channel instead, so the
-    ; normal stream phase owns the first encrypted request just like every
-    ; later turn.
-    phase_call_res (low_scratch_start + agent_request_phase.validate_product_prefix - core_agent_request_phase_start)
-    jc .failed
-    phase_call_res tls_prepare_3c501_receive
-    phase_call_res tls_send_application_data_current_seq
-    jc .failed
-%endif
-    jmp .done
-
-.ready_tail:
-%ifdef TLS13_PRODUCT_TLS13
-    ; R's first sector survives X's 0x0900..0x0eff overlay.  Repeat its exact
-    ; 16K source validator here, after request construction and before any TLS
-    ; send, so stale/corrupt stream metadata fails closed at the final edge.
-    phase_call_res (low_scratch_start + agent_request_phase.validate_stream_bounds - core_agent_request_phase_start)
+    mov [0x0682], sp                 ; real resident NIC-owner return frame
+    ; R's first sector survives the X load. Validate its source metadata at
+    ; the last boundary before opening a stream or sending credentials.
+    phase_call_res low_scratch_start + (agent_request_phase.validate_stream_bounds - core_agent_request_phase_start)
     jc .prefix_failed
-%else
-    cmp word [tls_app_len], 0
+    phase_call_res 10254
+    mov si, PHASE_LOAD_ADDR+(h2_json_model-PHASE_BASE)
+    call agent_api_stream_append_z_to_buffer
+    mov si, chat_model_cache
+    call agent_api_stream_append_z_to_buffer
+    cmp byte [handoff_addr+handoff_status], handoff_status_ready
     je .stream_chunk2
-%endif
-    phase_call_res tls_prepare_3c501_receive
-    phase_call_res tls_send_application_data_current_seq
-    jc .prefix_failed
+    mov si, PHASE_LOAD_ADDR+(h2_json_greeting-PHASE_BASE)
+    call agent_api_stream_append_z_to_buffer
+    jmp .send_tail
 .stream_chunk2:
-    ; Build 9 chunk 2: ,"instructions":"<identity> <ledger>","input":". Build 10 fix:
-    ; instructions ride their OWN record, then ledger+directive+input-open ride a second, so
-    ; neither overflows the 440 B api_request_plain body. A compaction turn's COMBINED chunk 2
-    ; (~586 B) overflowed it into TLS/config scratch and hung the send (16K freeze). Splitting
-    ; keeps each record well under the cap; the body now spans 4 TLS records.
-    mov di, api_request_plain + tls_record_header_len
     ; Build 12 native tool calling: on a NORMAL (non-compaction) ready turn, splice the tools array
     ; right after the model/reasoning tail. 32K+ streams resident tools_cache; 16K reads the one-sector
     ; TOOLS asset into tls_rx_copy and streams it through the same record-flushing copy path.
     mov si, PHASE_LOAD_ADDR + (api_json_reasoning_prefix - PHASE_BASE)
     cmp byte [compacting_msg], 0
     jne .chunk2_do_reasoning
+    cmp byte [agent_loop_count], agent_loop_max
+    jae .chunk2_do_reasoning            ; return the final tool result for a text answer
     mov si, PHASE_LOAD_ADDR + (api_json_tools_open_text - PHASE_BASE)
     call agent_api_stream_append_z_to_buffer
     mov cx, [prompt_tools_size]
     cmp word [loop_cache_count], 0
     je .chunk2_tools_floppy
     mov si, tools_cache
-    call agent_api_stream_stream_contract.sc_copy   ; stream schema as <=440 B records; di=body on return
+    call agent_api_stream_stream_contract.sc_copy   ; stream schema as <=436 B records; di=body on return
     jc .prefix_failed
     jmp .chunk2_model_closed
 .chunk2_tools_floppy:
@@ -81,31 +61,30 @@ agent_api_stream_phase:
 %endif
 .chunk2_do_reasoning:
     call agent_api_stream_append_z_to_buffer
-    ; Build 11 #4: chunk 2 instructions value. CRITICAL: every TLS record's TX frame (record + ~75 B
+    ; Build 11 #4: chunk 2 instructions value. CRITICAL: every TLS record's TX frame (record + 76 B
     ; TLS/TCP/IP/Eth overhead) must fit the 512 B scratch (ne_tx_frame at low_scratch_start .. the phase
     ; load addr net_setup_phase_start) - an oversized frame overwrites THIS phase's own code mid-send.
-    ; So no record may exceed api_request_plain_len (440), exactly like the normal-turn records.
+    ; So no record may exceed api_request_send_len (436), exactly like the normal-turn records.
     cmp byte [compacting_msg], 0
     je .chunk2_identity
-    ; Compaction: stream the contract as <=440 B records (it is larger than one record), staged in the
+    ; Compaction: stream the contract as <=436 B records (it is larger than one record), staged in the
     ; RX buffer (free on a compaction pass: the prompt is not sent, and the real turn re-reads it from
     ; the screen). The targets + input-open then ride a fresh, bounded record.
     mov ax, [prompt_compact_cluster]
     mov cx, [prompt_compact_size]
     call agent_api_stream_stream_contract
     jc .prefix_failed
-    mov di, api_request_plain + tls_record_header_len
+    mov di, api_request_plain + 14
     call agent_api_stream_append_compaction_targets   ; " Target about <N> .. at most <M>."
     jmp .chunk2_input_open
 .chunk2_identity:
-    ; Build 11: stream the identity as <=440 B records (the SAME path as the contract) so it can exceed
+    ; Build 11: stream the identity as <=436 B records (the SAME path as the contract) so it can exceed
     ; one record - the >392 B reframe. The prefix is already in the body; the streamer flushes records as
     ; it fills and leaves di at the body. (Was a single in-place record, Makefile-capped at 392 B.)
     mov ax, [prompt_id_cluster]
     mov cx, [prompt_id_size]
     call agent_api_stream_stream_contract
     jc .prefix_failed
-    mov di, api_request_plain + tls_record_header_len
     call agent_api_stream_append_ledger
     ; Build 11 #4 note-as-memory: a normal turn carries the running note (the compacted memory) in
     ; "instructions", JSON-escaped (the model summary may contain " or \). Skipped until the first
@@ -124,8 +103,6 @@ agent_api_stream_phase:
 .chunk2_input_open:
     mov si, PHASE_LOAD_ADDR + (api_json_input_open_text - PHASE_BASE)
     call agent_api_stream_append_z_to_buffer
-    mov ax, di
-    sub ax, api_request_plain + tls_record_header_len
     call .send_app_record                     ; record B: ledger [+ note] + input-open (or targets)
     jc .prefix_failed
 .tail_build:
@@ -137,7 +114,7 @@ agent_api_stream_phase:
     ; prompt length lives beside the retry counter in reconnect-safe state.
     mov al, [chat_resend_prompt_len]
     mov [api_stream_prompt_len], al
-    mov di, api_request_plain + tls_record_header_len
+    mov di, api_request_plain + 14
     mov si, PHASE_LOAD_ADDR + (api_json_user_item_open_text - PHASE_BASE)
     call agent_api_stream_append_z_to_buffer
     mov si, [dialogue_off]
@@ -145,34 +122,22 @@ agent_api_stream_phase:
     mov dx, [dialogue_cnt + 2]
     call agent_api_stream_append_context
     jc .failed
-    cmp byte [tool_fc_state], 2
-    je .tail_fc_prompt
-.tail_not_fc_output:
     cmp byte [compacting_msg], 0
     jne .tail_close_json                      ; compaction: input = the window alone, no user prompt
     mov si, PHASE_LOAD_ADDR + (api_json_user_label_text - PHASE_BASE)
     call agent_api_stream_append_z_to_buffer
     call agent_api_stream_append_prompt_screen_to_buffer
     jc .failed
-    jmp .tail_close_json
-.tail_fc_prompt:
-    call agent_api_stream_append_prompt_screen_to_buffer
-    jc .failed
+    cmp byte [tool_fc_state], 2
+    jne .tail_close_json
 .tail_fc_output:
     call agent_api_stream_append_fc_output_item
     jc .failed
 .tail_close_json:
     mov si, PHASE_LOAD_ADDR + (api_stream_json_close_text - PHASE_BASE)
     call agent_api_stream_append_z_to_buffer
-    mov ax, di
-    sub ax, api_request_plain + tls_record_header_len
-
 .send_tail:
-    cmp ax, api_request_plain_len
-    ja .failed
-    call .send_app_record
-    jc .failed
-    phase_call_res tls_prepare_3c501_receive
+    phase_call_res 10375
 .done:
     ; Reset keep-alive timing: this request is the last client activity, so the idle clock
     ; (Cloudflare's ~400s timeout) restarts here, with no pings outstanding for this exchange.
@@ -197,20 +162,31 @@ agent_api_stream_phase:
     mov [cursor_col], al
     mov ax, (((core_agent_response_phase_end - core_agent_response_phase_start + 511) / 512) << 8) | ((core_agent_response_phase_start - $$) / 512)
     mov bx, agent_response_phase_load_addr
+    push ax
+    push bx
+    mov ax, 0x01a7                  ; unused third final-controller sector
+    mov bx, 0x2a00
+    phase_call_res load_core_sectors_at
+    jc .owner_failed
+    pop bx
+    pop ax
     ret
+.owner_failed:
+    phase_call_res 10388
 
 .prefix_failed:
 .failed:
-    stc
-    ret
+    phase_call_res 10388          ; retire the partially emitted request
+
 
 ; Shared by the chunk-2 and tail sends (ax = record body length): set the record length + the
 ; plaintext pointer (always the request buffer), prepare the 3c501 receive, send. CF = send failure.
 .send_app_record:
-    mov [tls_app_len], ax
-    phase_call_res tls_prepare_3c501_receive
-    phase_call_res tls_send_application_data_current_seq
+    phase_call_res 10316
     ret
+
+h2_json_model db '{"model":"',0
+h2_json_greeting db ',"input":"Say Hello! ASCII only.","store":false,"stream":true}',0
 
 ; Build 12 native tool calling: ready turns use a local Responses input array. Tool continuation
 ; replays the captured function_call item plus function_call_output, with store:false so no remote
@@ -233,10 +209,10 @@ api_fc_output_mid_text db '","output":"', 0
 api_fc_output_mid_text_len equ $ - api_fc_output_mid_text - 1
 
 ; (Removed in M2e: agent_api_stream_append_floppy_prompt -- the in-place one-record floppy streamer was
-; superseded by agent_api_stream_stream_contract, which streams the identity AND the contract as <=440 B
+; superseded by agent_api_stream_stream_contract, which streams the identity AND the contract as <=436 B
 ; records. Reclaimed for the EMS context-read path.)
 
-; Build 11 #4: stream the compaction CONTRACT (larger than one record) as <=440 B records, so no TX
+; Build 11 #4: stream the compaction CONTRACT (larger than one record) as <=436 B records, so no TX
 ; frame ever exceeds the 512 B scratch below the phase. di = the body write pointer (past the prefix).
 ; The contract is staged in the RX buffer tls_rx_copy - FREE on a compaction pass: the user prompt
 ; there is not sent (the input is the window alone) and the real turn re-reads it from the screen
@@ -245,7 +221,7 @@ api_fc_output_mid_text_len equ $ - api_fc_output_mid_text - 1
 ; (so di = body, empty, on return - the caller then puts the targets + input-open in a fresh record).
 ; Control bytes flatten to space. CF=1 on a sector-read or record-send failure.
 agent_api_stream_stream_contract:
-    ; Build 11: generalized to stream ANY floppy prompt as <=440 B TLS records (ax = cluster, cx = byte
+    ; Build 11: generalized to stream ANY floppy prompt as <=436 B TLS records (ax = cluster, cx = byte
     ; size, caller-set) - the compaction contract AND the identity, both larger than one record. cx
     ; survives read_abs_sector (preserves bx/cx), so the size carries across the sector stage.
     ; Build 12 incr 3 (32K floppy-free loop): resolve the prompt source via a resident helper (this is
@@ -255,21 +231,16 @@ agent_api_stream_stream_contract:
     jc .sc_fail
 .sc_copy:
     jcxz .sc_flush_last
-    cmp di, api_request_plain + tls_record_header_len + api_request_plain_len
-    jb .sc_room
-    call .sc_flush_record                ; record full (440 B): send it, di = body
-    jc .sc_fail
-.sc_room:
     lodsb
     cmp al, 32
     jae .sc_store
     mov al, ' '
 .sc_store:
-    stosb
+    phase_call_res 10279
     dec cx
     jmp .sc_copy
 .sc_flush_last:
-    cmp di, api_request_plain + tls_record_header_len
+    cmp di, api_request_plain + 14
     je .sc_done                          ; nothing buffered (di == body): done
     call .sc_flush_record                ; flush the final partial contract record
     jc .sc_fail
@@ -280,24 +251,7 @@ agent_api_stream_stream_contract:
     stc
     ret
 .sc_flush_record:
-    ; send body[0 .. di-body] as a TLS record; reset di = body. Preserves si + cx (the contract
-    ; staging pointer + remaining), which the TLS send would otherwise clobber. CF=1 on send failure.
-    push si
-    push cx
-    mov ax, di
-    sub ax, api_request_plain + tls_record_header_len
-    call agent_api_stream_phase.send_app_record   ; set len/ptr, prep, send (shared with the tail send)
-    jc .sc_flush_fail
-    phase_call_res tls_prepare_3c501_receive
-    pop cx
-    pop si
-    mov di, api_request_plain + tls_record_header_len
-    clc
-    ret
-.sc_flush_fail:
-    pop cx
-    pop si
-    stc
+    phase_call_res 10316
     ret
 
 ; Build 11 #4c: append the dynamic char targets after the (floppy) compaction contract, so the model
@@ -308,13 +262,13 @@ agent_api_stream_stream_contract:
 ; + .u16_decimal_len). [es:di] advances; clobbers ax/bx/cx/dx/si.
 agent_api_stream_append_compaction_targets:
     mov al, '~'
-    stosb
+    phase_call_res 10279
     mov ax, [chat_context_len_var]
     shr ax, 1
     shr ax, 1                            ; N = window/4
     call agent_api_stream_append_u16_decimal
     mov al, '/'
-    stosb
+    phase_call_res 10279
     mov ax, [chat_context_len_var]
     shr ax, 1                            ; M = window/2 (== chat_effective_cap on a compaction pass)
     jmp agent_api_stream_append_u16_decimal
@@ -336,7 +290,7 @@ agent_api_stream_append_u16_decimal:
 .u16d_emit:
     pop ax
     add al, '0'
-    stosb
+    phase_call_res 10279
     loop .u16d_emit
     pop bx
     pop cx
@@ -349,18 +303,20 @@ agent_api_stream_append_z_to_buffer:
     lodsb
     or al, al
     jz .append_done
-    stosb
+    phase_call_res 10279
     jmp agent_api_stream_append_z_to_buffer
 .append_done:
     ret
 
 agent_api_stream_append_fc_output_item:
-    cmp byte [fc_match_state], 0
+    cmp byte [fc_history_len], 0
     je .current_fc_output
     call agent_api_stream_stream_contract.sc_flush_record
     jc .append_done
     mov ax, (((core_tool_replay_prev_phase_end - core_tool_replay_prev_phase_start + 511) / 512) << 8) | ((core_tool_replay_prev_phase_start - $$) / 512)
-    phase_call_res run_core_phase
+    mov bx, 0x2c00
+    phase_call_res run_core_phase_at
+    jc .append_done
 .current_fc_output:
     mov si, PHASE_LOAD_ADDR + (api_fc_call_open_text - PHASE_BASE)
     call agent_api_stream_append_z_to_buffer
@@ -369,13 +325,13 @@ agent_api_stream_append_fc_output_item:
     call agent_api_stream_append_z_to_buffer
     mov si, fc_name
     mov cl, [fc_name_len]
-    rep movsb
+    phase_call_res 10307
     mov si, PHASE_LOAD_ADDR + (api_fc_args_mid_text - PHASE_BASE)
     call agent_api_stream_append_z_to_buffer
     mov si, fc_args_buf
     mov cx, [fc_args_len]
-    rep movsb
-    ; A prompt + function_call + function_call_output can exceed one 440-byte TLS body. Split after
+    phase_call_res 10307
+    ; A prompt + function_call + function_call_output can exceed one 436-byte TLS body. Split after
     ; the arguments bytes; api_fc_output_open_text's leading `"}' closes this item in the next record.
     call agent_api_stream_stream_contract.sc_flush_record
     jc .append_done
@@ -386,7 +342,7 @@ agent_api_stream_append_fc_output_item:
     call agent_api_stream_append_z_to_buffer
     mov si, fc_output_buf
     mov cl, [fc_output_len]
-    rep movsb
+    phase_call_res 10307
 .append_done:
     ret
 .append_call_id:
@@ -394,7 +350,7 @@ agent_api_stream_append_fc_output_item:
     mov cl, [fc_call_id_len]
 .append_counted:
     xor ch, ch
-    rep movsb
+    phase_call_res 10307
     ret
 
 ; The window's JSON-escaping copy is folded into the flush-aware agent_api_stream_append_context
@@ -423,8 +379,6 @@ agent_api_stream_append_prompt_screen_to_buffer:
     ; escaped pair + the closing JSON), FLUSH it as a TLS record and keep reading into a fresh
     ; buffer - so a long prompt sends as multiple records instead of truncating. Gated here, so a
     ; short prompt (di never reaches the limit) takes the unchanged single-record path.
-    cmp di, api_request_plain + tls_record_header_len + api_request_plain_len - api_stream_json_close_text_len - 2
-    jae .screen_flush
     mov al, [es:si]
     cmp al, '"'
     je .screen_escape
@@ -436,20 +390,16 @@ agent_api_stream_append_prompt_screen_to_buffer:
 .screen_escape:
     mov ah, al
     mov al, '\'
-    mov [di], al
-    inc di
+    phase_call_res 10279
     mov al, ah
-    mov [di], al
-    inc di
+    phase_call_res 10279
     jmp .screen_advanced
 .screen_space:
     mov al, ' '
-    mov [di], al
-    inc di
+    phase_call_res 10279
     jmp .screen_advanced
 .screen_store:
-    mov [di], al
-    inc di
+    phase_call_res 10279
 .screen_advanced:
     inc si
     inc si
@@ -465,34 +415,11 @@ agent_api_stream_append_prompt_screen_to_buffer:
 .screen_done:
     pop es
     ret
-.screen_flush:
-    ; Record buffer full mid-prompt: send what's built (context + prompt-so-far on the first flush,
-    ; pure prompt-parts after) as a TLS record, then keep reading into a fresh buffer. The send
-    ; reuses the current-seq path (auto-increments the record seq) and reads plaintext from ds, but
-    ; CLOBBERS es (push ds/pop es internally) - so save si (a register) and re-point es at video
-    ; after; api_http_state / api_http_header_match are memory and survive the send. di is reset.
-    push si
-    mov ax, di
-    sub ax, api_request_plain + tls_record_header_len
-    call agent_api_stream_phase.send_app_record   ; set len/ptr, prep, send (shared with the tail send)
-    jc .screen_flush_failed
-    phase_call_res tls_prepare_3c501_receive
-    pop si
-    mov ax, [video_seg]
-    mov es, ax
-    mov di, api_request_plain + tls_record_header_len
-    jmp .screen_next
-.screen_flush_failed:
-    pop si
-    pop es
-    stc
-    ret
-
 ; Build 9 chunk-2 templates: identity+ledger ride in "instructions"; input opens the prompt.
 ; Build 10: the RAM tool grammar is advertised here so the model can call tools on its
 ; own (not only when the user spells the syntax). Build 10 fix: instructions and the
 ; (ledger+directive+input-open) tail are sent as TWO separate records (.stream_chunk2), so
-; each must stay under the 440 B api_request_plain body - NOT their sum. The old single-record
+; each must stay under the 436 B api_request_plain body - NOT their sum. The old single-record
 ; build summed them (~586 B on a compaction turn), overflowed the buffer, and hung the send.
 ; Build 11 #4: split into the JSON prefix (always sent) + the identity body (NORMAL turns only). A
 ; compaction pass sends prefix + the summarize directive instead - so the model NEVER sees the tool
@@ -514,7 +441,7 @@ api_json_input_open_text_len equ $ - api_json_input_open_text - 1
 ; Build 12: spliced after the model on a normal ready turn. The schema bytes stream next
 ; (resident tools_cache on 32K+, floppy on 16K), then the instructions prefix.
 %ifdef TLS13_PRODUCT_TLS13
-api_json_tools_open_text db ',"tools":', 0
+api_json_tools_open_text db ',"parallel_tool_calls":false,"tools":', 0
 %else
 api_json_tools_open_text db '","tools":', 0
 %endif
@@ -557,22 +484,22 @@ api_ledger_len equ api_ledger_labels_len + (4 + 4 + 4 + 2 + 1 + 17 + 17 + 17)
 
 ; Build 10: chunk 2 is sent as two records (instructions; then ledger+directive+input-open),
 ; so enforce that EACH record fits the api_request_plain body. The old single-record build
-; summed them (~586 B on a compaction turn) and overflowed the 440 B buffer, corrupting TLS
+; summed them (~586 B on a compaction turn) and overflowed the 436 B buffer, corrupting TLS
 ; scratch and hanging the send -> the 16K compaction-turn freeze.
 ; Build 11 #4: TWO floppy-read bounds. (1) The IDENTITY is read a full 512 B sector IN PLACE into the
 ; record body after the prefix - the read end (prefix + 512) overflows the nominal api_request_plain
 ; body into the post-record handshake/config scratch tail (dead during chat-loop sends) and MUST stay
-; inside the critical scratch arena. (The identity RECORD itself is <= api_request_plain_len, Makefile-
+; inside the critical scratch arena. (The identity RECORD itself is <= api_request_send_len, Makefile-
 ; guarded, so its TX frame fits the pre-phase scratch.) (2) The CONTRACT is staged a sector at a time
 ; in tls_rx_copy, which MUST hold a full 512 B sector below api_request_plain (tls_payload_buffer_len
-; reserves 592 B there). No record exceeds api_request_plain_len, so no TX frame overruns the scratch.
-%if (api_request_plain + tls_record_header_len + api_json_reasoning_prefix_len + 512) > critical_scratch_end
+; reserves 592 B there). No record exceeds api_request_send_len, so no TX frame overruns the scratch.
+%if (api_request_plain + 14 + api_json_reasoning_prefix_len + 512) > critical_scratch_end
 %error "floppy identity in-place sector read overflows the critical scratch arena"
 %endif
 %if 512 > tls_payload_buffer_len
 %error "contract staging sector does not fit tls_rx_copy below api_request_plain"
 %endif
-%if (api_ledger_len + api_json_input_open_text_len) > api_request_plain_len
+%if (api_ledger_len + api_json_input_open_text_len) > api_request_send_len
 %error "chunk 2 record B (ledger+input-open) exceeds the api_request_plain body"
 %endif
 
@@ -609,7 +536,7 @@ agent_api_stream_append_ledger:
     mov dx, [far_arena_base + 2]
     call agent_api_stream_ledger_hex32
     mov al, '-'
-    stosb
+    phase_call_res 10279
     mov ax, [far_arena_top]
     mov dx, [far_arena_top + 2]
     call agent_api_stream_ledger_hex32
@@ -621,7 +548,7 @@ agent_api_stream_append_ledger:
     mov dx, hma_flat_base_hi
     call agent_api_stream_ledger_hex32
     mov al, '-'
-    stosb
+    phase_call_res 10279
     xor ax, ax
     mov dx, hma_flat_base_hi
     test byte [handoff_addr + handoff_flags + 1], handoff_flag_hma >> 8
@@ -643,7 +570,7 @@ agent_api_stream_append_ledger:
     push dx
     call agent_api_stream_ledger_hex32
     mov al, '-'
-    stosb
+    phase_call_res 10279
     ; M2b: the EMS arena ends where the context begins -- top = far_ctx_base on an EMS machine (the context
     ; occupies the top min(pool/2,1MB) of EMS); with no board far_ctx_base is 0x10000, so fall back to the
     ; base (0x100000) for the empty EMS range.
@@ -660,9 +587,9 @@ agent_api_stream_append_ledger:
     call agent_api_stream_append_z_to_buffer
     mov ah, '?'
     mov al, 'r'
-    stosw
+    phase_call_res 10296
     mov al, ' '
-    stosb
+    phase_call_res 10279
     ret
 agent_api_stream_ledger_hex32:     ; dx:ax -> 8 hex chars at [es:di] (high word first)
     push ax
@@ -692,7 +619,7 @@ agent_api_stream_ledger_nibble:    ; low nibble of al -> 1 hex char at [es:di]
     jbe .nibble_emit
     add al, 'a' - '0' - 10
 .nibble_emit:
-    stosb
+    phase_call_res 10279
     ret
 
 ; ---- Build 9 conversation context: copy a chat_context range into [es:di], JSON-escaped, FLUSHING ----
@@ -747,8 +674,6 @@ agent_api_stream_append_context:        ; si = source offset/ptr, dx:cx = byte c
     mov ax, cx
     or ax, bp
     jz .ctx_done                         ; 32-bit count (bp:cx) exhausted (also the zero-length entry case)
-    cmp di, api_request_plain + tls_record_header_len + api_request_plain_len - 2
-    jae .ctx_flush                       ; leave room for one escaped pair before the payload cap
     cmp byte [es:far_ctx_base + 2], 0x10
     jb .ctx_source_ready
     cmp word [es:ems_page_count], 0
@@ -811,18 +736,18 @@ agent_api_stream_append_context:        ; si = source offset/ptr, dx:cx = byte c
     je .ctx_escape
     cmp al, 32
     jb .ctx_space
-    stosb
+    phase_call_res 10279
     jmp .ctx_dec
 .ctx_escape:
     mov ah, al
     mov al, '\'
-    stosb
+    phase_call_res 10279
     mov al, ah
-    stosb
+    phase_call_res 10279
     jmp .ctx_dec
 .ctx_space:
     mov al, ' '
-    stosb
+    phase_call_res 10279
 .ctx_dec:
     sub cx, 1
     sbb bp, 0                            ; 32-bit decrement of the remaining count (bp:cx)
@@ -831,32 +756,6 @@ agent_api_stream_append_context:        ; si = source offset/ptr, dx:cx = byte c
     pop ds                               ; restore ds = 0
 .ctx_ok:
     clc
-    ret
-.ctx_flush:                              ; buffer full mid-window: send it as a record, reset di, resume
-    push cx
-    push bp                              ; count HIGH word (dx is scratch now); reloaded port on resume
-    push si
-    push ds
-    push bx                              ; M2e: preserve the current EMS frame page across the send
-    xor ax, ax
-    mov ds, ax                           ; flush is ds=0-relative (tls_app_len + the phase calls)
-    mov ax, di
-    sub ax, api_request_plain + tls_record_header_len
-    call agent_api_stream_phase.send_app_record   ; sets tls_app_len/plain_ptr, prepares + sends; CF=fail
-    jc .ctx_flush_failed
-    phase_call_res tls_prepare_3c501_receive
-    pop bx                               ; restore the EMS page (harmless scratch on the conventional path)
-    pop ds                               ; back to the far log segment for the resumed read
-    pop si
-    pop bp
-    pop cx
-    mov di, api_request_plain + tls_record_header_len
-    jmp .ctx_next
-.ctx_flush_failed:
-    add sp, 10                           ; discard the 5 flush-pushed words (bx, far ds, si, bp, cx)
-    pop ds                               ; restore the ENTRY-pushed ds (=0) -- balances the stack + the
-                                         ; ds=0-on-exit contract (an unbalanced ret here jumped to 0x0000)
-    stc
     ret
 .ctx_ext_failed:
     pop ds

@@ -176,8 +176,8 @@ credential-bearing connection is resumed:
    ML-KEM-768 and X25519 shares. Its candidate ML-KEM result is provisional.
    The protected-flight controller verifies record tags and server Finished,
    captures ordinary Certificate and CertificateVerify messages, transmits
-   client Finished plus the immutable credential-free HEAD, and authenticates
-   the HTTP response and one NewSessionTicket. Only then does it export the
+   client Finished plus the immutable credential-free H2 preface/SETTINGS, and authenticates
+   peer SETTINGS/ACK and one NewSessionTicket. Only then does it export the
    ticket as `TENTATIVE`.
 2. With no server deadline running, offline authentication performs complete
    ML-KEM FO decapsulation and constant-time comparison against the retained
@@ -191,13 +191,12 @@ credential-bearing connection is resumed:
    `selected_identity=0`, performs full ML-KEM decapsulation and X25519 shared
    secret derivation, and accepts only a strict
    EncryptedExtensions-to-Finished protected flight. After server Finished
-   verifies, it transmits the 58-byte client Finished and credential-free HEAD,
-   then requires a complete authenticated ticket and allowed HTTP status.
+   verifies, it transmits the 58-byte client Finished and credential-free H2 preface/SETTINGS,
+   then requires a complete authenticated ticket and peer SETTINGS/ACK.
    Application keys, credentials, and the advanced record sequence publish
-   together; a missing response-header terminator cannot hold the route open
-   indefinitely.
+   together only after that authenticated liveness boundary.
 
-The candidate operation and acquisition HEAD can never reach credentials.
+The candidate operation and acquisition preface can never reach credentials.
 Ticket states are redundant/status-last `TENTATIVE -> PROMOTED -> USED`; the
 final HELLO publishes `USED` before reading ticket secrets. Any torn state,
 candidate mismatch, authentication failure, binder/identity rejection, or
@@ -222,7 +221,7 @@ The exact 6 MHz module measurements distinguish the operation that is allowed
 inside provisional acquisition from the operation that establishes authority:
 the exact ML-KEM candidate takes 6 BIOS ticks, while complete uncached FO
 decapsulation takes 88 ticks. Moving the latter into the offline stage is
-what creates room for client Finished, the credential-free HEAD, and ticket
+what creates room for client Finished, the credential-free H2 preface/SETTINGS, and ticket
 capture without treating the candidate as authenticated.
 
 The product controller gates independently prove candidate escrow, full

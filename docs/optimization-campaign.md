@@ -1,0 +1,3488 @@
+# Seed Optimization Campaign
+
+## Current checkpoint: functional reliability acceptance complete
+
+The maintainer stopped wider optimization work until the original 4.77 MHz
+8088 / exactly 16 KiB floor was reliable. OPT-017 and OPT-020 now satisfy the
+functional emulator repair gate on the shipping-source implementation. The
+8088/16 KiB ROM BASIC, 8088/32 KiB direct-boot and 286/512 KiB paths complete
+four dependent replies, ten minutes idle, one bounded reconnect and native
+write/execute/read with the correct result. All seven original-speed ISA NIC
+profiles pass first-response/reuse/reconnect checks, including 3c503/MDA and
+two separate 3c501 runs.
+
+The final runtime is
+`e3e0b888fa41e2ea72db3854e54da6a28226752f84c6c0a5a25da94e0815574f`.
+`OPT-020/final-audit.json` binds all ten reviewed runs and 29 prompted turns to
+that runtime, the canonical images, exact owned captures and unchanged
+read-only/protected inputs. The build, 18 HTTP/2 composition gates, standalone
+TLS guards, RAM/erasure, ENV/cancel, failure menus and serialized 286 components
+pass. Earlier failed and partial experiments below remain historical evidence.
+
+This is functional acceptance with explicit limits: the 32 KiB model spelled
+out the correct native result instead of following the numeric-format request;
+the automatic result is preserved and independently reviewed completion is
+recorded. At 16 KiB, text replies took about 4–13 minutes and the post-idle
+native sequence about 32 minutes. Physical entropy validation and broader
+provider-edge characterization remain separate security work. This is not an
+unconditional secure-floor or release claim.
+
+The reliability investigation is 100% complete for this gate; the wider
+campaign's rocks-turned estimate remains approximately 40%. The maintainer has
+approved committing and pushing this validated checkpoint, then resuming the
+optimization plan. Resume OPT-016 against this HTTP/2 baseline, measuring the
+complete consecutive-turn cost of DPI request-phase prefetch before any product
+edit. After that bounded question, select offline-proof profiling. This approval
+covers the reliability checkpoint and its branch push; later implementation
+checkpoints still require their own commit approval. All test VMs are closed.
+Future concurrent tests must keep at most three VMs open and close each VM as
+soon as its test finishes. Historical entries retaining VMs do not override
+that request.
+
+This file is the durable controller for an open-ended Seed optimization
+campaign. It exists so a maintainer can start or resume the campaign with one
+short instruction instead of reconstructing its constraints, measurements, and
+prior decisions in every model context.
+
+The product baseline is commit `e34f3c4`. A later documentation-only commit may
+add or update this controller without changing that product baseline.
+
+This is a wishlist, not a prescribed sequence of three large work packages.
+The campaign model owns decomposition: it should turn the wishes into small,
+testable spikes and choose their order from evidence and dependencies. Spikes
+normally run sequentially in the campaign task. When a genuinely fresh context
+would improve a substantial spike, the model must request one from the
+maintainer with an exact handoff prompt. Commit and push remain explicit
+maintainer gates.
+
+## How to start or resume
+
+Initial instruction:
+
+> Read `docs/optimization-campaign.md` completely and run the optimization
+> campaign autonomously. Begin with the next campaign action, not a summary of
+> the file.
+
+The same instruction works in a fresh context. In an existing campaign context,
+this shorter instruction is sufficient:
+
+> Continue the optimization campaign.
+
+At the start of every context, the model must read this file, `AGENTS.md`, and
+the current state recorded below. It must then inspect the actual branch,
+worktree, HEAD, image, and relevant source before acting. The file is a routing
+brief, not a substitute for current evidence.
+
+## Automation boundary
+
+The model should continue automatically through ordinary investigation,
+experiments, implementation, validation, rejected hypotheses, and selection of
+the next spike. It should not stop merely to explain what it plans to inspect or
+to ask which wishlist item comes next.
+
+It must pause when:
+
+- `AGENTS.md` requires explicit approval before a commit;
+- a push has not been explicitly requested;
+- representative physical hardware or another unavailable external resource is
+  essential;
+- a substantial spike genuinely needs a fresh top-level context; or
+- a change would alter a hard invariant below; or
+- two materially different product directions require a maintainer decision.
+
+When a spike produces no worthwhile code change, record the negative result and
+move to the next spike automatically. When it produces a validated working
+checkpoint, give a concise before/after report and proposed commit message, then
+wait for approval. After the maintainer commits or says `continue`, select the
+next action from this file without requiring the campaign context to be
+re-explained.
+
+Never commit or push as part of an automatic handoff between spikes.
+
+## Context and spike protocol
+
+The campaign task is the controller and the default execution context. A spike
+is a logical unit of work, not automatically a new chat. Run ordinary and
+closely related spikes sequentially in the campaign task; normal context
+compaction is not by itself a reason to stop.
+
+The model must not assume it can jump into another chat. For deep algorithmic
+work, an independent security argument, or a spike likely to consume a large
+fresh context, it should first record the spike in the ledger and then ask the
+maintainer for a new context using exactly this compact form:
+
+```text
+Fresh context requested for spike <id>: <one-line reason>.
+Start it with: Read AGENTS.md and docs/optimization-campaign.md, then execute
+spike <id> from the ledger. Do not commit or push.
+```
+
+That request is a handoff, not a claim that the new context already exists. The
+maintainer creates the context on the same checkout/working tree and sends the
+supplied instruction. A separate worktree is safe only when the campaign record
+and spike entry have already been committed and the handoff names that commit;
+otherwise it will not see uncommitted state. The new context reads the shared
+ledger, performs the spike, and records its result. The campaign controller
+resumes only after that result is available or the maintainer tells it to
+proceed elsewhere.
+
+Before starting a spike, append a compact entry to the spike ledger containing:
+
+```text
+spike id
+wishlist item(s)
+one falsifiable question
+baseline metric or behavior
+allowed source surface
+required evidence
+exit condition
+status and owning context, if separate
+```
+
+A spike should test one coherent hypothesis. Do not create one context per file,
+primitive, or trivial edit. Do not run code-editing spikes concurrently in the
+same worktree. Parallel read-only research is safe only when its ownership is
+clear and it cannot race generated artifacts or emulator state.
+
+The controller must inspect and validate returned work rather than accepting a
+subtask's conclusion on trust. Detailed generated traces, reports, and temporary
+binaries belong under `build/optimization-campaign/`. Durable conclusions and
+the minimum information needed by the next context belong in this file or in
+the existing authoritative product document.
+
+## Hard invariants
+
+Every proposal and implementation must retain all of these unless the
+maintainer explicitly changes scope:
+
+- one self-selecting `SEED.SYS` for the IBM-compatible target;
+- the functional 4.77 MHz 8088 / 16 KiB ROM BASIC floor;
+- the conforming 6 MHz 286 / 512 KiB `X25519MLKEM768` floor;
+- OpenAI at `api.openai.com` as the only current provider route;
+- TLS 1.3 only, with no TLS 1.2 fallback or downgrade;
+- the documented distinction between the bounded 8088 credential-release
+  boundary and the conforming 286 route;
+- target-local private work and operation from a write-protected floppy;
+- no helper machine, persisted private key, writable crypto scratch, mutable
+  leaf file, trust-on-first-use, or unauthenticated time source;
+- conventional system RAM as the only TLS memory; video RAM remains display
+  state and adapter RAM remains device state;
+- the existing status-last authority transitions, full FO checks, strict
+  Finished checks, zeroization, and bounded reconnect/replay policy;
+- the documented root configuration and prompt paths, current ENV contract, and
+  target-local native memory tools;
+- external independently selectable NIC drivers, with inactive drivers using
+  no resident RAM;
+- non-fatal station-address PROM reads and established no-card/no-driver
+  recovery behavior;
+- the 8086 instruction lock, real mode, current text mode, BIOS text output,
+  handoff ABI, cursor behavior, and UI rules; and
+- no general OS-style infrastructure or unrequested 64-bit/no-BIOS rewrite.
+
+An apparent speedup does not count if it moves work past an authority boundary,
+removes a rejection check, makes a provisional value authoritative, consumes
+uncredited emulator entropy, borrows device memory, assumes writable media, or
+special-cases one NIC at the expense of another.
+
+## Current measured baseline
+
+The block below records campaign-entry measurements at `e34f3c4`. Later
+accepted changes and qualifications appear in the wishlist state and spike
+ledger. Use current source and regenerated artifacts before attributing a new
+improvement; OPT-005 in particular qualifies the short-turn reuse baseline.
+
+```text
+8088 floor                 4.77 MHz, exactly 16 KiB, ROM BASIC, read-only
+8088 fresh worst case      13.7898 s ServerHello -> client Finished
+8088 cold                  404.3 s harnessed power-on -> DPI
+8088 Seed runtime          345.2 s runtime boundary -> DPI
+8088 first offline proof   154.6 s
+8088 resumed proof/commit   69.4 s
+8088 reused short turn      64.3 s submit -> DPI
+  target response work      53.3 s
+8088 arena/context          96 B / 96 B
+
+286 floor                  6 MHz, 512 KiB, direct boot, read-only
+286 strict live intervals  8.8880 / 8.6428 / 8.9518 / 8.6425 s
+286 normalized cold        186.7 s power-on -> DPI
+
+SEED.SYS                   150,016 B / 293 sectors
+auxiliary files            15 sectors
+FAT use                    308 / 309 data sectors
+usable runtime growth      0 sectors after the required free-cluster guard
+resident nucleus           4 sectors / 2,048 B
+active NIC driver          fourth resident sector / 512 B
+K executable               5,310 B, rounds to 11 sectors in a 15-sector slot
+```
+
+The architecture timing monitor is authoritative for phase definitions. Live
+emulator timing is not physical entropy evidence and the observed provider
+close is not an SLA.
+
+## Required evidence for every spike
+
+Record:
+
+```text
+current cost             cycles/ticks, seconds, bytes, sectors, reads, or behavior
+measured hot path        exact functions, phases, and source files
+hypothesis and mechanism
+expected benefit         derived estimate or target
+actual result            same baseline and measurement method
+RAM/floppy tradeoff
+security-boundary effect
+compatibility effect
+validation performed
+disposition              accepted, rejected, superseded, blocked, or follow-up
+```
+
+Prefer target-derived measurements, instruction counts, emitted binary sizes,
+and exact-floor live traces. A modern-host microbenchmark is not evidence of an
+8088 or 286 improvement unless its target instruction model is validated.
+Measure the complete affected route: a primitive-level win that adds phase
+loads, FAT sectors, reconnect latency, or another hot-path cost may be a net
+loss.
+
+## Wishlist
+
+The numbering preserves the original discussion. Item 7, the isolated 286
+provider-edge retry investigation, is intentionally outside this campaign. The
+controller may reorder the included wishes, split them into multiple spikes, or
+combine tightly coupled hypotheses. It must record why.
+
+### 1. Increase the 8088 handshake margin
+
+Reduce the seven-NIC worst case from 13.7898 seconds to below 12 seconds;
+10–11 seconds is the stretch target. Profile every operation from ServerHello
+through client Finished, especially ML-KEM candidate processing, transcript
+SHA-256, ChaCha20-Poly1305, record parsing, receive pacing, copies, phase
+transitions, and driver interactions. Preserve the credential-free provisional
+boundary and every later proof.
+
+### 2. Optimize the 8088 normal dialogue loop
+
+Reduce the 64.3-second reused short turn, initially targeting less than 35
+seconds. Approximately 53.3 seconds is target response authentication, SSE
+scanning, rendering, and prompt restoration while provider wait and wire arrival
+are under two seconds. Investigate a single-pass authenticated SSE/JSON path,
+fewer copies, faster record opening, phase retention, contiguous loading,
+overlap of work, and safe BIOS text batching. Preserve family-specific
+ACK/render pacing and exact response semantics.
+
+### 3. Reduce 8088 offline proof time
+
+Reduce the approximately 154.6-second first full-FO/exact-leaf/CV span and the
+69.4-second resumed proof/commit span. Audit ML-KEM re-encryption, NTT,
+polynomial comparison, SHAKE/Keccak, P-256 verification, immutable public-data
+precomputation, repeated derivations, table representations, and phase reloads.
+These spans are outside provider handshake windows, but secret and
+connection-dependent lifetime independence remains mandatory.
+
+### 4. Recover floppy capacity
+
+Recover at least 10 FAT sectors if possible and identify a credible path toward
+20. Search for cross-phase routine and immutable-table duplication, safe
+cold-phase compression, compact constants, removable padding, and file-layout
+waste. Preserve documented configuration/prompt paths and independently
+selectable drivers. A contract-changing asset container is a proposal requiring
+maintainer approval, not an automatic implementation. Distinguish K-slot
+padding from actual FAT capacity: consuming its 2,370 internal padding bytes
+does not itself free sectors after the fixed slot.
+
+### 5. Recover 16 KiB arena/context or executable space
+
+Seek at least 256 additional safe persistent bytes, with 512 as the stretch
+target, and separately identify executable-window gains. Perform byte-level
+lifetime analysis of TLS state, reconnect scratch, buffers, status fields,
+stack high-water, active-driver representation, and cold-phase windows. The
+fourth resident sector contains the selected NIC driver; it is not unused
+padding. Recovered memory must survive bounded reconnect and complete
+success/abort zeroization.
+
+### 6. Reduce interactive floppy activity
+
+Inventory successful reads and seeks for cold boot, first dialogue, reused
+dialogue, tool continuation, reconnect, and failure. Add no entropy-only reads.
+Reduce or regularize activity after the DPI appears through phase retention,
+safe prefetch, contiguous placement, fewer reloads, or work moved into an
+already-required noninteractive cold phase. Prioritize interactive behavior over
+offline load time.
+
+### 8. Seek fully conforming hybrid TLS at the 8088 floor
+
+Determine whether genuine server-dependent X25519 can fit with ML-KEM-768 and
+the rest of client Finished inside the provider window on a 4.77 MHz 8088. The
+prior variable-base X25519 measurement is about 45.75 seconds by itself;
+precomputation depending on the unknown server share does not count.
+
+Use isolated PoCs first. Explore 8088 field representation, multiplication and
+reduction, inversion, ladder scheduling, register allocation, generated
+assembly, and joint critical-path optimization. Also inspect genuinely
+standards-conforming provider-supported schedules. Do not relabel fixed-share,
+KEM-only, or nonconforming bootstrap behavior as conforming hybrid TLS.
+
+A valid disposition is either a reproducible target PoC with a credible
+complete sub-15-second schedule, or a bounded infeasibility result quantifying
+the missing speedup/provider capability.
+
+### 9. Improve 8088 identity freshness and rotation
+
+Investigate whether the dated exact-leaf object can gain a WE1-authorized
+rotation path and meaningful freshness without trusted RTC hardware, a helper,
+writable state, TOFU, unauthenticated time, or allowing an expired compromised
+leaf to assert its own time. Model the trust graph explicitly. Deliver a sound
+self-contained construction or the precise impossibility and smallest
+additional assumption that resolves it, including byte, cycle, RAM, and
+operational costs.
+
+### 10. Perform a whole-system Pareto audit
+
+This is both a wishlist item and a periodic reconciliation tool. Run it after
+meaningful accepted changes or when local spikes stop producing wins. Search for
+duplication and simplification across primitives, phase boundaries, file
+geometry, buffer ownership, dispatch, and the driver ABI. Check that a local win
+did not worsen another dimension.
+
+Maintain a Pareto table covering:
+
+```text
+8088 fresh-handshake worst case and margin
+8088 cold and reused-turn time
+286 cold time and handshake margin
+resident and active-driver bytes
+largest executable window and phase
+16 KiB arena/context bytes
+SEED.SYS and auxiliary sectors, free FAT clusters
+interactive and cold floppy reads
+security assumptions and assurance
+NIC/display/reconnect compatibility
+```
+
+Rank remaining work by expected benefit, confidence, engineering cost, and
+regression radius. Explicitly identify attractive ideas that should not be
+pursued.
+
+## Wishlist state
+
+Use `backlog`, `active`, `partially solved`, `complete`, `blocked`, or `rejected`.
+“Complete” means the wish has no remaining worthwhile in-scope opportunity, not
+merely that one spike ran.
+
+| Wish | State | Best current result | Active/next spike |
+| --- | --- | --- | --- |
+| 1. 8088 handshake margin | partially solved | seven-NIC matrix worst 11.2196 s; matched 3c503 13.7220 -> 11.2317 s; under-12 target observed | OPT-002 committed as `de9cf53` |
+| 2. 8088 dialogue loop | partially solved | OPT-017/020 HTTP/2 reliability gate passes all three CPU/RAM paths, 29 prompted turns, native tools and seven ISA NIC profiles; 16 KiB text replies remain about 4–13 minutes | Resume OPT-016 on the validated HTTP/2 baseline; earlier receiver prototypes remain historical |
+| 3. 8088 offline proof | backlog | baseline above | — |
+| 4. Floppy capacity | backlog | 308/309 FAT sectors unchanged; OPT-015 shrinks K to 3,510 B / seven loaded sectors inside the same fixed fifteen-sector file slot | OPT-015 committed as `88175d7`; no FAT-sector saving |
+| 5. 16 KiB memory/executable space | partially solved | OPT-015 removes 1,801 B of uncalled application code; user arena/context remains 96/96 B. OPT-013 model-cache saving is consumed temporarily by reconstruction | OPT-015 committed as `88175d7`; receiver constructions already counted SHA removal |
+| 6. Interactive floppy activity | partially solved | OPT-015 reduced its historical dialogue fixture from 28 to 24 reads. HTTP/2 introduces a different parser/load schedule; current full-cycle attribution is required | OPT-016 resumed after reliability acceptance; no current HTTP/2 prefetch saving claimed yet |
+| 8. Conforming hybrid TLS on 8088 | backlog | ~45.75 s X25519 blocker | — |
+| 9. 8088 freshness/rotation | backlog | current key rotated before the old leaf expired; trust construction remains open | OPT-003 operational evidence |
+| 10. Whole-system Pareto audit | partially solved | OPT-009/010 receiver/overlay bounds and OPT-011/012 codec work reconciled with OPT-013 cache reconstruction: 509 named preserved bytes, 414-B component, 8-B stack; existing loader schedule still exceeds 16 KiB | OPT-013 audit complete; broader audit remains open |
+
+## Progress reporting
+
+The maintainer requests an overall completion estimate whenever the campaign
+pauses or hands work back. Completion means **investigation coverage: rocks
+turned**, including supported negative findings and bounded infeasibility.
+It does not require every wish to be implementable or delivered in the product.
+A failed construction closes only the question actually tested; it does not
+automatically close its entire wish.
+
+After this clarification, the estimate is rebased to approximately **35%
+explored**, with a rough **25–45% range**. This replaces the former 20% estimate
+that mixed exploration with implementation and validation; historical spike
+estimates remain as recorded. Handshake and dialogue/record behavior have been
+examined deeply, with partial memory/floppy/I/O accounting. Offline-proof
+optimization, conforming 8088 TLS and freshness/rotation remain mostly
+unexplored. Count resolved avenues and remaining worthwhile questions across
+the campaign, not the number of spikes or successful implementations. Explain
+material revisions as the remaining search space becomes clearer.
+
+## Selection policy
+
+The model chooses the next spike. Prefer, in order:
+
+1. release/security reliability and handshake margin;
+2. measured interactive user benefit;
+3. blockers to future code growth or product capability;
+4. high-confidence changes with narrow regression radius;
+5. measurements that cheaply eliminate broad but weak hypotheses; and
+6. moonshots whose value justifies a dedicated fresh context.
+
+Dependencies override this order. Do not repeatedly choose the easiest byte
+savings while a critical reliability question remains unmeasured. Conversely,
+do not let the conforming-8088 moonshot consume the entire campaign while
+practical improvements remain.
+
+## Validation and checkpoint rule
+
+Every accepted implementation must pass `make`, produce a fresh `SEED.SYS`, and
+pass `make inspect`. Run the exact component, hostile-input, composition,
+layout, RAM-lifetime, zeroization, and wire gates for what changed. Timing,
+phase loading, packet, or TLS application changes require exact-floor live
+evidence and the affected original-speed NIC profiles. Preserve read-only
+operation, no-card/no-driver recovery, CGA/MDA behavior, and unchanged video and
+adapter RAM outside normal device use.
+
+Before requesting a commit, remove diagnostic scaffolding and report:
+
+- spike disposition and affected wishlist state;
+- exact before/after measurements;
+- files changed;
+- validation commands and results;
+- regressions and open risks; and
+- one proposed commit message.
+
+Wait for explicit approval. A push requires a separate explicit request or an
+approval that clearly includes it.
+
+## Spike ledger
+
+Append entries below. Keep them concise but sufficient for a fresh context to
+resume without conversation history. Large evidence stays under
+`build/optimization-campaign/`.
+
+### OPT-001 — Attribute the 8088 handshake deadline cost
+
+- Wishes: 1; supporting measurements for 2 and 10. Chosen first because the
+  3c503 fresh handshake has the smallest measured margin.
+- Question: does target instruction profiling identify at least 1.79 seconds
+  of plausibly removable computation/stream-handling cost in the existing
+  ServerHello-to-Finished route, without changing its security schedule?
+- Baseline: product `e34f3c4`; seven-NIC worst fresh interval 13.7898 s;
+  `SEED.SYS` 150,016 B. Rebuild and inspect before attributing any change.
+- Allowed surface: campaign ledger and isolated measurement tools/artifacts
+  under `build/optimization-campaign/OPT-001/`; product sources read-only.
+- Required evidence: regenerated image identity/layout, current candidate and
+  symmetric hot paths, target instruction/cycle attribution with its modeling
+  limits, and a read-only 4.77 MHz / 16 KiB 3c503 live baseline if available.
+- Exit: rank one narrow follow-up by measured benefit and regression radius,
+  or record why the 1.79-second opportunity is unsupported. No product claims
+  from a primitive model alone.
+- Status: measurement completed in the campaign context. Initial checkout has pre-existing
+  modified 286 cfg/NVR and untracked 3c501 screenshots and `wire.pcap`; preserve
+  those. The campaign controller itself was untracked at entry.
+- Result/disposition: **follow-up to OPT-002**. `make -B`, `make inspect`, and
+  `make basic-bootstrap` pass. Regenerated runtime and image are byte-identical
+  to entry (`SEED.SYS` SHA-256 `c97d3961fca9ac214992d77f335f8f9e87a3deb7a69dd8e6e07099a9f7b2d01c`),
+  retaining 293 runtime sectors, 308/309 FAT use, and the 96 B / 96 B floor.
+  The current read-only 3c503 pcap measures a 13.857140 s fresh interval.
+  Its frozen-image dialogue capture exposed the OPT-003 prerequisite below;
+  resume performance A/B from the repaired, authenticated baseline.
+- Hot path: exact packed acquisition symmetric image, 6,128 B, executes
+  2,577,729 instructions for the deterministic 1,925-byte flight and handshake
+  schedule through client Finished. `poly1305_mul_acc_r` accounts for 823,732;
+  `chacha_quarter_round` for 424,320. The exact 2,189-byte live ML-KEM candidate
+  executes 360,052. Isolated profiling is reproducible with
+  `python3 build/optimization-campaign/OPT-001/profile.py`.
+- Mechanism tested in isolation: replace the 17-by-16 byte schoolbook product
+  with nine-by-eight word rows, explicitly zero-extending the last accumulator
+  byte. The product, reduction path, plaintext, and Finished remain exact.
+  The prototype removes 694,068 symmetric-path instructions (26.9%), retains
+  the 6,128-byte aligned image, and needs four additional peak stack bytes.
+  The existing cycle model predicts 2.71 s saved but has byte-MUL, REP,
+  CL-shift, and prefetch limitations; this is a ranking estimate, **not** an
+  elapsed-time result. Target A/B timing must decide acceptance.
+- Read-accounting correction: the former `architecture.md` annotation said
+  F/R perform no floppy reads, but executed product composition proves 5 candidate +
+  11 symmetric-prefix + 3 fresh / 2 resumed protected-controller sectors in
+  the deadline terminal, plus its one-sector entry controller. No reads were
+  added by this spike. OPT-003 includes the annotation correction.
+- RAM/floppy/security/compatibility: product unchanged; no authority transition
+  moved. All measurements/prototype sources are under
+  `build/optimization-campaign/OPT-001/`. Defer broader ChaCha/SHA changes until
+  the measured larger, narrower multiply opportunity is resolved.
+
+### OPT-002 — Use word products in Poly1305
+
+- Wishes: 1 and 2, with whole-route reconciliation for 10.
+- Question: can exact wordwise multiplication recover at least 1.79 seconds
+  in the 8088 fresh handshake without growing the shipped image, changing
+  reduction/rejection behavior, or exhausting the current stack window?
+- Baseline: committed OPT-003 (`b25c84a`) with the current authenticated pin;
+  exact symmetric fixture 2,577,729 instructions, multiply 823,732 instructions.
+  Keep OPT-001's original immutable image as historical evidence.
+- Allowed surface: `boot/core/poly1305.inc`, a focused executable arithmetic
+  gate and Makefile wiring, necessary existing gate expectations, campaign
+  ledger and the documented deadline-read annotation. No phase, driver, trust,
+  or record-protocol redesign.
+- Required evidence: independent full-width product oracle over edge/carry
+  cases, symmetric hostile-input/Finished gates, RAM/stack/zeroization guards,
+  fresh build/inspect, exact-floor A/B, seven-NIC reuse/reconnect, 286 serialized
+  and live regression, and read-only/recovery/CGA/MDA behavior.
+- Exit: a validated working checkpoint if the complete route improves;
+  otherwise revert the product edit, retain evidence, and select the next spike.
+- Status/disposition: **accepted and committed** as `de9cf53` after explicit
+  maintainer approval. Only the multiplier, arithmetic gate, and Makefile are
+  committed; campaign and architecture Markdown remain local. No push performed.
+  `committed-checkpoint.json` verifies the exact three-file scope, parent, and
+  committed source hashes against the validated frozen images. Pre-existing
+  286 cfg/NVR and other untracked files remain untouched. No further commit or
+  push is approved.
+
+Current implementation and binding:
+
+- The row multiplier lives in preserved BP; DS is copied into ES through AX.
+  Nine by eight word rows replace 17 by 16 byte rows. The final accumulator
+  byte is explicitly zero-extended. The full carry bound is retained, reduction
+  is unchanged, and operands do not spill to the stack.
+- Primitive size: 115 -> 111 code bytes. Primitive stack including near return:
+  18 -> 18 B; full symmetric peak: 52 -> 52 B. No new persistent storage,
+  phase loads, FAT sectors, authority transitions, or trust assumptions.
+- The 6,128-byte exact symmetric image has SHA-256
+  `50c76c33b186a14fa1f690c4357d5119bbaeb255bf199c2ace93ec46242582dd`.
+  It executes 1,881,357 instructions (696,372 fewer, 27.02%); multiply accounts
+  for 127,360. These counts are exact for the fixture, not live elapsed time.
+- Runtime remains 150,016 B / 293 sectors, SHA-256
+  `f3844b03da73c4b76772be45566ced67c0d1cff3dbc3c1c09791118bd814f228`.
+  Frozen images and BASIC helper are at OPT-002's root, bound by
+  `word-image.json` and `validation-source.json`. All eight DRVs are identical.
+  The only resident difference is one linked-call displacement byte (-4), not
+  a resident logic change. R/Y request/response phases are byte-identical;
+  other linked references move with the smaller multiplier.
+
+Completed exact-revision offline validation:
+
+- The new build-wired integer oracle passes 3,117 operand pairs in both ordinary
+  and distinct DS/SS segments (6,234 executions), with full-width products,
+  all-register preservation, bounded reads/writes, near-return integrity, and
+  identical stack bytes for fixed caller registers across all operands.
+  Dropped-carry, high-byte-overread, and operand-dependent stack-residue
+  mutations are rejected. See `multiply-register.json` and `mutations-register/`.
+- All eleven existing component/hostile-input gates pass: existing-read
+  sampler, warm restart, entropy, fresh/resumed HELLO, candidate, full FO,
+  exact-leaf authentication, both RAM-only symmetric images, and full symmetric
+  hostile-input/Finished checks. See `offline-register.json`.
+- Fresh `make`, `make inspect`, and `make basic-bootstrap` pass, including
+  composition, lifetime/zeroization, dispatch/config, application bounds,
+  reconnect/replay, FAT, and 286 module/controller gates. Logs have the
+  `*-register.log` suffix. Sources/images remain unchanged throughout live tests.
+- Complete 6 MHz / 512 KiB serialized CPU gate passes: acquisition 147 ticks /
+  8.0740 s; final resumption 165 ticks / 9.0627 s. The exact report is
+  `286-serialized-register-report.json`. Its resident/NIC/I/O and complete
+  offline-authentication exclusions remain; this is not live-product acceptance.
+
+Current-revision live evidence and limits:
+
+- Revised long-prompt 3c503: fresh/resumed/reconnect-fresh/reconnect-resumed
+  Finished 11.231663 / 6.827783 / 11.013447 / 6.787113 s; strict four-flow pcap
+  and unchanged read-only image hash pass. Greeting and first `FORTYTWO` pass.
+  Launch-to-DPI 379.494 s, BASIC-RUN-to-DPI 324.873 s, first reused turn
+  46.036 s. Matched baseline: 13.722039 / 7.034048 s, 407.007 / 352.662 /
+  57.899 s respectively. Sequential single samples, same long prompt and
+  2-second DPI polling; provider payload size varies, so cold/dialogue deltas
+  are observations rather than fixed-workload cycle attribution.
+- Long-prompt second answer fails: both this candidate and committed `b25c84a`
+  answer the displayed ninety/nine question with `FORTYTWO` and reach clean DPI.
+  Candidate has four TLS flows; baseline has six after a post-compaction
+  connection close. Retain screenshots, pcaps and failure records under
+  `matrix/vm-net-3c503/` and `reconnect-baseline/`. This repeated answer predates
+  the multiplier change. The actual live compacted note was not captured;
+  its causal role is a hypothesis, recorded for OPT-004.
+- Exact emitted R/X diagnostic with a synthetic credential and note preserves
+  the new question across reconnect while placing the prior note in request
+  `instructions` (`note-request-result.json`). It proves input preservation in
+  that fixture, not the cause of the live repeated answer.
+- TLS matrix uses distinct shorter arithmetic questions from
+  `short-prompt-contract.json`: `6*7` and `90+9`, A-Z words only; neither
+  expected answer is in its question. Existing keyboard injection lowercases
+  A-Z to a-z, so visible answers are `fortytwo` / `ninetynine`. Expected-text
+  matching is case-insensitive; direct image inspection remains required.
+  Source-checked first-turn storage is 49 B, next preflight 89 B and stored
+  prefix before answer 91 B, all within the 96-byte cap; 49 B is below the
+  72-byte compaction trigger. Cold greeting text is not stored.
+- Every short case uses frozen read-only media, 4.77 MHz / exactly 16 KiB ROM
+  BASIC, greeting, immediate first-answer reuse, 500-second idle, distinct second
+  answer after one reconnect, strict four-flow pcap, final image inspection,
+  and unchanged image hash. A case is accepted only when `verdict.json` passes
+  and `visual_inspection_pending` is false. `aggregate-register.py` summarizes
+  completed/partial cases without relabeling failures.
+
+| Short case | Fresh / resumed / reconnect fresh / resumed (seconds) | State |
+| --- | --- | --- |
+| 3c503 | 11.039792 / 6.784898 / 11.011743 / 6.766514 | Pass, inspected |
+| NE2000 | 11.022054 / 6.782806 / 11.017779 / 6.786861 | Pass, inspected |
+| 3c501 | 10.435306 / 6.196370 / 10.452289 / 6.045011 | Pass, inspected |
+| NE1000 | 11.020124 / 6.739979 / 11.076236 / 6.774365 | Pass, inspected |
+| Novell NE1000 | 11.019796 / 6.748265 / 11.047854 / 6.809210 | Repeat passes, inspected |
+| WD8003E | 11.026969 / 6.843651 / 11.219148 / 6.757537 | Pass, inspected |
+| WD8003EB | 11.219607 / 6.786808 / 11.054778 / 6.760608 | Pass, inspected |
+| NE2000 / MDA | 11.047932 / 6.810721 / 11.212508 / 6.791210 | Pass, inspected |
+
+- **OPT-005 qualification:** these are passes of the original answer/flow
+  topology gates. A later canonical record-cap audit finds one oversized
+  server application record on the first short turn in all seven NIC cases
+  and MDA (2,915–4,251 wire bytes versus the 2,069-byte ceiling). New diagnostic
+  captures and exact shipped-code execution establish the corresponding
+  post-text failure path: retain the displayed answer, erase the application
+  capability and return to DPI without replay. The forced 500-second idle
+  did not distinguish this already-retired session from a healthy idle one.
+  Keep the timings and handshake evidence, but do not treat this matrix as
+  certification of a reusable session after its first answer. See OPT-005;
+  future dialogue gates must check record bounds and immediate follow-up reuse.
+
+- Novell's first attempt had a provider connection close during the first
+  reused answer. One fresh/resumed recovery returned correct `fortytwo` and
+  clean DPI, directly inspected. Stop there: this cannot meet the planned
+  immediate-reuse/four-flow idle-reconnect contract. Preserve it under
+  `matrix-short-attempts/novell-ne1k-early-close-1/`; image unchanged, cause
+  unestablished. The successful repeat does not erase this observation.
+- All thirteen required live cases are complete and visually inspected: seven
+  ISA NICs, MDA, 286 live, 32 KiB direct boot, CGA/MDA no-card and no-driver.
+  Recovery cases reach readable retry/restart menus with their expected clean-
+  failure exit 2. Every read-only image is unchanged. All tests used isolated
+  profiles. `aggregate-register.json` contains case timings and verdicts.
+  `final-checkpoint.json` binds the proposed three-file checkpoint to the exact
+  sources/images, checks an empty index and stopped campaign VMs, preserves
+  original user cfg/NVR hashes, and records limits and the proposed message.
+- Display limitation: a greeting can contain UTF-8 waving-hand bytes displayed
+  as CP437 by the unchanged BIOS byte renderer. Expected ASCII answers remain
+  readable; no encoding fix is part of this spike. Emulator timing supplies
+  no physical entropy credit or new security-floor claim.
+
+- The 6 MHz / 512 KiB read-only direct-boot 286 live gate passes with both
+  answers and clean DPI directly inspected. The dedicated strict 286 analyzer
+  passes four flows, independent hybrid shares, acquisition close, reuse and
+  one reconnect. Finished intervals: 8.098887 / 8.600794 / 8.149059 /
+  8.600072 s. Image hash is unchanged; original user 286 cfg/NVR hashes remain
+  untouched. Evidence is `extra-register/286/`; the remaining direct/recovery
+  runs also completed in `extra-register-run.log`.
+
+- Read-only 4.77 MHz / 32 KiB direct boot also passes greeting, expected
+  first answer, strict two-flow reuse and final DPI, directly inspected.
+  Finished intervals are 11.021815 / 6.779109 s. Evidence is
+  `extra-register/direct32/`. CGA/MDA no-card and missing-driver recovery
+  subsequently passed, with final screens directly inspected.
+
+Superseded evidence, kept for audit:
+
+- OPT-001's initial prototype estimate overstated stack growth as four bytes.
+  The first product stack-operand variant measured +2 B (20 B including return)
+  and explicitly erased its row temporary. Its exact symmetric instruction
+  count was 1,884,813; emitted multiply grew 2 B, within padding.
+- That variant passed offline/serialized and matched 3c503 A/B: fresh baseline
+  13.722039 -> 11.210950 s, resumed 7.034048 -> 6.778222 s; launch-to-DPI
+  407.007 -> 378.485 s, BASIC RUN 352.662 -> 323.623 s, reused turn
+  57.899 -> 40.195 s. Its partial NE2000 matrix stopped after the first answer
+  during idle (11.217657 / 6.858159 s). Sources, images and reports are in
+  `stack-variant/`, partial matrix in `matrix-stack-variant/`.
+  These passes do not certify the current register revision. The pre-consolidation
+  ledger is retained under OPT-002 for historical detail.
+
+### OPT-003 — Restore a current authenticated exact-leaf baseline
+
+- Wishes: 1 reliability prerequisite; 9 rotation operational evidence.
+- Question: does an independently authenticated refresh of the immutable leaf
+  asset restore current-provider dialogue, and does a mismatched leaf reach
+  the documented fail-closed recovery path?
+- Baseline: unchanged `e34f3c4` image reaches client Finished in 13.857140 s,
+  then returns to ROM BASIC before DPI. Host TLS chain/hostname validation
+  confirms the endpoint now presents a Sep 5–Dec 4 certificate with a different
+  public key from the baked Jul 8–Oct 6 fixture; comparison saved under OPT-001.
+- Allowed surface: isolated baseline/rejection diagnostics, existing immutable
+  leaf fixtures and their derived program assets, narrowly necessary recovery
+  corrections if proven, relevant gates, and campaign record. No trust-model,
+  writable-state, clock, authority-boundary, or provider changes.
+- Required evidence: repeated frozen-image behavior, current leaf verified
+  against the existing issuer trust source and hostname/validity, exact-floor
+  read-only live proof/DPI, explicit wrong-leaf rejection/recovery, full affected
+  offline composition/zeroization and build/inspect gates.
+- Exit: one validated maintenance checkpoint before resuming OPT-002; or
+  record an actual unavailable resource/product-direction blocker and pause.
+- Status/disposition: **accepted and committed** as `b25c84a` after explicit
+  maintainer approval. The requested commit contains only the recovery fix,
+  leaf assets/notes, and regression gates; campaign and architecture Markdown
+  changes remain local and uncommitted. No push performed. OPT-002 resumes.
+- Findings: a second unchanged-image run also returned to ROM BASIC. The
+  actual rejected-auth continuation clears `1800..35a0`, then calls its helper
+  at `3594`, which is already zero. A frozen-image Unicorn reproduction
+  catches that execution with a coherent root frame. This is a recovery
+  defect, not a stack exhaustion finding: direct stack-write tracing of real
+  valid and rejected CV equations reaches `3fa8` (72 bytes below checker SP),
+  preserving the return frame. The older component's printed 240-byte stack
+  figure comes from comparing randomized guard bytes with an A5 sentinel.
+- Validated implementation: restore prompt/capability state after the
+  low clear and before erasing the helper. This reorders one call and adds no
+  runtime bytes. The new product gate reproduces the old failure and passes
+  five rejected/result/status/load cases plus the 32 KiB arena-restoration
+  trampoline, complete owned-span retirement, and unchanged resident/driver,
+  config, arena, video, and adapter guards.
+- Current immutable pin/fixture: SPKI SHA-256
+  `94655ad1e178ae4e1a28f7bfc97c0b0e48684f4b6370c639ab988a27d11e028f`,
+  valid Sep 5–Dec 4. Captured without credentials/application data; independently
+  verified under the existing tracked WE1 issuer, hostname, server purpose,
+  capture-time validity, and real CertificateVerify. The host fixture uses
+  X25519/ChaCha20-Poly1305/SHA-256 and supplies no target timing or runtime
+  assistance. The legacy `AUTH_P256_LIVE_202607_PIN` build selector remains
+  stable and selects the current image-dated asset.
+- Offline validation: `system_ram_auth_check.py`, `issuer_auth_check.py`, and
+  `auth_p256_check.py` pass with the refreshed real CV fixture. Fresh `make`,
+  `make inspect`, and `make basic-bootstrap` pass, including exact product
+  composition, high-abort tests, dispatch/config, application bounds,
+  reconnect/replay, FAT budget, and 286 module/controller gates. Reports and
+  logs are under `build/optimization-campaign/OPT-003/`.
+- Exact-floor NE2000 live result: read-only ROM BASIC, 4.77 MHz, 16 KiB;
+  fresh 13.511007 s and resumed 6.988781 s, followed by authenticated greeting
+  and a verified `FORTYTWO` answer on the reused application connection.
+  `live_k15_pcap.py --expect reuse` passes. These are current observations,
+  not an optimization comparison against OPT-001's different NIC.
+- Exact-floor 3c503 live result: the same read-only 4.77 MHz / 16 KiB entry
+  passes fresh (13.722967 s), resumed (7.019561 s), authenticated greeting,
+  expected `FORTYTWO` answer, and return to DPI on the reused connection.
+  `live_k15_pcap.py --expect reuse` passes, and the final screenshot was
+  inspected directly. OPT-001's same-profile fresh observation was 13.857140 s;
+  this maintenance change does not attribute that variation to optimization.
+- Wrong-pin live result: an isolated copy of the repaired image with only the
+  previous immutable pin restored reaches the clean retry/restart menu on
+  read-only 4.77 MHz / 16 KiB 3c503. It stops after the first rejected full
+  identity proof. The pcap contains one fresh ClientHello (1,393 B), Finished
+  (58 B), and fixed credential-free HEAD geometry (72 B), totaling 1,523
+  outbound TLS bytes, with no later application record or resumed flow.
+  The harness submits no DPI text and exits 2 as expected for a failure menu;
+  direct screenshot inspection confirms readable recovery rather than ROM
+  BASIC. Source/offline authority gates and wire geometry establish blocked
+  credential release; the pcap itself is encrypted. Wrong-pin diagnostics
+  never modified the source or shipping image.
+- Image delta: `SEED.SYS` remains 150,016 B / 293 sectors, SHA-256
+  `9c42c111c84c264491f34b9c73f62ac37c67faa1825404055377ca4efc2e23eb`;
+  95 changed immutable authentication bytes and 30 reordered return-capsule
+  bytes, with every other byte identical to the baseline. The resident core,
+  drivers, other 8088 phases, and complete 286 tail are unchanged. No added
+  runtime RAM, FAT sectors, or phase loads; use remains 308/309 FAT sectors.
+- Source scope: `system_ram_product_controllers.asm`,
+  `check_system_ram_product_pack.py`, immutable `auth_p256_pins.inc` and
+  `issuer_auth_live_leaf.pem` / `issuer_auth_live_vector.json`, fixture notes
+  in `issuer_auth_README.md` / `auth_p256_check.py`, `docs/architecture.md`,
+  and this ledger. All diagnostics and faulted images remain under `build/`.
+  Pre-existing 286 config/NVR hashes are unchanged; the timing prototype is
+  absent from product source. Final image hashes also match after read-only
+  live tests. `git diff --check` and Python compilation pass.
+- Remaining limits: pin refresh is manual and another rotation can precede
+  certificate expiry. Seven-NIC timing optimization/reconnect and new 286
+  live measurements remain OPT-002 work; deadline, application, driver, and
+  286 phase binaries are unchanged, and existing offline reconnect/replay and
+  286 gates pass.
+  No physical entropy claim or solved-freshness claim is added.
+- Proposed commit: `fix: restore current exact-leaf TLS authentication and recovery`.
+
+### Reconciliation after OPT-001 / OPT-003
+
+This is a maintenance comparison, not an accepted speedup. Historical timing
+values remain benchmarks to reproduce when their path is optimized.
+
+| Dimension | Baseline / current evidence | Maintenance effect |
+| --- | --- | --- |
+| 8088 fresh / margin | OPT-001 3c503 13.857140 s / 1.142860 s; current 3c503 13.722967 s / 1.277033 s and NE2000 13.511007 s / 1.488993 s | Deadline code unchanged; no speedup attributed |
+| 8088 cold / reused turn | Historical 404.3 s / 64.3 s; current authenticated NE2000 and 3c503 greetings and reused answers verified | Successful dialogue restored; end-to-end latency not remeasured |
+| 286 cold / handshake | Historical 186.7 s; strict intervals 8.6425–8.9518 s | Complete 286 tail byte-identical; offline gates pass; no new live timing claim |
+| Resident / active driver | 2,048 B total, including 512 B selected driver | Byte-identical |
+| 8088 executable phases | Largest packed phase: authentication 6,592 B / 13 sectors; K 5,310 B / 11 sectors in its 15-sector slot | Same sizes and destinations |
+| 16 KiB arena / context | 96 B / 96 B | Unchanged; abort guards and direct-tier arena restoration pass |
+| Runtime / auxiliary / FAT | 293 / 15 sectors; 308 of 309 used, one free cluster | Unchanged; no usable sector growth |
+| Floppy reads | Deadline inventory 20 fresh / 19 resumed sectors; full cold and interactive inventories still open | No added loads; prior no-read annotation corrected |
+| Trust and assurance | Exact dated leaf, full FO/CV/Finished and status-last release; physical sampler characterization still separate | Current authenticated pin, rejected-identity recovery fixed; no new assumption or entropy credit |
+| Compatibility | NE2000 and 3c503 successful reuse, 3c503 stale-pin failure menu; resident/driver and other phases identical | Recovery restored; config/arena/video/adapter guards pass; broader timing/NIC regression belongs to OPT-002 |
+
+That earlier ranking selected OPT-002. Its validated result and next action
+are recorded in the reconciliation below. Manual pin refresh remains operational
+rotation evidence only; no new runtime trust path is authorized.
+
+### Reconciliation after OPT-002 validation
+
+The validated checkpoint was committed as `de9cf53` with explicit maintainer
+approval: `perf: use word products for Poly1305`. It contains only `Makefile`,
+`targets/ibm_pc_5150/boot/core/poly1305.inc`, and
+`tools/crypto-bench/tls13-product/check_poly1305_multiply.py`. Campaign and
+architecture Markdown stay local, as requested; nothing was pushed.
+
+| Dimension | Before -> current | Interpretation |
+| --- | --- | --- |
+| 8088 fresh / margin | Matched 3c503 13.722039 -> 11.231663 s; seven-NIC matrix max 11.219607 s / 3.780393 s margin | 2.490376 s (18.15%) less on matched 3c503; under-12 target observed across all seven NICs. Across all current-revision observations, 11.231663 s is the maximum, including the long-prompt case |
+| 8088 cold | Matched launch-to-DPI 407.007 -> 379.494 s; BASIC RUN-to-DPI 352.662 -> 324.873 s | Same boundaries and long prompt, sequential single samples; provider payloads vary |
+| 8088 reused turn | Matched long turn 57.899 -> 46.036 s; current short matrix 37.454–53.443 s | Improvement observed; under-35 goal remains open. Two-second oracle polling and provider/payload variation limit attribution |
+| 286 cold / margin | Current raw harness launch-to-DPI 181.123 s; live Finished 8.098887 / 8.600794 / 8.149059 / 8.600072 s, worst margin 6.399206 s; serialized gate 8.0740 / 9.0627 s | Read-only 6 MHz / 512 KiB greeting, reuse and reconnect pass. Raw launch timing is not the historical normalized cold boundary; no matched 286 speedup claim. Serialized exclusions remain explicit |
+| Resident / active driver | 2,048 / 512 B -> unchanged; all eight DRVs byte-identical | One resident linked-call displacement changes; no added resident logic or active-driver RAM |
+| Executable windows | K 5,310 -> 5,306 B, still 11 sectors in its 15-sector slot; largest packed auth 6,592 B / 13 sectors unchanged | Four code bytes saved; no new usable FAT capacity |
+| Stack / persistent RAM | Multiplier 18 -> 18 B, full symmetric 52 -> 52 B; arena/context 96 / 96 B unchanged | No row-operand spill or new persistent scratch |
+| Runtime / auxiliary / FAT | 293 / 15 sectors, 308/309 data sectors, one free cluster -> unchanged | No usable sector growth; four extra K padding bytes are not recovered FAT sectors |
+| Reads | Deadline inventory 20 fresh / 19 resumed sectors -> unchanged | No load schedule or read changes; broader cold/interactive inventory remains open |
+| Trust and assurance | Exact dated leaf / conforming 286 split, full FO/CV/Finished/status-last, conventional RAM and zeroization -> unchanged | All affected hostile/composition/dispatch/bounds/replay gates pass; emulator supplies zero physical entropy credit |
+| Compatibility / findings | Seven NICs, CGA/MDA, direct32, 286, no-card/no-driver recovery pass | Retained early-close Novell attempt; repeat passes. Long-prompt repeated answer also exists on baseline, and UTF-8 greeting glyph limitation remains |
+
+Validation commands include fresh `make`, `make inspect`, `make basic-bootstrap`,
+the build-wired multiplication oracle, the eleven component commands in
+`offline-register.json`, full serialized 286 timing, and the strict live wire
+analyzers through `run-matrix-short.py` / `run-extra-register.py`. The final
+source/image binding and whitespace/index/user-file checks pass. Detailed
+commands, logs, pcaps, screenshots, and raw timings remain under OPT-002.
+
+After the approved commit, OPT-004 investigated the repeated long-prompt answer
+and reached the bounded negative disposition below. OPT-005 now attributes the
+remaining reused-turn cost; the earlier correctness failures remain open.
+Defer broad primitive rewrites and the conforming-8088 moonshot while this
+narrower correctness/interactive work is unresolved. Do not remove K/track
+padding on byte counts alone; actual deadline I/O geometry still matters.
+
+### OPT-004 — Distinguish memory-note directives from the current question
+
+- Wishes: 2 (response correctness) and 10. Follow-up selected from OPT-002's
+  failed long-prompt reuse/reconnect validation. Active baseline is committed
+  `de9cf53`, with frozen OPT-002 source/image bindings unchanged.
+- Question: does promotion of a compacted note into request instructions make
+  a prior one-turn answer directive override a different subsequent question?
+- Baseline behavior: on both `b25c84a` and OPT-002's candidate, the first long
+  question returns `FORTYTWO`; after a 500-second idle the displayed ninety/nine
+  question also returns `FORTYTWO`. Optimized wire topology is four flows;
+  baseline took six after a post-compaction connection close. Both reach DPI.
+- Allowed initial surface: isolated request/compaction diagnostics, exact
+  emitted request fixtures, and the ledger. Preserve current ENV, prompt paths,
+  native tools, status-last authority and bounded replay. Do not infer a new
+  memory/product contract before the cause is demonstrated.
+- Required evidence: capture or reconstruct the actual compacted note and
+  emitted next request, separate provider/model behavior from target input
+  preservation, compare normal reuse and reconnect, and reproduce any proposed
+  correction at the 16 KiB floor with recall and tool/replay regressions.
+- Exit: a proven narrow correction with all affected gates, or a bounded
+  negative result identifying the remaining cause/assumption. Any genuine
+  product-direction choice goes to the maintainer.
+- Status/disposition: **bounded negative result; no product change**. Both new
+  live captures produce the note `FORTYTWO` and then correctly answer the new
+  question with `NINETYNINE`. Earlier failures remain preserved and unexplained;
+  neither the note's authority nor a target input/parser fault is established as
+  their cause. Do not claim the response bug is fixed. Evidence is under
+  `build/optimization-campaign/OPT-004/`; `disposition.json` binds the outcome.
+  On recurrence, capture the restored pending prompt as well as the note before
+  changing framing. Continue the campaign with OPT-005's latency attribution.
+
+Initial OPT-004 diagnostic evidence:
+
+- Isolated `note-diagnostic-floppy-160k.img` replaces R's unused 16 KiB
+  far-context helper with a 74-byte COM1 snapshot shim and one five-byte call
+  hook. It captures only the prior compaction flag, note length, used length,
+  and used conversation bytes. The product sources/shipping images are unchanged;
+  this image is restricted to the 16 KiB diagnostic and supplies no timing claim.
+- All 194 valid length/compaction-state shim cases preserve caller registers,
+  flags, and exact snapshot bytes. Exact R/X ordinary/reconnect fixtures with
+  zero-, 29-, and 48-byte notes emit identical requests with and without the shim.
+  See `note-diagnostic.json` and `diagnostic-preservation.json`.
+- First live capture is the original-speed read-only 3c503 two-long-question
+  case without forced idle (`note-reuse/`). The exact R/X reconstruction helper
+  consumes captured note metadata with a synthetic credential; its output omits
+  HTTP headers. The long first prompt exceeds the 96-byte context cap, so
+  pre-compaction trimming is another cause to distinguish. Live result follows.
+
+- First diagnostic live result: the pre-compaction 96-byte transcript exactly
+  matches unchanged R/X/T execution (`first-turn-storage.json`), including loss
+  of the initial `U:` marker. Captured compacted note is exactly `FORTYTWO`;
+  the next request preserves the ninety/nine question and appends that note to
+  instructions, but the live answer is correct `NINETYNINE`, with clean DPI
+  directly inspected. This rules out deterministic repetition from that bare
+  note alone. Read-only image unchanged; strict four-flow wire gate passes.
+- The no-idle attempt nevertheless retired its application channel after the
+  compaction exchange and took one fresh/resumed route before the final answer.
+  Keep it as an observed recovery, not a two-flow ordinary-reuse control.
+  Whether completion detection or another transport condition caused this
+  retirement is unestablished. See `note-reuse/observation.json`.
+- Exact reconstruction around a modeled no-output compaction failure shows
+  note_len changes 0 -> 96 on rebuild but the emitted compaction body/records
+  remain identical (`failed-compaction-rebuild.json`); this excludes that
+  metadata change alone as the source of a changed request in this case.
+- Next: repeat the original 500-second idle case with the same note capture
+  (`note-reconnect/`) before choosing any product correction.
+
+- Parser negative result: unchanged R/X/T executes a supplied summary
+  `FORTYTWO` followed by the preserved ninety/nine question and supplied
+  `NINETYNINE` response correctly for 1-, 7-, 17-, 31-, and 128-byte fragments.
+  Summary stays hidden, reasoning deltas stay ignored, only the new answer
+  renders, and the note remains stored. See `compaction-parser.json`. This
+  excludes a deterministic stale-note render in the modeled path, not live
+  provider/transport behavior. Existing source and gates also require record
+  authentication before parser publication and retire invalid record sequences.
+- Historical design explicitly placed the note in instructions to avoid the
+  model continuing a summary as the latest dialogue (`core/data.inc` note_len
+  comment). Any future correction must preserve that intent and recall/tool
+  behavior; moving raw notes into input without context is not yet justified.
+
+- Bounded host model comparison (not target evidence): the captured bare
+  `FORTYTWO` note answers ninety/nine correctly in both repeats. Synthetic
+  `Answer only FORTYTWO.` in instructions produces the wrong old answer in
+  both repeats; moving it unchanged to a prior assistant item is inconsistent
+  (one correct, one wrong). A role-only move is not justified by this test.
+- Eight host compaction/answer chains using the reconstructed target bodies
+  all answer the second question correctly; generated notes range from
+  `FORTYTWO` to `forty+two uppercase, no separators=FORTYTWO`. Notes are normalized
+  and capped exactly as the target stores them. See `host-comparison.json`,
+  `host-note-authority/`, and `host-generated-notes/`. Host sockets are recorded
+  explicitly; the strict pcap analyzer excludes their non-Seed TLS profiles.
+  No target trust assistance, product change, or new performance claim follows.
+
+- Original 500-second idle case also returns `NINETYNINE` after a captured
+  `FORTYTWO` note. First answer, second answer and final DPI directly inspected;
+  strict four-flow wire gate and unchanged read-only image pass. The no-idle
+  case's spontaneous reconnect remains distinct. Both campaign VMs are stopped.
+- Prepared fallback diagnostic `note-prompt-diagnostic-floppy-160k.img` captures
+  the same used note plus the exact screen-restored prompt and marker. It uses
+  two unreachable far-tier helper regions only at 16 KiB; nine offline combinations
+  of note lengths 0/29/48 and prompt lengths 1/107/255 preserve the exact original
+  ordinary/reconnect requests and snapshots. No live run of this second diagnostic
+  was needed because the repeated answer did not recur. Keep it for recurrence;
+  do not use either diagnostic image as a shipping or timing baseline.
+- Shipping sources/images still match committed `de9cf53` and OPT-002's frozen
+  validation hashes. Index is empty, user cfg/NVR hashes are unchanged, no new
+  commit or push was made, and campaign Markdown stays local. This disposition
+  narrows the hypotheses without erasing the original baseline/candidate failures.
+
+### OPT-005 — Attribute the remaining 8088 reused-turn latency
+
+- Wishes: 2, 6, and 10; preserve wish 1's accepted handshake margin.
+- Question: how much of the 37.454–53.443-second short reused turn is target
+  computation, phase/prompt I/O, rendering, or provider/transport wait, and
+  which narrow change has credible savings without increasing RAM, FAT use,
+  interactive seeks, or the fresh-handshake deadline?
+- Baseline: committed `de9cf53`, frozen OPT-002 images/source binding and the
+  seven-NIC short matrix. Matched long turn 57.899 -> 46.036 s; the under-35
+  goal remains open. Use the exact short prompt from `short-prompt-contract.json`
+  for comparable live timing; do not mix long prompts or compaction/reconnect
+  into an ordinary reused-turn comparison.
+- Allowed initial surface: isolated attribution fixtures and diagnostic tooling
+  under `build/optimization-campaign/OPT-005/`, plus this ledger. Product source
+  read-only until the measured opportunity selects a narrow implementation.
+- First action: bind the committed runtime/listing/image, then inventory the
+  successful phase/asset sector reads and executed R/X/K/T work for one short
+  reused turn. Extend the exact request/reconnect and application-record gates
+  as measurement fixtures; do not infer application cost from the handshake-only
+  symmetric fixture. Keep host/model, BIOS/NIC waits and target CPU counts distinct.
+- Required evidence: independent record/plaintext correctness oracle; exact
+  shipped request/record/parser paths; byte, register/stack and RAM-lifetime
+  accounting; successful read/seek inventory; identified limits of the 8088
+  cycle/prefetch model; and a matched original-speed 4.77 MHz / 16 KiB read-only
+  observation to bound the complete route. Count all required work rather than
+  treating an omitted wait or display operation as zero cost.
+- Candidate ranking: prioritize measured user-visible savings and narrow
+  regression radius. R/X/T parsing/rendering, record crypto, repeated loads
+  and provider payload overhead are hypotheses, not preselected fixes. Preserve
+  full authentication, status-last release, native tool replay, ENV compatibility,
+  note intent and the existing conventional-RAM ownership boundaries.
+- Exit: ranked, quantified follow-up with a credible route to reducing turn
+  latency (or a bounded negative finding). An accepted implementation later
+  requires fresh build/inspect, relevant hostile/record/compaction/recall/tool
+  gates, and affected exact-floor live NIC/display/reconnect validation; every
+  commit/push still needs explicit approval.
+- Carry-forward correctness condition: OPT-004 did not establish the prior
+  repeated-answer cause. If it recurs, preserve the case and use the validated
+  note-plus-prompt capture before attributing it to a performance change.
+- Status/disposition: **attribution completed; follow-up to OPT-006**. No
+  product implementation is accepted. Regenerated runtime/listing match the
+  committed `de9cf53` frozen images exactly; runtime remains 150,016 B,
+  SHA-256 `f3844b03da73c4b76772be45566ced67c0d1cff3dbc3c1c09791118bd814f228`.
+  Source, shipping images, HEAD/index and pre-existing user files are unchanged.
+  All tools, isolated profiles, diagnostics, prototypes and detailed evidence
+  are under `build/optimization-campaign/OPT-005/`; start with `REPORT.md`,
+  `disposition.json`, `binding.json` and `evidence-binding.json`. All campaign
+  VMs are stopped. No commit or push was made.
+
+Reliability qualification and current live evidence:
+
+- The canonical `tools/check-tls13-record-cap.py` rejects all eight historical
+  short-matrix captures. First-turn-only analysis confirms that this is already
+  present in the timed first answer, not merely the later idle/reconnect.
+  See `matrix-record-cap/` and `matrix-turn-cap.json`. This invalidates treating
+  37.454–53.443 s as a reliable ordinary-turn baseline that leaves the channel
+  reusable. It does not invalidate the independently checked handshakes.
+- Two new authenticated-prefix captures reproduce `fortytwo` followed by an
+  oversized 2,942-byte record, before the complete HTTP terminal is published.
+  Exact shipped scheduler/K/T execution of the captured prefix takes
+  `agent_api_exchange.text_seen_fallback`, preserves prior text, zeroes the
+  whole application key/IV/sequence band, clears ready, and returns to DPI
+  without replay or a new connection (`oversized-retirement.json`). This is
+  fail-closed retirement, not an authentication bypass. A gate that checks only
+  the answer, DPI and an eventual reconnect can miss it.
+- New **unmodified** 3c503 observation: 4,772,728 Hz 8088, exactly 16 KiB,
+  ROM BASIC, CGA and write-protected frozen image; same 34-character short
+  question and directly inspected answer/DPI. Submission-to-DPI is 48.665756 s:
+  4.048221 to first request wire byte, 2.797596 request span, 0.419761 until
+  first response, 0.659996 response arrival span, then 40.740182 until DPI.
+  Six request records total 1,551 wire bytes; 15 response records total 11,715.
+  Strict profile and record-cap gates pass; fresh/resumed intervals are
+  11.094770 / 6.779050 s. Host SLiRP timestamps do not expose guest driver
+  waits; work overlaps arrival and DPI includes two-second polling/OCR.
+  No immediate second question was sent, so this single pass does not certify
+  reuse after that answer. See `short-3c503/` and `attribution.json` inside it.
+- An isolated 115200-baud diagnostic captures a **complete** authenticated
+  HTTP/SSE response: 11,436 plaintext bytes, 22 records, 34 parser chunks,
+  eight visible answer bytes and complete HTTP termination. Independent
+  HTTP/SSE decoding and exact wire/plaintext lengths agree. Headers consume
+  1,203 B, HTTP framing 103 B and SSE 10,130 B; `response.completed` alone is
+  2,913 B and happens to be split across acceptable records in this run.
+  Obfuscation contributes only about 91 JSON bytes. Do not assume provider
+  write boundaries will fit the spool. The 135-byte authenticated-output shim
+  uses already-loaded K padding, adds no reads/RAM/FAT sectors, and preserves
+  registers, flags and exact-route outputs. It exports neither client requests
+  nor keys. Serial captures are fixtures, not performance baselines.
+
+Exact target-work and resource attribution:
+
+- `measure.py` executes the shipped resident scheduler, R/K/X/T, no-tool M
+  check and Y restoration through the next DPI keyboard wait, loading real
+  sectors and prompt assets from the frozen image. Pure-Python AEAD and the
+  independent `cryptography` ChaCha20-Poly1305 oracle agree on every request
+  record and supplied response record/plaintext. The captured server bytes are
+  re-encrypted with synthetic keys; no live private state is needed.
+- The complete captured fixture executes 9,383,842 instructions/REP elements.
+  The 4.77 MHz model attributes 15.938557 s to ChaCha20, 7.216546 to Poly1305,
+  2.163667 to T parsing, 0.035492 to R/X construction and 1.117549 to remaining
+  glue: 26.471809 model seconds total. Actual branches, REP elements, shift
+  counts, operand widths and stack traffic are counted; phase-aware decoding
+  handles reused overlay addresses. Prefetch queues, refresh, interrupts,
+  BIOS bodies and NIC/device waits are not fully modeled. Same-record BDA/UART
+  checks underestimate sampled non-UART spans by roughly 17–65%, with tick
+  and UART-removal uncertainty; they do not calibrate Poly1305 or disk/NIC work.
+  The 22-record fixture and 15-record unmodified live run cannot be subtracted
+  to assign the unexplained wall time. An exact elapsed CPU/I/O split is open.
+- Successful read order, as absolute LBAs: R 194–196; K 15–25; X 198–200;
+  TOOLS 309; IDENTITY 307; T 201–202; M 204–206; Y 212; unused DPI R prefetch
+  194–196. Total **28 sectors / 14,336 B**, nine track transitions / 76 track
+  steps on the eight-sector single-head geometry. Same-track backward reads
+  also matter; this inventory excludes retries and motor/media timing. T stays
+  resident through all authenticated chunks. With 458-byte TCP payloads the
+  fixture calls receive 27 times, ACK 48 times and send six times; external
+  waits are not zero-cost evidence. 128-byte fragmentation preserves outputs,
+  context, ready state and reads while increasing NIC calls.
+- K is 5,306 executable bytes, 11 loaded sectors in a fixed 15-sector slot;
+  selected driver is 512 B inside the 2,048 B nucleus. Spool `2E00–3600`,
+  application state `3600–3668`, arena `3E40–3EA0` and context `3EA0–3F00`
+  remain unchanged. Measured software stack reaches `3FC2` (62 B below
+  `4000`), excluding BIOS/NIC/interrupt private stacks; this is not a new
+  physical stack bound. Program writes stay below `4000`; higher reads are
+  ordinary screen reads. BIOS glyph operations remain explicit external work.
+
+Ranked opportunities and validation:
+
+1. **Post-text terminal-record retirement:** reliability prerequisite, selected
+   as OPT-006 below. It can force the next ordinary question into the costly
+   fresh route. Do not raise the record limit beyond its backing storage,
+   publish unauthenticated text, drop potential output/tool events or assume
+   provider-side filtering is supported.
+2. **Inline ChaCha rotations:** isolated byte-permutation prototype removes
+   1,409,760 instructions/REP elements and 15,678,240 modeled cycles from the
+   complete fixture, **3.286843 model seconds / 12.4%**. K grows 5 B to 5,311,
+   within the same 11 sectors and unchanged 150,016 B runtime; no persistent
+   RAM, software stack, FAT or read growth. Exact wire/plaintext/parser outputs
+   match, and 128 block-oracle cases preserve all GP/DS/SS/ES registers with
+   arbitrary caller CX. The earlier non-inlined prototype's +2 B stack peak
+   is superseded. This is a ranked candidate, not an accepted live speedup.
+3. **Remove unused DPI R prefetch:** isolated actual-code bypass preserves
+   ready state, records, context, prompt and stack, reducing reads **28 -> 25**
+   (1,536 B). Duration is unmeasured. The final track 26 -> 24 movement shifts
+   to the next submission, so this alone is not a steady-state seek saving.
+4. **K retention:** potentially 11 fewer reads, conditional on proving code
+   lifetime through native writes/execute, reconnect and ENV save/restore.
+   The TLS-ready flag alone does not prove executable bytes remain valid.
+5. **Parser/rendering/provider payload:** T accounts for only 2.16 model
+   seconds and output is eight glyphs. Large generic parser/render changes
+   rank below measured primitive/I/O work. Do not remove response semantics,
+   native tools or authenticated output to realize an apparent saving.
+
+- Validation: fresh NASM runtime/listing identity, `make`, `make inspect`,
+  existing application hostile-record and product reconnect/replay gates;
+  independent complete-record oracles, 128/458-byte fragmentation, forged-tag
+  no-publication/full-retirement, oversized-terminal prior-text preservation
+  with no replay, diagnostic register/route preservation, and four directly
+  inspected original-speed live cases. Profile gates pass all four; record-cap
+  failures are retained for the two prefix captures and old matrix. No product
+  source, trust boundary, native-tool/ENV contract, driver, device-RAM use or
+  entropy assumption changes. The OPT-004 repeated-answer cause remains open;
+  it did not recur in these short cases.
+
+### OPT-006 — Resolve post-text terminal-record retirement at the 16 KiB floor
+
+- Wishes: 2 reliability prerequisite, with 6 and 10 accounting.
+- Question: can a larger target-local authenticated-record spool consume the
+  observed terminal records and retain immediate reuse at 16 KiB without
+  weakening authentication, output/tool semantics or bounded reconnect/replay?
+- Baseline: committed `de9cf53`; 2,048 inner bytes / 2,069 wire bytes, historical
+  records up to 4,251 wire bytes, two reproduced post-text retirements and the
+  complete OPT-005 plaintext fixture. An answer and DPI alone are insufficient.
+- Allowed surface: isolated lifetime/construction proofs first, then the narrow
+  K application implementation, matching ClientHello limits and affected gates.
+  Preserve provider/trust/16 KiB contracts, full FO/CV/Finished/status-last,
+  conventional RAM, native tools, ENV and all rejection/zeroization boundaries.
+- Required evidence: exact shipped-path independent record/plaintext oracles,
+  hostile input and byte/stack/FAT/read accounting; full build/inspect/offline
+  gates; distinct immediate reuse, compaction, record-cap and strict wire checks,
+  then affected original-speed NIC/display/reconnect/direct/286/recovery gates.
+- Exit: a validated narrow correction or bounded negative construction result.
+  Inline rotations and unused DPI-prefetch removal remain later candidates.
+- Status/disposition: **larger-spool candidate rejected**. The stronger live
+  matrix found a 6,277-byte record during the 3c501 third-turn compaction
+  exchange, exceeding the new 4,373-byte ceiling and followed by a fresh
+  connection before any planned idle. The remaining matrix was stopped;
+  repeating until provider records happen to fit would not validate reliability.
+  Product/tool edits have been archived and restored to their bound pre-spike
+  contents. Fresh baseline `make`, `make inspect` and BASIC generation pass;
+  runtime, listing, floppy and helper match the initial hashes exactly.
+  `restored-checkpoint.json` verifies sources, user files, empty index and
+  stopped campaign VMs. The rejected candidate remains isolated under `build/`.
+  No commit or push is authorized or performed.
+
+Construction and exact-revision evidence, retained under
+`build/optimization-campaign/OPT-006/`:
+
+- Remove only the product application K's uncalled 1,801-byte SHA/HMAC copy,
+  simplify obsolete alternate-spool branches and share the existing ChaCha XOR
+  loop across send and block-aligned authenticated replay. Complete K shrinks
+  **5,306 -> 3,314 B**, ending at `24f2`, with a new `2500–3600` spool holding
+  **4,352 inner bytes / 4,373 wire bytes**. Both ClientHellos offer 4,352 in the
+  unchanged-size field. Cold-phase semantic/staging limits remain separate.
+- Whole-record tag verification still precedes type/padding inspection and
+  every parser publication. Non-final replay chunks are 576 = 9 * 64 bytes;
+  existing occupied-tail state inhibits keep-alive overwrites during replay.
+  Complete-K and block-alignment assertions protect the construction. Rounded
+  K loads touch initial spool padding only before receive. See `DESIGN.md`.
+- K reads **11 -> 7 sectors**; fixed K file slot stays 15 sectors. Runtime
+  remains 150,016 B / 293 sectors, FAT 308/309, arena/context 96/96 B.
+  All eight drivers and every floppy byte outside SEED.SYS are unchanged.
+  Exact complete scheduler reads **28 -> 24 sectors**, track transitions 9 -> 8,
+  track steps unchanged at 76 and software stack peak unchanged at 62 B.
+  These candidate savings are not accepted production improvements.
+- Candidate runtime SHA-256
+  `9b7aef9fcb75577e08f0bf16f12e1b12e2cd362a4e722e43d6190d949faa536e`;
+  image `00b3fd19d23b76974eaec1956169c80b18742b9fc950b826e3c50f7144cda6d6`.
+  `final/` retains its frozen artifacts; `final-binding.json` binds that
+  candidate, not the restored shipping image. `rejected-candidate/` preserves
+  the twelve changed tracked sources, added checker and product-only patch.
+- Fresh candidate build/inspect/BASIC, all eleven additional offline gates,
+  47 exact-16-KiB boundary/hostile cases, old/current wire-profile checks,
+  compaction/parser fixtures at five fragment sizes, native continuation
+  no-replay and restored-ENV admission pass. Earlier stale 286 oracle-literal
+  build failure is retained and corrected in the successful final build.
+- Identical complete captured records preserve exact request/parser/text/HTTP
+  and ready state with **9,281,678 instructions / 124,916,937 modeled cycles**,
+  down 102,164 instructions and 0.283772 model seconds. Repartitioned
+  4,251-wire-byte records pass; forgery publishes nothing and retires keys;
+  a 4,374-byte post-text record preserves prior text and retires without replay.
+  See `models-final.json`. BIOS/NIC/interrupt bodies and physical disk/stack
+  behavior remain outside those modeled counts.
+- Serialized 6 MHz / 512 KiB 286 sweep passes, unchanged at acquisition
+  147 ticks / 8.0740 s and resumption 165 ticks / 9.0627 s. Its resident/I/O/
+  complete-offline-authentication exclusions remain; no 286 live pass follows.
+
+Live disposition (frozen read-only image, 4.77 MHz / exactly 16 KiB BASIC):
+
+| Case | Evidence | Disposition |
+| --- | --- | --- |
+| Focused 3c503 | Two correct immediate answers; max 2,944 wire B on second answer; strict two-flow/cap pass | Inspected pass of this case only; no third answer |
+| Full 3c503 | Three immediate correct answers including compaction, 4,251-B records, fourth answer after 500 s and one reconnect | Strict four-flow/cap and direct inspection pass |
+| NE2000 | Second answer has 4,251-B records; third reuses session; fourth succeeds after 500 s and one reconnect | Strict four-flow/cap and direct inspection pass |
+| 3c501 | First two correct answers, max 4,152 / 4,251 B; third exchange receives 6,277 B and reconnects before idle | **Failure retained**, stopped during third-turn recovery |
+| Remaining NICs, MDA, direct32, 286 live and recovery | Not run after established candidate failure | No acceptance claim |
+
+Full 3c503 Finished intervals are 11.248684 / 6.786689 / 11.232978 / 6.770442 s;
+turns 53.019923 / 43.740765 / 98.678946 / 353.389788 s. NE2000 Finished intervals
+are 11.209322 / 6.751820 / 11.212020 / 6.741862 s; turns 53.606592 / 43.730850 /
+88.461586 / 354.197539 s. Compaction/reconnect and variable provider payloads
+prevent treating these as fixed-workload speed comparisons. Per-case checked
+`observation.json` files and inspected images remain in `matrix/`.
+
+The 3c501 violation arrives 57.982609 s after third submission; the fresh
+reconnect starts at 93.153418 s, before any idle. First two turn times are
+69.393533 / 79.445295 s. Its recovery fresh Finished is 12.284879 s, outside
+the desired under-12 target, without a matched-cause attribution. The third
+answer was not verified before deliberate interruption; no fourth question was
+sent. `matrix/vm-net-3c501/failure.json`, failed cap/wire reports and pcap retain
+this distinction. Encrypted metadata does not identify the offending plaintext.
+
+Bounded negative conclusion and next action:
+
+- The observed 6,256 inner bytes require 1,904 B more than this spool. Keeping
+  its end at `3600` would start at `1d90`, overlapping 1,890 B of current K.
+  This rules out another simple bound increase on this layout, not every
+  possible 16-KiB receiver architecture.
+- A whole-record buffer for the protocol's permitted 16,385 inner bytes already
+  exceeds all installed 16-KiB RAM, before code/state. An unnegotiated record
+  limit does not constrain the peer; see [RFC 8449 section 4](https://www.rfc-editor.org/rfc/rfc8449.html#section-4).
+  Current credential-free, certificate/hostname-verified host probes to both
+  resolved provider addresses also omit offered `max_fragment_length=1024`
+  from EncryptedExtensions. See `negotiation-probe/result.json`; these are
+  limited host observations, not a guarantee about all provider configurations.
+- Do not chase the largest sampled record, alter semantic output, publish
+  unauthenticated bytes, borrow device RAM or introduce writable storage.
+  A different construction needs an independent proof of bounded tentative
+  parser state and delayed publication. OPT-007 below is selected for that
+  design question; no such product design is accepted yet.
+
+### OPT-007 — Prove delayed publication without a whole-record buffer
+
+- Wishes: 2 reliability prerequisite, with 5, 6 and 10 accounting.
+- Question: can the exact 16-KiB target process larger TLS records using a
+  bounded buffer of pending parser effects, then commit those effects only
+  after whole-record authentication, preserving every currently accepted
+  output/tool/compaction continuation and the reconnect/replay contract?
+- Baseline: restored committed `de9cf53`; OPT-006's larger-spool construction
+  failed on a 6,277-wire-byte third-turn record. Its isolated space recovery and
+  passing component cases are reusable evidence, not an accepted implementation.
+- Allowed initial surface: this ledger and isolated proofs under
+  `build/optimization-campaign/OPT-007/`; product sources remain read-only.
+  First bind the restored source/image and inventory every actual T/parser
+  effect on display, context, notes, native calls, completion, pacing and state.
+- Required evidence: an independent security and byte-lifetime argument;
+  explicit bounds for pending effects and rollback; no pre-tag display, context,
+  note, tool or authority publication; full invalid-tag/type/padding/length/
+  split-record zeroization and rejection; exact plaintext/semantic equivalence
+  for every previously accepted continuation. Identify any new rejection bound
+  honestly. Do not assume that parsing arbitrary unauthenticated data is safe.
+- Exit: a concrete bounded target-local design plus executable construction
+  proof, or a precise missing assumption/product decision. Any later product
+  implementation needs full affected offline and exact-floor live validation.
+- Status/disposition: **bounded experiment complete; broader requirement selected**.
+  The maintainer-created context completed the inventory and executable
+  experiments. No product design is accepted for implementation. A journal
+  can cover larger records with few effects, but arbitrary output still needs
+  proportional retained information. An explicit effect limit preserves the
+  old record envelope while rejecting some valid larger-record packings.
+  The model does not prove target code fit, pre-tag timing security or IRQ/
+  lifecycle integration. Detailed evidence is under
+  `build/optimization-campaign/OPT-007/`; begin with `REPORT.md`,
+  `parser-audit.json`, `journal-model.json` and `final-checkpoint.json`.
+
+Exact-source findings and bounds:
+
+- Fresh NASM runtime/listing match restored `de9cf53` exactly. Runtime remains
+  150,016 B, SHA-256
+  `f3844b03da73c4b76772be45566ced67c0d1cff3dbc3c1c09791118bd814f228`.
+  Shipping image/helper, 636 tracked files, pre-existing user files, HEAD and
+  index are preserved. Only this ledger and isolated OPT-007 files changed;
+  no VM, product edit, commit or push was made.
+- Exact T has 18 mutable scalar bytes, 512 B raw function-call capture and
+  96 B context, plus ordered display effects. T also invokes keepalive;
+  completion/text/tool flags affect the resident scheduler. T does not write
+  `note_len` or execute native tools directly, but its context/capture enables
+  later R/M work. Deferring BIOS output alone is insufficient.
+- A prior authenticated record can leave a delta string open. A following
+  record then emits one character per content byte. The exact 16,384-byte
+  output continuation passes the parser oracle when divided into old-envelope
+  records; the context still stores only 96 B. For N independently chosen
+  64-way ASCII characters, lossless delayed output needs at least
+  `ceil(6*N/8)` bytes of total distinguishing state: 4,692 B for 6,255 content
+  bytes (6,277 wire), or 12,288 B for 16,384. This rules out fitting arbitrary
+  effects into OPT-006's 4,352-byte window, not every conceivable 16-KiB
+  architecture. The observed 3c501 plaintext remains unknown.
+- A host journal model retains 2,047 raw emit bytes, 524 B projected scalar/
+  capture state and 576 B bounded NST/alert content: **3,147 B before other
+  receive/crypto state, stack and additional code**. It uses the original
+  emitter after successful whole-record tag/type validation. The captured
+  11,436-byte response and a 14,759-byte mostly-metadata fixture preserve exact
+  tested semantics. Repartitioning the long output into a record with 2,048
+  or more effects rejects it. There is no smaller per-response text cap;
+  the limit applies independently to each record. This is a logical model,
+  not an assembled or accepted target construction.
+- The rightmost-nonzero/type latch, embedded/trailing zeros, strict bounded
+  NST shapes, and original AAD/ciphertext MAC are exercised with independent
+  AEAD oracles. The 182 model cases include invalid tag/type/header/length,
+  every truncation prefix of a representative record, sequence exhaustion,
+  capacity failure, prior-effect preservation and modeled erasure. Exact T
+  has 75 fixture/fragmentation comparisons covering output, compaction, notes,
+  tool capture, escapes, completion, CGA/MDA and graceful-stop state. These
+  finite cases do not prove arbitrary reachable-state or full native-tool/
+  scheduler equivalence.
+
+Security/lifetime conditions for any follow-up:
+
+- Two equal-length invalid-tag records differing in one ciphertext byte take
+  22,480 versus 35,889 tentative parser instructions before the tag. The
+  unmodified emitter/scanner takes 107,855 versus 36,059 instructions on the
+  corresponding 451-byte plaintext continuations. These are instruction
+  differences, not a measured remote exploit or wall-time result. Snapshot
+  isolation alone does not rule out an ACK/timing oracle; a fixed-work parser
+  or a proved externally indistinguishable receive schedule is required.
+- Executing the current resident retirement leaf erases the 104-byte
+  application capability but leaves the current ciphertext spool unchanged.
+  A new plaintext journal therefore needs explicit success/failure/cancel/
+  ENV/reconnect erasure. This is an obligation for the new construction, not
+  a claim that the shipping ciphertext spool contains unretired plaintext.
+  INT 9 can change ESC/cap state or jump to `chat_loop`; a frozen snapshot
+  must not overwrite user control or bypass cleanup. Keepalive/tail escrow,
+  sequence advancement and committed-only retry decisions also need proof.
+- Fresh isolated image/layout inspection and the existing application-record
+  and product reconnect/replay gates pass, including the exact 16-KiB R/X
+  rebuild and packaged 512-KiB ready turn. No live acceptance, speedup, full
+  target stack bound or new entropy claim follows. Product implementation
+  still requires the full affected offline and exact-floor live gates.
+
+Maintainer decision after OPT-007: **require broader record handling**, independent
+of how the server packs otherwise supported application data into valid TLS
+records. The E=2,047 pending-effect profile is not accepted as the product
+solution. The requirement concerns per-record packing; existing semantic limits
+on context, tool capture and other application state remain in force. This is
+an acceptance requirement for future work, not a claim about the shipping
+receiver.
+
+Next investigation: establish whether a target-local construction can meet that
+requirement at the exact 16-KiB floor, with explicit storage/code/stack bounds,
+authentication before publication, and the existing lifecycle and replay
+contract. Keep all campaign hard invariants. Typical SSE sizes, token budgets
+and an unnegotiated record-size offer do not establish a peer-enforced bound.
+The controller owns the architecture research and selection of the next
+falsifiable spike; the maintainer is not being asked to supply a technical
+solution. Record any remaining feasibility obstacle precisely before proposing
+a scope change. OPT-007's bounded model remains evidence, with no accepted
+product implementation and no outstanding application-profile decision.
+
+### OPT-008 — Test TCP retransmission as a source for authenticated replay
+
+- Wishes: 2 reliability prerequisite, with 5, 6 and 10 accounting.
+- Question: can the existing provider connection guarantee a second pass over
+  a complete valid TLS record through ordinary TCP retransmission, allowing a
+  16-KiB receiver to retain bounded ciphertext commitments instead of the whole
+  record, without a helper, another connection or pre-authentication effects?
+- Baseline: committed `de9cf53`, unchanged shipping artifacts; OPT-006's
+  4,352-byte spool fails on 6,277 wire bytes and OPT-007's 2,047-effect journal
+  does not meet the maintainer's broader record-packing requirement.
+- Allowed surface: this ledger and isolated source audits/models/reports under
+  `build/optimization-campaign/OPT-008/`. Product sources, shipping artifacts,
+  prior evidence and VM state remain read-only. No provider credentials or live
+  application request are needed for the initial transport feasibility test.
+- Required evidence: bind current source/image; inspect exact SYN/window/ACK/
+  duplicate handling; check primary TCP specifications for sender retention,
+  congestion/window progress and SACK semantics; executable counterexamples
+  for any assumed replay guarantee. Separate transport feasibility from the
+  additional cryptographic commitment and publication proof it would require.
+- Exit: a concrete transport contract sufficient for a later security proof,
+  or a bounded negative result identifying the missing peer behavior and the
+  next in-scope architecture investigation. Do not infer a guarantee from one
+  provider capture or from a model that assumes a cooperative sender.
+- Status/disposition: **bounded negative result; simple replay guarantee
+  rejected**. Exact source audit and protocol counterexamples are complete.
+  No product implementation is accepted. This does not establish that every
+  hybrid replay scheme or every 16-KiB receiver architecture is impossible.
+  Evidence is under `build/optimization-campaign/OPT-008/`; start with
+  `REPORT.md`, `source-audit.json`, `transport-model.json` and
+  `final-checkpoint.json`.
+
+Findings and accounting:
+
+- Fresh isolated NASM runtime/listing match the unchanged committed artifacts.
+  Runtime remains 150,016 B / 293 sectors, SHA-256
+  `f3844b03da73c4b76772be45566ced67c0d1cff3dbc3c1c09791118bd814f228`;
+  FAT 308/309, arena/context 96/96 B and shipping receive bounds remain unchanged.
+  The 636 tracked files, pre-existing user files and prior OPT-007 evidence are
+  preserved. No VM, provider request, product edit, commit or push occurred.
+- Exact emitted SYN offers MSS=384 with no SACK-Permitted option; SYN and
+  ordinary ACK advertise 256 bytes. Fourteen exact resident/C-phase cases
+  verify packet checksums, ACK advancement before TLS, duplicate/future-sequence
+  rejection, option skipping and sequence wrap. NIC transmission is a host
+  leaf, not live NIC validation.
+- Ordinary cumulative ACK progress releases the sender's retention obligation;
+  an old ACK cannot rewind it. Withholding ACKs holds the window edge, and a
+  larger advertised window cannot force a larger congestion window. The
+  abstract model has 16 stalled-prefix cases and four ACK/reclaimed-data cases,
+  plus ten hybrid cases and one favorable full-window control (31 total).
+  [RFC 9293 §3.10.7.4](https://www.rfc-editor.org/rfc/rfc9293.html#section-3.10.7.4)
+  and [RFC 5681 §3.1](https://www.rfc-editor.org/rfc/rfc5681.html#section-3.1)
+  ground these necessary-condition examples; the model is not a full TCP stack.
+- An optimistic hybrid retains the cumulatively ACKed prefix locally. With
+  MSS=384, unconstrained slow start, a 32,768-byte receive window and no further
+  timeout, the model needs 8,011 prefix bytes for a 16,406-wire-byte record,
+  before commitments/code/buffers/state/stack. This is a threshold of that
+  model, not a universal minimum or proof against every hybrid architecture.
+- SACK retains a sender-side copy until cumulative ACK, but the current SYN
+  does not negotiate it. Its reneging and timeout schedule is not a proved
+  replay service. Account for [verified erratum 1610](https://www.rfc-editor.org/errata/eid1610)
+  and [RFC 6675 §5.1](https://www.rfc-editor.org/rfc/rfc6675.html#section-5.1):
+  a sender need not unconditionally clear its old SACK scoreboard on timeout.
+  No SACK-aware construction was implemented or ruled out universally.
+- Even with available replay bytes, per-chunk commitment verification must
+  precede their publication; checking another whole-record tag afterward is
+  insufficient. Sequence/position binding, type/padding, exact effects,
+  cancellation, complete retirement and the existing no-replay policy remain
+  required. Perfect free commitments in the model intentionally grant no
+  security, target byte-fit or timing proof.
+- Baseline layout/core inspection and the new 14 exact-code / 31 model cases
+  pass. No shipping cost, phase-read schedule, driver behavior, display state,
+  trust or entropy assumption changes. This read-only result needs no new live
+  matrix; existing live evidence is not relabeled as validation of a new design.
+
+Next action: OPT-009 tests lossless effect encoding against a complete RAM
+budget before another receiver implementation. The broader requirement is
+settled; no maintainer product choice is pending.
+
+### OPT-009 — Bound full-record effects against the 16-KiB execution footprint
+
+- Wishes: 2 reliability prerequisite, with 5 and 10 accounting.
+- Question: can a lossless representation of every otherwise-supported parser
+  continuation in a maximum legal TLS application record coexist with the
+  receive/authentication code, live state and stack in 16 KiB conventional RAM,
+  while retaining authentication before every observable effect?
+- Baseline: unchanged `de9cf53`; OPT-007 proves at least 12,288 distinguishing
+  bytes for one 16,384-character, 64-way ASCII continuation. Its journal has
+  only 2,047 effects and OPT-008 does not establish a guaranteed TCP second
+  pass. The maintainer explicitly requires independence from server packing.
+- Allowed surface: this ledger and isolated arguments, exact-code oracles and
+  assembly/layout prototypes under `build/optimization-campaign/OPT-009/`.
+  Product sources, shipping artifacts, prior evidence and VM/user state remain
+  read-only until a construction is accepted for a separate implementation.
+  Existing flat-file phase loading may be analyzed; no new runtime module ABI,
+  device-memory storage, writable scratch, helper or floor change is authorized.
+- Required evidence: independently verify the OPT-007 counterexample and the
+  exact reachable parser alphabet/state, using valid application text for any
+  stronger bound; account for all distinguishing state, including compressed
+  effects, tags, registers, context and capture. Inventory mandatory BIOS/
+  handoff/NIC/session/user state and executable/stack lifetimes with real byte
+  counts. Distinguish fixed current-layout bounds from bounds that survive
+  permitted reorganization. Typical compression ratios are not worst-case
+  bounds. A positive construction needs executable lossless equivalence,
+  complete maximum-record/type/padding coverage, no pre-tag timing/publication
+  leak, cancellation/zeroization and composed 16-KiB fit. Explicitly account for
+  any replay assumption rather than granting an external second pass.
+- Exit: a concrete in-scope construction and falsifiable target budget, or a
+  precise bounded infeasibility result identifying which footprint/semantic/
+  peer assumption a different construction would have to change. Do not infer
+  a universal impossibility merely from the current K/spool layout, and do not
+  silently fall back to an effect cap or raise the RAM floor.
+- Status/disposition: **bounded negative complete in the maintainer-created
+  OPT-009 context**. Lossless effect encoding cannot fit beside the retained
+  current nucleus, even after granting its padding and mutable bytes to the
+  encoding. This is not a universal impossibility result for every permitted
+  16-KiB execution schedule. No product construction is accepted. Evidence is
+  under `build/optimization-campaign/OPT-009/`; start with `REPORT.md`,
+  `information-bound.json`, `parser-oracle.json`, `footprint.json`,
+  `proof-checks.json` and `final-checkpoint.json`.
+
+Findings and complete-footprint accounting:
+
+- Fresh isolated NASM runtime/listing and all four ISA-family driver payloads
+  match the unchanged shipping artifacts. Runtime remains 150,016 B / 293
+  sectors, SHA-256
+  `f3844b03da73c4b76772be45566ced67c0d1cff3dbc3c1c09791118bd814f228`;
+  FAT 308/309 and arena/context 96/96 B. The 636 tracked files, user files,
+  shipping artifacts and prior OPT-007/008 evidence are preserved. No VM,
+  provider request, product edit, commit or push occurred.
+- Independent exact T execution reproduces OPT-007's 16,384-byte 64-way
+  counterexample. It also preserves complete output/context/capture/display/
+  completion for valid larger-alphabet HTTP/SSE/JSON continuations split into
+  the old <=2,047-content-byte records. Tests cover 512 byte transitions in
+  reachable string/escape states, eight full-length cases, seven valid escapes
+  and five UTF-8 fragmentation cases. The existing renderer emits literal
+  UTF-8 bytes as glyph bytes; this is preserved behavior, not a Unicode fix.
+- A 91-way printable non-space ASCII subset, excluding quote/backslash/period,
+  needs at least **13,328 B**. A strict UTF-8 scalar subset excluding controls,
+  surrogates, noncharacters and those parser-special ASCII bytes needs at least
+  **111,783 distinguishing bits / 13,973 B** for 16,384 content bytes. No period
+  or CR/LF can trigger an accidental completion pattern; every byte emits one
+  glyph. The full event is valid UTF-8 JSON, including at scalar boundaries
+  split across records. See [RFC 8259 §§7–8.1](https://www.rfc-editor.org/rfc/rfc8259.html#section-7)
+  and [RFC 3629 §§3–4](https://www.rfc-editor.org/rfc/rfc3629.html#section-3).
+- The exact recurrence is `C[n] = 91*C[n-1] + 1888*C[n-2] +
+  61406*C[n-3] + 1048544*C[n-4]`, with `C[0]=1` and negative indices zero.
+  Independent matrix exponentiation and all 1,111,929 scalar checks agree.
+  A host enumerative codec round-trips the witness subset in **14,016 B**;
+  its code, big-integer work area and variable timing are not a target fit.
+  The 207 codec cases and ten small counting cross-checks pass. This is an
+  exact worst-case counting result, not an average compression estimate.
+- The bound counts all distinguishing state together, including tags, MACs,
+  registers/flags/IP, stack, context/capture shadows, metadata and self-modified
+  code. It assumes no guaranteed later peer copy and no early publication or
+  externally visible timing storage. Tags are not charged twice or granted
+  free information. Preserving the independent arbitrary 96-byte user arena,
+  even by joint encoding, raises the bound to **14,069 B**.
+- The new NASM export probe inventories all 16,384 conventional bytes and
+  exact executable extents. Shared nucleus payload is 1,528 B plus 8 B
+  padding; loaded driver slot 512 B, payloads 328–444 B. K remains 5,306 B
+  (including the removable 1,801-B SHA/HMAC copy), T exactly 1,024 B, keys/
+  IVs/sequences 104 B, model/key caches 256 B, reconnect/tool state 330 B,
+  ESC code/vector 90 B and stack reserve 256 B. The new T-only software
+  stack observation is 36 B; BIOS/NIC/IRQ stack bodies remain outside it.
+- Even granting **32 extra CPU bytes**, a retained 2,048-B nucleus and the
+  current 1,280-B BIOS band leave only 13,088 B for all record information:
+  UTF-8 deficit 885 B before reserving anything else. Removing all resident/
+  driver padding and crediting all 18 resident mutable bytes still leaves
+  deficits **675–791 B** across the four ISA driver families. Relocation,
+  K/T removal and padding recovery alone cannot satisfy that retained-code
+  construction; this does not make current code sizes universal lower bounds.
+- Across a different layout, retaining the existing BIOS band and arbitrary
+  arena leaves at most **1,067 B** for everything else at the boundary after
+  full authentication and before the first record effect. Keeping the 46-B
+  handoff valid reduces that ceiling to **1,021 B**. Separately retaining
+  today's 256-B caches, 104-B session state, 96-B context and 256-B stack would
+  leave only **309 B**; that last subtraction is a current-allocation
+  sensitivity, not an entropy minimum. The BIOS reservation is also an
+  explicit compatibility assumption, not an independently proved minimum for
+  all possible BIOS rewrites.
+- Existing flat-file phase loading can discard/reload immutable code, but
+  its loader, 512-B DMA destination, IRQ/BIOS stack and remaining effects need
+  a composed lifetime budget. Post-authentication publication may progressively
+  free encoded bytes. Neither possibility is prohibited or assumed solved by
+  the bound. No new module ABI, device storage, writable scratch, smaller effect
+  cap, semantic truncation or raised floor is selected.
+- A separate exact no-publication scanner experiment takes 23,011 versus
+  36,059 instructions for equal-length invalid-tag records differing in one
+  ciphertext byte. This renews the timing-proof obligation, not a measured
+  remote exploit. A future design still needs full tag/type/padding, rollback,
+  cancellation/ENV retirement, sequence/tail escrow and bounded replay proofs.
+  The legal maximum synthetic record agrees under two independent AEAD
+  implementations and rejects tag mutation; no maximum-record target receiver
+  is claimed. [RFC 8446 §§5.1–5.4](https://www.rfc-editor.org/rfc/rfc8446.html#section-5.1)
+- Fresh baseline layout/core/FAT inspection and the existing product reconnect/
+  replay gate pass, including the exact 16-KiB rebuild and packaged 512-KiB
+  ready-turn case. Full live/TLS acceptance is not rerun for this read-only
+  result. No shipping performance, RAM, floppy, phase-read, trust, NIC/display
+  or entropy changes follow.
+
+Next in-scope question: can a different application nucleus and phase schedule
+meet the **1,021-B residual ceiling at that boundary**, with all remaining live
+state, code, loader work and stack counted, and the security/lifecycle contract
+composed? Otherwise identify a proved reduction of a specifically named
+footprint assumption or an actual peer replay contract. The controller resumes
+from this quantified obstacle; OPT-010 below investigates phase eviction. The
+broader record-packing requirement remains settled, and no maintainer product
+decision is pending.
+
+### OPT-010 — Test eviction and sector overlays at a nearly full receiver
+
+- Wishes: 2 reliability prerequisite, with 5, 6 and 10 accounting.
+- Question: can an application-only nucleus, made by evicting boot/setup/
+  scheduler code and phasing the existing receive/authentication routines,
+  meet OPT-009's necessary memory ceiling throughout a maximum record,
+  including a separately arriving final tag and the first publication?
+- Baseline: unchanged `de9cf53`; a valid UTF-8 output family needs at least
+  13,973 B of total distinguishing state. The independent 96-B arena, current
+  BIOS reservation and valid handoff leave at most 1,021 B for everything
+  else, generously crediting 32 CPU bytes. No target codec is established.
+- Allowed surface: this ledger and isolated source-derived assembly probes,
+  execution oracles and lifetime models under
+  `build/optimization-campaign/OPT-010/`. Product sources/artifacts, prior
+  evidence and VM/user state stay read-only. The investigation may relocate
+  and split existing flat-file phases; it may not change the parser contract,
+  floor, trust, driver selection, device-memory rules or replay assumption.
+- Required evidence: bind the actual checkout and image; measure exact
+  application-only routine closures and meaningful smaller boundaries; execute
+  representative final-tag fragmentation and phase transitions; compose code,
+  live state, stack and 512-B disk destinations at each relevant cut. Credit
+  overlapping record-dependent storage only once. Separate a necessary bound
+  with an ideal codec from an actual target construction, and count reloads.
+- Exit: an executable and fully accounted candidate schedule for further
+  security/codec work, or a bounded negative result identifying the concrete
+  routines, allocations or load assumptions that need a different design.
+  Do not infer that all smaller receivers are impossible from current sizes.
+- Status/disposition: **bounded negative complete in the campaign task**.
+  Boot/setup/scheduler eviction and existing-code sector overlays do not meet
+  the necessary bound while retaining the named current allocations. A
+  two-page arithmetic component works, but is not a receiver construction.
+  Evidence is under `build/optimization-campaign/OPT-010/`; start with
+  `REPORT.md`, `closures.json`, `tail-oracle.json`, `overlay-oracle.json`,
+  `cancel-oracle.json`, `budget.json` and `final-checkpoint.json`.
+
+Findings and accounting:
+
+- Fresh NASM runtime/listing and four ISA driver wrappers match the shipping
+  artifacts. Runtime remains 150,016 B / 293 sectors, SHA-256
+  `f3844b03da73c4b76772be45566ced67c0d1cff3dbc3c1c09791118bd814f228`;
+  FAT 308/309 and arena/context 96/96 B. The 636 tracked files, user files,
+  shipping artifacts and 93 prior OPT-007/008/009 evidence files are preserved.
+  No VM, provider request, product edit, commit or push occurred.
+- Exact reachable instruction unions, granting free placement and excluding
+  data/padding/stack/glue, are **851–981 B for ACK + receive**, **507–572 B for
+  receive alone**, and **354–450 B for ACK alone** across the four ISA driver
+  families. The closures preserve packet checks, errors, waits and the selected
+  fallback; inactive drivers cost nothing. They are current instruction sizes,
+  not linked replacement kernels or universal lower bounds.
+- Current crypto closures are ChaCha20 block 574 B, Poly1305 process-block
+  472 B, multiply 111 B, reduction 322 B, application MAC finalization 573 B,
+  tag emission 37 B and tag comparison 32 B. Constants and work are additional.
+- Seven exact shipping-receiver cases at its 2,048-B inner envelope cover tags
+  split 16, 15+1 and sixteen individual bytes, a mutated/missing last byte,
+  64-byte padding and an authenticated unsupported type. The receiver still
+  ACKs/polls/parses after all content arrives. Nothing is published before the
+  complete tag/type passes; rejection preserves the sequence, success advances
+  it once, and the arbitrary arena survives. NIC I/O and publication are host
+  leaves in exactly 16 KiB; no maximum-record target receiver is claimed.
+- Future tag bytes must be credited in a bound before authentication. With
+  `Q = C[16384] * 2^768` from OPT-009 and `r` missing tag bytes, grant all their
+  information and require only `ceil(Q / 2^(8*r))` distinct current states.
+  The other-state ceilings are **1,037 B** with all 16 tag bytes missing,
+  **1,022 B** with one missing, and **1,021 B** after authentication. This avoids
+  incorrectly applying the final cut unchanged to an earlier receive.
+- Keeping the raw 256-B model/key caches, 104-B application state, 96-B committed
+  context and current 86-B ESC code costs **542 B**. A fixed 512-B immutable
+  phase slot raises this to **1,054 B**, giving necessary deficits **17/32/33 B**
+  at those cuts before charging any loader, stack, other state or codec. These
+  pinned allocations are explicit assumptions, not entropy minima. The user
+  arena is already counted in `Q`; tags and record-dependent workspace are not
+  double-charged. Only one phase slot is charged, with no extra bounce buffer.
+- For an arbitrary valid UTF-8 prefix followed by fixed ASCII content, granting
+  all future tag bits, the same fixed-slot bound crosses between 16,364 and
+  16,365 prefix bytes. Loading earlier and reusing padding later needs a complete
+  remaining execution path; it is not independently ruled out. The figures do
+  not establish that reclaiming 33 bytes is sufficient for an actual receiver.
+- An isolated `cpu 8086` component executes add/multiply (148 B including a
+  seven-byte caller) and reduction (322 B) through the same 512-B slot. Its
+  arithmetic bodies are byte-identical after relocation. A 127-B controller
+  retains the current floppy read and frozen-sampler path. Twenty-four integer
+  oracle cases and six torn-read failures pass; failed pages never execute,
+  high persistent state and the sampler marker remain unchanged. The controller,
+  marker, slot and pinned ranges total **1,183 B**, a 162-B final-cut deficit
+  while still granting stack and record-dependent scratch to the encoding.
+- That particular naive split needs two reads per Poly1305 block: a maximum
+  inner record requires 1,027 MAC blocks, hence **2,054 reads / 1,051,648 B**
+  before other work. This is model accounting, not measured 8088 time or a
+  lower bound on all overlays; batching and the combined 472-B closure remain
+  possibilities. No candidate pages were added to the shipping FAT.
+- Two exact Ctrl+ESC cases show the unchanged 86-B handler still jumps to
+  `chat_loop` after its nucleus is evicted. A new architecture must invalidate,
+  erase tentative state and restore the DPI continuation before transferring
+  control. This is a new-journal obligation, not a claim that the current
+  ciphertext spool contains plaintext. New software-stack observations (30 B
+  for the arithmetic component, 42–44 B for receive) exclude real BIOS/NIC/IRQ
+  bodies and are not physical stack bounds.
+- Fresh baseline layout/core/FAT and product reconnect/replay checks pass,
+  including the exact 16-KiB rebuild and packaged 512-KiB ready turn. No shipping
+  speed, RAM, trust, entropy, NIC/display or phase-read improvement follows.
+
+Next action: test the implementable cost of a bounded-work codec in OPT-011,
+instead of granting a near-optimal journal for free. A future kernel must also
+replace or reconstruct named persistent/control allocations and compose every
+remaining lifetime. The broader packing requirement is settled; no semantic
+cap, higher floor or maintainer product decision is introduced.
+
+### OPT-011 — Test a bounded-work 8086 codec for the hard UTF-8 effect subset
+
+- Wishes: 2 reliability prerequisite, with 5, 6 and 10 accounting.
+- Question: can a streaming lossless 8086 codec for OPT-009's valid UTF-8 effect
+  family retain any 16,384-byte continuation in at most 14,016 journal bytes,
+  with at most 512 further conventional-RAM bytes for its code and mutable
+  codec workspace, and a receive schedule indistinguishable before tag
+  authentication for equal-length inputs?
+- Baseline: unchanged `de9cf53`; OPT-009's host codec achieves 14,016 B only for
+  its witness subset, using unbudgeted big integers and variable work. The
+  information minimum is 13,973 B. OPT-010 shows that current state plus a
+  sector window already exceeds necessary near-full bounds, so neither codec
+  work nor phase reloads can be treated as free.
+- Allowed surface: this ledger and isolated arguments, assembly, oracles and
+  reports under `build/optimization-campaign/OPT-011/`. Product sources,
+  shipping artifacts, prior evidence and VM/user state remain read-only. No
+  effect cap, truncation, extra RAM, device storage, writable scratch, helper,
+  unproved network replay or new runtime module ABI is authorized.
+- Required evidence: bind current sources/artifacts; give an exact worst-case
+  encoded-size bound including framing/carry/partial UTF-8 state; implement
+  encoder and decoder under `cpu 8086`; independently check round-trip order,
+  scalar/record boundary cases, maximum size and guarded conventional writes.
+  Count constants, tables, counters, stack, registers and normalization work
+  once, with no free host big integers or table reads. Test malformed and
+  equal-length invalid-tag inputs and supply the work/scheduling argument;
+  snapshots or valid-text-only timing comparisons are insufficient. Measure
+  target instructions/cycles and any phase reads without presenting host time
+  as target performance. Authentication remains over the original ciphertext.
+- Exit: an executable codec component with a justified bound and explicit
+  remaining full-parser/receiver obligations, or a bounded negative result
+  identifying which journal/code/work/schedule target fails. A positive subset
+  result is not an accepted application profile or product receiver: every
+  otherwise-supported parser continuation, type/padding, tool/ENV/cancel path,
+  network/crypto lifetime and full target budget still needs composition.
+- Status/disposition: **bounded negative complete in the maintainer-created
+  OPT-011 context**. An executable finite-word codec meets the journal bound;
+  this construction misses the 512-B code/work target and has no justified
+  pre-tag receive schedule. No product construction is accepted. Evidence is
+  under `build/optimization-campaign/OPT-011/`; start with `REPORT.md`,
+  `SECURITY.md`, `size-proof.json`, `independent-audit.json`, `roundtrip.json`,
+  `security.json`, `footprint.json` and `final-checkpoint.json`.
+
+Findings and accounting:
+
+- Fresh isolated NASM runtime/listing and all eight driver binaries match
+  shipping artifacts. Runtime remains 150,016 B / 293 sectors, SHA-256
+  `f3844b03da73c4b76772be45566ced67c0d1cff3dbc3c1c09791118bd814f228`;
+  FAT 308/309 and arena/context 96/96 B. The 636 tracked files, user files,
+  shipping artifacts and 145 prior OPT-007/008/009/010 evidence files are
+  preserved. No VM, provider request, product edit, commit or push occurred.
+- The streaming `cpu 8086` encoder/decoder use 16-bit interval arithmetic,
+  short class/ordinal tables and binary payload events. Allowing 66 extra
+  noncharacters simplifies the scalar counts to 91 / 1,888 / 61,440 /
+  1,048,576. This is a superset of the hard witness, not a full parser or a
+  product application profile. Input/output cross a one-byte AL ABI; there is
+  no host rank, big-integer work, probability table or normalization service.
+- Exact rational interval-loss bounds prove at most **14,008 B**, including
+  a 12-B header with both raw partial scalar ends, termination, alignment and
+  16 explicit decoder look-ahead bits. The normalized range is at least
+  16,386; each width-w scalar retains an interval ratio at least `114^-w`.
+  At 16,384 bytes there are at most 111,950 normalizations. A 32-bit pending
+  counter is charged; a word is not assumed sufficient. Large integers occur
+  only in the host proof. The 14,016-B journal target has eight spare bytes.
+- Independent enumeration checks all 1,111,995 superset scalars, reproduces
+  the strict 111,783-bit / 13,973-B minimum, and checks 8,404,821 interval
+  cases across 171 cumulative classes and every normalized range. Sixty-six
+  exact target/reference round-trips cover all ASCII and two-byte scalars,
+  272 wider edges, 20 record cuts, boundary lengths and six maximum-length
+  cases. Maximum observed frame is **13,990 B**, distinct from the proven
+  bound. Raw leading/trailing bytes preserve scalar splits and output order;
+  the full parser must maintain the initial continuation state.
+- Encoder code/constants/work/software stack are **806 + 18 + 31 + 8 =
+  863 B**; decoder **752 + 22 + 32 + 8 = 814 B**. Separate residency is already
+  granted. Even removing cold init/wipe/finish code with free relocation leaves
+  feed/pull closures plus tables/work/stack of **691 / 657 B**, exceeding the
+  target by **179 / 145 B** before loader or caller glue. These are current
+  implementation footprints, not universal lower bounds for every codec.
+- The private 16-KiB machine maps no device RAM and guards every data access,
+  but loads code over the BIOS region. It is not a bootable receiver. The
+  28 architectural register bytes are inventoried; caller saves and BIOS/NIC/
+  IRQ stacks are additional obligations. No phase reads execute. Ordinary
+  rounded storage would take two sectors per direction before a loader; no
+  phases are packaged or FAT capacity claimed.
+- Maximum-case encoding executes **4,994,344–7,506,448 instructions** and
+  decoding **5,288,529–8,353,208**, including component initialization and
+  finalization. The uncalibrated campaign model gives **23.25–38.57 s** encode
+  and **26.98–46.51 s** decode at 4,772,728 Hz, before crypto, caller, network,
+  BIOS or disk work. These are target instruction/model results, not host
+  elapsed times, physical timing, or a shipping performance claim.
+- Two equal-length invalid-tag fixtures differing in one ciphertext byte
+  execute **325,687 versus 25,363 encoder instructions**. Both independent
+  AEAD oracles reject the original ciphertext/tag; no decoder is invoked.
+  The work differs at equal public fragment cuts, so an immediate-return
+  ACK/poll path would inherit it. Six detailed cases and 256 byte mutations
+  cover valid-text and malformed paths. A finite total-work bound and delayed
+  publication do not prove an indistinguishable receive schedule. Deferred
+  bit flushing and real CPU/I/O/IRQ timing still need a new scheduling proof.
+- Eighteen explicit malformed/overlength cases, sixteen journal-corruption
+  cases and ten interrupted encode/decode erasure cuts pass their bounds and
+  cleanup checks. The explicit leaf clears journal, workspace, expired stack
+  spills and GP registers. It does not compose Ctrl+ESC, ENV, reconnect,
+  committed context or full TLS retirement. The codec is not an integrity
+  check, and subset rejection must not become a product semantic cap.
+- Fresh read-only layout/core/FAT, application-record hostile-input and
+  product reconnect/replay gates pass, including exact-16-KiB rebuild and the
+  packaged 512-KiB ready turn. No shipping speed, RAM, trust, entropy, display,
+  NIC or phase-read change follows; live acceptance is not rerun.
+
+Next in-scope question: can a smaller byte-oriented grammar/coder fit its active
+code/work while providing a content-independent receive schedule for arbitrary
+pre-tag input? Splitting this codec inside byte calls instead owes explicit
+loader, I/O and fixed scheduling costs. Either route still needs full parser,
+type/padding, tool/ENV/cancel, network/crypto and target-budget composition.
+This result does not prove every 512-B codec or every 16-KiB receiver impossible.
+No effect cap, floor change, peer-packing assumption or maintainer product
+decision is introduced. No next spike is started in this OPT-011 context.
+
+### OPT-012 — Test a byte-oriented codec and fixed receive schedule
+
+- Wishes: 2 reliability prerequisite, with 5, 6 and 10 accounting.
+- Question: can a byte-oriented UTF-8 state machine replace OPT-011's scalar
+  conversion and deferred-bit work, retaining the hard subset in at most
+  14,016 journal bytes with at most 512 additional code/work/stack bytes and
+  an input-independent public receive schedule before tag authentication?
+- Baseline: unchanged `de9cf53`; OPT-011 proves 14,008 journal bytes but uses
+  863/814 B for full encode/decode components, or 691/657 B for active
+  feed/pull closures with free cold-code removal. Equal-length invalid-tag
+  records take 325,687 versus 25,363 encoder instructions. No receiver is
+  accepted; full record-packing independence remains required.
+- Allowed surface: this ledger and isolated arguments, assembly, oracles and
+  reports under `build/optimization-campaign/OPT-012/`. Product sources,
+  shipping artifacts, earlier evidence and user/VM state remain read-only.
+  Keep all campaign invariants. No helper, new runtime module ABI, device RAM,
+  writable scratch, unproved peer replay, semantic cap or raised floor.
+- Required evidence: bind sources/artifacts; exact worst-case journal bound
+  including partial-byte/scalar state and normalization; `cpu 8086` encoder
+  and decoder with independent byte-order/round-trip and hostile-input checks;
+  count active/cold code, constants, workspace, registers, stack and phase
+  loads. Bound work across every input byte, including malformed sequences
+  and deferred normalization, and test equal-length invalid-tag records.
+  Any schedule must account for its real code, timer/CPU/IRQ/I/O assumptions;
+  host time or a padding model alone cannot certify target wire timing.
+  Authentication stays over original ciphertext. A positive subset component
+  still needs full parser, type/padding, tool/ENV/cancel, network/crypto and
+  complete 16-KiB lifetime composition before product integration.
+- Exit: a justified executable component meeting these targets, or a bounded
+  negative result quantifying which part of this construction fails and what
+  remains unproved. Do not infer a universal impossibility from one encoding.
+- Status/disposition: **bounded negative complete in the existing campaign
+  context**, explicitly authorized after OPT-011. The executable byte codec
+  meets the journal bound and reduces code/work, but still misses 512 B. The
+  emitted IRQ gate proves only its conditional release behavior, not a real
+  receiver deadline or wire schedule. No product construction is accepted.
+  Evidence is under `build/optimization-campaign/OPT-012/`; start with
+  `REPORT.md`, `SECURITY.md`, `size-proof.json`, `independent-audit.json`,
+  `roundtrip.json`, `work-bound.json`, `security.json`, `gate.json`,
+  `footprint.json` and `final-checkpoint.json`.
+
+Findings and accounting:
+
+- Fresh isolated NASM runtime/listing and eight driver binaries match shipping
+  artifacts. Runtime remains 150,016 B / 293 sectors, SHA-256
+  `f3844b03da73c4b76772be45566ced67c0d1cff3dbc3c1c09791118bd814f228`;
+  FAT 308/309 and arena/context 96/96 B. All 636 tracked files, user/VM state,
+  shipping artifacts and 205 earlier evidence files are preserved. No VM,
+  provider request, product edit, commit or push occurred.
+- Nine byte-grammar states replace scalar reconstruction. A leading byte
+  selects width and weighted head; each continuation uses one uniform event.
+  Counts remain the witness superset 91 / 1,888 / 61,440 / 1,048,576, including
+  66 noncharacters beyond the strict witness. A five-byte header records input
+  length, payload length and initial state; partial scalar ends are encoded in
+  order without raw prefix/suffix arrays. This is not a product semantic cap.
+- Exact rational interval bounds give **14,004 B**, including termination,
+  alignment, 16 look-ahead bits and up to three bytes of incomplete-scalar
+  credit. The normalized range remains at least 16,386; each complete scalar
+  retains at least `114^-width`. At 16,384 input bytes there are at most 111,970
+  normalizations. The charged four-byte pending counter accommodates 111,971
+  including termination. The 14,016-B journal has twelve spare bytes.
+- Independent enumeration checks all 1,111,995 superset scalars, reproduces
+  the strict 111,783-bit / 13,973-B minimum, validates all 2,304 state/byte
+  transitions with an independent UTF-8 decoder and actual encoder/decoder,
+  and checks 15,040,206 interval cases across 306 cumulative classes. Sixty-six
+  round-trips cover all ASCII/two-byte scalars, 272 wider edges, 20 record cuts,
+  boundary lengths and six maximum-length cases. Largest observed frame is
+  **13,984 B**, distinct from the proven bound.
+- Every input byte, including malformed data mapped to valid dummy transitions,
+  executes at most two arithmetic events and **14 normalizations**. The error
+  latch does not skip subsequent public-length work. Whole deferred output
+  bytes use bounded REP STOSB; 144 directed tests cover both bits, every partial
+  alignment and pending counts through 111,971. Conservative per-byte CFG
+  bounds are 24,040 encoder / 2,528 decoder instructions. Those internal-state
+  tests and instruction bounds do not prove physical deadlines or reachability
+  of every injected state.
+- Full encoder code/constants/work/owned stack is **673 + 105 + 19 + 8 =
+  805 B**; decoder **596 + 101 + 17 + 8 = 722 B**. Favorable active closures
+  with free cold-code removal are **658 / 588 B**, over 512 by **146 / 76 B**.
+  Active decode uses its static six-byte call/push depth; its full wipe owns
+  eight bytes. The active savings over OPT-011 are 33 / 69 B. This measures
+  one implementation and is not a universal lower bound for every codec.
+- Maximum-length cases execute **4,296,482–5,235,138 encode instructions** and
+  **4,320,588–5,323,474 decode instructions** including init/finalization. The
+  uncalibrated model gives **19.67–24.88 s / 22.07–28.48 s** at 4,772,728 Hz,
+  before caller, AEAD, BIOS/IRQ, NIC, gate waits or disk. No shipping speed or
+  physical timing claim follows. Registers, tables, workspace and stack are
+  inventoried; no phase loader/read executes and no FAT space is claimed.
+- Two 1,046-byte invalid-tag records differing in one ciphertext byte execute
+  **336,773 versus 337,856 encoder instructions**; a valid-ASCII mutation also
+  changes work. Equal public 128-byte cuts differ. Six detailed cases and 256
+  mutations are rejected by two original-ciphertext AEAD oracles; no target
+  decoder runs for them. Eighteen malformed/overlength, sixteen corrupt-journal
+  and ten interrupted erasure cases pass their bounds. Erasure remains a
+  caller-invoked component leaf, not full TLS/ENV/Ctrl+ESC/reconnect retirement.
+- The separate emitted IRQ gate costs **110 B code + 8 B state**. It chains
+  IRQ0, canonicalizes GP/FLAGS, then uses STI/HLT for a public deadline. Eight
+  on-time arrival cases release at the same tick; three late cases reject;
+  all restore the vector. This assumes work arrives at least two ticks early,
+  bounded BIOS behavior, the same external IRQ history and gated caller I/O.
+  Its synthetic IRET handler and separate overlapping test map do not prove
+  those conditions for the product. Adding it already raises active totals
+  to **782 / 712 B**, including only the additional six-byte hardware IRQ
+  frame and still excluding real BIOS/NIC stack, loader and caller costs.
+- Codec tests preserve IVT/BDA and guard exactly 16 KiB of conventional RAM,
+  but their code overlaps the real 0600 handoff; no full receiver is composed.
+  Fresh read-only layout/core/FAT, hostile application-record and reconnect/
+  replay gates pass, including exact-16-KiB reconstruction and the packaged
+  512-KiB ready turn. No live acceptance, trust/entropy, NIC/display, product
+  floor, phase-read or complete zeroization claim is changed.
+
+Remaining in-scope work needs a materially smaller active construction or an
+explicitly costed phase schedule before full parser, type/padding, tool/ENV/
+cancel, network/crypto and conventional-RAM lifetime composition. This result
+does not prove either route impossible. No effect cap, floor change, peer
+replay assumption or maintainer product decision is introduced. No next spike
+is started in this bounded OPT-012 task.
+
+### OPT-013 — Compact the preserved model cache and audit reconstruction cost
+
+- Wishes: 2 reliability prerequisite, with 5, 6 and 10 accounting.
+- Question: can the existing 64-B model/reasoning/prompt cache be represented
+  in 31 B with exact request-visible behavior, no new input restriction or
+  media dependency, and does the saving reopen the near-full receiver budget
+  after reconstruction code and scratch are charged?
+- Baseline: unchanged `de9cf53`; OPT-010's named 542-B preserved ranges plus
+  a 512-B phase slot exceed the optimistic authenticated-cut ceiling by 33 B,
+  or by 162 B with its loader/sampler. OPT-012's active codec remains 658/588 B.
+  The current model cache stores up to 29 model bytes, a fixed JSON fragment,
+  one of six supported efforts, a terminator and a live prompt-length byte.
+- Allowed surface: this ledger, isolated evidence under
+  `build/optimization-campaign/OPT-013/`, and correction of the existing
+  `tools/check-tls13-product-config.py` oracle if its expected cache format is
+  stale. Runtime sources, shipping artifacts, prior evidence and VM/user state
+  remain read-only. No packed cache is integrated into the product in this spike.
+- Required evidence: bind current sources/artifacts; execute the exact emitted
+  cache publisher and request consumer; check every model length and effort,
+  default/missing effort, malformed metadata, maximum values and preservation
+  of credentials/prompt state. Implement bounded `cpu 8086` pack/restore leaves,
+  guard memory/stack, check erasure and account code/constants/scratch plus all
+  reload lifetimes. Audit why optional config files, existing TLS state,
+  committed context and cancellation do or do not supply other free storage.
+  Repair and validate a stale baseline checker without changing runtime behavior.
+- Exit: a validated compact cache component with an exact lifetime/budget
+  reconciliation, or a bounded negative finding; neither alone is a full
+  receiver or a shipping RAM gain. Continue the campaign from the remaining
+  quantified obstacle, keeping the record-packing and lifecycle requirements.
+- Status/owner: **complete in the existing campaign context**. Validated
+  isolated component and repaired checker checkpoint; the complete receiver
+  remains open. No commit or push is authorized or performed.
+- Result: a 31-B descriptor (29 model bytes, five-bit length/three-bit effort,
+  prompt byte) restores the exact emitted V publisher's model/reasoning tail
+  for the actual R bounded consumer. A reverse leaf recovers length/effort from
+  that tail and repacks it, so repeated use needs neither retired config fields
+  nor another persistent metadata byte. All 33 saved bytes are needed again
+  while expanding into the existing 64-B cache. Full pack/restore/repack/erase
+  payload is 414 B: 340 executable + 74 tables, with 8 B owned software stack.
+  Caller mode, loading, IRQ/abort continuation and request buffers remain owed.
+- Component evidence: 721 accepted repeated-use cases; all 256 metadata values
+  (180 valid / 76 reserved); 40 bad model/effort/embedded-NUL cases; 309
+  interrupted pack cuts and 1,519 restore/repack cuts; 38 malformed expanded
+  tails. Guards keep IVT/BDA, handoff, credentials/context and other memory
+  intact in private exact-16-KiB mappings. No original config reads are allowed
+  during restore/repack; owned-region/spill/register erasure passes. Interruptions
+  invoke a test ABI, not a product IRQ/abort scheduler. Metadata is not an
+  integrity tag or TLS authority. No live request or product integration occurs.
+- Target counts: pack 56–308, restore 179–310, repack 379–1,022 instructions;
+  no calibrated elapsed-time claim. Current emitted V/R/X source sizes are
+  223/1,527/1,531 B (one/three/three sectors). The isolated component makes zero
+  phase reads; its single-page packaging and safe scheduling remain hypothetical.
+- Budget: named preserved bytes fall 542 -> 509. With a 512-B phase this is
+  exactly OPT-010's optimistic 1,021-B ceiling, before loader, work and stack.
+  Existing 127-B controller + 2-B sampler leave a **129-B deficit**, down from
+  162 B. With OPT-012's actual 14,004-B journal and no CPU storage credit,
+  BIOS/handoff/arena/named-state/phase/controller/sampler need **16,576 B**,
+  already **192 B over** before stack or crypto work. The 658/588-B active
+  codec alternative is still 209/139 B over before networking/authentication.
+  Another 330 B of reconnect/tool state and the 4-B old IRQ vector were already
+  omitted from the optimistic bound; removing them cannot be credited twice.
+  Optional media, arbitrary credential bytes, live application keys, committed
+  context, and the existing ESC continuation supply no demonstrated free home.
+  This is not universal impossibility or a shipping 33-B gain.
+- Tooling checkpoint: the existing config checker's nominally valid 63-B model
+  exceeded the current 29-B limit and its raw-cache expectation was stale.
+  `tools/check-tls13-product-config.py` now exports current NASM symbols and
+  validates the emitted model/reasoning tail, exact OpenAI/effort admission,
+  overlapping 192-B credential copy, guards and DF/return behavior in 16 KiB.
+  It passes **482 cases (465 accepted), stack <=4 B**. This checker is the only
+  tracked code edit; runtime sources and the pre-existing worktree remain intact.
+- Validation: fresh private `make ... all` and `make ... inspect` pass, including
+  the ordinary 286 module/tail dependencies. A copied report first rejected its
+  different private prefix path; the authoritative builder regenerated that
+  report and the unchanged path checks passed. Runtime, three floppy images,
+  both BASIC helpers and all eight drivers match the original build. Fresh
+  layout/core/FAT/app/reconnect gates and independent driver assembly pass.
+  No live timing, entropy, NIC/display, zeroization-composition or product
+  acceptance claim changes. FAT remains 308/309 and arena/context remains 96/96 B.
+- Evidence: `build/optimization-campaign/OPT-013/REPORT.md`, `binding.json`,
+  `cache-tests.json`, `restore-cuts.json`, `source-audit.json`, `budget.json`,
+  `build-checks.json` and `final-checkpoint.json`; prior evidence is read-only.
+- Checkpoint disposition: pause at the validated checker checkpoint under the
+  campaign rule, respecting the explicit no-commit/no-push instruction.
+  Proposed checker-only message for a later maintainer decision:
+  `test: align OpenAI config cache gate with current wire format`.
+  Overall completion remains approximately **20%** (rough range **15–30%**).
+  The next controller action is a complete receive/control lifetime schedule
+  that addresses the measured loader/state and codec deficits while preserving
+  authentication, record packing, tool/ENV/cancel and bounded reconnect. Do not
+  integrate this cache alone and describe the full-record receiver as fixed.
+
+### OPT-014 — Integrate the isolated application ChaCha rotations
+
+- Wishes: 2, with 1, 5, 6 and 10 regression/accounting. The maintainer approved
+  a focused product-improvement checkpoint before returning to the full-record
+  receiver architecture. Prior rejected constructions and their evidence remain
+  intact; this does not claim their reliability problem is solved.
+- Question: does enabling the isolated inline byte-permutation rotations in
+  product application K preserve exact ChaCha/record behavior and improve live
+  original-speed dialogue processing without increasing RAM, stack, FAT sectors
+  or reads, while leaving the already-optimized handshake implementation intact?
+- Baseline: `de9cf53`, plus the preserved OPT-013 checker repair. K is 5,306 B
+  / 11 loaded sectors; runtime 150,016 B / 293 sectors, FAT 308/309, arena/context
+  96/96 B. OPT-005's isolated candidate has K 5,311 B and removes 1,409,760
+  instructions/REP elements from its complete fixture, or 3.286843 modeled
+  seconds (12.4%). These are prospective fixture results, not live speed claims.
+- Allowed surface: product-K include selection in `boot/core.asm`, scoped
+  rotation logic in `boot/core/chacha20.inc`, a focused persistent regression
+  gate and its Makefile wiring, this ledger, and evidence under
+  `build/optimization-campaign/OPT-014/`. Regenerate normal build artifacts.
+  Keep handshake/286 crypto behavior, record limits, spool/parser semantics,
+  native tools/ENV, config, drivers and all security boundaries intact.
+  Preserve prior evidence, the existing checker repair and pre-existing
+  architecture/VM/user state. Use isolated VM/profile copies for live gates.
+- Required evidence: bind current source/artifacts; compare exact emitted K
+  against the isolated prototype; independent known-answer/random/carry/bit
+  ChaCha tests with arbitrary caller CX, memory/register/stack guards and hostile
+  record/retirement checks; complete fixture attribution and binary/phase/read
+  reconciliation. Pass fresh make/inspect and current TLS offline gates before
+  live claims. Measure matched 4.77 MHz / 16 KiB read-only dialogue, distinguish
+  provider/record-geometry variation and existing record-cap failures, and run
+  affected seven-NIC, reconnect, display, direct32 and conforming286 regressions.
+  Do not accept a passing answer/DPI as proof of immediate session reuse.
+- Exit: a validated working product checkpoint with a narrowly supported live
+  improvement, or retain the bounded result and undo only this spike's product
+  edits if the benefit or required compatibility cannot be established.
+- Status/owner: **complete as a narrow local performance checkpoint** in the
+  existing campaign context.
+  Retain the isolated product change locally. No commit or push is authorized.
+  Exploration coverage remains approximately **35%** (25–45% range); this
+  closes one investigated implementation avenue rather than an entire wish.
+- Mechanism/result: select the existing byte-permutation rotations for product
+  application K and inline ROL8 inside ROL12 to avoid a nested call. The block
+  entry clears internal CX; public caller CX and registers remain preserved.
+  The handshake's optimized implementation is unchanged. K grows 5,306 ->
+  5,311 B, still 11 loaded sectors. Runtime stays 150,016 B / 293 sectors, FAT
+  308/309, arena/context 96/96 B, with no added reads or stack. All eight driver
+  files and handshake/286 crypto bytes are identical; other phase differences
+  are only relocated calls into K.
+- Deterministic evidence: the persistent emitted-block gate passes 431
+  independent known-answer, random, carry and key/nonce-bit cases with arbitrary
+  caller CX and register/memory/stack guards in exactly 16 KiB. Each block drops
+  from 22,786 to 17,506 instructions/REP elements (23.17% fewer), with the same
+  30-B software stack. Both complete runtime and floppy images exactly match
+  OPT-005's corresponding baseline and inline prototype. Only after binding all
+  images and inputs, reuse that earlier complete-fixture execution: 1,409,760
+  fewer instructions/REP elements and 15,678,240 fewer modeled cycles, about
+  3.3 seconds / 12.4% of its CPU model. Request, sealed records, response,
+  rendering, retirement, loads and reads agree; fixture stack stays 62 B.
+  This fixture was not reexecuted; BIOS/NIC/I/O/provider time is excluded.
+- Fresh make, inspect, BASIC helpers and all 19 recorded build/offline commands
+  pass, including current product pack, layout/dispatch, application bounds,
+  hostile record/retirement, reconnect/replay, config, cold-send, FAT, sampler,
+  RAM lifetime, warm restart, FO/authentication and 286 module/controller gates.
+  Fresh serialized 286 models pass at 8.0740 / 9.0627 s, with their existing
+  resident/I/O/complete-offline-auth/live-product exclusions.
+- Matched read-only 4.77 MHz / 16 KiB 3c503 first-answer observations measure
+  submission-to-DPI at 47.291 s baseline and 42.518 s candidate (4.772 s lower).
+  Both return correct `fortytwo`; each receives 19 records, with 11,836 versus
+  11,833 wire bytes and 7.315 versus 7.296 s to the first server record. This
+  is one close-workload observation with two-second polling and small geometry
+  differences, not fixed-work attribution or a universal percentage speed claim.
+  Both immediate second answers fail on the existing record cap (maximum wire
+  records 2,944 / 2,917 B). Keep those failed pairs; text/DPI do not certify
+  post-answer session health.
+- Seven-NIC first-answer observations are complete and visually inspected.
+  NE2000, the 3c501 repeat, NE1000, Novell NE1000 and WD8003E pass the named
+  single-answer/handshake/record-bound/read-only gates. WD8003EB displays the
+  correct answer but fails the bound on a 2,942-B wire record. All seven have
+  correct first text, including the failed 3c503 pair, but the matrix is not a
+  universal dialogue/reuse/reconnect pass. Direct 32-KiB NE2000 passes its
+  single-answer, handshake, record-bound and read-only gates.
+- Retained startup limits: one candidate 3c503 launch never establishes Seed
+  entry (BIOS `1C 301`) and is invalid for product/timing attribution. The local
+  evidence wrapper now requires the ROM BASIC prompt before typing. The first
+  3c501 attempt fails before captured TLS payload at setup `00/12`; baseline
+  control and one candidate repeat pass. Its cause remains unestablished.
+  Identical cold/driver bytes and the post-TLS application-call placement isolate
+  the changed code statically; this is an inference, not an instruction trace.
+- The 16-KiB MDA short-prompt case returns correct first text, then fails the
+  immediate second answer on 2,537-, 2,518- and 4,251-B wire records. DPI returns
+  without `ninetynine`; the planned third-turn idle gate is never reached.
+- The first separate NE2000 idle case passes first-answer bounds, then fails
+  after 500 seconds idle. Its old session sends 369 B 3.939 s after submission;
+  the peer RST arrives 7.485 ms later. No new Seed-profile TLS flow or second
+  answer appears; DPI returns. Cause remains unestablished. The baseline
+  control and one bounded candidate repeat both return correct second answers
+  through four strict flows, but their first answers already exceed the cap
+  (4,251 / 4,152 wire bytes). Thus they show recovery after retirement and
+  cannot isolate the original clean-session reset failure. All failed verdicts
+  remain failed; no more repeats were run and no gate was weakened.
+- The read-only 6 MHz / 512 KiB 286 passes both answers, 500-second idle,
+  strict four-flow topology, independent ML-KEM/X25519/hello/ticket checks,
+  record bounds and image preservation. Finished intervals are 8.0960 / 8.6009
+  / 8.1525 / 8.5964 s. Its existing analyzer accepts the closed stale request
+  only after the complete ordered reconnect sequence.
+- No-card CGA, no-card MDA and no-driver NE2000 ROM BASIC checks pass the
+  expected clean-failure and read-only-image gates. Screenshots show the correct
+  errors and retry/restart menus. This adds boot/menu coverage, not retry-key,
+  warm-restart-key or physical audio testing. The no-driver test image uses the
+  exact candidate runtime and normal FAT builder.
+- Disposition: retain the independent application performance change with the
+  stated evidence and open compatibility limits. This does not qualify full
+  receiver/reuse/reconnect reliability. The clean-session 8088 failure is not
+  proven to be a regression or pre-existing; isolate it before claiming that
+  route is qualified. No physical entropy credit or product acceptance claim
+  changes. The existing OPT-013 checker repair, user state and prior rejected
+  prototypes remain separate and preserved.
+- Evidence: `build/optimization-campaign/OPT-014/REPORT.md`, `offline.json`,
+  `candidate-binding.json`, `fixture-reconciliation.json`,
+  `matched-first-turn.json`, `nic-matrix-summary.json`, `live/` and `recovery/`.
+  `final-checkpoint.json` binds the validated source and shipping artifacts, all
+  17 live/three recovery observations, pre-existing user state and 412 unchanged
+  prior evidence files. HEAD is unchanged and the index empty.
+- Proposed message: `perf: use inline ChaCha rotations for application records`.
+- Next after the maintainer continues: investigate isolated TLS dead-code
+  cleanup. Keep cache/codec/overlay integration with the full-record receiver
+  and receive/control lifetime design; prefetch requires separate timing.
+
+
+### Reconciliation after OPT-014
+
+With explicit maintainer approval, the isolated ChaCha checkpoint was committed
+as `28705e2` (`perf: use inline ChaCha rotations for application records`). The
+commit contains only Makefile, core.asm, chacha20.inc and the persistent block
+gate. Campaign/architecture Markdown and the prior OPT-013 checker repair remain
+local; pre-existing VM/user state is preserved. Nothing was pushed. OPT-014's
+pre-commit bindings remain immutable historical evidence. The maintainer asked
+to continue with the next scoped improvement.
+
+### OPT-015 — Remove the uncalled application SHA/HMAC copy
+
+- Wishes: 6 and 5, with 2 and 10 accounting; wish 4 receives no sector-saving
+  credit while the fixed K file slot remains unchanged.
+- Question: can removing only application K's uncalled 1,801-B SHA/HMAC copy
+  reduce its load from eleven sectors to seven while preserving exact live
+  application behavior, all security/record/retirement boundaries, the handshake
+  images, current memory layout and the deadline-sensitive FAT geometry?
+- Baseline: committed `28705e2`, plus the preserved OPT-013 config-checker repair.
+  K is 5,311 B / eleven loaded sectors within a fixed fifteen-sector file slot.
+  Runtime remains 150,016 B / 293 sectors, FAT 308/309, arena/context 96/96 B.
+  OPT-006 removed this copy in a rejected larger-spool construction; that
+  construction's other changes and reliability claims are not included here.
+- Allowed surface: only the product application include in core.asm and its
+  explanatory comment, narrowly necessary existing gate adjustments if actual
+  emitted-address assumptions are stale, this local ledger, and isolated
+  evidence under `build/optimization-campaign/OPT-015/`. Regenerate ordinary
+  artifacts. Keep legacy/handshake SHA implementations, spool/record limits,
+  phase IDs/file placement, config/native tools/ENV, driver and security logic.
+- Required evidence: bind all current source/artifacts/user state and previous
+  evidence; establish zero callers of the removed copy; reconcile emitted
+  relocation and phase tables; compare the exact full request/record/parser
+  fixture, hostile/retirement/tool/reconnect gates, register/stack/RAM and read
+  accounting. Fresh make/inspect/BASIC and current TLS offline gates precede
+  affected original-speed NIC/display/direct32/286/recovery observations.
+  Keep record-cap failures and the unexplained OPT-014 clean-session reset
+  distinct; do not claim this cleanup resolves either. An elapsed speed claim
+  requires a close-workload comparison and explicit provider/geometry limits.
+- Exit: a narrowly validated local cleanup/read-reduction checkpoint, or revert
+  only this spike's edits if removal changes behavior or does not reduce the
+  actual loaded work. Record negative results and select the next bounded
+  question under the campaign policy. Do not commit or push this new spike
+  without separate maintainer approval.
+- Status/owner: **validated local checkpoint; awaiting maintainer commit approval**. Investigation
+  coverage starts at approximately **35%** (rough 25–45% range). No extra
+  runtime RAM, broader receiver integration or physical entropy credit is claimed.
+- Initial evidence: product pack-base assembles with K at 3,510 B / seven
+  sectors. Removing the first include exposed the ChaCha gate's forty-line
+  listing lookahead; it now uses the actual K phase table for file/load geometry
+  and checks the complete rounded load. The standalone app-oracle image still
+  uses the historical controller, so its SHA dependency is retained behind the
+  non-product conditional. No app-oracle behavior or shipping record limit
+  changes. The first two failed build attempts are retained under OPT-015;
+  the corrected build/offline run passes all nineteen recorded commands.
+- Built/frozen result: K is 3,510 B, seven loaded sectors; fixed slot/FAT,
+  arena/context and all eight drivers are unchanged. Emitted comparison covers
+  all 1,523 surviving K instructions, 20 internal relocation sites and 16
+  external/key sites; only K metadata changes from eleven to seven sectors.
+  All other phase bytes and floppy bytes outside the runtime are identical.
+- Five fresh full-scheduler/fragmentation/forgery/oversized-record fixtures pass.
+  Exact dialogue reads fall 28 -> 24 sectors, transitions 9 -> 8, track steps
+  stay 76; only K LBAs 22–25 disappear. Outputs, state and 62-B software stack
+  agree. CPU work changes by only 20 instructions/260 modeled cycles, so the
+  claim is reduced I/O, with physical elapsed savings unmeasured.
+- All nineteen fresh build/offline commands pass. The first serialized286
+  attempt fails its initial ML-KEM benchmark; its image/payload are byte-identical
+  to OPT-014's passing component. One bounded private-profile control passes
+  all eight components with exact prior payload/image hashes and 147/165 ticks
+  (8.0740/9.0627 s). The failed attempt remains recorded with cause unestablished;
+  it contains none of the changed application K code. Live results are recorded below.
+- Live progress: all seven original-speed read-only NIC profiles return correct
+  first text/DPI and pass strict fresh/resumed wire checks; worst fresh Finished
+  is 11.2213 s. Five named single-answer cases pass. 3c503 and WD8003EB stay
+  failed on 4,251- and 2,942-B wire records despite visible correct answers.
+  NE2000/NE1000/Novell greetings include garbled non-ASCII glyphs; no Unicode
+  rendering claim follows. The direct 32-KiB NE2000 single-answer/wire/bound/
+  read-only case passes, with the same greeting glyph limitation.
+- The 16-KiB MDA short pair returns `fortytwo`, then fails the immediate second
+  answer on 3,740- and 2,545-B wire records. DPI returns without `ninetynine`.
+  The failed capture/screenshot and the owned-harness interruption after this
+  conclusive failure remain explicit. No-card CGA/MDA and no-driver NE2000
+  pass boot/menu/read-only checks; these do not exercise recovery keys or audio.
+- The separate 8088 idle case has a correct, bound-clean first answer frozen
+  before its 500-second idle. It then sends 369 B on the old session 2.928139 s
+  after the second submission; peer RST follows in 12.060 ms. No new Seed TLS
+  flow or `ninetynine` appears, and DPI returns. The record cap passes. A bound
+  comparison confirms the same symptom in OPT-014's original clean-session
+  failure (3.938602 s /7.484913 ms), so it predates SHA cleanup. Its cause and
+  whether it predates the earlier rotations remain unknown. No further 8088
+  control was run; cap-contaminated earlier controls retain their limitations.
+- The read-only 6 MHz /512 KiB 286 passes both answers, 500-second idle,
+  strict four-flow reconnect topology, record bounds and image preservation.
+  Finished intervals are 8.0963 /8.5989 /8.1232 /8.5997 s. The unchanged analyzer
+  accepts the unanswered stale request only after the complete ordered
+  reconnect, not as an ordinary successful round.
+- Disposition: retain the isolated cleanup/read reduction with the documented
+  limits. It does not qualify full receiver/reuse/reconnect acceptance, add
+  user arena/context, free a FAT sector or earn physical entropy credit. The
+  initial serialized failure and all failed live cases remain explicit.
+- Evidence: `build/optimization-campaign/OPT-015/REPORT.md`, `offline.json`,
+  `candidate-binding.json`, `relocation.json`, `models.json`, `io-accounting.json`,
+  `serialized-comparison.json`, `nic-matrix-summary.json`,
+  `idle-reset-comparison.json`, `live/` and `recovery/`. `final-checkpoint.json`
+  binds all 11 live/three recovery observations, the two expected source changes,
+  shipping artifacts/eight drivers and 882 unchanged prior evidence files.
+- Proposed message: `perf: stop loading unused application SHA code`.
+  OPT-015 remains uncommitted; nothing was pushed. Exploration remains
+  approximately **35%**, with the same rough **25–45%** range.
+- Next after the maintainer continues: trace the 8088 clean-session
+  send/reset/retirement path to explain why it returns to DPI without the
+  bounded reconnect. The two bound-clean observations make this a concrete
+  reliability question ahead of further unused-prefetch timing. Keep
+  cache/codec/overlay integration with the full receiver/control lifetime design.
+
+
+### Reconciliation after OPT-015
+
+With explicit maintainer approval, OPT-015 was committed as `88175d7`
+(`perf: stop loading unused application SHA code`). Only core.asm and the
+existing emitted-block checker entered the commit. Its reviewed checkpoint,
+source/image identities and all previous evidence were rechecked before staging;
+no rebuild was needed because the validated source and artifacts were unchanged.
+Campaign/architecture Markdown, the earlier OPT-013 config-checker repair and
+pre-existing VM/user state remain local. Nothing was pushed. OPT-015's final
+checkpoint and evidence remain immutable historical records.
+
+The maintainer has explicitly tabled diagnosis of the intermittent 8088
+idle-reconnect failure. Its cause remains unresolved and its existing evidence
+and compatibility limits stay recorded. Do not select reset diagnosis or more
+failure-isolation repeats as the next campaign work; this direction supersedes
+the recommendation at the end of OPT-015. Deferral does not close the issue or
+turn a failed observation into a pass.
+
+The next selected question is the redundant request-phase load before DPI input.
+OPT-005's isolated bypass eliminated three sector reads, but did not measure
+elapsed benefit; a seek moved to the next submission. Evaluate the full cycle
+before deciding whether this is worth product integration. Once that bounded
+question is settled, profile the largely unexplored 8088 offline-proof spans
+(approximately 154.6 s first proof and 69.4 s resumed proof in the entry baseline).
+Exploration coverage remains approximately 35% (rough 25–45%).
+
+### OPT-016 — Measure the redundant DPI request-phase prefetch
+
+- Wishes: 6 and 2, with whole-route accounting for 10.
+- Question: does removing the request-phase prefetch before the input prompt
+  reduce complete 16 KiB dialogue work and observed wait, without moving the
+  same cost into the next submission or changing prompt, tool/ENV, retirement
+  and security behavior?
+- Baseline: committed `88175d7`, plus the preserved OPT-013 checker repair.
+  OPT-015's bound complete dialogue fixture reads 24 sectors with 8 track
+  transitions / 76 steps. The old OPT-005 isolated bypass saved three reads on
+  its then-current baseline, but duration and complete consecutive-turn timing
+  remain unmeasured. A new 24 -> 21 read result is a hypothesis until rerun.
+- Allowed surface: start with isolated evidence/measurement only under
+  `build/optimization-campaign/OPT-016/` and this ledger. The candidate is the
+  request-helper preload in `targets/ibm_pc_5150/boot/phases/dpi.inc`; preserve
+  its save-prep order, readiness semantics, native auto-continuations and all
+  hard invariants. Consider a product edit only after the complete-route
+  measurement establishes a worthwhile benefit. Do not reopen the deferred
+  reconnect diagnosis or integrate cache/codec/receiver prototypes here.
+- Required evidence: fresh baseline binding; exact actual-code fixtures across
+  consecutive turns with reads/loads/seeks and state/output/stack comparisons;
+  distinguish prompt-restoration wait from next-submit wait and exclude user
+  typing time. Include normal cached 32 KiB+ behavior and tool/ENV paths in the
+  lifetime check. A retained product change requires the campaign's relevant
+  build/offline/live regression gates; do not repeat broad live matrices for
+  a hypothesis that can first be rejected by deterministic evidence.
+- Exit: a measured, narrowly validated product improvement, or a bounded
+  negative finding if the work only shifts or the benefit is not worthwhile.
+  Record either result and then select the offline-proof profiling question.
+- Status/owner: **selected to resume after the approved OPT-017/020 checkpoint
+  commit and push**, in the existing campaign context. Rebind the measurement
+  to the repaired HTTP/2 runtime; the old HTTP/1 counts above are historical.
+  No OPT-016 product edit or new performance claim has been made.
+
+### Local testing model selection after OPT-015
+
+At the maintainer's request, local `config/USER.CFG` now selects `gpt-6-astra`
+with reasoning effort `max`, replacing `gpt-5.6-sol` / `xhigh`. All other config
+bytes and permissions were preserved. The current 160/360/1440 KiB test images
+were repacked with the unchanged validated OPT-015 runtime; each embedded
+`USER.CFG` was verified byte-for-byte. The 482-case config gate, an exact
+`gpt-6-astra` / `max` shipping-publisher case, FAT budget and ordinary offline
+reconnect/replay gate pass. No live provider validation was performed.
+Frozen campaign evidence remains historical; future live comparisons must bind
+both baseline and candidate to the same model/effort. OPT-016 remains unstarted,
+the intermittent reconnect diagnosis remains deferred, and exploration coverage
+remains approximately 35% (rough 25–45%). Nothing was committed or pushed.
+
+### Priority override after live Astra testing — paused by maintainer
+
+The maintainer stopped the RAM-program experiment, requested a simpler chat
+test, then explicitly paused all work and made the resulting chat failure the
+next priority. Resume with OPT-017 before OPT-016 or further performance work.
+Do not resume either experiment automatically while paused.
+
+The unchanged product, configured for `gpt-6-astra` / `max`, produced a live
+greeting and the correct `fortytwo` answer on the read-only 6 MHz / 512 KiB
+286. The second prompt, asking to add eight, received 2,530- and 2,538-byte
+TLSCiphertext records, exceeding the product's 2,064-byte bound. No `fifty`
+answer appeared. Seed returned to a ready-looking prompt; the maintainer's
+subsequent `continue`, `what did you reply previously?`, and `hello?` also
+produced no visible answers. This is a failed repeated-chat test, not evidence
+that the model cannot answer. The exact failure/recovery mechanism remains
+unproven.
+
+The earlier RAM-program experiment confirmed individual writes and reads but
+no completed program or execution. Its first response exceeded the same
+record limit, while a later tool continuation stopped without additional
+oversized records. Do not attribute every continuation failure to record size
+or present manual prompting as an autonomous tool-loop pass.
+
+Evidence is under `build/optimization-campaign/astra-max-286-chat/attempt-01/`
+(`binding.json`, `events.json`, `answer-1.png`, `current.png`, `wire.pcap`,
+`progress-cap.json`, `result.json`) and `astra-max-286-e2e/`. Automatic prompt
+progression and captures are stopped. The chat VM was left open at the
+maintainer's request; only the maintainer closes it. Shared config/NVR, runtime,
+shipping image and user config were verified unchanged. No product fix, commit
+or push was made. Exploration remains approximately 35% (rough 25–45%).
+
+### OPT-017 — Restore reliable repeated chat and failure recovery
+
+- Priority/status: **functional emulator acceptance complete through OPT-020;
+  checkpoint approved for commit and push**. The current shipping-source receiver and native
+  journal pass repeated conversation, bounded reconnect and native execution on
+  all three CPU/RAM paths, plus the seven-profile NIC matrix. The earlier
+  small-record and tool-continuation failures are preserved below as history.
+  Physical-source security work remains separate. No commit or push.
+- Wishes: 2 (response handling/reliability), with native-tool compatibility.
+- Question: can repeated human turns complete after the current failure
+  trigger, with explicit recoverable failures instead of a silently unusable
+  ready prompt, while preserving authentication and bounded replay?
+- Baseline: committed `88175d7`, preserved local OPT-013 checker repair,
+  `gpt-6-astra` / `max`, and the bound 286 text-only failure above. Start from
+  this capture and source rather than another long RAM-program demonstration.
+- Allowed surface: response receive/parser state, session retirement,
+  human-turn versus tool-continuation admission, and their existing UI/error
+  handling. Inspect `core/tls13_app.inc`, `core/net_phase.inc`, `core/main.inc`,
+  `phases/agent_response.inc`, and the relevant existing gates. These are
+  investigation candidates, not established causes. Record fresh evidence
+  under `build/optimization-campaign/OPT-017/`.
+- Required evidence: reproduce the captured oversize rejection and subsequent
+  human-turn behavior deterministically; establish whether incomplete parser
+  or tool state blocks a new human turn; distinguish this from the separately
+  observed tool-continuation failure. Preserve valid-record authentication,
+  complete retirement/zeroization, the non-replayable tool-side-effect rule,
+  bounded reconnect, all target memory floors and conventional-RAM-only state.
+  Do not simply raise a length check without proving backing storage/lifetimes.
+- Exit: a validated working fix with repeated simple live replies and relevant
+  offline/failure-path coverage, plus honest remaining receiver/tool limits.
+  Keep VM lifetime under the maintainer's control; no automatic close for an
+  interactive demonstration. Commit still requires explicit approval.
+- The previously deferred intermittent 8088 idle-reset diagnosis remains
+  deferred; this new priority does not silently reopen that investigation.
+- Resumption evidence: the unchanged 150,016-B runtime and current Astra/max
+  images are frozen under `OPT-017/baseline/`; all nineteen fresh build/offline
+  commands pass (`offline.json`). These passes do not certify repeated live
+  chat. Exact-code probes confirm that incomplete tool states 4/5 survive M
+  and prevent a new human request from establishing a route after retirement.
+  A separate valid-tool fixture marks completion before the HTTP terminal;
+  this is another concrete defect, not yet attribution of the text-only case.
+- An isolated authenticated-response capture reproduces `fortytwo` followed
+  by an unanswered second prompt. That run includes 2,104- and 4,246-byte
+  TLSCiphertext records and no observed fresh reconnect. Its captured prefix
+  contains no tool call, so the stale-tool explanation remains unproven for
+  this failure. `diagnostic-live-01/` retains the failed run; its VM is left
+  open. Diagnostic UART work changes timing and is not performance evidence.
+- A second isolated diagnostic records six nonsecret turn-state flags. Its
+  initial controller was blocked by an 86Box identity dialog: AppleScript
+  process references stored by name can target the other open 86Box instance
+  despite a PID-based lookup. The local evidence helper now keeps the PID
+  query inline. The controller was interrupted, the VM retained, and capture
+  reattached under `diagnostic-live-02/attached/`; startup failure is not a
+  product result. No product source change has yet been accepted.
+- Candidate implemented: the 286 application receiver reuses the existing
+  arena-excluded handshake reservation for up to 16,624 inner bytes, with a
+  separate 16,384-byte content bound and MAC/type-before-publication. The
+  2,048-byte small-memory cap is unchanged. T no longer marks a captured tool
+  item as rendered text or a completed HTTP response; API/M require the
+  completion event and HTTP terminal. A final failed-turn flag survives the
+  scheduler return until M clears incomplete state and fast-types
+  `> response failed; try again`, preserving explicit stop and no tool replay.
+  This is a candidate working fix, not yet an approved commit.
+- The second baseline diagnostic eventually returned three correct short
+  replies, but required a reconnect for the second and retired TLS after the
+  third. Its captured prefixes contain no function call. Both baseline runs
+  encounter records above the small spool limit; the exact reason the first
+  run did not reconnect remains unproven. Do not attribute that text-only
+  failure to the independently demonstrated stale-tool bug.
+- Candidate `b42bdeb456d7a3bad372e01722cba82704cf178e514d2e51258888a0dcbddb0b`
+  remains 150,016 bytes / 293 sectors, with unchanged driver bytes and floppy
+  allocation. Twenty fresh build/offline commands pass. The permanent
+  `check-tls13-chat-recovery.py` gate passes 29 boundary/recovery cases; all
+  35 existing harness tests pass. Four complete 16 KiB scheduler fixtures
+  reach DPI: ordinary/fragmented replies, forged-tag rejection with no
+  publication, and post-text oversize retirement. Each retains 24 phase reads;
+  synthetic fixtures are not live transport or elapsed-time evidence.
+- The shipping candidate (no UART instrumentation) returns `fortytwo`,
+  `fifty`, `twentyfive`, and `four` in four consecutive Astra/max human turns
+  on a read-only 6 MHz / 512 KiB 286. The final screen was visually inspected.
+  The strict 286 pcap gate passes reuse on two flows. Of 95 post-handshake
+  records, 11 exceed the old ciphertext limit; the maximum is 6,294 bytes,
+  within the new tier's bound. `candidate-live-01/` binds config, image,
+  prompts, source, pcap, screenshots and VM lifetime. The VM is left open.
+- The first new 16 KiB controller incorrectly ran its dense-glyph oracle before the
+  BASIC listing cleared. Its capture is retained under
+  `nic-live/vm-net-3c503-16k/`; the running VM subsequently reached an ordinary
+  Seed screen. This is an invalid startup/controller result, not a product
+  regression or a passing NIC test. Subsequent runs retain the documented
+  35-second post-BASIC delay. No VM is automatically stopped or restarted.
+- Fresh serialized 286 timing passes all eight components with unchanged
+  conservative acquisition/resumption budgets of 147/165 ticks
+  (8.0740/9.0627 seconds). `serialized-private/report.json` binds current
+  source and component images; it remains a CPU model, not a complete
+  product/physical timing or entropy claim. Each benchmark used a private
+  read-only profile and its VM was retained.
+- The corrected 16 KiB NE2000 candidate run reaches fresh client Finished in
+  11.0476 seconds and sends the credential-free HEAD, then returns
+  `agent setup failed 00/12` without a resumed connection or greeting.
+  A matched frozen-baseline control reproduces the same screen and topology
+  (11.2073 seconds to Finished). Both post-Finished record streams fit the
+  small cap (maximum ciphertext 1,179/1,177 bytes). The public ECDSA
+  certificate at both observed provider addresses still matches the baked
+  image pin (`leaf-check/result.json`); this does not identify the failed
+  target-side check. The original-speed NIC sweep was stopped, not marked
+  passing. This cold-start failure is distinct from the deferred idle reset.
+  The maintainer subsequently brought this 8088 cold-route failure into the
+  current priority fix; the earlier proposed review checkpoint is superseded.
+- Baseline evidence is under `nic-live/vm-net-ne2k8-16k-baseline-02/`; its raw
+  capture includes two credential-free host certificate probes. The retained
+  `seed-only.pcap` is filtered by the exact identified target TCP tuple, with
+  source/derived hashes and filter in `filter.json`. Its strict reuse gate
+  still fails for missing resumption; its record-cap gate passes. The candidate
+  capture under `vm-net-ne2k8-16k-attached/` needs no such filtering. The initial
+  NE2000 controller stopped at a late identity dialog; it was reattached at
+  the untouched BASIC prompt before Seed boot, without restarting the VM.
+- Earlier candidate scope/provenance: the phase map, driver bytes and embedded handshake
+  code are unchanged. Product edits are the resident turn scheduler and
+  K/V/X/T/M application phases; X's resolved shared addresses move with K.
+  `binary-diff.json` and `candidate-binding.json` retain exact identities.
+  User config and shared VM config/NVR remain unchanged. No diagnostic UART
+  code is in the shipping candidate. `REPORT.md` in the evidence directory
+  summarizes the validated result and limitations.
+- Earlier checkpoint disposition: retain the product fix and permanent recovery gate for review.
+  Do not claim complete 8088 live regression coverage, a solved small-memory
+  record ceiling, a live native-tool program, or resolution of the older
+  no-tool/no-reconnect failure mechanism. The four-turn 286 result demonstrates
+  that larger records and repeated simple chat work on the requested local
+  model. Proposed commit: `Fix repeated chat recovery and 286 record handling`.
+  Ask before committing; OPT-016 remains deferred until this review checkpoint
+  is accepted. Overall exploration remains approximately **35%**, with the
+  same rough **25–45%** range: this resolves concrete defects in an already
+  deeply explored area, rather than closing another broad campaign wish.
+- Continued scope: the maintainer requires the 8088 fix too, and repeated
+  actual model replies rather than accepting a failure message as completion.
+  Diagnose cold setup, unexplained empty returns, record reception and bounded
+  recovery on both targets without weakening authentication or replay rules.
+  The local user preference is now `gpt-6.1-sol` / `max`; only those local
+  preference bytes changed. Fresh evidence is under
+  `OPT-017/continued-8088/`. VMs remain under maintainer lifetime control.
+  No commit or push is authorized by this continuation.
+- 8088 cold failure isolated: private stage-only UART reaches full FO,
+  identity restore, and the authenticated post-HEAD receiver, then aborts.
+  The former plaintext slice at `3400..35bf` overlaps live symmetric record
+  state at `3510..355c`. The old 1,125-byte HEAD fixture misses it; a synthetic
+  1,162-byte HEAD reproduces rejection with the exact baseline code. The live
+  diagnostic retains `agent setup failed 00/12` and its read-only VM.
+- Cold-route candidate: move the same 448-byte slice to retired handshake
+  inputs at `3600..37bf`, below the application keys. No extra RAM, sector,
+  record cap, crypto change or diagnostic code is needed. The strengthened
+  composition gate passes fresh/resumed observed-size and full 1,433-byte
+  inner-record cases, including ticket/PSK preservation, correct publication,
+  retirement and existing memory guards. Broader build and live acceptance
+  are still in progress; this is not yet a completed 8088 fix claim.
+- Continued validation: the cold-route fix passes twenty build/offline commands.
+  With the requested `gpt-6.1-sol` / `max`, the 286 returns four correct
+  consecutive answers; strict reuse passes and the largest observed record
+  is 5,116 bytes. The fixed 16 KiB NE2000 reaches greeting and answers
+  `fortytwo`, then reconnects and answers `pleaseprovidethepreviousanswer` to
+  the follow-up. This is a failed repeated-chat test. Its capture again has
+  records above the small-memory limit (maximum 4,246 bytes). Evaluated with
+  the correct four-flow reconnect expectation, its strict wire gate passes:
+  11.267/6.792/11.017/6.774 seconds to client Finished. The original runner
+  incorrectly requested the two-flow reuse topology; this correction does
+  not change the failed recall or record-cap result.
+- Evidence correction on continuation: the NE2000 controller's apparent
+  second-turn success captured a different open 286 VM after the target window
+  disappeared. `continued-8088/chat-live/ne2k8-16k-01/visual-review.json`
+  supersedes that automated result while retaining the original evidence.
+  The harness now refuses cross-PID window fallback and checks process
+  lifetime again after OCR; all 37 harness tests pass. A vanished VM is never
+  replaced by another screen for acceptance.
+- Retry admission defect: unexecuted tool captures were treated as executed
+  effects and denied the permitted human retry. The candidate permits states
+  1/3/4/5, clears their stale parser state during the actual request rebuild,
+  and retains the veto for executed state 2 and every agent-loop continuation.
+  Build/offline validation is in progress. The missing context after an 8088
+  reconnect remains under investigation; no completed reliability claim or
+  commit is implied. Overall rocks turned remains approximately 35%.
+- Retry candidate validation completed: runtime
+  `eff8f21d0a287d5e0fc8bc0c6cd20348cbb2d8507d64b9aa0911101c83b8e0be`
+  remains 150,016 bytes / 293 sectors, with 308/309 FAT data sectors used.
+  All twenty build/offline commands pass, including 41 chat recovery cases
+  and five exact 16 KiB R/X replay cases. The latter rebuild byte-identical
+  complete requests after ordinary failure and states 1/3/4/5. Separate
+  executed-output and pending-continuation tests retain the no-replay veto.
+  `continued-8088/retry-fix/` contains the frozen candidate and gate results.
+- A private 16 KiB diagnostic captures only the arithmetic conversation note
+  and restored prompt before each request. Its nine exact-code preservation
+  cases leave all outgoing request bytes unchanged. The unchanged R/X/T
+  fixture stores the first short question and `fortytwo` correctly in 61
+  bytes; live capture will test the subsequent compaction/reconnect path.
+  Diagnostic code is absent from the shipping candidate and carries no
+  timing or release claim. VM lifetime remains maintainer-controlled and
+  existing evidence is retained.
+- The new live diagnostic confirms a bounded retry of the identical first
+  question after 2,828/4,147-byte records exceed the small spool. It answers
+  `fortytwo` and stores the exact 61-byte dialogue. The next compaction turn
+  encounters a 4,246-byte record and ends with `response failed; try again`;
+  no completed note was captured, so this run does not attribute the earlier
+  missing-context answer. The controller/captures were stopped at that visible
+  failure and VM 5999 was retained. This diagnostic uses the cold-fix runtime,
+  before the newly validated partial-tool retry correction.
+- Compaction-policy counterexample: two host-only requests using the exact
+  captured dialogue and current `gpt-6.1-sol/max` request body returned
+  `6*7 a-z words: fortytwo` and `-`. Thus the old instruction to drop trivia
+  permits discarding an answer needed by a follow-up. This is a demonstrated
+  policy defect, not proof of the prior live failure's cause. A clearer
+  policy preserves the latest answer, explains `~N/M`, and asks for ASCII.
+  Six bounded host checks of the final policy preserve arithmetic, an
+  arbitrary word, and exact memory bytes within 48 characters; all pass.
+- The updated `prompts/compact.txt` is 362 bytes and fits its existing sector.
+  `make`, `make inspect`, and `make basic-bootstrap` pass; runtime bytes remain
+  `eff8f21d...`. `continued-8088/final-candidate/` freezes the updated images;
+  `compact-policy-host/` and `compact-policy-final/` retain the bounded
+  provider evidence. These host checks do not replace live 16 KiB compaction
+  acceptance or remove the small-memory record ceiling.
+- Final-runtime 286 regression: four consecutive `gpt-6.1-sol/max` answers
+  are correct, with strict two-flow reuse passing at 8.095/8.602 seconds to
+  Finished. Its 107 post-handshake records include 11 over the old small cap;
+  the maximum is 6,293 bytes and all fit the new tier. The screenshot was
+  inspected and VM 9211 retained. This run uses the final runtime and original
+  compaction file; its large window does not compact during these four turns.
+- Exact final-image R/X reconstruction confirms the revised compaction file,
+  complete prior dialogue, size suffix, note promotion, and pending prompt
+  are transmitted correctly. A host follow-up with the preserved answer
+  returns `fifty`. The old `-` note yielded no text in that host probe, whose
+  helper did not record function calls; that result must not be represented
+  as an empty provider response. `continued-8088/compact-chain/` retains
+  this evidence. Final uninstrumented 16 KiB testing is in progress.
+- Final 16 KiB result: greeting and `fortytwo` succeed, but the follow-up ends
+  in `response failed; try again`. The capture contains 4,121-, 4,246-, and
+  2,735-byte records. The controller was stopped at the verified failure and
+  VM 11252 retained. This is not a completed 8088 fix or a passing NIC matrix.
+- Additional exact-code defects reproduced while tracing compaction: with
+  61 bytes of dialogue and a pending follow-up, the first request selects
+  compaction, but a no-output retry promotes the unchanged dialogue into a
+  61-byte note and sends a different normal request. Also, an eight-byte
+  replacement note after a 48-byte note is rejected by R before any send:
+  validation compares the new used length against the obsolete note length.
+  `continued-8088/compaction-state-before.json` records both reproductions.
+  Next correction: distinguish pending compaction from captured summary text
+  in the existing flag, replay pending compaction unchanged, and promote a
+  replacement note before validating its new range. Preserve all phase/RAM
+  ceilings and existing no-replay rules; no commit is authorized.
+- Compaction-state correction: the existing flag now distinguishes pending
+  compaction from captured summary text. R repeats a no-output compaction
+  unchanged, and promotes a captured replacement before checking its length.
+  T marks capture only on actual output text. The far-context mirror also
+  preserves previously flushed dialogue while compaction is pending; its
+  former nonzero test reproduced history loss on the 286 path. The changes
+  fit the existing R/T/G sectors and allocate no additional state.
+- Exact R/X reconstruction now passes both original counterexamples. The
+  permanent floppy-backed gate checks two complete compaction/retry/question
+  sequences, including an eight-byte replacement for a 48-byte note. The
+  recovery gate passes 45 cases, adding actual T capture and all three
+  far-mirror states. Full build/offline and new live acceptance are in
+  progress under `continued-8088/compaction-fix/`; no completed 8088
+  reliability or broad record-size claim follows from these local fixes.
+- The prior final 16 KiB failure screenshot has now been inspected and saved
+  as `final-chat-live/ne2k8-final-01/visual-review.json`. Its strict pcap
+  passes with the correct reconnect topology (`wire-reconnect.json`), while
+  the unanswered follow-up and oversize-record failures remain unchanged.
+- The frozen compaction candidate is
+  `7ccad9a25dedc1101b12b2de90f385110e0648e8c48361b305d650e625758177`,
+  still 150,016 bytes / 293 sectors and 308/309 FAT data sectors. All twenty
+  build/offline commands pass against the fixed source snapshot. R is
+  1,536/1,536 bytes, T 1,024/1,024 and G 470/512; K and X only adjust the
+  corresponding template/validator references. An intermediate build caught
+  the mirror edit arriving after its prefix was assembled; its failure log
+  is retained separately and its image was not tested live. The clean rebuild
+  and frozen helpers match. New live checks use `compaction-final/`.
+- New 16 KiB live progress: the frozen candidate greets, returns `fortytwo`
+  in 42.97 seconds, then correctly returns `fifty` after compaction and fresh
+  connections. The dependent turn takes 659.08 seconds; this is not an acceptable
+  latency or general reliability claim. The inspected `answer-2.png` is
+  recorded by `compaction-live/ne2k8-compaction-01/visual-progress.json`.
+  The capture already includes 4,121- and 4,246-byte records. Further turns
+  remain in progress; the 8088 receiver ceiling is still open.
+- The third 16 KiB prompt ends with `response failed; try again`; the fourth
+  is not attempted. The screen was inspected, the controller stopped, and
+  VM 16074 retained. Final capture: six hybrid flows with each handshake
+  individually passing, plus 4,121-, 4,246-, 4,246- and 3,548-byte record
+  violations. The generic wire analyzer does not certify a six-flow
+  multi-turn topology; do not relabel it as the strict two/four-flow gate.
+  `visual-review.json` supersedes the interrupted runner's two-element turn
+  list. Image, user config and shared profile hashes are unchanged. This is
+  a failed repeated-chat run despite the newly successful dependent answer.
+- A separate host-only feasibility probe used one synthetic
+  `gpt-6.1-sol/max` background generation with `store=false`, followed by two
+  GETs of the same event suffix. Both return all 14 expected events, identical
+  after excluding obfuscation, and the same `SEEDREPLAY` text. The documented
+  [background replay interface](https://developers.openai.com/api/docs/guides/background)
+  is an application-level lead distinct from OPT-008's rejected TCP replay
+  assumption. No product protocol changed. Temporary retention, exact
+  event/chunk binding, authentication before publication, parser timing,
+  RAM/code fit, cancellation, tool effects and bounded reconnect all still
+  need proof. Evidence and an unselected design note are under
+  `continued-8088/background-replay-host/` and `background-replay-notes.md`.
+- Final 286 validation of the same frozen candidate: all four visible answers
+  are correct (`fortytwo`, `fifty`, `twentyfive`, `four`), with submission-to-ready
+  times 24.246, 20.943, 23.350 and 21.881 seconds. The read-only 6 MHz / 512 KiB
+  VM uses `gpt-6.1-sol` / `max` and remains open. Its 108 post-handshake records
+  include twelve above the small-RAM limit, with maximum ciphertext 4,932 B.
+  Image, user config and shared profile hashes are unchanged. This short test
+  does not exercise the 286's much larger compaction threshold; that correction
+  has exact-code evidence, not a live forced-compaction claim.
+- The raw 286 wire gate counts an extra tuple and fails. It contains fourteen
+  delayed, payload-free FIN/RST packets from the preceding 8088 connection:
+  the exact tuple and next client sequence match the earlier capture. Removing
+  only that prior tuple leaves every new connection attempt intact; the strict
+  `--expect reuse` gate then passes with two independent hybrid flows and
+  8.097/8.599-second handshake phases. Raw/scoped captures, hashes, exact filter,
+  sequence comparison and both analyzer results are retained under
+  `continued-8088/compaction-286-live-01/`. No analyzer rule was weakened.
+- Remaining attribution limit: the final 8088 capture shows the third turn's
+  compaction request followed by oversize responses, but no subsequent SYN.
+  It does not expose the internal state responsible for returning the failure
+  status; do not claim that the record cap alone explains every missing retry.
+  Existing captured-summary behavior also permits an authenticated partial
+  summary after transport failure; this patch does not introduce an atomic
+  full-summary transaction. The expected compaction status line was not visible
+  in the reviewed live run and remains a UI gap, not a removed product rule.
+- Disposition: retain the validated local corrections uncommitted. Full OPT-017
+  acceptance, the seven-NIC regression sweep, and a live native-tool program
+  remain incomplete. There is no general no-missing-response claim and no
+  commit request while those acceptance obligations remain open. The earlier
+  intermittent idle-reset investigation stays deferred. Overall investigation
+  coverage remains approximately **35%** (rough **25–45%**). A current report
+  and evidence binding are in `continued-8088/REPORT.md` and
+  `continued-8088/handoff-binding.json`.
+
+### OPT-018 — Test authenticated application replay within the 16 KiB floor
+
+- Priority/status: **application replay set aside; OPT-020 supplies the accepted
+  receiver**. The replay experiments below remain private and do not establish
+  a target construction. The bounded cached-connect wait correction is part of
+  the later combined repair, validated with its full NIC/reconnect matrix.
+- Wishes: 2 (reliable replies), 5 (16 KiB storage/lifetimes), 10 (whole-system
+  accounting).
+- Question: can the documented background Response event replay interface
+  support a receiver that authenticates complete records before any effect,
+  then verifies replayed chunks against retained authenticated commitments,
+  while fitting the actual 4.77 MHz / 16 KiB target and all existing contracts?
+- Baseline: final OPT-017 image hash
+  `7ccad9a25dedc1101b12b2de90f385110e0648e8c48361b305d650e625758177`;
+  150,016 B, 308/309 FAT sectors, 96/96-B arena/context, 2,048-B small spool.
+  The final 8088 run fails turn three with records up to 4,246 B; previous
+  campaign evidence already rules out treating a 4 KiB effect bound as the
+  full requirement. OPT-011–013's complete-journal budget remains over 16 KiB.
+  A host-only `store=false` background generation replays the same fourteen
+  parsed events twice, excluding obfuscation. That is finite feasibility
+  evidence, not an API promise of byte-identical JSON, records or retention.
+- Allowed surface: begin with read-only source/API audit and private design,
+  threat model, exact-byte accounting and isolated `cpu 8086` PoCs under
+  `build/optimization-campaign/OPT-018/`. Do not change shipping request mode,
+  authentication, replay policy, retention preference or target floor before
+  the construction is justified. Preserve the current OPT-017 sources and
+  frozen evidence; do not commit, push, close or restart the retained VMs.
+- Required evidence: establish the provider's precise response-ID/cursor and
+  temporary-retention contract from primary documentation, then distinguish
+  event equality from JSON/TLS byte equality. Bind commitments to response,
+  event, position, length, type and order. A second TLS tag arriving after
+  publication is insufficient. Reject substitution, truncation, cross-response
+  reuse and invalid tags without display, context, tool, timing/ACK or other
+  unauthorized effects. Account for arbitrary valid supported event content,
+  record packing/boundaries and a full legal record; an ASCII-only fixture or
+  a 2/4 KiB logical-effect cap is not acceptance.
+- Required composition: exact code/constants/commitments/parser snapshots,
+  active keys, request buffers, loader/IRQ/stack and old retained state in
+  conventional RAM, with erasure and interrupted transitions. Prove any new
+  keyed construction independently; do not assume key reuse or free hash code.
+  Preserve ENV, graceful/hard stop, target-local tools, no replay of executed
+  effects and the bounded reconnect policy. Include original-speed transfer,
+  parsing and render cost against temporary retention; durable server storage,
+  a helper or extra RAM requires a separate maintainer decision.
+- Exit: either a credible security argument plus measured exact-target
+  component/composition path worth implementing, or a bounded rejection with
+  the specific remaining resource/API assumption. Neither exit alone completes
+  OPT-017. Return to live repeated replies and affected NIC acceptance only
+  after the receiver path is justified. Do not relabel the still-unexplained
+  pre-SYN failure as solved by this hypothesis.
+- Handoff reason: this introduces an independent authentication/publication
+  construction and a new application transport schedule, materially different
+  from the local compaction and receive-buffer corrections. Use the campaign's
+  fresh-context protocol for that security argument; ordinary compaction or
+  task duration is not the reason for the handoff.
+- Resumed on 2026-10-07 in the controller after the maintainer asked to fix
+  8088 reliability. No separate context was created. The exact 16 KiB contract
+  remains in force while a RAM-scope clarification is pending; no answer is
+  not authorization to raise the floor. Continue the existing pre-SYN failure
+  diagnosis alongside the replay feasibility analysis, preserving prior source
+  and frozen evidence. No commit, push or automatic VM shutdown is authorized.
+- A private stage-at-M diagnostic repeats the exact 16 KiB NE2000 arithmetic
+  failure. `fortytwo` returns in 43.832 s; `fifty` returns in 665.375 s; the
+  third prompt displays `response failed; try again`. The third turn has
+  captured 22 bytes of summary (`compacting=2`, text seen) against the prior
+  25-byte note, then returns with TLS retired before R promotes the new note.
+  This is an observation, not proof that the note lengths caused failure.
+  Unlike the preceding uninstrumented run, this pcap contains new TCP attempts
+  after the failed compaction. The last establishes host-side TCP but sends
+  no TLS ClientHello before the peer closes at 15.006 s. SLiRP capture does
+  not establish whether the guest accepted its SYN-ACK. The private diagnostic
+  uses M native-parser space and is arithmetic-only; it is not a product image.
+  `OPT-018/turn-live/state-01/visual-review.json` records inspected screens,
+  states and limits. Only the controller was stopped; the VM remains open.
+- A host-only authentication/replay model passes 27 fragmentation/length cases
+  and associated tag/binding/chunk mutation checks. Full-size inner plaintext
+  requires 33 SHA-256 receipts (1,056 B) at 512-byte chunks. Receipts become
+  authoritative only after the original record tag/type pass. Reordered JSON
+  keys preserve event meaning but fail raw receipt equality, so this does not
+  justify API replay. No target parser, complete memory composition, constant
+  timing, retention schedule, or tool/cancellation proof is supplied. See
+  `OPT-018/replay-receipt-model.json`; no shipping request mode changed.
+- Next attribution experiment: private HELLO stage markers around the cached
+  connector, pending-fragment return and first TCP send, in the existing root
+  and HELLO slots. `OPT-018/hello-diagnostic.json` binds the diagnostic. It
+  adds no phase reads and changes timing; it is not acceptance evidence.
+- That experiment reproduces the third-turn failure. The complete UART trace
+  is `RABCDERABCDERABCDERAB!`: three fresh routes reach and return from their
+  first TCP send; the fourth returns carry from `hello_cached_connect`, before
+  the pending-fragment check or any ClientHello payload send. First/second
+  answers remain correct; the second again takes roughly eleven minutes.
+  This localizes the active failure to the cached opener, not the later R/X
+  summary validation. Flush, SYN transmit, SYN-ACK wait/parse and final ACK
+  still need separate attribution; increasing a timer is not yet justified
+  as the proved fix. The controller detects the visible terminal error and
+  finishes without closing the VM. See
+  `OPT-018/hello-live/hello-01/visual-review.json`. Its raw capture also contains
+  the concurrent 32 KiB comparison; do not claim strict raw topology acceptance.
+- The first inner-connector diagnostic was invalid: its 3,933-byte HELLO
+  crossed the `2700` first-fragment staging boundary despite fitting the
+  eight-sector load slot. It failed during setup and supplies no product-fault
+  evidence. The replacement keeps HELLO at 3,827 B, checks that boundary, and
+  passes eight connector classifications plus exact transcript/staging gates.
+  UART output waits for THRE so adjacent markers are not lost.
+- The corrected diagnostic again greets, returns `fortytwo` and `fifty`, then
+  fails turn three. Trace `RA5RA5RA4!R` identifies exhaustion of the fresh
+  cached SYN-ACK wait; every poll in the final attempt was empty. It does not
+  attribute the earlier attempts or prove why the NIC exposed no frame. The
+  following root exits before its cached opener. See
+  `OPT-018/connect2-live/connect-02/visual-review.json`; VM 54959 remains open.
+- A private uninstrumented candidate changes the non-3c501 cached wait from
+  four to 32 PIT wraps per attempt, retaining three SYN attempts and the
+  existing 3c501 limit. It changes exactly two bytes of the frozen image and
+  passes 22 delayed-delivery comparisons plus unchanged 3c501 bounds. Its
+  exact-floor live test is running. This is still a hypothesis: empty NIC
+  polls can also reflect receive-state failure, and the shared DP8390 driver
+  has no explicit overflow recovery. Do not integrate a timer-only correction
+  without checking the live result. Shipping sources remain unchanged by
+  this experiment; candidate SHA-256 is
+  `1c32f1782ea16f091e765629de3eed1819b0af4389aad5662bba26a94fe58a12`.
+- The private wait candidate completes all four correct answers on the exact
+  16 KiB / 4.77 MHz / NE2000 / read-only ROM BASIC floor, returning to DPI
+  after each. Submission-to-ready times are 43.702, 359.506, 682.169 and
+  675.212 s. VM 56722 remains open; its controller/capture finished normally.
+  This is one successful trial, not proof that the shorter wait caused every
+  earlier failure or that a timer-only change fixes reliability.
+- Its capture contains six complete fresh/resumed pairs. Each individual
+  wire gate passes; fresh ServerHello-to-Finished intervals remain about
+  11.0–11.3 s. The strict aggregate topology gate still fails, as does the
+  application record-cap gate: nine of 304 post-handshake records exceed the
+  existing 2,064-B ciphertext ceiling, with maximum 4,246 B. Preserve these
+  failures; four visible answers do not establish bounded retry acceptance.
+  The long waits/repeated acquisition still make this unsuitable as the
+  finished 16 KiB experience.
+- Raw/scoped pcaps, exact self-owned host-probe exclusions, unchanged image/
+  config hashes and the inspected final screenshot are recorded under
+  `OPT-018/wait-live/wait-01/visual-review.json` and `scope.json`. Only the two
+  explicitly attributed host HTTP/2 probe tuples are excluded; every other
+  packet and every Seed attempt remains. Shipping sources remain unchanged
+  by OPT-018. The wait candidate stays private pending affected NIC/reconnect
+  validation; pursue OPT-020 for the independent record-storage blocker.
+
+### OPT-019 — Bound a full-record receiver using the 32 KiB phase cache
+
+- Status: **private comparison prototype; set aside**. The maintainer explicitly
+  reaffirmed the functional 16 KiB floor on 2026-10-07 as Seed's headline
+  capability. The positive 32 KiB comparison does not satisfy OPT-017 and will
+  not replace work on its required floor.
+- Wishes: 2, 5 and 6.
+- Question: can an 8088 with 32 KiB receive the full legal TLS application
+  record by combining the existing 2,048-byte low spool with 14,576 bytes of
+  the evictable phase/prompt cache, preserving arena/context and stack?
+- Baseline: OPT-017 candidate `7ccad9a25dedc1101b12b2de90f385110e0648e8c48361b305d650e625758177`.
+  `2e00..3600` is the low spool; `4000..7a00` is tools/phase/prompt cache;
+  the direct-boot stack guard begins at `7a00`. Cached loads and prompt/schema
+  reads are gated by `loop_cache_count`; it must clear before any overwrite.
+- Allowed surface: private copied source, generated images, oracles and reports
+  under `build/optimization-campaign/OPT-019/`; shipping sources remain unchanged.
+  No helper, new crypto path, device RAM, writes to media or early publication.
+- Evidence: actual `cpu 8086` maximum-size, padding, split-boundary, invalid-tag,
+  record-type and stack/arena guards; unchanged 16 KiB and 286 behavior; proof
+  every cache consumer falls back safely after invalidation. A positive live
+  32 KiB test is comparison evidence and does not validate 16 KiB reliability.
+- Exit: a concrete safe implementation option and measured tradeoff, or a
+  bounded rejection. Any product integration or changed reliability floor
+  depends on the maintainer's answer; no commit or push is authorized.
+- The private `cpu 8086` implementation uses `2e00..3600` plus `4000..78f0`,
+  clears the cache count before overwrite, and maps authenticated replay
+  across the split on ChaCha block boundaries. It passes 64 exact-machine
+  receiver/recovery cases, including maximum content plus padding, corrupt
+  tags, invalid types, split boundaries, 16/24 KiB rejection, the unchanged
+  286 gate, and arena/stack/device-RAM guards. Publication occurs only after
+  the full tag arrives. Layout inspection passes; K grows from seven to eight
+  loaded sectors inside its existing file slot, and total file/FAT use is
+  unchanged. A live 32 KiB NE2000 comparison is in progress. Native-tool,
+  cancellation/ENV, reconnect, full-NIC and complete integration acceptance
+  remain outstanding; these component checks are not a product claim.
+- The private 32 KiB / 4.77 MHz / NE2000 read-only live comparison returns
+  all four correct answers (`fortytwo`, `fifty`, `twentyfive`, `four`). Times
+  from submission to ready are 48.303, 51.949, 53.080 and 114.660 s. The
+  fourth request follows the expected compaction threshold from the emitted
+  request/context code; this image has no internal compaction trace. Its 131
+  post-handshake records include fifteen above the old small-RAM ceiling,
+  with maximum ciphertext 6,406 B. The strict scoped `--expect reuse` gate
+  passes; no reconnect occurs. Concurrent-VM load/provider variation prevent
+  treating the timings as a controlled speed comparison.
+- The raw capture includes the simultaneously running 16 KiB diagnostic and
+  fails its topology gate. Saved exact-PID `lsof` snapshots attribute every
+  tuple. Excluding only that other VM's three tuples preserves every 32 KiB
+  attempt, including its empty preflight. Raw/scoped captures, original failed
+  result, filter, owner snapshots and inspected final screenshot are retained
+  in `OPT-019/live/ne2k8-32k-01/visual-review.json`; no analyzer rule changed.
+  Both VMs remain open. This receiver is still a private comparison.
+- Integration audit found the legacy ENV region extends through `4200`,
+  including the first 512 bytes of the proposed upper spool. Exact W-phase
+  execution confirms this (`OPT-019/env-overlap.json`). A separate private
+  `env-safe` variant clears that overlap and invalidates the cache before
+  serialization, including after an interrupted receive, without changing the
+  ENV byte layout. Eight exact-code cases pass for live/invalidated cache,
+  RAM gates, adjacent-state guards and unchanged 16 KiB/286 paths. Only W
+  differs from the live-tested receiver image; all other bytes are identical.
+  This is not a full ENV round-trip or native-tool acceptance claim. The
+  receiver-only and ENV-safe hashes are respectively
+  `b123716f3be5d5c6fd59f1f97e3266a1621ea4cfa52b96bd931fc1aa1df55ca0`
+  and `e9a8c466eadf7678a4c9cfaa3a24baa6094fa78d301aee3fafd29b311fcdce8a`.
+- Decision checkpoint: the 32 KiB comparison is positive, with 64 receiver/
+  recovery cases, eight ENV-isolation cases, layout checks and four visible
+  live answers. The shipping image remains the OPT-017 `7ccad9...` baseline;
+  no source integration, commit or push was performed for OPT-019. The maintainer
+  has since reaffirmed the functional 16 KiB floor; the RAM decision is closed.
+  Continue OPT-018's receiver construction and the localized cached-opener
+  diagnosis. Preserve this comparison as evidence, without integrating it as
+  a replacement for the required floor. Overall rocks-turned estimate remains
+  approximately **35%** (rough **25–45%**); reliability is not complete.
+
+### OPT-020 — Test HTTP/2 flow control as a bounded authenticated receiver
+
+- Status: **integrated; functional emulator acceptance complete; checkpoint
+  approved for commit and push**.
+  The shipping-source OpenAI route uses HTTP/2 on both CPU profiles. Guarded
+  authentication/publication composition, exact-floor repeated chat, native
+  write/execute/read, bounded reconnect and all seven NIC profiles pass on the
+  final candidate recorded at the top of this ledger. The 16 KiB memory floor
+  and 96/96-byte user pool remain unchanged. Physical entropy and broader
+  provider-edge characterization remain separate; the experiments below
+  describe how this checkpoint was reached, including rejected candidates.
+- Wishes: 2, 5, 6 and 10.
+- Question: can one active HTTP/2 response stream, with a small advertised DATA
+  window replenished only after TLS authentication and consumption, bound the
+  required body storage independently of legal TLS record packing?
+- Baseline: OPT-017 `7ccad9...`; the 2,048-B TLS spool rejects legitimate
+  responses, while whole-record storage and prior complete-effect journals
+  do not fit the current 16 KiB footprint. HTTP/2 has not been tested here.
+- Mechanism to falsify: require acknowledged SETTINGS before opening a stream,
+  disable push and dynamic header-table storage, allow only one active response,
+  and advertise a 512-B stream window. Retain at most that outstanding DATA
+  allowance provisionally while authenticating an entire legal TLS record.
+  Non-DATA frames remain unbounded by that allowance and need a separately
+  bounded, validated parser. No assumption that TLS records become small is
+  permitted. [RFC 9113 §§5.2, 6.5 and 6.9](https://www.rfc-editor.org/rfc/rfc9113.html#section-5.2)
+- Allowed surface: source/API/RFC audit, credential-free endpoint probes,
+  small authorized model tests using the existing local preference, and private
+  host/8086 proofs under `build/optimization-campaign/OPT-020/`. Preserve the
+  shipping sources, request storage preference, crypto/trust gates, current
+  ENV/native tools, and all retained VMs. No helper or memory-floor change.
+- Required evidence: actual endpoint ALPN and SETTINGS behavior; frame/TLS
+  boundary independence; flow-credit conservation; full legal record, padding,
+  continuation, invalid-tag and hostile control-frame cases; no pre-tag output,
+  state publication, control response or timing/ACK oracle. Account for HPACK,
+  control state, code, crypto, stack and erasure in the complete 16 KiB map.
+  Any implementation must preserve credential-free liveness, reuse, bounded
+  failure reconnect and no replay of executed native effects on all affected
+  targets/NICs.
+- Exit: a concrete bounded construction with target evidence worth integrating,
+  or a precise rejection. A host server-flow test alone is not an 8088 receiver
+  or a product reliability claim.
+- Host feasibility passes on IPv6 and the IPv4 route used by Seed. Both require
+  SETTINGS acknowledgment, disable push/dynamic-table storage, verify that a
+  zero DATA window blocks the credential-free response, then run two ordinary
+  `store=false`, foreground `gpt-6.1-sol` / `max` responses. Each returns
+  `FORTYTWO`, then `FIFTY`, without any authenticated TLS record containing
+  more than 512 DATA payload bytes. Bodies are about 11 KiB each. These probes
+  use host OpenSSL/AES-GCM, not Seed's ChaCha/ML-KEM trust route. See
+  `OPT-020/checkpoint.json` and the two `host-h2-*` directories.
+- A private `cpu 8086` DATA projection component passes 563 cases in a guarded
+  16 KiB mapping. It occupies 458 code bytes, 198 state/metadata bytes and a
+  512-byte journal. Cases cover every TLS split in a two-DATA-frame fixture,
+  DATA padding, a full 16,384-byte content record plus 239 padding bytes,
+  invalid tags/types/streams/window overruns, and 16 KiB of output across 32
+  consecutive credit windows. A pre-last-nonzero state snapshot removes the
+  TLS inner type/padding before commitment. The original AEAD verdict is
+  supplied by the independent host oracle, not integrated target crypto.
+- This component deliberately ignores non-DATA frames and is **not an HTTP/2
+  receiver or a shipping fix**. HPACK/control semantics, ALPN and both fresh/
+  resumed credential-free liveness, persistent state through R/X/M/ENV,
+  authenticated END_STREAM completion, cancellation/erasure, FAT/RAM
+  composition and all affected target/NIC gates remain. Equal-length forged
+  inputs take 14,681 versus 55,641 projection instructions: a proved fixed
+  receive/ACK schedule or equivalent constant-work construction is mandatory.
+  PING echo queues and other non-flow-controlled effects also need explicit
+  bounded handling; a small DATA window alone does not solve those obligations.
+- A third host probe delays each flow-credit replenishment by two seconds.
+  Both foreground model replies complete (44.986 and 88.753 s), with no more
+  than 512 DATA payload bytes per authenticated record. This establishes
+  endpoint tolerance of that particular slow-consumer schedule; it is not
+  target timing, a provider guarantee, or Seed trust-path acceptance. Saved
+  separately as `OPT-020/host-h2-slow-ipv4-01/`.
+- A separate `cpu 8086` HPACK Huffman primitive uses canonical counts/symbols
+  instead of a large decode table: 227 code bytes, 287 table bytes and 12
+  bytes of state. It passes 68,211 comparisons against hpack's independent
+  nibble-DFA, including all one- and two-byte encodings, every symbol,
+  EOS/padding errors and longer strings. It does not implement HPACK field
+  grammar or HTTP/2 header semantics. Its output remains tentative and its
+  timing is data-dependent. Rebuilding reproduces the tested binary hash
+  `77186a6bfa544a6845df196a89414404aeb49a11d8ea04fc483d5fa322e4706f`.
+- The exact remaining construction, scripts, component limits and evidence
+  are in `build/optimization-campaign/OPT-020/README.md` and `checkpoint.json`.
+  Prioritize the complete control/HPACK state machine, credit conservation,
+  fixed receive/ACK timing, full 16 KiB RAM/FAT lifetimes and complete erasure
+  before product integration. Then preserve ALPN/transcript checks on both
+  routes, fresh/resumed credential-free liveness, authenticated END_STREAM,
+  the native-tool no-replay contract, ENV/cancel, and all affected NIC gates.
+- Handoff remains on this same dirty checkout: ledger and research are not
+  committed and would not appear in a new worktree. Shipping image remains
+  `7ccad9a25dedc1101b12b2de90f385110e0648e8c48361b305d650e625758177`;
+  no commit or push is authorized. All retained VMs stay open; no controller
+  or capture remains running at this checkpoint. Overall rocks-turned estimate
+  is approximately **40%** (rough **30–50%**), with functional 16 KiB
+  reliability still incomplete.
+- Continued repair after the maintainer's priority clarification: a separate
+  `h2_retention.asm` prototype retains raw DATA plus frame headers/known control
+  payloads for interpretation after authentication. Unknown extension payloads
+  can be skipped. This keeps HPACK decoding out of the tentative byte path.
+  Its 630 exact-8086 cases cover split control/DATA boundaries, padded DATA,
+  all known frame-type retention, full legal records dominated by unknown
+  payload, multi-record headers, repeated credit windows, control exhaustion,
+  invalid types/tags and guard/rollback behavior.
+- This variant has 514 code bytes and 1,990 bytes of state/journals inside
+  `2e00..35c6`, within the existing 2 KiB spool. That does **not** account for
+  the complete product or remaining post-tag protocol state. Retained DATA
+  includes padding and is not display-ready. The 1,280-byte per-record control
+  budget still needs an explicit authenticated resource-error policy. Complete
+  HTTP/2/HPACK semantics, post-handshake TLS controls, timing/ACK isolation,
+  product composition/lifetimes and all target gates remain. Shipping sources
+  and image are unchanged by this component. See
+  `build/optimization-campaign/OPT-020/retention-gate.json`; tested binary hash
+  is `3ef0cb2ca1fb77cdf576ea8323dd39f397b93f1d2c9b8c640ab2460157baa582`.
+- Continued repair now applies OPT-018's bounded cached-connect wait to the
+  product source: non-3c501 waits 32 PIT wraps per attempt, with three attempts;
+  the 3c501's 128-wrap allowance is unchanged. The exact connector gate adds
+  delayed SYN-ACKs after 4, 18, 31, 32, 63 and 95 empty polls, stable retry
+  port/ISN checks and the unchanged 3c501 timeout. `make` and `make inspect`
+  pass. The resulting runtime is byte-identical to the previously live-tested
+  wait candidate, SHA-256
+  `1c32f1782ea16f091e765629de3eed1819b0af4389aad5662bba26a94fe58a12`.
+  Exactly two bytes differ from the frozen receiver baseline, with unchanged
+  150,016-byte extent and FAT 308/309. Evidence is in
+  `OPT-018/cached-connect-source-{gate,binding}.json` and the build/inspect
+  logs. This is a narrow connection correction, not resolution of the
+  oversized-record failures or proof that every earlier timeout is explained.
+- The new `h2_retention_ct.asm` removes input-dependent control flow from the
+  speculative byte entry. Static inspection finds only one fixed 14-word
+  snapshot loop; 52,648 guarded byte cases execute an identical 344-instruction
+  trace. The complete 630-case retention matrix also passes. Code is 871 bytes;
+  state/journals occupy 1,904 bytes at `2e00..3570`. This is a component path
+  property, not a composed AEAD/IRQ/TCP-ACK timing proof. See
+  `OPT-020/retention-ct-gate.json` and `retention-trace-gate.json`.
+- `hpack_response.asm` adds post-authentication response-field decoding:
+  zero dynamic table, indexed and literal fields, Huffman, status/pseudo-field
+  ordering, forbidden connection fields, checked content length and trailers.
+  Its 1,906 code/table bytes and 76 state bytes pass 491 independent-oracle
+  cases. The 4,096-byte decoded header-list limit must be advertised; encoded
+  string and decimal-value limits/error mapping are recorded explicitly.
+  This is still a private decoder, not the complete HTTP/2 state machine.
+- A combined gate runs collector and decoder in the same guarded 16 KiB
+  machine, replacing their code window between phases. All 152 cases pass:
+  header/TLS/CONTINUATION splits, long headers, full legal records with
+  ignored extension bodies, and forged-record rollback without HPACK or body
+  publication. State and journals together use 1,980 of the current spool's
+  2,048 bytes. AEAD and HTTP/2 sequencing are still host oracles. Target
+  control/reply handling, post-handshake TLS controls, complete lifetimes and
+  erasure, ALPN/liveness and the live acceptance matrix remain required.
+  `OPT-020/receiver-composition-gate.json` binds both images. The repair is
+  incomplete; the wider campaign stays paused at roughly 40% rocks turned.
+- The post-tag `h2_post.asm` controller now executes frame/control semantics
+  on the target too. Its 3,957-byte image (including HPACK) passes 111 cases
+  for initial SETTINGS/ACK, response/reused streams, continuation, padding,
+  priority prefixes, PING replies, TX window changes, GOAWAY, RST, trailers,
+  content-length completion and forged-record isolation. A 16-byte reply
+  prefix handles a PING whose earlier 16 bytes arrived in the preceding
+  record; guards reject any overwrite of unread control or DATA input.
+- An independent h2 server then drives five packing/padding scenarios through
+  three reused streams each: all 15 streams and 56,895 body bytes pass.
+  Collector, controller and HPACK execute as 8086 bytes in guarded 16 KiB RAM.
+  TLS AEAD, outgoing request encoding and WINDOW_UPDATE transmission are still
+  host leaves. Evidence is `OPT-020/h2-post-gate.json` and
+  `h2-interop-gate.json`; this is not a live product reliability claim.
+- The remaining integration is concrete: validate the candidate 84-byte
+  controller/reply alias at `062e..0682` through real application lifetimes;
+  compose actual AEAD and TLS control handling without pre-tag timing/output;
+  integrate ALPN, both liveness paths, request framing and END_STREAM; preserve
+  native/ENV/cancel/reconnect behavior. The current K file slot cannot simply
+  append these components: nine collector/K sectors plus eight controller
+  sectors exceed its fixed 15 sectors. Replacing the obsolete receiver and
+  accounting for a safe phase-transition path is necessary. Full link/FAT,
+  zeroization, original-speed and all affected NIC/286 gates remain open.
+  No new VM was opened or closed, no provider request was sent, and no commit
+  or push was made during this construction pass.
+- The next construction composes the collector with Seed's actual application
+  ChaCha20/Poly1305 receiver in a mapping of exactly 16 KiB. A fixed-position
+  577-byte prefix preserves the existing bounded NST/alert contract until the
+  tag is checked. The saved 65-byte receive MAC moves into `35bc..35fd`; the
+  next encrypted TCP tail stays in RX while authenticated DATA remains in its
+  journal. Failed tentative state, the prefix and retired primitive work are
+  erased. This is private source, not a new product capability.
+- The combined forged-record trace test exposed variable work in the existing
+  application Poly1305 reduction. A private fixed-work multiply/reduce path
+  now passes 3,215 full-width operand pairs and 289 arbitrary 264-bit products
+  in each of two data/stack-segment layouts, with bounded access, preserved
+  registers and 24-byte primitive stack peak. Three equal-geometry forged
+  records now have identical complete instruction traces and ACK positions.
+  Physical timing, IRQ composition and complete stack/register erasure are
+  still required; these results are not that proof. The failed earlier image
+  and traces remain in `OPT-020/tls-receiver/pre-ct-poly/`.
+- The actual-crypto receiver passes 28 cases: byte-fragmented TCP, maximum
+  16,384-byte content with 239 padding bytes, invalid tags/types, truncation,
+  resource exhaustion, alerts, and an NST during an HPACK continuation. A
+  following encrypted record survives deliberate overwrite of the TX arena.
+  See `OPT-020/tls-receiver/aead-gate.json`; image SHA-256 is
+  `53b7e5466b9014ca5766d2120bf4ea9700ddd9d151f6171cb92a21b1d47f6068`.
+- A real file-layout construction now fits: K plus its invocation leaf is
+  4,085 bytes (eight loaded sectors). The 3,957-byte H2 controller uses seven
+  former K-padding sectors and 373 bytes of existing S-phase padding; an
+  83-byte low transition fits beside that last fragment. Runtime extent stays
+  150,016 bytes, later sectors/286 tail are unchanged, and the free FAT cluster
+  remains available. This uses the existing flat-file phase mechanism.
+- Its 20-case composition executes the resident disk loader, actual AEAD and
+  H2 phase, including all 16 read-failure positions with a partial destination
+  overwrite. Before K replacement, failure returns CF into intact K. After
+  replacement begins, failure clears protocol/key/record state and unwinds to
+  a supplied resident return frame; it never returns into a partial K image.
+  Real X/K callers still must set and validate that abort anchor. See
+  `OPT-020/phase-bridge/gate.json`, image
+  `f1d0af8081e13b6de0e940062394bfce91f84f7e10e229bee3e65d8573751ec9`.
+- These images are explicitly **not bootable product integrations**. ALPN,
+  fresh/final credential-free liveness, outgoing request/credit/control
+  handling, END_STREAM plus model-completion wiring, whole-product lifetimes
+  and all original-speed/NIC/286 acceptance remain. In particular, an unsent
+  request fragment cannot coexist in TX with the receive control prefix:
+  credit waiting must account for that lifetime. `OPT-020/INTEGRATION.md`
+  records the next steps and exact map. Shipping remains `1c32f178...58a12`;
+  no provider call, VM lifecycle action, commit or push occurred. Overall
+  rocks turned is approximately **45%** (rough **35–55%**); the functional
+  16 KiB reliability requirement remains open and wider optimizations paused.
+
+- Continued the blocking 16 KiB construction through real 8088 h2 ALPN,
+  transcript/binder and Finished/preface handling. The handshake and preface
+  variants each pass 71 guarded cases. The real deadline phase chain preserves
+  the larger 79-byte coalesced resumed flight (70 existing low bytes plus nine
+  below configuration) and sends Finished plus the h2 preface. No bytes already
+  acknowledged by the transport are discarded. The narrow 8088 EE shape still
+  requires ALPN-only h2; optional EE extensions remain outside that profile.
+- The new cold-only NST phase validates all bounded messages before retaining
+  the first ticket, derives its PSK with actual SHA/HMAC, publishes status last
+  and retires dead work/master/source state. It passes 378 cases and uses the
+  six remaining cold-pack sectors. Its actual AEAD/disk/HPACK composition passes
+  19 cases, including all 14 partial-sector failure positions and a following
+  encrypted record. K fits exactly in its existing 4,096-byte loaded window.
+  Evidence is under `OPT-020/h2-{bootstrap,nst,cold}/`; the cold receiver image
+  is `e33332cf...32c5`. Ordinary callers are not yet wired, so this is not a
+  bootable product integration or a live reliability claim.
+- Both new cold liveness owners fit their existing slots and are undergoing
+  composed validation. A larger control-reply test caught a real four-byte
+  overrun into the low owner: 440 plaintext + 22 TLS + 54 network bytes exceed
+  the 512-byte NIC scratch. The cold sender now fragments at 436 bytes. The
+  corresponding normal sender lifetime remains part of request integration.
+  A separate 286 ALPN draft is 105 compressed bytes over its existing slot;
+  no storage limit or memory floor was relaxed. Overall rocks turned is about
+  48%; broader optimizations remain paused. Shipping and retained VMs remain
+  unchanged; no provider request, commit or push was made.
+
+- The cold H2 liveness composition now passes 122 guarded 16 KiB cases,
+  including all 96 partial-sector read failures, fragmented input, maximum
+  legal TLS content, forgery and missing-ACK refusal, and 1,267 control-reply
+  bytes across multiple sends. Fresh mode reaches the actual lifecycle
+  preparation; final mode executes the existing success capsule. Evidence is
+  `OPT-020/h2-liveness/gate.json`, image `0733dc28...a5b6bc`. This remains a
+  private component integration: parent publication, ordinary requests,
+  Responses completion, whole-product lifetimes and live acceptance are open.
+- The packet-buffer overrun also reproduced in the normal product sender:
+  437 plaintext bytes already write to `0900`, beyond its 512-byte packet
+  scratch. The product now uses a separate 436-byte send limit, retaining the
+  440-byte allocation and existing RAM/ENV offsets. A new 15-case guard runs
+  actual TLS sealing and TCP framing, authenticates emitted records separately,
+  and checks rejection before transmission at 437/439/440/441 bytes. Full
+  `make` and the final-image guard pass. Runtime SHA-256 is
+  `2efa4301f0969b74dd7a60f1c8ea71ca215f8c361242b77a127f652c515eb970`,
+  still 150,016 bytes and FAT 308/309. This corrects the prior entry's statement
+  that shipping sources were unchanged. It proves the overwrite fix, not that
+  it caused all hangs; no new live reliability claim follows. Rocks turned is
+  approximately **52%** (rough **45–65%**). Wider optimizations remain paused.
+  No provider call, retained-VM lifecycle action, commit or push was made.
+
+- The outbound H2 credit path now passes 37 guarded cases, including negative
+  and zero windows, 512-byte source preservation while receiving controls and
+  tickets, all sixteen phase-read failures, and a 70,012-byte request received
+  identically by an independent h2 peer. Three forged record shapes have the
+  same 1,805,235-instruction trace and ACK positions; this remains emulator
+  evidence, not physical timing. Rebound cold controllers pass all 122 cases.
+- Actual R/X request serialization is now composed too: seven cases cover the
+  cold greeting, ordinary chat, one-byte/zero/wide credit, maximum key length
+  and compaction. The real JSON keeps tools, identity, escaped prompt text and
+  gpt-6.1-sol/max. A 401-byte request helper fits unused conventional-RAM code
+  headroom and R's existing third file sector; X stays within three sectors.
+  The image remains 150,016 bytes. Evidence is in `OPT-020/h2-requests/`, image
+  `72edad5c...80bb3f`. This is still non-bootable: response/scheduler wiring,
+  tool/far-source/error composition, complete lifetimes and original-speed
+  acceptance remain. Current product stays `2efa4301...b970`; no provider call,
+  VM lifecycle action, commit or push occurred. Roughly **55% rocks turned**
+  (range **48–68%**); the 16 KiB blocker remains open.
+
+- The private response owner now connects actual R/X, TLS/H2, T and the
+  resident retry scheduler. It requires the model completion event plus
+  authenticated END_STREAM, rejects non-200 bodies before T, and prevents
+  replay after partial text or cancellation. The 23-case response gate caught
+  and corrected a disk-swap unwind anchor two bytes too low. Eight scheduler
+  cases cover identical no-output retry, visible failure and the next prompt,
+  as well as compaction followed by the human answer.
+- The actual M/O/DPI native loop now writes `b8 2a 00 cb`, executes MOV AX,42 /
+  RETF, reads it back, receives an answer and returns to input across four
+  reused streams. This exposed a second integration bug: a byte-copy helper
+  changed carry and made a successful native continuation report send failure.
+  It now preserves flags. Three native cases also prove the tested write is
+  not repeated after a failed continuation and an incomplete unexecuted call
+  retries before one dispatch. These are synthetic peer tests, not live model
+  or original-speed emulator results.
+- Four publication cases join the real root frame, final liveness controller,
+  success/abort capsules and parent READY store to the first response. Missing
+  acknowledgement or forged liveness sends no credentials; exhaustion reaches
+  the visible failure message. The middle secure acquisition/resumption/FO
+  flight remains a fixture in this gate, so full cryptographic boot composition
+  is still open. All 122 cold-controller cases pass again with the response
+  helper present in their shared third file sector.
+- The exact latest private image passes **160 composed cases** and is SHA-256
+  `d7e6e98499d41d164e684222a89cdcca234d2b2bd467339b3b3bf64a384dcfb9`;
+  the separately rebuilt request-only image passes seven cases. Runtime extent
+  remains 150,016 bytes, K is 4,096, R 1,536, X 1,495, T 957; the request and
+  response helpers are 403 and 318 bytes. The 96-byte arena/context floor is
+  preserved. Evidence and remaining protocol/lifetime/286/live gates are in
+  `OPT-020/INTEGRATION.md` and `checkpoint.json`. H2 remains private; shipping
+  stays `2efa4301...b970`. No provider call, retained-VM lifecycle action,
+  commit or push occurred. Roughly **60% rocks turned** (range **53–72%**);
+  functional 16 KiB reliability remains the blocker for wider optimizations.
+
+- First live H2 boots reached the server but rejected its authenticated empty
+  SNI acknowledgement before client Finished. The private 8088 handshake now
+  accepts exactly h2 plus an optional empty SNI acknowledgement in either
+  order. The resumed CCS/record handoff holds 83 bytes in the existing low
+  span and configuration gap. All 131 handshake cases and both real ML-KEM
+  deadline compositions pass. An additional 23 cases cross the formerly
+  separate fresh deadline/protected-controller boundary. The header parser's
+  code retires before the authenticated tail reuses its RAM; no RAM or file
+  sector was added.
+- The rebuilt private image is `37829626050b5a26854ceba97a57deea3f2bd30a0aa29e3a487acd780e85b3f1`.
+  Its full 122-case cold-controller matrix and 25 bound root/FO/auth/lifecycle
+  slots pass. On original-speed NE2000 with exactly 16 KiB and read-only media,
+  the fresh client Finished arrived 11.168 seconds after ServerHello. The live
+  VM subsequently rendered the model greeting and accepted its first follow-up
+  prompt. Follow-up/reuse, other NICs, complete lifetimes and the 286 H2 route
+  remain open; greeting alone is not reliability acceptance. Evidence is under
+  `OPT-020/live/h2-ne2k8-16k-sni-01/`. The same image is now being tested on the
+  32 KiB direct-entry path. All VMs are retained for the maintainer. Shipping
+  remains `2efa4301...b970`; no commit or push was made.
+
+- The private 286 H2 acquisition/resumption route now passes 43 actual-flight
+  composition cases, including all nine partial parser/helper reads on each
+  route, control-send failures, forgery, and protocol/ALPN refusal. A 334-byte
+  adapter uses the unused third fresh-post sector and retired conventional RAM
+  at `5500`; the shared parser remains byte-identical. HELLO is 5,630 stored
+  bytes and flight is 3,041, retaining their 11- and 6-sector slots. The exact
+  tail graph and 12 hostile packaging cases pass at 293 runtime sectors.
+- Live 16 KiB runs consistently completed the greeting but stalled after the
+  first human submission. Metadata plus wire records show six authenticated
+  WINDOW_UPDATE records were consumed before the response header stopped.
+  The receive loop acknowledged only while collecting a partial TLS record;
+  complete short records could fill the advertised 256-byte TCP window without
+  an ACK. A new actual-code peer-window test reproduces the stall with 245
+  unacknowledged bytes and no rendered answer. The private receive path now
+  acknowledges before waiting for a new TCP payload. Five backpressure cases
+  (0/1/6/8/20 controls) and all 23 response/reuse/failure cases pass afterward.
+  This is a reproduced transport fix; its live acceptance is still running.
+- The 286 live probe also displayed a model greeting, then failed its follow-up.
+  The 32 KiB probe completed final authenticated liveness but did not reach its
+  direct-return trampoline. A separate return-frame trace is in progress.
+  Two earlier 32 KiB waits were harness identity-dialog races, not product
+  failures; the startup check now requires the exact PID's main VM menu, and
+  its targeted regression passes. Shipping remains `2efa4301...b970` while
+  these H2 changes are private. Current ACK-fixed universal candidate is
+  `1cd78877b9206e6f863571f9571f2288e4e495d696c8f86d1837c432e4e36316`.
+  Approximately **65% rocks turned**; all three paths still require repeated
+  live turns and integration acceptance. VMs are retained; no commit or push.
+
+- The ACK-fixed private universal image completed a live greeting plus four
+  correct 286 turns: fortytwo, fifty, twentyfive, four. Screens show the prompt
+  returned after each answer; model context was preserved. The host capture
+  includes concurrent 8088 probes and needs per-flow H2-aware wire accounting;
+  the old HTTP/1 dialogue checker cannot count H2 control replies as requests.
+- The 32 KiB loss is now reproduced: cold NST retirement scrubbed `3f1c..SP`
+  even on the `8000` stack, erasing the direct return trampoline and arena.
+  Retirement now selects the direct stack floor `7a40`, preserving its live
+  64-byte return reservation. The original fails at its first `3f1c` write;
+  381 updated NST cases pass, including direct-tier success/failure/repeated
+  ticket preservation. A corrected 32 KiB live run is in progress. Universal
+  candidate is `f7a53351e2dfa2d514f7aaa2198d75475d902e6272fb312f374b32c205243614`.
+  Approximately **70% rocks turned**; shipping integration and full floor
+  reliability acceptance remain open. No commit or push; all VMs retained.
+
+
+- After the maintainer's battery interruption, saved screens and captures
+  confirm four correct dependent replies on the 286, 8088/32 KiB and 8088/16
+  KiB NE2000 paths. The 16 KiB 3c503 also completed four replies; a diagnostic
+  3c501 run completed them across one bounded reconnect. These are private
+  candidate results, not final acceptance. The earlier ordinary 3c501 cold
+  failure remains part of the repetition requirement. All old VMs had exited
+  with the interrupted host session; new test runners close their own VM.
+- H2 implementation is now promoted into canonical sources, retaining the
+  293-sector flat runtime, eight-sector K, original driver/FAT contract and
+  96-byte arena/context floor. Independent canonical gates cover authenticated
+  receive, credit/backpressure, actual R/X requests, response completion,
+  compaction/retry, native write/execute/read and root publication. Handshake
+  Poly1305 remains byte-identical; only the application primitive uses the
+  fixed-work reduction. The full build/regression chain is still running.
+- A later 286 idle reconnect failed before a new SYN. This is reproduced:
+  retiring a failed H2 request wipes temporary prompt length/buffer, while the
+  286 bootstrap requires that length to match its durable resend length.
+  The N phase now reconstructs the unexecuted human prompt from its ordinary
+  display text before escrow, preserves video, and refuses executed/pending
+  tools. Forty-three exact N/bootstrap cases pass across prompt lengths,
+  CGA/MDA widths, poisoned temporary state and invalid/replay states.
+- Fresh readonly runs are exercising four dependent replies plus a native
+  four-byte program on all three target paths. The 286 additionally waits ten
+  minutes before the program prompt to exercise the repaired idle reconnect.
+  Their frozen candidate is `d39a473cf3b825b5c91fbdab3de9901a353cd3847dbbe4ec95d23531fffdfe51`.
+  A subsequently observed non-ASCII greeting is traced to cold `Greet.` omitting
+  the ordinary ASCII instruction; that request is now explicitly ASCII too.
+  The final build and affected fresh live repeats must include this small
+  request change. Do not report all three reliable until those gates finish.
+- New exact larger-memory request tests preserve 32 KiB context and stream a
+  65,543-byte conventional far context through JSON escaping and peer credit
+  replenishment; 22,000-byte far compaction also passes. Wire evidence now
+  scopes explicit ports and reviewed UI turns: encrypted H2 control traffic
+  is never counted as model replies. Evidence is under
+  `OPT-020/product-integration/` and `OPT-020/live/`. No commit or push.
+
+- Canonical offline request composition exposed a cold-start edge case: R left
+  dialogue offset/count as uninitialized BASIC scratch before X's new final
+  bounds check. Cold R now explicitly clears all three words; poisoned-state
+  cold/ready serialization passes. The seven normal request cases, far requests,
+  response, retry, native, publication, backpressure, disk failures, NST,
+  handshake and liveness gates pass on the isolated canonical candidate.
+- The repaired 286 idle route now completes fresh acquisition/resumption and
+  native write/execute/read. Its final answer nevertheless repeats the earlier
+  word `four`, so the live case is a failure, not acceptance. It was stopped
+  and its VM closed after evidence capture. A faithful BIOS-scroll regression
+  reproduces two causes: native continuations omit the user label, and tool
+  scrolls do not move the originating prompt marker. Later requests serialize
+  blank cells or a tool-status line instead of the human request.
+- X now labels the originating human request on every native continuation.
+  Renderer/tool/save status scrolling tracks that prompt's display row. The
+  exact four-request write/execute/read/answer gate now preserves the complete
+  prompt both high on screen and after six BIOS scrolls. Runtime sectors and
+  memory ceilings are unchanged. This candidate is
+  `1bc86e85bbcecd73e0b461890174c9517de489db4ffb73b81f18fd7d5e5436ad`;
+  full make and affected live repeats remain required. New cancellation cases
+  also prove a visible stop without replay and a working next human request.
+
+- ENV regression uncovered an existing alias bug: the save directory lookup
+  wrote its cluster into `fs_file_cluster`, which is also the live
+  `save_region_stored` word. The writer produced a header declaring 295 region
+  bytes in a 174-byte file. The lookup now returns its cluster in AX without
+  touching the trim size. Actual 16 KiB save/restore, header/payload corruption
+  rejection, read-only failure, unchanged H2/key/user state, and stream-three
+  reuse pass. This fixes the codec and lifetime boundary; it is not a live
+  native save_env model test. Candidate is
+  `9d1eda26f3f5ce271aede0b7c2685df11e2b60089e8468975d4da508d62d9051`;
+  only W differs from the prompt-fixed live image, and no memory/file layout
+  changes. Wider campaign remains about 40%; reliability repair investigation
+  is roughly 80% with live acceptance outstanding.
+
+- The full packaged ENV gate exposed a second real save failure: the allocator
+  stopped at cluster 300 even though the last valid data cluster is 310. With
+  the current full floppy, its one remaining free cluster was never visited.
+  The bound is now derived from the 160 KiB geometry. The writable regression
+  forces allocation of that last cluster; readonly and full-media cases pass.
+  The intermediate candidate `184cd51693dbd3295bc6f52dc520a4b1524663eb01f07c2374cc84b5242e85b0`
+  passed `make`, all 18 HTTP/2 gates, and the remaining standalone TLS guards.
+- A later 286 native run correctly retained its prompt but repeatedly executed
+  write/execute/read without a final answer. Exact synthetic requests sent to
+  the configured model reproduced this: two retained tool pairs omit the
+  original write after the read. Restoring that result, either as a full pair
+  or a compact completed-result journal, produced AX 42 and the four bytes.
+  These host diagnostics explain the failure; they are not target acceptance.
+- The current candidate replaces the old prior-pair allocation with a bounded
+  90-byte journal of whole result lines and preserves the current structured
+  call/output. It requests one tool per response. After eight calls it sends
+  the last output with tools disabled; an unexpected ninth call cannot execute.
+  Exact 16 KiB request, native, budget, failed-continuation and BIOS-scroll gates
+  pass. The 293-sector file, resident addresses and 96/96-byte floor are unchanged.
+  Frozen candidate `e3e0b888fa41e2ea72db3854e54da6a28226752f84c6c0a5a25da94e0815574f`
+  is undergoing the three main live runs and full build. Superseded runs are
+  preserved as partial evidence and their VMs closed.
+- Test launches now share a hard three-VM cap. No-card CGA/MDA and missing-driver
+  menus were checked and all their VMs closed. The updated 286 serialized timing
+  harness executes the current H2 preface/control exchange and locates its own
+  code above the parser's RAM; its semantic gate passes. Fresh serialized timing
+  and the batched ISA NIC matrix remain required. Reliability investigation is
+  about 85%; the wider optimization campaign remains about 40%. No commit/push.
+
+- The final journal candidate now passes `make`, `make inspect`, BASIC helper
+  generation, all 18 H2 integration gates and the standalone TLS regressions.
+  Canonical and frozen `SEED.SYS` are byte-identical. The 286 live run completed
+  four correct dependent text replies, a ten-minute idle, one fresh reconnect,
+  and exactly one write/execute/read sequence. Its final visible answer is
+  `AX (decimal): 42` and `Bytes: B8 2A 00 CB`, followed by the input prompt.
+  The explicit-flow capture gate passes for ports 56542/56588/57106/57127;
+  all four ServerHello-to-Finished intervals are below 8.60 seconds. Its VM
+  closed automatically and the read-only image and protected inputs remained
+  unchanged. Evidence: `OPT-020/live/h2-286-tool-journal-01/`.
+  Both 8088 main runs, the remaining NIC repetitions and serialized timing
+  are still in progress; this is not yet three-path reliability acceptance.
+
+- Fresh serialized 286 timing now passes all eight components on the exact
+  6 MHz / 512 KiB profile. Conservative acquisition and resumption CPU sums
+  are 147 ticks / 8.074 s and 170 ticks / 9.337 s. The input manifest remained
+  unchanged, and all eight private VMs closed with unchanged read-only images.
+  `OPT-020/serialized-final/report.json` records the remaining measurement
+  limits: component CPU sums exclude NIC/TCP wall time and do not measure the
+  whole offline certificate path as one interval. The separate reviewed live
+  286 capture above supplies connection, application and reconnect evidence.
+
+- The final 32 KiB direct-boot candidate completed four correct text replies,
+  ten minutes idle, one fresh reconnect and one write/execute/read sequence,
+  then returned to input. The model spelled the correct result as
+  `axfortytwobytesbeighttwoazerozerocb`, carrying over the earlier letters-only
+  request. Numeric format compliance failed; functional execution and response
+  completion passed independent visual review. The literal `42` observer was
+  stopped only after a fresh exact-PID screenshot showed the returned prompt,
+  and its original interrupted result is preserved. The VM closed immediately.
+  The flow gate's explicit manual-completion mode binds that review to its
+  screenshot hash and time, retains the formatting caveat, and rejects actual
+  runtime errors, wrong results, missing prompts and altered evidence. Six
+  hostile review cases are rejected. Ports 56615/56662/57446/57560 pass, with
+  fresh deadlines below 11.21 s and resumed deadlines below 6.79 s. Evidence:
+  `OPT-020/live/h2-ne2k8-32k-tool-journal-01/`. The 16 KiB native run and the NIC
+  matrix remain pending. Reliability investigation is about 88%; no commit/push.
+
+- The current exact 16 KiB 3c503/MDA regression passes greeting, reused first
+  response (`fortytwo`), ten-minute idle, one fresh reconnect and dependent
+  second response (`fifty`), with returned input prompts. Its explicit four
+  flows pass both fresh deadlines below 11.23 s and resumed deadlines below
+  6.84 s. Read-only media and protected files are unchanged; the VM closed
+  before the NE1000 case started. Evidence:
+  `OPT-020/live/h2-nic-3c503-mda-journal-a1/`. Reliability investigation is
+  about 89%; the 16 KiB native result and remaining NIC cases are still open.
+
+- The final original-speed NE2000 / exactly 16 KiB ROM BASIC run now passes
+  all five turns: four correct dependent text replies, ten minutes idle, one
+  bounded fresh reconnect, then one write/execute/read of `B8 2A 00 CB`.
+  The visible final answer is `AX = 42; Bytes: B8 2A 00 CB`, with the input
+  prompt returned. Its ordinary automatic oracle and independent visual review
+  both pass. Explicit flows 56723/56786/58107/58180 pass, with fresh deadlines
+  below 11.20 s and resumed deadlines below 6.80 s. The image and protected
+  inputs are unchanged, and its VM closed automatically. Evidence:
+  `OPT-020/live/h2-ne2k8-16k-tool-journal-01/`.
+  All three main CPU/RAM paths therefore have current functional acceptance,
+  retaining the 32 KiB numeric-format caveat above. At 16 KiB, text turns took
+  about 4–13 minutes and the post-idle native sequence about 32 minutes; these
+  are measured slow completions, not latency improvements. Remaining ISA NIC
+  cases still block closure of the whole repair gate. Reliability investigation
+  is about 92%, wider campaign about 40%; no commit or push.
+
+- WD8003EB now passes the same exact 16 KiB first-response/reuse/idle-reconnect
+  regression, with `fortytwo` then `fifty` and the returned input prompt. Its
+  four owned TLS flows are 58112/58187/58689/58772; fresh deadlines are below
+  11.26 s and resumed deadlines below 6.80 s. The old socket accepted one send
+  before its close was observed, returned no response records, and retired
+  before the fresh acquisition. The NIC capture gate now accepts that permitted
+  pending-turn retry, matching the main-path policy, while retaining the exact
+  four-flow limit and new-session answer requirement. Extra/missing/reordered
+  connection evidence is rejected; the clean-close 3c503 case still passes.
+  The read-only image and protected inputs are unchanged, and the WD8003EB VM
+  closed before the second 3c501 repetition opened. Evidence:
+  `OPT-020/live/h2-nic-wd8003eb-journal-b3/`. Reliability investigation is
+  about 93%; the remaining NIC cases continue under the three-VM limit.
+
+- NE1000 now passes the exact 16 KiB first-response/reuse/idle-reconnect
+  regression with both correct answers and the returned input prompt. Its
+  four owned TLS flows are 58500/58568/59107/59171; fresh deadlines are below
+  11.20 s and resumed deadlines below 6.79 s. The second reply completed in
+  about 1,001 seconds after the idle. Read-only media and protected inputs
+  remained unchanged, and its VM closed before WD8003E started. Evidence:
+  `OPT-020/live/h2-nic-ne1k-journal-a2/`. Reliability investigation is about
+  94%; WD8003E, two 3c501 runs and Novell NE1000 remain. No commit or push.
+
+- The first current-candidate 3c501 run passes greeting, first-response reuse,
+  ten-minute idle, one fresh reconnect, `fortytwo` / `fifty`, and returned
+  input. Owned flows 58959/59024/59540/59617 pass, with fresh deadlines below
+  10.45 s and resumed deadlines below 6.27 s. The read-only image and protected
+  inputs are unchanged; its VM closed before Novell NE1000 started. Evidence:
+  `OPT-020/live/h2-nic-3c501-journal-b1/`. The separate 3c501 repetition remains
+  required because of the earlier intermittent cold failure. Reliability
+  investigation is about 95%; WD8003E and Novell NE1000 also remain open.
+
+- The separate 3c501 repetition also passes, including both correct replies,
+  a ten-minute idle and returned input after one fresh reconnect. Its owned
+  flows 59127/59203/59729/59814 pass fresh deadlines below 10.45 s and resumed
+  deadlines below 6.36 s. This run exercised the permitted pending send on
+  the old socket before its retirement; the answer completed on the new
+  session. Read-only media and protected inputs remain unchanged. The VM
+  closed automatically, leaving only the WD8003E and Novell NE1000 cases
+  running. Evidence: `OPT-020/live/h2-nic-3c501-journal-b4/`. Reliability
+  investigation is about 96%; no commit or push.
+
+- WD8003E passes the exact-floor greeting, reused first response, ten-minute
+  idle and bounded reconnect with `fortytwo` / `fifty` and returned input.
+  Its owned flows 59542/59629/60182/60250 pass fresh deadlines below 11.18 s
+  and resumed deadlines below 6.79 s. One pending send used the old socket
+  before its retirement, then the answer completed on the new session. The
+  image and protected inputs are unchanged; the VM closed automatically.
+  Evidence: `OPT-020/live/h2-nic-wd8003e-journal-a3/`. Only Novell NE1000
+  remains active. Reliability investigation is about 97%; wider campaign
+  remains about 40%. No commit or push.
+
+- Novell NE1000 completes the final NIC case with `fortytwo` / `fifty`,
+  ten-minute idle, one bounded reconnect and returned input. Owned flows
+  60016/60076/60613/60687 pass, with fresh deadlines below 11.17 s and resumed
+  deadlines below 6.86 s. A pending send used the old socket before retirement;
+  the answer completed on the new session. Read-only/protected inputs are
+  unchanged, and the VM closed automatically. Evidence:
+  `OPT-020/live/h2-nic-novell-ne1k-journal-b2/`. The queue reused the already
+  completed WD8003EB and 3c501 cases without launching duplicate VMs.
+- Final acceptance is complete on 2026-10-09: ten reviewed runs, 29 prompted
+  turns, all three main CPU/RAM paths and all seven original-speed ISA NIC
+  profiles, with a second 3c501 run. `OPT-020/final-audit.json` rechecks every
+  scoped capture gate, extracts the same runtime through each image's FAT
+  chain, verifies canonical/frozen/test image equality, and checks protected
+  input and capture hashes. All 18 H2 gates, 13 standalone TLS guards and
+  eight serialized 286 components are current; timing-measurement limits are
+  retained. `vm-cleanup-final.json` confirms zero remaining 86Box processes.
+  Functional reliability investigation: 100%; wider campaign: about 40%.
+  The 32 KiB numeric-format caveat, slow 16 KiB timings and physical entropy
+  limits remain explicit. No commit or push. Proposed checkpoint message:
+  `Fix minimum-memory chat and native-tool reliability`.

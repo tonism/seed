@@ -222,7 +222,7 @@ def main() -> None:
             "cipher_suite": "TLS_CHACHA20_POLY1305_SHA256",
             "group": "X25519MLKEM768 (0x11ec)",
             "server_name": "api.openai.com",
-            "record_size_limit": 2048,
+            "alpn": "h2",
             "compress_certificate": False,
             "psk": True,
             "resumption": True,

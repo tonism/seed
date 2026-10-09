@@ -84,30 +84,50 @@ tool_phase:
     mov byte [tool_helper_pending], 0    ; memory helper op queued by this parser phase, if any
     mov byte [fc_fail_code], 0
     cld
+%ifdef TLS13_PRODUCT_TLS13
+    cmp byte [chat_turn_failed], 0
+    jne .response_failed
+%endif
     cmp byte [tool_fc_state], 1
+    jne .not_complete_call
+    cmp byte [api_stream_completed], 3
     je .native_call
+    jmp .response_failed
+.not_complete_call:
     cmp byte [tool_fc_state], 3
-    je .native_call
+    jae .response_failed
     cmp byte [tool_fc_state], 2
     jne .scan_done
     xor ax, ax
     mov [tool_fc_state], al              ; prior tool result was already sent and answered
     mov [fc_capture_len], ax
     jmp .scan_done
+.response_failed:
+    ; A rejected/truncated response cannot leave a callable item or a stale
+    ; continuation gate behind. Return to human input, never replay a tool.
+    xor ax, ax
+    mov [chat_turn_failed], al
+    push ds
+    pop es
+    mov di, tool_fc_state
+    mov cx, reconnect_state_end - tool_fc_state
+    rep stosb
+    mov di, fc_capture_buf
+    mov cx, fc_capture_max / 2
+    rep stosw
+    cmp byte [esc_stop], 0
+    jne .scan_done                      ; preserve the user's explicit stop message
+    mov si, PHASE_LOAD_ADDR + (.turn_failed_text - PHASE_BASE)
+    call .draw_status
+    jmp .loop_reset
 .native_call:
+    cmp byte [agent_loop_count], agent_loop_max
+    jae .response_failed                ; a reply-only continuation cannot execute another tool
     call .maybe_save_prev_fc
     call .parse_fc_capture
     jc .native_clear
     call .dispatch_fc
     jc .native_clear
-    cmp byte [tool_fc_state], 2
-    jne .scan_done
-    cmp byte [fc_match_state], 0
-    je .native_suffix_ready
-    mov ax, [fc_suffix_len]              ; .maybe_save_prev_fc temp: low=output len, high=name len
-    mov [fc_capture_len], ax             ; after parse, capture length is dead until the next response
-.native_suffix_ready:
-    call .compute_fc_suffix_len
     jmp .scan_done
 .native_clear:
     mov al, [fc_fail_code]
@@ -167,6 +187,8 @@ tool_phase:
     or al, al
     jz .draw_status_done
     call .scr_putc
+    mov cx, 1
+    phase_call_res wait_ticks
     inc si
     jmp .draw_status_next
 .draw_status_done:
@@ -177,6 +199,7 @@ tool_phase:
 .saved_text db '> saved', 0
 .response_failed_text db '> failed:'
 .response_failed_code db '?', 0
+.turn_failed_text db '> response failed; try again', 0
 
 ; Build 12 native function calling. agent_response captured raw SSE bytes after the
 ; function_call marker; parse the last seen call_id/name/arguments fields into compact
@@ -311,74 +334,58 @@ tool_phase:
     mov byte [fc_output_len], 0
     mov byte [fc_output_buf], 0
     ret
-.compute_fc_suffix_len:
-    mov ax, api_fc_call_open_text_len + api_fc_name_mid_text_len + api_fc_args_mid_text_len
-    add ax, api_fc_output_open_text_len + api_fc_output_mid_text_len + api_stream_json_close_text_len
-    xor bh, bh
-    mov bl, [fc_call_id_len]
-    add ax, bx
-    add ax, bx
-    mov bl, [fc_name_len]
-    add ax, bx
-    add ax, [fc_args_len]
-    mov bl, [fc_output_len]
-    add ax, bx
-    call .add_prev_fc_suffix_len
-    mov [fc_suffix_len], ax
-    ret
-.add_prev_fc_suffix_len:
-    cmp byte [fc_match_state], 0
-    je .ap_done
-    add ax, api_fc_call_open_text_len + api_fc_name_mid_text_len + api_fc_args_mid_text_len + 1
-    add ax, api_fc_output_open_text_len + api_fc_output_mid_text_len
-    mov bl, [fc_match_state]
-    add ax, bx
-    add ax, bx
-    mov bl, [fc_capture_len + 1]
-    add ax, bx
-    mov bl, [fc_capture_len]
-    add ax, bx
-.ap_done:
-    ret
-
+; Append the previous completed result before the next call overwrites it.
+; Retain whole semicolon-delimited lines within the existing 90-byte journal.
 .maybe_save_prev_fc:
     cmp byte [agent_loop_count], 0
-    jne .msp_save
-    mov byte [fc_match_state], 0
+    jne .history_save
+    mov byte [fc_history_len], 0
     ret
-.msp_save:
-    cmp byte [fc_output_len], 0
-    je .msp_done
+.history_save:
+    xor bx, bx
+    mov bl, [fc_output_len]
+    or bl, bl
+    jz .history_done
+    cmp bl, fc_output_max
+    jae .history_done
+    inc bx                              ; one separator after the result
     push ds
     pop es
-    mov al, [fc_call_id_len]
-    cmp al, fc_prev_call_id_max
-    ja .msp_no_room
-    mov [fc_match_state], al
-    mov si, fc_call_id
-    mov di, fc_prev_call_id
-    mov cl, al
-    xor ch, ch
+.history_room:
+    xor ax, ax
+    mov al, [fc_history_len]
+    cmp al, fc_history_max
+    ja .history_reset
+    add ax, bx
+    cmp ax, fc_history_max
+    jbe .history_append
+    mov si, fc_history_buf
+    xor cx, cx
+    mov cl, [fc_history_len]
+.history_drop:
+    jcxz .history_reset
+    lodsb
+    dec cx
+    cmp al, ';'
+    jne .history_drop
+    mov [fc_history_len], cl
+    mov di, fc_history_buf
     rep movsb
-    mov al, [fc_name]
-    mov [fc_prev_name_code], al
-    mov al, [fc_name_len]
-    mov [fc_suffix_len + 1], al
-    mov al, [fc_output_len]
-    cmp al, fc_prev_output_max
-    jbe .msp_len_ready
-    mov al, fc_prev_output_max
-.msp_len_ready:
-    mov [fc_suffix_len], al
+    jmp .history_room
+.history_reset:
+    mov byte [fc_history_len], 0
+    jmp .history_room
+.history_append:
+    mov [fc_history_len], al
+    sub ax, bx
+    mov di, fc_history_buf
+    add di, ax
     mov si, fc_output_buf
-    mov di, fc_prev_output
-    mov cl, al
-    xor ch, ch
+    mov cx, bx
+    dec cx
     rep movsb
-.msp_done:
-    ret
-.msp_no_room:
-    mov byte [fc_match_state], 0
+    mov byte [di], ';'
+.history_done:
     ret
 
 .parse_addr_arg:
@@ -663,14 +670,12 @@ tool_phase:
     jb .nl_inc
     push bx                          ; int 0x10 scroll can clobber bx/bp - preserve both
     push bp
-    mov ah, 0x06
-    mov al, 1
-    mov bh, 0x07
+    mov ax, 0x0601
     mov cx, 0x0100
-    mov dh, dpi_prompt_row
-    mov dl, [screen_cols]
-    dec dl
-    int 0x10
+    phase_call_res scroll_text_area
+    ; This between-turn status belongs to the submitted human prompt.
+    ; Its display row must follow every scroll until the tool loop ends.
+    dec byte [dpi_prompt_marker_row]
     pop bp
     pop bx
     mov byte [cursor_row], dpi_prompt_row - 1

@@ -24,7 +24,6 @@ agent_response_phase:
     ; the bytes the scan just consumed. Resident routine; this phase persists at
     ; agent_response_phase_load_addr across the whole receive loop (the only loaded code
     ; that does), so it is the home for both the call site and the request template.
-    phase_call_res agent_api_keepalive
 %ifndef TLS13_PRODUCT_TLS13
 %ifndef TLS13_APP_ORACLE_CHECK
     cmp byte [api_stream_completed], 3
@@ -63,16 +62,8 @@ agent_response_phase:
     mov [fc_capture_buf + bx], al
     inc word [fc_capture_len]
 .fc_capture_done:
-    ; response.completed is the last successful model event, not the end of
-    ; its HTTP/1.1 message. Keep consuming authenticated TLS records until the
-    ; exact chunked terminal arrives. A terminal-shaped header suffix is only
-    ; provisional: OpenAI's current final header ends in ma=86400, which is
-    ; itself 0 CR LF CR LF. A later response.completed clears that bit so only
-    ; a terminal observed after the successful event can publish state 3.
-    mov di, api_http_state
-    mov si, PHASE_LOAD_ADDR + (http_terminal_pattern - PHASE_BASE)
-    call .match_char
-    jnc .http_terminal
+    ; T receives only authenticated HTTP/2 DATA. The response owner
+    ; publishes completion only after this event AND HTTP/2 END_STREAM.
     test byte [api_stream_completed], 1
     jnz .parser_ret
     mov di, api_stream_done_match
@@ -80,11 +71,10 @@ agent_response_phase:
     call .match_char
     jc .scan_delta
     mov byte [api_stream_completed], 1
-    ret
-.http_terminal:
-    ; 0 | 2 = bounded failure; 1 | 2 = successful terminal.  OR keeps a
-    ; duplicate terminal idempotent while avoiding another matcher state.
-    or byte [api_stream_completed], 2
+    ; Freeze the completed function-call item before response.completed's
+    ; echoed output can overwrite/truncate its capture. M still requires the
+    ; successful HTTP terminal before it may dispatch the frozen call.
+    jmp .done_ready
 .done_ready:
     mov al, [tool_fc_state]
     cmp al, 3
@@ -99,10 +89,10 @@ agent_response_phase:
 .done_freeze_fc:
     mov byte [tool_fc_state], 1
 .completion_ready:
-    ; Treat SSE completion as terminal for this streamed response.  TLS 1.3
-    ; keeps the authenticated HTTP connection and record sequences live; an
-    ; actual send/receive failure burns that state in the resident scheduler.
-    ; The retired TLS 1.2 path closes here and marks its quiet reconnect.
+    ; Capture can freeze before HTTP completion. The API and M both require
+    ; state 3 (successful event plus terminal) for a tool-only result. TLS 1.3
+    ; retains the authenticated connection; transport failure retires it in
+    ; the scheduler. The retired TLS 1.2 path marks its quiet reconnect here.
 %ifndef TLS13_PRODUCT_TLS13
 %ifndef TLS13_APP_ORACLE_CHECK
     mov byte [tls_key_schedule_ready], tls_key_schedule_quiet_reconnect
@@ -156,8 +146,8 @@ agent_response_phase:
 	jc .fc_no_match
 	mov al, 3
 	mov [tool_fc_state], al
-	mov [api_stream_text_seen], al
-	mov [api_stream_completed], al
+    ; Capturing an item is neither rendered text nor transport completion.
+    ; Keep draining the authenticated HTTP response before any tool runs.
 %ifndef TLS13_PRODUCT_TLS13
 %ifndef TLS13_APP_ORACLE_CHECK
 	mov byte [tls_key_schedule_ready], tls_key_schedule_quiet_reconnect
@@ -290,6 +280,10 @@ agent_response_phase:
     mov ax, 0x0601                       ; scroll up 1 line
     mov cx, 0x0100                       ; top-left (row 1, col 0)
     phase_call_res scroll_text_area
+    test byte [dpi_prompt_marker_row], 0x80
+    jz .marker_scrolled
+    dec byte [dpi_prompt_marker_row]
+.marker_scrolled:
     pop cx
     mov byte [cursor_row], dpi_prompt_row - 1
 .move_down:
@@ -303,6 +297,9 @@ agent_response_phase:
     cmp byte [compacting_msg], 0
     je .apt_not_compaction
     mov word [chat_context_used], 0
+%ifdef TLS13_PRODUCT_TLS13
+    mov byte [compacting_msg], 2         ; authenticated summary text now exists
+%endif
     jmp .apt_done
 .apt_not_compaction:
     cmp byte [agent_loop_pending], 0
@@ -463,22 +460,10 @@ agent_response_phase:
 
 completed_pattern db 'response.completed', 0
 done_pattern equ completed_pattern
-http_terminal_pattern db '0', 13, 10, 13, 10, 0
 output_done_pattern db 'output_item.done', 0
 fc_start_pattern db '"function_call"', 0
 output_text_event_pattern db '"response.output_text.delta"', 0
 delta_key_pattern db 'delta":"', 0
-
-; Keep-alive GET template. It lives in this phase instead of persistent RAM: agent_response is loaded
-; for the whole receive/render loop, which is the only time agent_api_keepalive can send it.
-agent_response_ka_template:
-    db "GET /v1 HTTP/1.1", 13, 10
-    db "Host: api.openai.com", 13, 10
-    db 13, 10
-agent_response_ka_template_end:
-%if (agent_response_ka_template_end - agent_response_ka_template) != ka_request_len
-%error "ka_request_len (layout.inc) does not match the response keep-alive template length"
-%endif
 
 %unmacro phase_call_res 1
 

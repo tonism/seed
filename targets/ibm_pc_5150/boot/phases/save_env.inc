@@ -112,14 +112,11 @@ save_scr_newline:
     jb .nl_inc
     push bx
     push bp
-    mov ah, 0x06
-    mov al, 1
-    mov bh, 0x07
+    mov ax, 0x0601
     mov cx, 0x0100
-    mov dh, dpi_prompt_row
-    mov dl, [screen_cols]
-    dec dl
-    int 0x10
+    phase_call_res scroll_text_area
+    ; save_env also continues the originating submitted request afterward.
+    dec byte [dpi_prompt_marker_row]
     pop bp
     pop bx
     mov byte [cursor_row], dpi_prompt_row - 1

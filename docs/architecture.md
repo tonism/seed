@@ -12,12 +12,15 @@ and every byte of headroom above 16 KiB belongs to the user, not to Seed.** A
 bigger machine does not get a bigger Seed; it gets a bigger conversation and a
 bigger arena to build in. That principle is the spine of everything below.
 
-> **Status.** This contract describes the TLS 1.3 integration currently under
-> validation: lifetime-ordered low memory, one self-selecting `SEED.SYS`,
+> **Status.** This contract describes the TLS 1.3 integration:
+> lifetime-ordered low memory, one self-selecting `SEED.SYS`,
 > external NIC drivers, native function tools, and RAM scaling from the 16 KiB
 > floor through EMS / 286 native extended / 386 unreal mode. The 8088 and 286
-> TLS routes pass their current-source exact-floor emulator gates. Physical
-> entropy characterization and additional provider-edge repetition remain;
+> TLS routes pass original-speed functional acceptance with the
+> [HTTP/2 transport](http2.md#functional-acceptance), including the 16 KiB,
+> 32 KiB and 286/512 KiB paths and seven ISA NIC profiles. Historical
+> wire/timing tables describe the previous transport. Physical entropy
+> characterization and broader provider-edge characterization remain;
 > PoC and historical measurements are labeled as such. Byte-level maps are in
 > [`memory.md`](memory.md), and the exact security claims are in
 > [`security.md`](security.md).
@@ -64,9 +67,9 @@ capability tiers above them:
           authenticated peer identity remain separate CPU-tier capabilities.
           Inviolable.
 
-32 KiB  — the convenience tier. The chat loop no longer reads the floppy
-          mid-conversation (it preloads its working set and tools schema at
-          boot), and the rest of the headroom becomes a larger low
+32 KiB  — the convenience tier. The ordinary loop and tools schema are cached
+          at boot; HTTP/2 parser transitions still read the floppy. The rest
+          of the headroom becomes a larger low
           arena + conversation window.
           No new REQUIRED functionality — only performance and headroom.
 
@@ -380,9 +383,9 @@ Timing-sensitive spans are explicitly preloaded:
          credential-free dialogue or same-boot ticket can bridge connection
          closure without turning disk into mutable state.
 
-32 KiB   preloads ONLY the normal chat loop's working set (its phases + the streamed
-         IDENTITY prompt) so ordinary turns are floppy-free. The rare COMPACT prompt
-         can still stream from floppy.
+32 KiB   preloads the existing chat phases and streamed IDENTITY prompt. HTTP/2
+         parser/crypto swaps and response-owner loads still read the floppy.
+         The rare COMPACT prompt can also stream from floppy.
 
 286      reads and validates the complete 44-sector asymmetric module pack into
          its top-relative 64 KiB reservation before opening TCP. Before each
@@ -399,8 +402,9 @@ Timing-sensitive spans are explicitly preloaded:
 On a 32 KiB direct boot, the boot reads the loop's working set — the chat-loop
 phases, application-record window, and IDENTITY prompt — into a high RAM cache
 once (`loop_cache`, above the arena/context pool and below the stack). The phase
-loader and prompt streamer then serve ordinary turns from RAM. The rare
-compaction turn may still stream COMPACT from floppy. The arena/context ceiling
+loader and prompt streamer serve those cached components from RAM; the HTTP/2
+components described in [http2.md](http2.md) remain demand-loaded. A
+compaction turn may also stream COMPACT from floppy. The arena/context ceiling
 drops to the cache base, and the ledger advertises that ceiling so an agent
 write cannot land in the cache. The 16 KiB path remains demand-loaded.
 
@@ -437,19 +441,19 @@ agent phase "o"
   -> dispatch by CPU/RAM capability:
        8088 profile:
          escrow config -> collect local floppy timing -> cold-load K14 phases
-         -> connect -> provisional TLS 1.3 Finished + literal HEAD
-         -> authenticate HEAD response + bounded tentative ticket
+         -> connect -> provisional TLS 1.3 Finished + H2 preface/SETTINGS
+         -> authenticate H2 SETTINGS/ACK + bounded tentative ticket
          -> full FO + exact dated-leaf/CV proof
          -> one-shot no-0RTT resumption with fresh KEM work
-         -> client Finished + literal HEAD + authenticated liveness
+         -> client Finished + H2 preface/SETTINGS + authenticated liveness
          -> atomic credential unlock
        286 / 512 KiB conforming route:
          N: silently obtain a coherent platform-UTC RTC value and preserve the
             prompt working set in an arena-excluded RAM shadow
          -> cache/validate 286 pack -> acquisition connection
          -> stage the immutable symmetric image before opening acquisition TCP
-         -> provisional hybrid proof, client Finished, literal credential-free
-            HEAD, and authenticated tentative NewSessionTicket
+         -> provisional hybrid proof, client Finished, credential-free
+            H2 preface/SETTINGS, and authenticated tentative NewSessionTicket
          -> offline full FO comparison plus WE1/leaf/time/CV validation and
             table generation; promote the same-boot ticket
          -> no-0RTT PSK-DHE resumption with independent X25519MLKEM768 keys,
@@ -480,6 +484,19 @@ The same resident TCP/NIC callbacks serve both TLS routes. The current provider
 and hostname are fixed to OpenAI; alternate `AGENTS.CFG` entries do not select
 an alternate security path.
 
+Both routes use the [HTTP/2 application transport](http2.md). The same
+bounded journals accept full legal TLS records at the 16 KiB floor; a provider
+record larger than 2,048 bytes no longer requires extra RAM or a reconnect.
+Whole-record authentication precedes display, context, native effects and
+protocol replies. DATA flow control bounds retained response bytes. Neither
+video nor adapter memory is transport storage.
+
+The response parser freezes a completed tool item but waits for both the
+response completion event and HTTP/2 END_STREAM before dispatch. A failed
+exchange clears incomplete tool state and returns to human input with an
+explicit recoverable status. The one-reconnect budget and the prohibition on
+replaying tool continuations or partially rendered answers are unchanged.
+
 ## Phase Windows
 
 `SEED.SYS` starts with a resident nucleus and a phase table. The phase loader
@@ -493,7 +510,7 @@ Current 29-phase layout (regenerate with `make inspect` / `tools/core-sys-info.p
 
 ```text
 id  sectors  load addr  responsibility
-K   11/15    0x1800     5310-byte TLS 1.3 application executable in a 15-sector slot
+K   8/15     0x1800     4081-byte TLS application executable; H2 parser uses slot tail
 F   2        0x0700     failure action UI
 H   4        0x0700     hardware/display/NIC discovery
 2   2        0x0700     scan/load suitable NIC driver from SEED/DRIVERS/*.DRV
@@ -530,7 +547,7 @@ network window between turns. The 286 extended-layout phase `0` loads at `0x3600
 because it runs while the high scratch band is still available. Most remaining
 cold phases load at `0x0700`. This
 phase-streaming design is what lets a TLS 1.3 record path — ChaCha20-Poly1305,
-SHA-256, HTTP/1.1, SSE streaming — run in 16 KiB on a 4.77 MHz 8088: only the
+SHA-256, HTTP/2, SSE streaming — run in 16 KiB on a 4.77 MHz 8088: only the
 nucleus and the crypto window stay resident, while the other phases stream from
 the floppy and take turns in one small window. The RAM-only product pack's
 lifetime-separated ciphertext, key, authentication, and ticket layouts keep
@@ -555,6 +572,13 @@ M  tool phase (cold, loaded between turns): parse the structured call and execut
      stores the structured output, and the next request locally replays the user item,
      function_call, and function_call_output. The model then answers or calls another tool.
 ```
+
+Requests disable parallel function calls because the runtime owns one captured
+call at a time. A 90-byte journal carries complete older result lines alongside
+the current structured call/output, evicting the oldest whole lines when full.
+This uses the existing reconnect-safe allocation and leaves the arena/context
+floor unchanged. The eighth call's output is sent with tools disabled to obtain
+a final answer. The visible stop/failure rules are described in [UI](ui.md).
 
 Worked example (validated): asked to write and then read four bytes in the arena, the model calls
 `write_mem`, then `read_mem`, Seed executes both locally, sends `function_call_output` items, and
@@ -585,23 +609,23 @@ before TCP
 fresh provider deadline
   send TLS 1.3 ClientHello
   verify protected flight and exact server Finished under the provisional candidate
-  send client Finished and one literal credential-free HEAD
+  send client Finished and one credential-free H2 preface/SETTINGS
 
 after client Finished, still on the fresh connection
-  authenticate the HEAD response and one bounded same-boot ticket
+  authenticate the H2 SETTINGS/ACK and one bounded same-boot ticket
 
 offline, still on the 8088
   complete full ML-KEM FO validation and traffic-secret comparison
   verify possession of the image's dated exact leaf and the saved CertificateVerify
   resume with fresh KEM work and the one-shot tentative ticket
-  verify resumed Finished, send the same fixed HEAD with no early data,
+  verify resumed Finished, send the same H2 preface/SETTINGS with no early data,
     and authenticate its response
   restore/scrub volatile state, then publish credential access status-last
 ```
 
 The wire group is `X25519MLKEM768`, but the 8088 fixes X25519 to `u=9`.
 Consequently this is effective ML-KEM-only key exchange and not a
-standards-conforming hybrid. The fixed HEAD is a real but credential-free
+standards-conforming hybrid. The H2 preface/SETTINGS is a real but credential-free
 external effect; no key, prompt, context, redirect, or tool continuation is
 reachable before full commit. The complete rationale is in
 [`security.md`](security.md).
@@ -611,9 +635,9 @@ trusted runtime clock. Leaf rotation or the image object's validity end
 requires a refreshed trusted image.
 
 The exact-floor route must put fresh client Finished on the wire before the
-provider's handshake close, then authenticate the fresh HEAD response and
+provider's handshake close, then authenticate the fresh H2 SETTINGS/ACK and
 ticket on that connection. The final resumed connection offers no early data;
-its HEAD follows client Finished. These are measured compatibility boundaries,
+its preface follows client Finished. These are measured compatibility boundaries,
 not a service SLA; the provider's observed handshake close is near 15 seconds
 and may vary.
 
@@ -623,7 +647,7 @@ retired. The 1,088-byte ML-KEM ciphertext is scattered around live code/state,
 then reshaped for regenerated KeyGen and full FO; compact status-last capsules
 carry only the root, provisional result, authentication input, traffic keys,
 and same-boot ticket state across those epochs. The application receiver uses
-the otherwise-dead `0x2e00..0x35ff` spool plus bounded low fragments. Exact
+the otherwise-dead `0x2e00..0x35ff` journals plus bounded low fragments. Exact
 composition gates execute both deadline paths, both eight-entry lifecycle
 paths, fragmented multi-record HTTP/NST processing, and assert that config,
 arena/context, video RAM, and adapter RAM remain unchanged. No video/NIC RAM
@@ -635,6 +659,11 @@ address temporarily aliases the larger low arena, so root shadows exactly
 those bytes plus its caller return at `0x7a00..0x7a1e`, returns through a carry-preserving trampoline,
 restores the full 224/224-byte pool on both success and abort, and erases the
 shadow. This is conventional stack-guard RAM, not video or adapter memory.
+
+The post-handshake receiver uses the same authenticated H2 journals and
+shared parser as ordinary application traffic. Cold NST derivation has a
+separate lifetime from native calls. See [http2.md](http2.md) for the exact
+journal map, liveness boundary and phase-failure unwinds.
 
 The complete 12-sector route-specific symmetric image is loaded before TCP.
 Key generation and ClientHello construction overwrite only its retired prefix,
@@ -664,8 +693,8 @@ acquisition connection
   use the exact ML-KEM candidate only provisionally
   verify protected records and server Finished
   capture ordinary Certificate + CertificateVerify
-  send client Finished and the immutable credential-free HEAD
-  authenticate the HTTP response and one NewSessionTicket
+  send client Finished and the immutable credential-free H2 preface/SETTINGS
+  authenticate peer SETTINGS/ACK and one NewSessionTicket
   publish that ticket only as TENTATIVE
 
 offline, no provider timer
@@ -684,10 +713,9 @@ final credential-bearing resumption
   after ServerHello, consume the matrix and complete full ML-KEM FO
     decapsulation plus X25519 shared-secret derivation
   accept only EncryptedExtensions followed by Finished
-  verify server Finished, send client Finished and the credential-free HEAD
-  require a complete authenticated ticket plus an allowed HTTP status
-  publish application keys with the consumed server-record sequence; a missing
-    response-header terminator does not hold credentials indefinitely
+  verify server Finished, send client Finished and the credential-free H2 preface/SETTINGS
+  require a complete authenticated ticket plus peer SETTINGS/ACK
+  publish application keys with the consumed server-record sequence
   only now make the API key and business request reachable
 ```
 
@@ -718,9 +746,10 @@ The structural 6 MHz timing gate shows why this schedule is useful: its latest
 measured baseline put public matrix generation at 45 ticks / 2.4716 s before
 TCP and full FO at 43 ticks / 2.3618 s with the cache versus 88 ticks / 4.8334 s
 without it. The current read-only 6 MHz / 512 KiB live reconnect capture has the
-required `acquisition -> resumption -> acquisition -> resumption` topology and
-measures 8.8880, 8.6428, 8.9518, and 8.6425 seconds from ServerHello to client
-Finished. The target returns authenticated OpenAI text and a clean DPI prompt.
+required `acquisition -> resumption -> acquisition -> resumption` topology.
+All four ServerHello-to-client-Finished intervals are below 8.60 seconds.
+The target completes four dependent replies and native write/execute/read,
+then returns the correct result and a clean DPI prompt.
 
 The candidate ML-KEM path is deliberately not an authority boundary. The
 offline full FO comparison, X.509/hostname/time/WE1/CV checks, and
@@ -731,9 +760,12 @@ wire/reconnect trace and the injected CPU/RAM/time/entropy/auth/Finished/FO/
 pack/abort gates pass. Physical entropy characterization and additional
 provider-edge repetition remain open.
 
-### Current exact-floor activity timelines
+The timings below precede HTTP/2 integration. They are regression history,
+not acceptance evidence for the current transport; see the campaign ledger.
 
-These monitors use the current conventional-RAM-only image, read-only media,
+### Historical exact-floor activity timelines
+
+These earlier monitors used a conventional-RAM-only image, read-only media,
 the exact 4.77 MHz / 16 KiB and 6 MHz / 512 KiB floors, and the same short
 `FORTYTWO` dialogue on `gpt-5.6-sol` with `xhigh` reasoning. They are wall-clock
 activity measurements, not entropy evidence or a provider SLA. Network
@@ -753,9 +785,13 @@ D  initial authenticated dialogue through return to the DPI prompt
 X  one failed pre-text route plus its bounded fresh rebuild
 ```
 
-`F` and `R` perform no floppy reads. Cold phase reads in `P`, `O`, or `C` are
-outside the corresponding provider handshake window. The bars show elapsed
-phase ownership, not sampled bus-utilization percentages.
+On the 8088, `F` and `R` include required floppy reads after ServerHello:
+the one-sector deadline controller, five candidate sectors, eleven symmetric
+prefix sectors, and three fresh or two resumed protected-controller sectors
+(20 fresh / 19 resumed sectors total). The final symmetric sector is staged
+before TCP. Reads in `P`, `O`, or `C` are outside the corresponding provider
+handshake window. The bars show elapsed phase ownership, including computation
+and I/O, not sampled bus-utilization percentages.
 
 #### 8088 cold start
 
@@ -873,12 +909,10 @@ tickets cannot make application credentials reachable.
 ### Integration risks and open questions
 
 - The provider close near 15 seconds is observed behavior, not an SLA. Both
-  exact-floor routes have current live margin evidence but need more repetition
-  across cold boots and edge variation. The 8088 profile requires fresh
-  Finished plus authenticated HEAD/ticket completion before its no-0RTT
-  resumed liveness exchange; the conforming route likewise requires its
-  complete acquisition/HEAD/ticket exchange. Both need further live margin
-  characterization.
+  exact-floor routes need repeated HTTP/2 measurements across cold boots and
+  edge variation. The 8088 profile requires fresh Finished plus authenticated
+  SETTINGS/ACK and ticket completion before its no-0RTT resumed liveness
+  exchange; the conforming route has the same acquisition-liveness requirement.
 - Emulator entropy has zero credit. PIT phases from the physical 8088's
   already-required floppy reads and the 286 RTC/PIT source may not support
   their provisional min-entropy assumptions or health cutoffs.
@@ -893,12 +927,10 @@ tickets cannot make application credentials reachable.
   does not fragment the user experience, or revised package geometry.
 - The RAM-only 8088 composition gate proves video/adapter/config/arena guards
   under exact emulated phase execution, including direct-tier arena restoration.
-  Current-source read-only exact-floor runs pass bounded reconnect on all seven
-  original-speed NIC profiles, plus NIC-present CGA and MDA display cases.
-  Current no-card CGA/MDA and isolated no-driver images reach their documented
-  retry/restart menus. This evidence does not grant permission to disturb the
-  stable driver surface; shared packet, timing, or TLS changes still require the
-  matrix.
+  The earlier HTTP/1 runtime passed bounded reconnect on all seven
+  original-speed NIC profiles, plus NIC-present CGA/MDA and no-card/no-driver
+  cases. HTTP/2 changes shared packet, timing, and phase-loading behavior;
+  its current-source matrix must pass before inheriting those claims.
 - OpenAI is the only current wire profile. Adding a provider is an explicit
   certificate/protocol/timing architecture task, not another config row.
 

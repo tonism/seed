@@ -164,7 +164,7 @@ core_link_window_start:
 %include "core/chacha20.inc"
 %undef CHACHA_INLINE_ROTL12
 %undef CHACHA_COMPACT_FAST_ROTATES
-%include "core/poly1305.inc"
+%include "core/poly1305_app.inc"
 %include "core/tls13_app.inc"
 %include "core/agent_api.inc"
 
@@ -181,6 +181,7 @@ tls_probe_server:
 %include "core/tls.inc"
 %include "core/agent_api.inc"
 %endif
+%include "core/h2_invoke.inc"
 core_link_window_end:
 
 ; Keep the product K window at its established 15-sector geometry.  The
@@ -193,7 +194,12 @@ core_link_window_end:
 %if (core_link_window_end - core_link_window_start) > (15 * 512)
 %error "TLS 1.3 product K image exceeds the fixed 15-sector window"
 %endif
-times (15 * 512) - (core_link_window_end - core_link_window_start) db 0
+%if (core_link_window_end-core_link_window_start) > 8*512
+%error "private H2 receiver/bridge caller exceeds eight loaded K sectors"
+%endif
+times (8*512)-(core_link_window_end-core_link_window_start) db 0
+incbin "post-head.bin"
+
 core_link_window_padded_end:
 %else
 core_link_window_padded_end equ core_link_window_end
@@ -438,7 +444,16 @@ times 512 - (core_agent_endpoint_phase_end - core_agent_endpoint_phase_start) db
 ; and moving the ordinary product phases that follow it.
 %ifndef TLS13_PRODUCT_PACK_BASE
 core_tls13_k14_pack_start:
-incbin "tls13-k14-product-pack.bin"
+; The unused third fresh-controller sector belongs to the 286 H2 adapter.
+; The pack remains independently verifiable with that sector zero; final
+; prefix and tail binding include the exact separately linked adapter.
+incbin "tls13-k14-product-pack.bin", 0, (164-45)*512
+%ifdef TLS13_PRODUCT_286_ABI_BASE
+times 512 db 0                      ; cold-pack gate before the 286 adapter link
+%else
+incbin "tls13-286-h2-helper.bin"
+%endif
+incbin "tls13-k14-product-pack.bin", (165-45)*512
 core_tls13_k14_pack_end:
 
 %if ((core_tls13_k14_pack_start - $$) / 512) != 45
@@ -615,7 +630,7 @@ align 512, db 0
 
 core_tool_replay_prev_phase_start:
 %define PHASE_BASE core_tool_replay_prev_phase_start
-%define PHASE_LOAD_ADDR low_scratch_start
+%define PHASE_LOAD_ADDR 0x2c00
 %include "phases/tool_replay_prev.inc"
 %undef PHASE_LOAD_ADDR
 %undef PHASE_BASE
@@ -691,10 +706,19 @@ core_save_phase_start:
 %undef PHASE_BASE
 core_save_phase_end:
 
+%if core_save_phase_end - core_save_phase_start != 547
+%error "shared H2 parser tail location moved within S"
+%endif
+
 %if (core_save_phase_end - core_save_phase_start) > 1024
 %error "save phase exceeds its two-sector window"
 %endif
-
+; Flat immutable code fragments occupy existing S padding; S's byte length
+; and complete executable bytes are unchanged. No phase-table extent grows.
+incbin "post-tail.bin"
+%if ($-core_save_phase_start) > 1024
+%error "H2 tail/bridge overflows S's existing padding"
+%endif
 align 512, db 0
 
 ; Build 12 (32K cached loop): the preloaded chat-loop working set (loop_preload_list — dpi/Y +

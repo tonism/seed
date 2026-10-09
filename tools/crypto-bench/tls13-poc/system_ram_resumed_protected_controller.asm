@@ -2,7 +2,7 @@
 ;
 ; The ServerHello controller left the peer at a zero receive window.  This
 ; image reopens it, accepts an optional compatibility CCS followed by exactly
-; one 64-byte TLS record, authenticates the fixed empty EncryptedExtensions +
+; one 73-byte TLS record, authenticates the fixed h2 EncryptedExtensions +
 ; Finished shape, sends client Finished and the credential-free HEAD, then
 ; closes the window again before slow FO/offline work.
 
@@ -45,11 +45,13 @@ sym_received_finish          equ 0x38f0
 sym_io                       equ 0x39a0
 resumed_tail_len             equ 0x0f16
 resumed_tail_buffer          equ 0x0f18
-resumed_tail_capacity        equ 70
+resumed_tail_capacity        equ 83
+resumed_tail_low_bytes       equ 72
+resumed_tail_extra           equ 0x3b90
 
-resumed_record_wire_len      equ 64
-resumed_record_body_len      equ 59
-resumed_plain_len            equ 43
+resumed_record_wire_len      equ 73
+resumed_record_body_len      equ 68
+resumed_plain_len            equ 52
 
 sysram_resumed_protected:
     cld
@@ -81,6 +83,13 @@ sysram_resumed_protected:
     ja resumed_failed
     or cx, cx
     jz .receive
+    mov byte [resumed_tail_extra_count], 0
+    cmp cx, resumed_tail_low_bytes
+    jbe .tail_low
+    sub cx, resumed_tail_low_bytes
+    mov [resumed_tail_extra_count], cl
+    mov cx, resumed_tail_low_bytes
+.tail_low:
     mov si, resumed_tail_buffer
     jmp .consume
 
@@ -157,7 +166,10 @@ sysram_resumed_protected:
 .record_complete:
     or cx, cx
     jnz resumed_failed
-    cmp word [resumed_record_pos], resumed_record_wire_len
+    mov ax, [resumed_header + 3]
+    xchg al, ah
+    add ax, 5
+    cmp [resumed_record_pos], ax
     jne resumed_failed
     push es
     push ds
@@ -166,12 +178,22 @@ sysram_resumed_protected:
     mov di, resumed_tail_len
     mov cx, (0x0f60 - resumed_tail_len) / 2
     rep stosw
+    mov di, resumed_tail_extra
+    mov cx, 6
+    rep stosw
     pop es
     call res_tcp_ack
     jc resumed_failed
     jmp resumed_process_record
 
 .ack_more:
+    xor cx, cx
+    mov cl, [resumed_tail_extra_count]
+    jcxz .ack_network
+    mov byte [resumed_tail_extra_count], 0
+    mov si, resumed_tail_extra
+    jmp .consume
+.ack_network:
     call res_tcp_ack
     jc resumed_failed
     jmp .receive
@@ -193,8 +215,14 @@ resumed_start_record:
 .encrypted:
     cmp byte [resumed_header], 0x17
     jne .failed
-    cmp word [resumed_header + 3], 0x3b00
+    mov ax, [resumed_header + 3]
+    xchg al, ah
+    cmp ax, 68
+    je .h2_length
+    cmp ax, 72
     jne .failed
+.h2_length:
+    mov [resumed_remaining], ax
     push es
     push ds
     pop es
@@ -204,7 +232,6 @@ resumed_start_record:
     rep movsb
     pop es
     mov word [resumed_record_pos], 5
-    mov word [resumed_remaining], resumed_record_body_len
     mov byte [resumed_state], 2
     clc
     ret
@@ -221,14 +248,23 @@ resumed_record_authenticated:
     push ds
     pop es
     mov si, sym_io + 5
-    mov di, resumed_plain_prefix
-    mov cx, resumed_plain_prefix_end - resumed_plain_prefix
-    repe cmpsb
+    call h2_validate_ee
+    jc resumed_failed
+    mov ax, cx
+    add ax, 53                       ; Finished, inner type, AEAD tag
+    xchg al, ah
+    cmp [sym_io + 3], ax
     jne resumed_failed
-    cmp byte [sym_io + 5 + resumed_plain_len - 1], 0x16
+    mov si, sym_io + 5
+    add si, cx
+    cmp word [si], 0x0014
+    jne resumed_failed
+    cmp word [si + 2], 0x2000
+    jne resumed_failed
+    cmp byte [si + 36], 0x16
     jne resumed_failed
 resumed_structure_valid:
-    mov si, sym_io + 15
+    add si, 4
     mov di, sym_received_finish
     mov cx, 16
     rep movsw
@@ -253,10 +289,10 @@ resumed_finished_sent:
     jc resumed_failed
     call word [sym_build_head_entry]
     jc resumed_failed
-    cmp ax, 72
+    cmp ax, 79
     jne resumed_failed
     mov si, sym_io
-    mov cx, 72
+    mov cx, 79
     call res_tcp_send
     jc resumed_failed
     mov cx, 1
@@ -341,14 +377,13 @@ resumed_zero_window:
 resumed_failed:
     jmp low_abort
 
-resumed_plain_prefix:
-    db 0x08,0x00,0x00,0x02,0x00,0x00
-    db 0x14,0x00,0x00,0x20
-resumed_plain_prefix_end:
+%include "h2_encrypted_extensions.inc"
+
 resumed_header       times 5 db 0
 resumed_header_pos   db 0
 resumed_state        db 0
 resumed_seen_ccs     db 0
+resumed_tail_extra_count db 0
 resumed_remaining    dw 0
 resumed_record_pos   dw 0
 

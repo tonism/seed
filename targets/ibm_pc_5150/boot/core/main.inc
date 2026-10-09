@@ -311,10 +311,10 @@ agent_resolve_prompt_source:
     ret
 .floppy:
     add ax, fat_data_start_lba - fat_first_data_cluster
-    mov bx, tls_rx_copy
+    mov bx, 0x2e70
     call read_abs_sector
     jc .done
-    mov si, tls_rx_copy
+    mov si, 0x2e70
     clc
 .done:
     ret

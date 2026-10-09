@@ -10,7 +10,12 @@ launches a profile, waits for the Default Prompt Interface, types prompts, and
 captures the screen. `tools/run-86box.sh <profile>` launches a profile
 interactively (no typing) for manual poking.
 
-Always `pkill -f 86Box` before launching - two windows break the auto-typing.
+Use private profile copies and exact VM PIDs for automated typing, screenshots
+and cleanup. Parallel tests must use PID-specific targeting and share a launch
+limit of three VMs. Close each test VM in a `finally` block as soon as its
+evidence is captured, including failures and interrupted runs. A queued test
+waits for a free slot before opening a window. Keep an interactive demonstration
+open only when the maintainer asks to use it; do not kill unrelated VMs.
 
 ## Two boot modes
 
@@ -91,9 +96,9 @@ never by source port.
    the 8088 analyzer for its capture.
 3. **Seed's TLS 1.3 fingerprint** - a large hybrid ClientHello followed by
    multi-second 8088 compute gaps, client Finished near the observed provider
-   deadline, and a fixed credential-free HEAD before any credentialed OpenAI
-   request on the 8088 profile. Both fresh and resumed connections send the
-   HEAD after client Finished; the resumed ClientHello must not offer
+   deadline, and the fixed credential-free H2 preface/SETTINGS before any
+   credentialed OpenAI request. Both fresh and resumed connections send the
+   preface after client Finished; the resumed ClientHello must not offer
    `early_data`. Do not apply the old ClientKeyExchange/CCS timing
    interpretation.
 4. **"Did seed even dial out?"** - `tcpdump -nr <pcap> 'host <openai-ip>'`. Zero
@@ -104,11 +109,34 @@ never by source port.
 
 ## TLS 1.3 acceptance gates
 
-The TLS 1.3 source is integrated. The RAM-only 8088 route passes its offline
-structure, composition, hostile-input, exact-floor live, seven-NIC, and CGA/MDA
-display gates. The conforming 286 route passes its current exact-floor live
-reconnect gate. Offline gates never replace a live pcap, and emulator timing
-receives no physical entropy credit.
+The TLS 1.3 source is integrated. Its current HTTP/2 transport is undergoing
+fresh exact-floor repetition, reconnect and native-program validation. Older
+HTTP/1 captures below remain regression history. Offline gates never replace
+live target results, and emulator timing receives no physical entropy credit.
+See [http2.md](http2.md) for the current memory and protocol contract.
+
+A host capture can contain several concurrent Seed VMs. First identify the
+route's exact hello fingerprint and correlate its connection times with that
+VM's launch/turn evidence. Then explicitly scope all of its client ports; ports
+alone do not identify Seed. The H2 case gate binds wire records to reviewed
+screenshots instead of counting encrypted control traffic as model turns:
+
+```sh
+python3 tools/crypto-bench/tls13-product/check_live_h2_case.py <case-directory> \
+  --ports <acquisition-port> <use-port> [<reconnect-acquisition-port> <reconnect-use-port>]
+```
+
+The case must retain binding/events/results and have its saved answer screens
+reviewed. Include every attempt belonging to the VM. Close completed test VMs;
+concurrent independent profiles are permitted. The final image must pass
+`make` (including the bound HTTP/2 composition) and `make inspect`.
+
+If the native-program oracle misses a correct result because the model spells
+out the numbers, preserve the automatic result and record the format mismatch.
+Only after reviewing the complete result and returned input prompt may the
+observer be stopped and `--manual-completion` used with a separate timed,
+screenshot-hash-bound review. That path establishes functional completion;
+it does not establish numeric-format compliance or waive runtime errors.
 
 Run the product-level offline gates:
 
@@ -132,6 +160,10 @@ controller KATs, product-tail hostile matrix, FAT budget, and final image
 binding. The component commands above keep the individual 8088 ABI boundaries
 easy to rerun while debugging. The integration gate explicitly proves that
 video RAM, adapter RAM, config, and arena/context are unchanged.
+Its HTTP/2 composition exercises full legal TLS records, fragmented controls,
+forgery isolation, every phase-swap failure, outbound credit, response completion,
+native effects, compaction/retry and far-context serialization. Keep maximum
+record and torn-read cases: short successful replies do not cover those lifetimes.
 
 The 286 product directory contains the module/controller KATs. Its aggregate
 serialized exact-floor timing gate is:
@@ -147,7 +179,7 @@ decapsulation. The v4 report measures post-connect HELLO TX/RX wrappers and
 protected-flight controllers, but still excludes named resident
 connect/load/NIC work and complete offline authentication timing. The current
 live exact-floor monitors are recorded in
-[`architecture.md`](architecture.md#current-exact-floor-activity-timelines).
+[`architecture.md`](architecture.md#historical-exact-floor-activity-timelines).
 Rerun both the serialized gate and those monitors after timing-affecting source,
 model, or provider changes; do not substitute the structural report for a live
 measurement. Run the cache/controller hostile gates alongside the timing model:
@@ -169,7 +201,7 @@ becoming a candidate-only shortcut.
 
 The final 286 gate is a 6 MHz, 512 KiB pcap
 showing a provisional hybrid acquisition, verified protected flight, client
-Finished plus the immutable credential-free HEAD, authenticated HTTP and
+Finished plus the immutable credential-free H2 preface/SETTINGS, peer SETTINGS/ACK and
 NewSessionTicket capture, offline full FO/X.509/hostname/UTC/WE1/CV
 authentication, and a final no-0RTT PSK-DHE resumption. The final connection
 must use independent ML-KEM/X25519 keys, a correct binder,
@@ -186,7 +218,7 @@ clock; Seed asks no RTC question and the harness injects no clock answer. The
 harness also recognizes and resumes an emulator window launched at `0 Hz` so
 focus-loss auto-pause cannot masquerade as target latency.
 
-The current read-only exact-floor reconnect capture has the required ordered
+The historical HTTP/1 read-only exact-floor reconnect capture has the required ordered
 `acquisition -> resumption -> acquisition -> resumption` topology. Its four
 ServerHello-to-client-Finished intervals are 8.8880, 8.6428, 8.9518, and
 8.6425 seconds, and the target renders the authenticated `FORTYTWO` response
@@ -195,9 +227,9 @@ certificate/CV, Finished, FO/cache, pack, and abort rejection gates pass.
 Physical RTC/PIT characterization remains separate.
 
 The 8088 final gate is 4.77 MHz, exactly 16 KiB, ROM BASIC entry, read-only
-media, with fresh Finished inside the deadline, authenticated fresh HEAD and
+media, with fresh Finished inside the deadline, authenticated fresh SETTINGS/ACK and
 ticket completion, full FO and dated exact-leaf/CV proof, a no-0RTT resumed
-flow with authenticated post-Finished HEAD liveness, status-last credential
+flow with authenticated post-Finished H2 liveness, status-last credential
 unlock, returned OpenAI text, reuse, and bounded reconnect. A close before
 fresh liveness/ticket completion, late Finished, resumed early data, or a
 credentialed provisional record must fail. Repeat both CGA and MDA display
@@ -208,7 +240,7 @@ corruption and fail the run. The executable RAM-only gate must also retain its
 unchanged video/adapter/config/arena guards, including the exact 32 KiB
 success/abort restoration trampoline.
 
-The current RAM-only 8088 architecture passes the exact ordered
+The historical HTTP/1 RAM-only 8088 architecture passed the exact ordered
 `fresh -> resumed -> fresh -> resumed` capture on all seven original-speed
 profiles. Values are ServerHello-to-client-Finished seconds; every interval has
 a 15-second budget.
@@ -226,8 +258,9 @@ a 15-second budget.
 Each capture observes the credential-free HEAD, bounded one-reconnect policy,
 authenticated OpenAI text, and a clean DPI return. The NIC-present MDA display
 case passes the same four-flow gate at 13.4648, 6.9930, 13.5233, and 6.9963
-seconds; CGA is covered by the seven-profile matrix. Current no-card CGA/MDA and
-isolated no-driver images reach the documented retry/restart menus.
+seconds; CGA was covered by that seven-profile matrix. The historical no-card
+CGA/MDA and isolated no-driver images reached the documented retry/restart
+menus. Repeat these cases for the HTTP/2 runtime.
 
 `make basic-bootstrap` statically gates the ROM BASIC boundary. It requires the
 resident `IRET` byte, the atomic INT 1Ch vector sequence in both A: and B:
@@ -243,12 +276,13 @@ acceptance gates for both sources.
 
 ### Activity timing sweep
 
-The three canonical current monitors—8088 cold start, a reused 8088 dialogue
+The three activity monitors—8088 cold start, a reused 8088 dialogue
 turn, and 286 cold start—live in
-[`architecture.md`](architecture.md#current-exact-floor-activity-timelines).
+[`architecture.md`](architecture.md#historical-exact-floor-activity-timelines).
 Capture them at the exact CPU/RAM floors from a read-only image, using the same
 short `FORTYTWO` prompt and recording both pcap timestamps and screen-oracle DPI
-timestamps. The current baseline uses `gpt-5.6-sol` with `xhigh` reasoning.
+timestamps. Those historical measurements used `gpt-5.6-sol` with `xhigh`
+reasoning; the current local reliability runs use `gpt-6.1-sol` with `max`.
 
 For a reusable-turn endpoint, set `--post-dpi-wait 0` and poll for the prompt;
 a fixed post-DPI delay produces only an upper bound. Keep a 35-second capture
@@ -260,6 +294,36 @@ the clean ordered four-flow capture described above.
 
 ## Validation recipes
 
+- **TLS sender bounds**: `python3 tools/check-tls13-send-bounds.py` executes
+  the emitted TLS sealer and resident TCP framing with exactly 16 KiB mapped.
+  The 436-byte plaintext limit leaves room for the TLS and network headers
+  inside the 512-byte NIC scratch. The guard independently authenticates the
+  emitted records, checks the adjacent code/configuration, and rejects larger
+  plaintext before transmission without advancing the sequence. The allocated
+  plaintext buffer remains 440 bytes, preserving existing RAM/ENV offsets.
+  `make` runs this gate; its mocked NIC transmit leaf is not a live NIC test.
+- **Chat receive and recovery**: `python3 tools/check-tls13-chat-recovery.py`
+  executes the emitted response parser, tool phase and context mirror.
+  The HTTP/2 composition suite separately covers full-size legal records,
+  fragmented frames, corrupt tags, invalid inner types, flow-credit bounds,
+  incomplete tool responses, bounded retries, continuation replay denial,
+  fresh human turns after failure, and explicit stop. Guards check
+  conventional-RAM bounds, untouched display memory, stack/segment restoration
+  and publication only after authentication. `make` runs these gates on the
+  composed runtime; their synthetic peers do not replace live testing.
+  The reconnect gate with `--image` also runs the actual 16 KiB R/X request
+  rebuild after each interrupted tool state, checking complete identical
+  requests and cleared capture state before receiving the retry's response.
+  It also checks identical no-output compaction retries and the pending
+  question after a replacement note shorter than its predecessor. The real
+  response-parser gate distinguishes metadata from captured summary text;
+  the far-memory mirror retains the conversation prefix on a pending retry
+  and replaces it only after summary text has been captured.
+  For live repeated chat, require visible answers to several dependent
+  prompts and a matching pcap. Report oversized records against the selected
+  negotiated protocol and HTTP/2 credit. Both CPU routes accept legal full-size
+  TLS records through bounded journals. A displayed answer alone does not prove the HTTP response completed
+  or that its session remains reusable.
 - **Both-sides recall** (the model remembers its own answers): turn 1 "invent a
   unique nonsense word, reply with only that word"; turn 2 "what word did you
   invent?". Recall of an un-derivable word proves the response entered the window.
@@ -273,7 +337,7 @@ the clean ordered four-flow capture described above.
   shorter waits can exercise ordinary keep-alive reuse instead of a stale
   channel. The turn may establish exactly one fresh route and must answer
   without duplicating the request. A forced second failure returns
-  `reconnect failed`. Repeat with a tool continuation and after rendered text;
+  `response failed; try again`. Repeat with a tool continuation and after rendered text;
   neither may replay automatically.
 - **Driver packaging**: `make inspect` should list `SEED/DRIVERS/*.DRV` in the
   generated FAT image by default. `make INCLUDE_NIC_DRIVERS=0 inspect` should

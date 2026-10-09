@@ -638,6 +638,12 @@ tls13_inner_type_len equ 1
 tls_app_max_plain_len equ tcp_payload_max_len - tls_record_header_len - tls_aead_tag_len - tls13_inner_type_len
 ; Fixed OpenAI proof request with max 192-byte key and max 64-byte model.
 api_request_plain_len equ 440
+; Preserve the allocation/ENV layout above, but every outgoing record must
+; fit below X/T at 0900 after Ethernet/IP/TCP and TLS framing are added.
+api_request_send_len equ net_setup_frame_scratch_len - tcp_payload_offset - tls_record_header_len - tls_aead_tag_len - tls13_inner_type_len
+%if api_request_send_len > api_request_plain_len
+%error "request send limit exceeds its allocated plaintext buffer"
+%endif
 api_ready_tiny_prompt_max equ 10
 api_ready_short_prompt_max equ 24
 tls_app_record_buffer_len equ api_request_plain_len + tls_record_header_len + tls_aead_tag_len
@@ -688,7 +694,8 @@ fat_root_sectors equ 4
 fat_dir_entries_per_sector equ 16
 fat_dir_entry_size equ 32
 fat_first_data_cluster equ 2
-fat_max_cluster equ 300
+; The 160 KiB image has 320 sectors, with one sector per data cluster.
+fat_max_cluster equ 320 - fat_data_start_lba + fat_first_data_cluster - 1
 ; Build 12 env save/load (format: docs/memory.md, "ENV.DAT Snapshot Format"): the ENV.DAT snapshot format. The restore
 ; phase (read) and the save phase (write) share these; tools/env-dat.py is the byte-for-byte
 ; reference implementation and MUST stay in sync. The header is little-endian; "SEDV" magic stored

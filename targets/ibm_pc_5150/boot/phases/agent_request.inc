@@ -61,29 +61,21 @@ agent_request_phase:
     cmp dx, chat_context_end
     ja .bounds_failed
 .bounds_ok:
-    jmp short .validate_product_prefix
+; Every X-phase first record is the HTTP prefix R just built in the fixed
+; request body.  tls_build_application_data_record caps the length, but its
+; source pointer is otherwise trusted; reject a stale pointer (or an empty
+; prefix) before it can disclose an arbitrary resident-memory slice.
+.validate_product_prefix:
+    clc
 .bounds_done:
     ret
 .bounds_failed:
     stc
     ret
 
-; Every X-phase first record is the HTTP prefix R just built in the fixed
-; request body.  tls_build_application_data_record caps the length, but its
-; source pointer is otherwise trusted; reject a stale pointer (or an empty
-; prefix) before it can disclose an arbitrary resident-memory slice.
-.validate_product_prefix:
-    cmp word [tls_app_plain_ptr], api_request_plain + tls_record_header_len
-    jne .bounds_failed
-    mov ax, [tls_app_len]
-    dec ax
-    cmp ax, api_request_plain_len
-    cmc                                  ; CF=0 only for original length 1..440
-    ret
-
 .validate_stream_inputs:
     cmp word [handoff_addr + handoff_ram_top], basic_sidecar_stack_top_16k
-    jne .bounds_bypass
+    jne .bounds_done                   ; non-16K compare preserves CF/ZF
     cmp word [prompt_tools_size], tools_schema_max_len
     ja .bounds_failed
     cmp word [prompt_id_size], 512
@@ -104,8 +96,6 @@ agent_request_phase:
     or ax, [far_flushed_esc + 2]
     jnz .bounds_failed
     ret                                 ; zero OR leaves CF=0/ZF=1 to the full entry
-.bounds_bypass:
-    ret                                 ; >16K compare already left CF=0, ZF=0
 
 %if ($ - PHASE_BASE) > (net_setup_phase_start - low_scratch_start)
 %error "16K request stream validator is outside R's X-surviving sector"
@@ -141,6 +131,14 @@ agent_request_phase:
     ; saved bytes fund the required application/json request header without
     ; taking memory from the 16 KiB arena/context contract.
     xor ax, ax
+%ifdef TLS13_PRODUCT_TLS13
+    ; Only executed output survives a new request. Partial/frozen unexecuted
+    ; captures belong to the failed response, never to its bounded retry.
+    cmp byte [tool_fc_state], 2
+    je .response_state_ready
+    mov [tool_fc_state], al
+.response_state_ready:
+%endif
     mov [api_response_pending_len], ax
     mov [api_stream_text_seen], ax       ; also api_stream_prompt_len
     mov [api_stream_state], ax           ; also api_stream_delta_match
@@ -149,91 +147,35 @@ agent_request_phase:
     mov [esc_stop], al                   ; per-turn graceful-stop reset
     cmp byte [handoff_addr + handoff_status], handoff_status_ready
     je .build_ready_openai_request
-    mov [dpi_input_len_byte], al
+    ; The greeting has no dialogue source. Do not carry boot scratch into
+    ; X's final source-bounds check before its first authenticated request.
+    mov [dialogue_off], ax
+    mov [dialogue_cnt], ax
+    mov [dialogue_cnt + 2], ax
     mov [dpi_prompt_marker_row], al
     mov [api_stream_event_ready], al
-    call .build_openai_body
-    jc .request_failed
-    push ds
-    pop es
-    mov di, api_request_plain + tls_record_header_len
-    mov si, PHASE_LOAD_ADDR + (http_post_text - PHASE_BASE)
-    call agent_request_phase_append_z_to_buffer
-    mov si, PHASE_LOAD_ADDR + (http_openai_path_text - PHASE_BASE)
-    call agent_request_phase_append_z_to_buffer
-    mov si, PHASE_LOAD_ADDR + (http_version_text - PHASE_BASE)
-    call agent_request_phase_append_z_to_buffer
-    mov si, PHASE_LOAD_ADDR + (http_host_text - PHASE_BASE)
-    call agent_request_phase_append_z_to_buffer
-    mov si, PHASE_LOAD_ADDR + (agent_request_host_openai_text - PHASE_BASE)
-    call agent_request_phase_append_z_to_buffer
-    call agent_request_phase_append_crlf_to_buffer
-    mov si, PHASE_LOAD_ADDR + (http_auth_bearer_text - PHASE_BASE)
-    call agent_request_phase_append_z_to_buffer
-%ifdef TLS13_PRODUCT_TLS13
-    jmp .reuse_key
-%else
-    cmp byte [handoff_addr + handoff_status], handoff_status_ready
-    je .reuse_key
-    cmp byte [reconnect_retries], 3          ; reconnect: seed_key is handshake-clobbered -> use the cache
-    jb .reuse_key
-    mov si, seed_key
-    call agent_request_phase_append_z_to_buffer
-    jmp .key_done
-%endif
-.reuse_key:
-    mov si, chat_key_cache
-    mov cx, seed_key_len
-    call agent_request_phase_append_z_bounded_to_buffer
-    jc .request_key_failed
-.key_done:
-    call agent_request_phase_append_crlf_to_buffer
-    mov si, PHASE_LOAD_ADDR + (http_content_length_text - PHASE_BASE)
-    call agent_request_phase_append_z_to_buffer
-    mov ax, [api_body_len]
-    xor dx, dx                           ; cold body <= 512 B: high word 0
-    call .append_u32_decimal
-    call agent_request_phase_append_crlf_to_buffer
-    call agent_request_phase_append_crlf_to_buffer
-    mov si, fs_sector_buffer
-    mov cx, [api_body_len]
-    cmp byte [handoff_addr + handoff_status], handoff_status_ready
-    jne .copy_body_prefix
-    mov cx, [api_response_pending_len]
-.copy_body_prefix:
-    rep movsb
-    mov ax, di
-    sub ax, api_request_plain + tls_record_header_len
-    mov [tls_app_total_len], ax
-    mov [tls_app_len], ax
-    mov word [tls_app_plain_ptr], api_request_plain + tls_record_header_len
-    cmp ax, api_request_plain_len
-    ja .request_too_large
-    cmp byte [handoff_addr + handoff_status], handoff_status_ready
-    je .ready_request
-    mov word [api_response_pending_len], 1
-    jmp .success_ready
-.ready_request:
-    mov word [handoff_addr + handoff_net_status], 0xb0fe
-.success_ready:
-    clc
-    ret
+    mov [chat_prompt_len_cache], al
+    jmp .build_h2_headers
 .build_ready_openai_request:
+    ; Promote a captured summary before checking its new range: it may be
+    ; shorter than the previous note. A pending, no-output compaction still
+    ; owns the original dialogue and must retry that same request unchanged.
 %ifdef TLS13_PRODUCT_TLS13
-    call .validate_stream_inputs
-    jc .request_failed
-%endif
-    ; Build 11 #4 note-as-memory: if the PRIOR pass was a compaction (compacting_msg still 1 from it,
-    ; not yet reset below), the summary just captured into chat_context IS the new memory note - record
-    ; its length so THIS (real) pass sends [0..note_len) in "instructions" and the live dialogue
-    ; [note_len..used) in "input". Detected here because compacting_msg only stays 1 across the 2-pass
-    ; loop's re-entry; a normal turn enters with it 0, so note_len persists untouched (the dialogue
-    ; just accumulates after the note).
+    cmp byte [compacting_msg], 2
+    jne .note_len_kept
+%else
     cmp byte [compacting_msg], 0
     je .note_len_kept
+%endif
     mov ax, [chat_context_used]
     mov [note_len], ax
 .note_len_kept:
+%ifdef TLS13_PRODUCT_TLS13
+    call .validate_stream_inputs
+    jc .request_failed
+    cmp byte [compacting_msg], 1
+    je .start_compaction_pass
+%endif
     ; Uniform compaction policy: every tier compacts when its active context reaches the 75% trigger.
     ; <=64 KB uses the seg-0 window directly. >64 KB still uses the small seg-0 window as a staging tail
     ; and freezes that tail into the far log when the staging window fills, but model compaction is
@@ -344,10 +286,7 @@ agent_request_phase:
     shr ax, 1
 .cap_full:
     mov [chat_effective_cap], ax
-    call .restore_prompt_from_screen
-    call .compute_ready_body_lengths
-    jc .request_failed
-    mov al, [dpi_input_len_byte]
+    mov al, [chat_resend_prompt_len]
     mov [api_stream_prompt_len], al
     mov [chat_prompt_len_cache], al
     cmp byte [compacting_msg], 0
@@ -357,54 +296,9 @@ agent_request_phase:
     ; Force it clear so the first summary byte resets chat_context_used.
     mov byte [chat_prompt_len_cache], 0
 .prompt_cache_ready:
-    push ds
-    pop es
-    mov di, api_request_plain + tls_record_header_len
-    mov si, PHASE_LOAD_ADDR + (http_post_text - PHASE_BASE)
-    call agent_request_phase_append_z_to_buffer
-    mov si, PHASE_LOAD_ADDR + (http_openai_path_text - PHASE_BASE)
-    call agent_request_phase_append_z_to_buffer
-    mov si, PHASE_LOAD_ADDR + (http_version_text - PHASE_BASE)
-    call agent_request_phase_append_z_to_buffer
-    mov si, PHASE_LOAD_ADDR + (http_host_text - PHASE_BASE)
-    call agent_request_phase_append_z_to_buffer
-    mov si, PHASE_LOAD_ADDR + (agent_request_host_openai_text - PHASE_BASE)
-    call agent_request_phase_append_z_to_buffer
-    call agent_request_phase_append_crlf_to_buffer
-    mov si, PHASE_LOAD_ADDR + (http_auth_bearer_text - PHASE_BASE)
-    call agent_request_phase_append_z_to_buffer
-    mov si, chat_key_cache
-    mov cx, seed_key_len
-    call agent_request_phase_append_z_bounded_to_buffer
-    jc .request_key_failed
-    call agent_request_phase_append_crlf_to_buffer
-    mov si, PHASE_LOAD_ADDR + (http_content_length_text - PHASE_BASE)
-    call agent_request_phase_append_z_to_buffer
-    mov ax, [api_body_len]
-    mov dx, [api_body_len_hi]            ; C1b: the far-log dialogue can push the body past 64 KB
-    call .append_u32_decimal
-    call agent_request_phase_append_crlf_to_buffer
-    call agent_request_phase_append_crlf_to_buffer
-    mov si, PHASE_LOAD_ADDR + (api_json_model_text - PHASE_BASE)
-    call agent_request_phase_append_z_to_buffer
-    mov si, chat_model_cache
-    mov cx, seed_model_len
-    call agent_request_phase_append_z_bounded_to_buffer
+    call .validate_stream_bounds
     jc .request_failed
-    ; Build 9 streaming: R builds only chunk 1 = headers + {"model":"<cached wire tail>. The
-    ; TLS 1.3 tail closes the model and carries reasoning.effort. The stream phase then
-    ; builds+sends chunk 2 (,"instructions":"<identity> <ledger>","input":") and
-    ; chunk 3 (<prompt>","stream":true}), so no single record must hold the whole prefix.
-    ; Content-Length (compute_ready_body_lengths) is the total body across all 3 records.
-    mov ax, di
-    sub ax, api_request_plain + tls_record_header_len
-    mov [tls_app_total_len], ax
-    mov [tls_app_len], ax
-    mov word [tls_app_plain_ptr], api_request_plain + tls_record_header_len
-    cmp ax, api_request_plain_len
-    ja .request_too_large
-    clc
-    ret
+    jmp .build_h2_headers
 .request_key_failed:
     mov word [handoff_addr + handoff_net_status], 0xb404
     jmp .request_failed
@@ -414,6 +308,88 @@ agent_request_phase:
 .request_failed:
     stc
     ret
+
+
+.build_h2_headers:
+    push ds
+    pop es
+    cld
+    ; R still occupies three file sectors. Copy its immutable third sector
+    ; into unloaded K headroom before X replaces the low R image.
+    mov si, PHASE_LOAD_ADDR+1024
+    mov di, 0x2800
+    mov cx, 256
+    rep movsw
+    mov di, api_request_plain+14
+    mov si, PHASE_LOAD_ADDR+(.hpack_fields-PHASE_BASE)
+    mov cx, .hpack_fields_end-.hpack_fields
+    rep movsb
+    mov si, chat_key_cache
+    mov cx, seed_key_len
+    call agent_request_phase_strlen_z_bounded
+    jc .request_key_failed
+    or ax, ax
+    jz .request_key_failed
+    mov bx, ax
+    add ax, 7                         ; 'Bearer ' plus bounded key
+    cmp ax, 127
+    jb .length
+    mov dl, al
+    mov al, 127
+    stosb
+    mov al, dl
+    sub al, 127
+.length:
+    stosb
+    mov si, PHASE_LOAD_ADDR+(.bearer-PHASE_BASE)
+    mov cx, 7
+    rep movsb
+    mov si, chat_key_cache
+    mov cx, bx
+    rep movsb
+    mov ax, di
+    sub ax, api_request_plain+5
+    cmp ax, 436
+    ja .request_too_large
+    mov [tls_app_len], ax
+    mov word [tls_app_plain_ptr], api_request_plain+5
+    sub ax, 9
+    mov di, api_request_plain+5
+    mov byte [di], 0
+    inc di
+    xchg al, ah
+    stosw
+    mov ax, 0x0401                    ; HEADERS, END_HEADERS, no END_STREAM
+    stosw
+    mov ax, [0x062e+22]
+    mov dx, [0x062e+20]
+    xchg al, ah
+    xchg dl, dh
+    mov cx, ax
+    or cx, dx
+    jnz .next_stream
+    mov ax, 1
+    jmp short .stream
+.next_stream:
+    add ax, 2
+    adc dx, 0
+    test dh, 0x80
+    jnz .request_failed
+.stream:
+    xchg al, ah
+    xchg dl, dh
+    mov [di], dx
+    mov [di+2], ax
+    clc
+    ret
+.hpack_fields:
+    db 0x83,0x87                       ; POST, https
+    db 0x01,14,'api.openai.com'
+    db 0x04,13,'/v1/responses'
+    db 0x0f,0x10,16,'application/json'
+    db 0x1f,0x08                       ; authorization, never indexed
+.hpack_fields_end:
+.bearer db 'Bearer '
 
 .far_context_over_threshold:
     ; CF clear means compact: far_used >= 3/4 far_window_cap. CF set means keep accumulating.
@@ -463,263 +439,6 @@ agent_request_phase:
     clc
     ret
 
-.build_openai_body:
-    push ds
-    pop es
-    mov di, fs_sector_buffer
-    mov si, PHASE_LOAD_ADDR + (api_json_model_text - PHASE_BASE)
-    call agent_request_phase_append_z_to_buffer
-%ifdef TLS13_PRODUCT_TLS13
-    jmp .reuse_model
-%else
-    cmp byte [handoff_addr + handoff_status], handoff_status_ready
-    je .reuse_model
-    cmp byte [reconnect_retries], 3          ; reconnect: seed_model is handshake-clobbered -> use the cache
-    jb .reuse_model
-    mov si, seed_model
-    call agent_request_phase_append_z_to_buffer
-    jmp .model_done
-%endif
-.reuse_model:
-    mov si, chat_model_cache
-    mov cx, seed_model_len
-    call agent_request_phase_append_z_bounded_to_buffer
-    jc .body_failed
-.model_done:
-    ; .build_openai_body runs only on the cold (not-ready) path; the boot greeting stays bare
-    ; (no instructions/ledger). The ready chat path builds instructions+ledger inline above.
-    mov si, PHASE_LOAD_ADDR + (api_json_input_text - PHASE_BASE)
-    call agent_request_phase_append_z_to_buffer
-    mov ax, di
-    sub ax, fs_sector_buffer
-    mov [api_response_pending_len], ax
-    mov si, PHASE_LOAD_ADDR + (api_json_boot_prompt_text - PHASE_BASE)
-    call agent_request_phase_append_z_to_buffer
-    mov si, PHASE_LOAD_ADDR + (api_json_boot_stream_close_text - PHASE_BASE)
-    call agent_request_phase_append_z_to_buffer
-    mov ax, di
-    sub ax, fs_sector_buffer
-    mov [api_body_len], ax
-    cmp ax, 512
-    ja .body_failed
-    clc
-    ret
-.body_failed:
-    mov word [handoff_addr + handoff_net_status], 0xb202
-    stc
-    ret
-
-.compute_ready_body_lengths:
-    ; Build 11 #4 real compaction: measure the ready-request Content-Length. The Build-10 sliding-
-    ; window byte-trim is GONE - the window is compacted by a model summarize exchange instead (the
-    ; resident endpoint loop fires it when compacting_msg=1; the decision + flag are set in
-    ; .build_ready_openai_request above). So this no longer mutates the window; it only sizes the
-    ; body. On a compaction pass the input is the WINDOW alone (the floppy-streamed contract rides in
-    ; "instructions"); on a normal pass the input adds the user prompt, JSON-escaped. The FULL window
-    ; always rides forward.
-    push ds
-    pop es
-    cld
-    mov si, chat_model_cache
-    mov cx, seed_model_len
-    call agent_request_phase_strlen_z_bounded
-    jc .body_failed
-    mov bx, ax
-    cmp byte [compacting_msg], 0
-    je .prompt_user
-    xor ax, ax                                  ; compaction: the input is the WINDOW alone (the
-    jmp .prompt_len_ready                        ; summarize directive rides in "instructions", below)
-.prompt_user:
-    mov si, dpi_input_buf
-    mov cl, [dpi_input_len_byte]
-    xor ch, ch
-    call agent_request_phase_json_bytes_len
-.prompt_len_ready:
-    cmp byte [tool_fc_state], 2
-    jne .tail_user_len
-    add ax, [fc_suffix_len]
-    add ax, api_json_user_item_open_text_len
-    jmp .tail_len_ready
-.tail_user_len:
-    add ax, api_json_user_item_open_text_len + api_ready_stream_close_text_len
-    cmp byte [compacting_msg], 0
-    jne .tail_len_ready
-    add ax, api_json_user_label_text_len
-.tail_len_ready:
-    mov [api_response_pending_len], ax
-    add ax, bx
-    add ax, api_json_model_text_len
-    add ax, api_json_reasoning_prefix_len + api_json_input_open_text_len
-    ; Build 12 native tool calling: on a normal (non-compaction) ready turn, agent_api_stream splices
-    ; the tools key + schema after the model/reasoning tail. Mirror that EXACTLY into Content-Length,
-    ; whether the schema streams from 32K tools_cache or the 16K floppy fallback.
-    cmp byte [compacting_msg], 0
-    jne .no_tools_len
-%ifdef TLS13_PRODUCT_TLS13
-    add ax, api_json_tools_open_text_len
-%else
-    add ax, api_json_tools_open_text_len - 1
-%endif
-    add ax, [prompt_tools_size]
-.no_tools_len:
-    ; instructions value = the compaction contract (compaction) OR identity + ledger (normal turn).
-    ; Build 11 #4: the contract/identity are streamed off the floppy, so their length is the cached
-    ; file size (prompt_compact_size / prompt_id_size), not a compile-time string length. The bytes
-    ; stream RAW (control->space, 1:1; no " or \ -> no escape growth), so sent length == file size.
-    cmp byte [compacting_msg], 0
-    je .instr_normal
-    ; Compaction: instructions = the floppy contract + the seed-appended dynamic char targets
-    ; "~<N>/<M>" (N = window/4, M = window/2). The fixed text is a
-    ; constant; the two decimals vary, so size them with .u16_decimal_len (bx holds the running body
-    ; while the digit counts are computed). Must match exactly what the stream phase renders.
-    add ax, [prompt_compact_size]
-    add ax, api_compaction_targets_fixed_len
-    mov bx, ax
-    mov ax, [chat_context_len_var]
-    shr ax, 1
-    shr ax, 1                            ; N = window/4
-    call .u16_decimal_len
-    add bx, ax
-    mov ax, [chat_context_len_var]
-    shr ax, 1                            ; M = window/2
-    call .u16_decimal_len
-    add bx, ax
-    mov ax, bx
-    jmp .instr_done
-.instr_normal:
-    add ax, [prompt_id_size]
-    add ax, api_ledger_len
-.instr_done:
-    ; Build 9: the window rides JSON-ESCAPED, so Content-Length must count it ESCAPED (else a quote/
-    ; backslash-bearing window under-counts and truncates the sent body). Build 11 #4: the window now
-    ; splits into the note (-> "instructions") and the dialogue (-> "input"), but escaping is per-char
-    ; so escape(note)+escape(dialogue) == escape(window); counting the whole window here is still exact
-    ; for both fields combined. Keep the RAW count for the fill threshold. (WORD throughout.)
-    ; Build 12 Stage C (C1b): the dialogue streamed is the WHOLE far log -- the frozen history plus the
-    ; live seg-0 window -- so its escaped length is far_flushed_esc (the frozen part, a running DWORD)
-    ; plus the escaped current window. That can exceed 64 KB, so carry into the 32-bit body total
-    ; (api_body_len_hi:api_body_len). far_flushed_esc is 0 until the first flush -> identical to C1a.
-    call .context_base_si
-    mov cx, [chat_context_used]
-    push ax                             ; body-so-far (fixed prefix/identity/ledger, < 64 KB)
-    call agent_request_phase_json_bytes_len   ; ax = current window length JSON-escaped (clc; bx kept)
-    pop dx                             ; body-so-far
-    xor bx, bx                          ; high word of the body total
-    add ax, dx                          ; + escaped window (could just cross 64 KB on a huge window)
-    adc bx, 0
-    add ax, [far_flushed_esc]           ; + the frozen far-log dialogue (escaped, DWORD)
-    adc bx, [far_flushed_esc + 2]
-    mov [api_body_len_hi], bx
-    ; Build 10: model-recap compaction REMOVED. On a compaction turn the renderer used to suppress
-    ; the reply's first line (an invisible "recap") until the first newline; but a longer open-ended
-    ; reply lacks that recap+newline shape, so the WHOLE answer got suppressed -> a real ~1.5 KB
-    ; answer arrived on the wire yet the screen stayed blank -> silent return to DPI (reproduced
-    ; 2026-06-06 on "tell me more about that" turns). The directive also provoked history-repeating.
-    ; Now the window simply grows to its cap and resets on overflow (agent_api_stream_append_prompt_
-    ; to_context); the reply always renders. cx (raw window count) is now unused here.
-    mov [api_body_len], ax
-    clc
-    ret
-
-.restore_prompt_from_screen:
-    ; Refresh dpi_input_buf (== tls_rx_copy, clobbered by a reconnect's receives) from the
-    ; durable on-screen copy of the prompt, using api_stream_prompt_len (captured before any
-    ; receive in prepare_agent_endpoint_path). Harmless on the first build (the screen matches
-    ; what DPI captured); repairs the clobbered prompt on a reconnect rebuild. Mirrors the proven
-    ; split-tail screen read (agent_api_stream_append_prompt_screen_to_buffer) but copies raw
-    ; bytes (no JSON escaping) into dpi_input_buf.
-    push es
-    mov al, [chat_resend_prompt_len]
-    mov [dpi_input_len_byte], al
-    or al, al
-    jz .restore_done
-    xor ah, ah
-    mov cx, ax
-    mov ax, [video_seg]
-    mov es, ax
-    mov al, [dpi_prompt_marker_row]
-    and al, 0x7f
-    mov bl, [screen_cols]
-    mul bl
-    xor bh, bh
-    mov bl, dpi_prompt_col + 2
-    add ax, bx
-    shl ax, 1
-    mov si, ax
-    mov di, dpi_input_buf
-    mov dl, dpi_prompt_col + 2
-.restore_next:
-    mov al, [es:si]
-    mov [di], al
-    inc di
-    inc si
-    inc si
-    inc dl
-    cmp dl, [screen_cols]
-    jb .restore_same_row
-    mov dl, dpi_prompt_col + 2
-    add si, (dpi_prompt_col + 2) * 2
-.restore_same_row:
-    loop .restore_next
-.restore_done:
-    pop es
-    ret
-
-; The screen-scan capture (capture_summary_from_screen) is gone: the recap-first compaction
-; captures the model's recap directly in the renderer (agent_response.inc .emit_char) and never
-; draws it, so there is nothing to scan back off the screen.
-
-.append_u32_decimal:
-    ; dx:ax = u32 -> variable-width decimal at [es:di]. Build 12 Stage C (C1b): Content-Length must span
-    ; the full far-log dialogue, which grows past 64 KB -> a 32-bit value. Divide dx:ax by 10 repeatedly
-    ; (the textbook 32-by-16 long division: high/10, then (high%10):low / 10), pushing each remainder
-    ; digit; a sentinel (10, never a remainder) marks the stack bottom so the emit loop knows when to
-    ; stop without a separate counter. Preserves bx/cx; clobbers ax (the value) + dx.
-    push cx
-    push bx
-    mov cx, 10
-    push cx                             ; sentinel (10) under the digits
-.u32_div:
-    mov bx, ax                          ; low word
-    mov ax, dx                          ; high word
-    xor dx, dx
-    div cx                              ; ax = high/10, dx = high%10
-    xchg ax, bx                         ; bx = high quotient, ax = low word, dx = high%10
-    div cx                              ; ax = low quotient, dx = remainder (the next digit)
-    push dx
-    mov dx, bx                          ; quotient = dx:ax
-    test ax, ax
-    jnz .u32_div
-    test dx, dx
-    jnz .u32_div
-.u32_emit:
-    pop ax
-    cmp ax, 10                          ; hit the sentinel?
-    je .u32_emit_done
-    add al, '0'
-    stosb
-    jmp .u32_emit
-.u32_emit_done:
-    pop bx
-    pop cx
-    ret
-.u16_decimal_len:
-    ; ax = u16 -> ax = its decimal digit count (1-5). Build 11 #4: lets compute_ready_body_lengths
-    ; size the dynamic char targets (N, M) into Content-Length exactly, without rendering them.
-    ; Preserves bx; clobbers cx, dx.
-    push bx
-    xor bx, bx                          ; digit count
-    mov cx, 10
-.dl_loop:
-    inc bx
-    xor dx, dx
-    div cx                              ; ax /= 10
-    or ax, ax
-    jnz .dl_loop
-    mov ax, bx
-    pop bx
-    ret
-
 .context_base_si:
     call .context_base_bx
     mov si, bx
@@ -733,32 +452,6 @@ agent_request_phase:
 .ctx_base_ready:
     sub bx, [chat_context_len_var]
     ret
-
-http_post_text db 'POST ', 0
-http_openai_path_text db '/v1/responses', 0
-http_version_text db ' HTTP/1.1', 13, 10, 0
-http_host_text db 'Host:', 0
-http_auth_bearer_text db 'Authorization:Bearer ', 0
-; OpenAI's Responses endpoint consumes JSON. Combine the immutable media-type
-; and length fields so the existing append call emits both with no code growth.
-http_content_length_text db 'Content-Type:application/json', 13, 10, 'Content-Length:', 0
-agent_request_host_openai_text db 'api.openai.com', 0
-api_json_model_text db '{"model":"', 0
-api_json_model_text_len equ $ - api_json_model_text - 1
-%ifdef TLS13_PRODUCT_TLS13
-; chat_model_cache already closes the model and carries reasoning.effort.
-api_json_input_text db ',"input":"', 0
-%else
-api_json_input_text db '","input":"', 0
-%endif
-; Build 9: the tiered ready input-prefix templates were removed; identity+ledger + the
-; instructions/input-open templates now live in agent_api_stream.inc (built/sent as chunk 2).
-api_json_boot_prompt_text db 'Greet.', 0
-api_json_boot_stream_close_text db '","store":false,"stream":true}', 0
-; Build 12 native tool calling: the STREAMED ready close is agent_api_stream's api_stream_json_close_text,
-; which grew to the array-envelope close ('"}],"store":false,"stream":true}'). compute_ready_body_lengths
-; sizes the streamed ready request, so track THAT length here (not the boot path's string-input close).
-api_ready_stream_close_text_len equ api_stream_json_close_text_len
 
 agent_request_phase_strlen_z_bounded:
     xor dx, dx
@@ -798,37 +491,15 @@ agent_request_phase_json_bytes_len:
     clc
     ret
 
-agent_request_phase_append_z_to_buffer:
-    lodsb
-    or al, al
-    jz .done
-    stosb
-    jmp agent_request_phase_append_z_to_buffer
-.done:
-    ret
-
-agent_request_phase_append_z_bounded_to_buffer:
-    jcxz .failed
-    lodsb
-    or al, al
-    jz .done
-    stosb
-    loop agent_request_phase_append_z_bounded_to_buffer
-.failed:
-    stc
-    ret
-.done:
-    clc
-    ret
-
-agent_request_phase_append_crlf_to_buffer:
-    mov ax, 0x0a0d
-    stosw
-    ret
-
 %unmacro phase_call_res 1
 
 %ifdef PHASE_LOAD_ADDR_DEFAULTED
 %undef PHASE_LOAD_ADDR_DEFAULTED
 %undef PHASE_LOAD_ADDR
 %endif
+
+%if ($-PHASE_BASE)>1024
+%error "H2 R state/header producer exceeds two sectors before request helper"
+%endif
+times 1024-($-PHASE_BASE) db 0
+incbin "request-aux-sector.bin"

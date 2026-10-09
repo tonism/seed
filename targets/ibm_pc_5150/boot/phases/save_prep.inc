@@ -229,7 +229,8 @@ save_prep_find_dir_slot:
     mov word [save_dir_lba], 0
     call save_prep_find_seed_dir
     jc .fd_done
-    mov ax, [fs_file_cluster]
+    ; AX carries the directory cluster. fs_file_cluster aliases the live
+    ; save_region_stored word and must not overwrite the computed trim size.
     cmp ax, fat_first_data_cluster
     jb .fd_done
     sub ax, fat_first_data_cluster
@@ -324,7 +325,6 @@ save_prep_find_seed_dir:
     pop cx
     pop si
     mov ax, [si + 26]
-    mov [fs_file_cluster], ax
     clc
     ret
 .sd_nomatch:

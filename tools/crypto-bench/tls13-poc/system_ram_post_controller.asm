@@ -72,7 +72,12 @@ post_buffer_3                equ 0x33e8
 post_buffer_3                equ 0x35c0
 %endif
 post_buffer_3_len            equ 24
-post_buffer_4                equ 0x3400
+; The former 3400..35bf capsule is not entirely dead: the symmetric record
+; cursors, nonce and tag still occupy 3510..355c.  Quarantine this slice over
+; the retired handshake inputs/secrets instead.  Application traffic keys
+; begin at 3838, and the fresh compact root remains at 35c0..35e1; neither is
+; touched.  NST derivation uses its retained master/PSK and the K work area.
+post_buffer_4                equ 0x3600
 post_buffer_4_len            equ 448
 post_buffer_5                equ 0x35e2
 post_buffer_5_len            equ 26
@@ -286,7 +291,7 @@ post_scatter_di:
     add di, 0x30c2
     ret
 .s4:
-    add di, 0x30a0
+    add di, post_buffer_4 - 864
     ret
 .s3:
     add di, post_buffer_3 - 840

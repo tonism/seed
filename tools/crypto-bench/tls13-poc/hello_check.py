@@ -333,6 +333,7 @@ def base_extensions(
     *,
     x25519_share: bytes = FIXED_X25519_U9,
     record_size_limit: int | None = None,
+    alpn: bytes | None = None,
 ) -> bytes:
     if len(ek) != EK_LEN:
         raise ValueError("bad ML-KEM public-key length")
@@ -355,6 +356,10 @@ def base_extensions(
     )
     if record_size_limit is not None:
         result += extension(28, u16(record_size_limit))
+    if alpn is not None:
+        if not 1 <= len(alpn) <= 255:
+            raise ValueError("invalid single ALPN identifier")
+        result += extension(16, u16(len(alpn) + 1) + bytes([len(alpn)]) + alpn)
     return result + extension(21, b"\x00" * 14)
 
 
@@ -386,11 +391,13 @@ def build_fresh_client(
     request_ticket: bool = False,
     x25519_share: bytes = FIXED_X25519_U9,
     record_size_limit: int | None = None,
+    alpn: bytes | None = None,
 ) -> tuple[bytes, bytes]:
     extensions = base_extensions(
         ek,
         x25519_share=x25519_share,
         record_size_limit=record_size_limit,
+        alpn=alpn,
     )
     if request_ticket:
         extensions += extension(45, b"\x01\x01")
@@ -400,6 +407,8 @@ def build_fresh_client(
     )
     if record_size_limit is not None:
         expected_len += PRODUCT_EXTENSION_LEN
+    if alpn is not None:
+        expected_len += 7 + len(alpn)
     if len(message) != expected_len:
         raise AssertionError(f"fresh ClientHello length drifted: {len(message)}")
     record = b"\x16\x03\x01" + u16(len(message)) + message
@@ -417,6 +426,7 @@ def build_resumed_client(
     early_data: bool = False,
     x25519_share: bytes = FIXED_X25519_U9,
     record_size_limit: int | None = None,
+    alpn: bytes | None = None,
 ) -> tuple[bytes, bytes, bytes, bytes]:
     if not 1 <= len(identity) <= TICKET_MAX:
         raise ValueError("ticket identity outside overlay bound")
@@ -430,6 +440,7 @@ def build_resumed_client(
             ek,
             x25519_share=x25519_share,
             record_size_limit=record_size_limit,
+        alpn=alpn,
         )
         + extension(45, b"\x01\x01")
         + (extension(42, b"") if early_data else b"")
@@ -453,6 +464,8 @@ def build_resumed_client(
             else 0
         )
     )
+    if alpn is not None:
+        expected_len += 7 + len(alpn)
     if len(message) != expected_len:
         raise AssertionError(
             f"resumed ClientHello length drifted: {len(message)}"
@@ -1725,6 +1738,8 @@ def resident_symbol_addresses() -> dict[str, int]:
                 str(ROOT / "targets/ibm_pc_5150/boot") + "/",
                 "-I",
                 str(ROOT / "build/ibm_pc_5150") + "/",
+                "-I",
+                str(ROOT / "build/ibm_pc_5150/http2") + "/",
                 str(ROOT / "targets/ibm_pc_5150/boot/core.asm"),
                 "-o",
                 str(output),
@@ -2003,30 +2018,23 @@ def run_fresh_ticket_request_gate(fixture: Fixture) -> dict[str, object]:
     }
 
 
-def assert_product_record_size_limit(
-    message: bytes, *, label: str
-) -> list[tuple[int, bytes]]:
+def assert_product_alpn(message: bytes, *, label: str) -> list[tuple[int, bytes]]:
     extensions = client_extensions(message)
-    limits = [body for kind, body in extensions if kind == 28]
-    assert_equal(f"{label} record_size_limit count", len(limits), 1)
-    assert_equal(
-        f"{label} record_size_limit value",
-        limits[0],
-        u16(PRODUCT_RECORD_SIZE_LIMIT),
-    )
+    alpn = [body for kind, body in extensions if kind == 16]
+    assert_equal(f"{label} ALPN offer", alpn, [b"\x00\x03\x02h2"])
+    assert_equal(f"{label} no stale record-size offer", [x for x in extensions if x[0] == 28], [])
     kinds = [kind for kind, _ in extensions]
-    assert_equal(
-        f"{label} record_size_limit precedes padding",
-        kinds.index(28) + 1,
-        kinds.index(21),
-    )
+    assert_equal(f"{label} ALPN precedes padding", kinds.index(16)+1, kinds.index(21))
     return extensions
 
 
-def run_product_record_size_limit_gate(
+def run_product_alpn_gate(
     fixture: Fixture, research_image: bytes
 ) -> dict[str, object]:
-    """Exercise the exact fresh and resumed 8088 product define sets."""
+    """Exercise the product wire shape using this oracle's fixture inputs.
+
+    The RAM-only product-pack gate separately binds the relocated input ABI.
+    """
 
     expected_research_sha256 = (
         "ec0d3ac22de79c8238369de6685c2890b5f06c758b3310b9d837cd9c11e4b865"
@@ -2053,9 +2061,9 @@ def run_product_record_size_limit_gate(
         fixture.random,
         fixture.session,
         request_ticket=True,
-        record_size_limit=PRODUCT_RECORD_SIZE_LIMIT,
+        alpn=b"h2",
     )
-    fresh_extensions = assert_product_record_size_limit(
+    fresh_extensions = assert_product_alpn(
         fresh_message, label="product fresh"
     )
     assert_equal(
@@ -2087,7 +2095,7 @@ def run_product_record_size_limit_gate(
     assert_equal(
         "product fresh fragment geometry",
         fresh_fragments,
-        [147, 384, 384, 384, 32, 62],
+        [147, 384, 384, 384, 32, 65],
     )
     fresh_vm.call(4)
     fresh_replay, fresh_replay_fragments = drain_client(
@@ -2114,11 +2122,11 @@ def run_product_record_size_limit_gate(
     resumed_defines = (
         "TLS13_PRODUCT_TLS13",
         "HELLO_RESUMED_ONLY",
-        "HELLO_RESUMED_EARLY_DATA",
+        "HELLO_RESUMED_CACHED_CONNECT",
     )
     resumed_image = assemble(*resumed_defines)
     resumed_header = parse_header(resumed_image)
-    verify_static_header(resumed_image, resumed_header, expected_entries=15)
+    verify_static_header(resumed_image, resumed_header, expected_entries=14)
     (
         resumed_message,
         resumed_record,
@@ -2131,26 +2139,26 @@ def run_product_record_size_limit_gate(
         fixture.identity,
         fixture.age,
         fixture.psk,
-        early_data=True,
-        record_size_limit=PRODUCT_RECORD_SIZE_LIMIT,
+        early_data=False,
+        alpn=b"h2",
     )
-    resumed_extensions = assert_product_record_size_limit(
+    resumed_extensions = assert_product_alpn(
         resumed_message, label="product resumed"
     )
     assert_equal(
         "product resumed mandatory extension suffix",
-        [kind for kind, _ in resumed_extensions[-3:]],
-        [45, 42, 41],
+        [kind for kind, _ in resumed_extensions[-2:]],
+        [45, 41],
     )
     assert_equal(
         "product resumed psk_dhe_ke",
-        resumed_extensions[-3][1],
+        resumed_extensions[-2][1],
         b"\x01\x01",
     )
     assert_equal(
-        "product resumed early_data body",
-        resumed_extensions[-2][1],
-        b"",
+        "product resumed has no early_data",
+        sum(kind == 42 for kind, _ in resumed_extensions),
+        0,
     )
     assert_equal(
         "product resumed binder",
@@ -2183,7 +2191,7 @@ def run_product_record_size_limit_gate(
     assert_equal(
         "product resumed fragment geometry",
         resumed_fragments,
-        [147, 384, 384, 384, 32, 74, len(fixture.identity), 39],
+        [147, 384, 384, 384, 32, 73, len(fixture.identity), 39],
     )
     resumed_vm.call(4)
     resumed_replay, resumed_replay_fragments = drain_client(
@@ -2207,21 +2215,21 @@ def run_product_record_size_limit_gate(
     )
     verify_transcript_handoff(resumed_vm, resumed_transcript)
 
-    for label, image in (
-        ("fresh", fresh_image),
-        ("resumed", resumed_image),
+    for label, image, sectors in (
+        ("fresh", fresh_image, 8),
+        ("resumed", resumed_image, 9),
     ):
-        if len(image) > 8 * 512:
+        if len(image) > sectors * 512:
             raise AssertionError(
-                f"product {label} HELLO exceeds its eight-sector slot"
+                f"product {label} HELLO exceeds its {sectors}-sector slot"
             )
     assert_k14_write_set(fresh_vm, fresh_header)
     assert_k14_write_set(resumed_vm, resumed_header)
     return {
         "define": "TLS13_PRODUCT_TLS13",
-        "offered_record_size_limit": PRODUCT_RECORD_SIZE_LIMIT,
-        "wire_extension_hex": "001c00020800",
-        "server_echo_required": False,
+        "offered_alpn": "h2",
+        "wire_extension_hex": "001000050003026832",
+        "server_echo_required": True,
         "local_authenticated_receive_bound_independent": True,
         "default_research_image_sha256": expected_research_sha256,
         "default_research_image_preserved": True,
@@ -2240,27 +2248,31 @@ def run_product_record_size_limit_gate(
             resumed_binder
         ).hexdigest(),
         "resumed_image_bytes": len(resumed_image),
-        "resumed_eight_sector_headroom_bytes": (
-            8 * 512 - len(resumed_image)
+        "resumed_nine_sector_headroom_bytes": (
+            9 * 512 - len(resumed_image)
         ),
         "resumed_image_sha256": hashlib.sha256(resumed_image).hexdigest(),
         "gates": [
-            "single_record_size_limit_offer",
-            "record_size_limit_2048_wire_value",
+            "single_alpn_offer",
+            "alpn_h2_wire_value",
             "handshake_and_record_lengths",
             "fresh_and_resumed_exact_replay",
             "independent_resumption_binder",
             "pre_shared_key_remains_final",
             "fresh_and_resumed_transcript_context_handoff",
             "cpu_8086_assembly",
-            "eight_sector_product_slots",
+            "fresh_eight_and_resumed_nine_sector_product_slots",
             "default_research_image_byte_identity",
         ],
     }
 
 
 def run_dynamic_x25519_gate(fixture: Fixture) -> dict[str, object]:
-    """Bind one target-derived public share into fresh and resumed product CH."""
+    """Check the historical dynamic-share fixture, including its 0-RTT variant.
+
+    The current product forbids early data and has a separate controller gate.
+    These H2 baselines isolate the effect of injecting the X25519 share.
+    """
 
     derived_share = x25519_public_from_scalar(RFC7748_ALICE_SCALAR)
     assert_equal(
@@ -2293,19 +2305,19 @@ def run_dynamic_x25519_gate(fixture: Fixture) -> dict[str, object]:
     expected_default_hashes = (
         {
             "fresh": (
-                "e6a7eeaa84cbf4615411918c6f30aa38de0faa839932711c70c44ddcd9ce82a2"
+                "1ce2b4af917cab4467d921a28d7bcfeaba7848252a7f6022ced8e9e485b9885e"
             ),
             "resumed": (
-                "51fb6039637d3a96de606f38a8a9121fc6c655e9efa7b429f67d95f34d157369"
+                "5ef1df9d3adeb9ec9e9dd7f0aee49ea66178786504363161a962c730f5b9f4df"
             ),
         }
         if K14
         else {
             "fresh": (
-                "36eb4985dd369d2121da69fe553aca21dcd4d9f93cfba7491b7ad492817c6a55"
+                "514bc322025d41b9e1a713a6cbbee1df81d68430658bda605133e466a2257893"
             ),
             "resumed": (
-                "9feb8bc16b87d3e361fc4a4f6fbf42a2c79ff483cc5b7c2e6395717c00fd2c47"
+                "4fbd7ffe930242f8c945a0154bf86c17211c05d5ee7e4cfac2f80a5863cacd17"
             ),
         }
     )
@@ -2343,7 +2355,7 @@ def run_dynamic_x25519_gate(fixture: Fixture) -> dict[str, object]:
     assert_equal(
         "default resumed HELLO sector extent",
         (len(default_images["resumed"]) + 511) // 512,
-        8,
+        9,
     )
     assert_equal("dynamic X25519 input", DYNAMIC_X25519_INPUT, RAM_END)
     if DYNAMIC_X25519_INPUT + 32 > 0x4200:
@@ -2378,9 +2390,9 @@ def run_dynamic_x25519_gate(fixture: Fixture) -> dict[str, object]:
                 fixture.psk,
                 early_data=True,
                 x25519_share=share,
-                record_size_limit=PRODUCT_RECORD_SIZE_LIMIT,
+                alpn=b"h2",
             )
-            extensions = assert_product_record_size_limit(
+            extensions = assert_product_alpn(
                 message, label="dynamic-X25519 product resumed"
             )
             assert_equal(
@@ -2404,7 +2416,7 @@ def run_dynamic_x25519_gate(fixture: Fixture) -> dict[str, object]:
                 384,
                 384,
                 32,
-                74,
+                77,
                 len(fixture.identity),
                 39,
             ]
@@ -2417,11 +2429,11 @@ def run_dynamic_x25519_gate(fixture: Fixture) -> dict[str, object]:
                 fixture.session,
                 request_ticket=True,
                 x25519_share=share,
-                record_size_limit=PRODUCT_RECORD_SIZE_LIMIT,
+                alpn=b"h2",
             )
             truncated = b""
             binder = b""
-            extensions = assert_product_record_size_limit(
+            extensions = assert_product_alpn(
                 message, label="dynamic-X25519 product fresh"
             )
             assert_equal(
@@ -2429,7 +2441,7 @@ def run_dynamic_x25519_gate(fixture: Fixture) -> dict[str, object]:
                 extensions[-1],
                 (45, b"\x01\x01"),
             )
-            fragments_expected = [147, 384, 384, 384, 32, 62]
+            fragments_expected = [147, 384, 384, 384, 32, 65]
             server = fresh_server
             entry = 0
 
@@ -2838,13 +2850,41 @@ def run_cached_connect_gate() -> dict[str, object]:
     )
     timeout.call(9, expect_success=False)
     assert_equal("cached connector bounded retries", len(timeout.transmit_calls), 3)
-    assert_equal("cached connector bounded waits", timeout.wait_calls, 12)
+    assert_equal("cached connector bounded waits", timeout.wait_calls, 96)
     assert_equal(
         "cached connector PIT latches",
         timeout.pit_latch_writes,
         timeout.wait_calls * 3,
     )
     assert_equal("cached connector timeout no ACK", timeout.ack_calls, 0)
+
+    # The first empty action drains stale frames before the first SYN. Exercise
+    # the actual PIT-wait loop beyond the old four-wrap deadline, at the final
+    # poll of an attempt, and immediately after a retransmission. Keep the
+    # source port and ISN stable across retries so late SYN-ACKs still match.
+    delayed_cases = []
+    for empty_polls in (4, 18, 31, 32, 63, 95):
+        delayed = CachedConnectOverlay(
+            image,
+            header,
+            receive_actions=("empty",) * (1 + empty_polls) + ("valid",),
+        )
+        delayed.call(9)
+        attempts = empty_polls // 32 + 1
+        assert_equal("delayed SYN-ACK waits", delayed.wait_calls, empty_polls)
+        assert_equal("delayed SYN-ACK attempts", len(delayed.transmit_calls), attempts)
+        assert_equal("delayed SYN-ACK ACK count", delayed.ack_calls, 1)
+        for syn in delayed.transmit_calls[1:]:
+            assert_equal("delayed retry port", syn["source_port"], delayed.transmit_calls[0]["source_port"])
+            assert_equal("delayed retry ISN", syn["local_seq"], delayed.transmit_calls[0]["local_seq"])
+        delayed_cases.append({"empty_polls": empty_polls, "attempts": attempts})
+
+    el1_timeout = CachedConnectOverlay(image, header, receive_actions=("empty",))
+    el1_timeout.write(HANDOFF_NIC_FAMILY, bytes([FAMILY_3C501]))
+    el1_timeout.call(9, expect_success=False)
+    assert_equal("3c501 timeout unchanged", el1_timeout.wait_calls, 384)
+    assert_equal("3c501 retries unchanged", len(el1_timeout.transmit_calls), 3)
+    assert_equal("3c501 timeout no ACK", el1_timeout.ack_calls, 0)
 
     ack_failure = CachedConnectOverlay(
         image,
@@ -2869,6 +2909,7 @@ def run_cached_connect_gate() -> dict[str, object]:
         "sector_rounded_image_bytes": sector_bytes,
         "sector_count": sector_bytes // 512,
         "bytes_free_in_eight_sector_prefix": 4096 - len(image),
+        "delayed_synack_cases": delayed_cases,
         "resident_calls": {
             "tcp_ack": hex(RES_TCP_ACK),
             "build_tcp_segment_frame": hex(RES_BUILD_TCP_FRAME),
@@ -2925,7 +2966,7 @@ def run() -> dict[str, object]:
     run_zeroize_gate(image, header, fixture)
     fresh_only = run_fresh_only_gate(fixture)
     fresh_ticket_request = run_fresh_ticket_request_gate(fixture)
-    product_record_size_limit = run_product_record_size_limit_gate(
+    product_alpn = run_product_alpn_gate(
         fixture, image
     )
     dynamic_x25519 = run_dynamic_x25519_gate(fixture)
@@ -3000,7 +3041,7 @@ def run() -> dict[str, object]:
         "wire": modes,
         "fresh_only_variant": fresh_only,
         "fresh_ticket_request_variant": fresh_ticket_request,
-        "product_record_size_limit_variant": product_record_size_limit,
+        "product_alpn_variant": product_alpn,
         "dynamic_x25519_variant": dynamic_x25519,
         "cached_target_connector": cached_connect,
         "gates": {

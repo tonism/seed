@@ -2,11 +2,10 @@
 ;
 ; Both measurements execute the shipped S286FL02 coordinator and its staged,
 ; target-relocated T13SYM02 image.  ACQFLIGHT covers the ordinary-Certificate
-; acquisition flight, Client Finished, immutable credential-free HEAD, HTTP
-; response, authenticated NST export, close, and retirement.  RESFLIGHT covers
-; the independent no-0RTT PSK-DHE resumed flight, credential-free HEAD send,
-; complete authenticated NST plus allowed HTTP status, and sequence-preserving
-; application-key publication without waiting for a header-tail terminator.
+; acquisition flight, Client Finished, immutable credential-free H2 preface,
+; SETTINGS/PING acknowledgement, NST export, close, and retirement. RESFLIGHT
+; covers the independent no-0RTT PSK-DHE resumed flight, H2 liveness, complete
+; authenticated NST, and sequence-preserving application-key publication.
 ; Resident TCP callbacks are deterministic memory transports;
 ; live NIC transmission remains a separate pcap gate.
 
@@ -39,11 +38,75 @@ core_header:
     dw 0
 core_header_end:
 
-; The symmetric image owns low code/scratch through 0x33ff and publishes
-; application state at 0x3600..0x366f.  During FLIGHT the earlier module
-; window is retired, so keep the benchmark harness in its 0x4230..0x62ff gap.
-times (tls13_286_module_load - 0x1000) - ($ - $$) db 0
+times (tls13_286_flight_load - 0x1000) - ($ - $$) db 0
+incbin "build/ibm_pc_5150/tls13-286-flight.bin"
 
+times (stack_top - 0x1000) - ($ - $$) db 0
+sym_source:
+incbin "build/ibm_pc_5150/crypto-bench/tls13-286-flight-timing/sym-source.bin"
+hybrid_fixture:
+incbin "build/ibm_pc_5150/crypto-bench/tls13-286-flight-timing/hybrid.bin"
+acquisition_handoff:
+incbin "build/ibm_pc_5150/crypto-bench/tls13-286-flight-timing/acquisition-handoff.bin"
+acquisition_wire:
+incbin "build/ibm_pc_5150/crypto-bench/tls13-286-flight-timing/acquisition-wire.bin"
+acquisition_finished:
+incbin "build/ibm_pc_5150/crypto-bench/tls13-286-flight-timing/acquisition-client-finished.bin"
+acquisition_head:
+incbin "build/ibm_pc_5150/crypto-bench/tls13-286-flight-timing/acquisition-head.bin"
+resumed_handoff:
+incbin "build/ibm_pc_5150/crypto-bench/tls13-286-flight-timing/resumed-handoff.bin"
+resumed_wire:
+incbin "build/ibm_pc_5150/crypto-bench/tls13-286-flight-timing/resumed-wire.bin"
+resumed_finished:
+incbin "build/ibm_pc_5150/crypto-bench/tls13-286-flight-timing/resumed-client-finished.bin"
+resumed_head:
+incbin "build/ibm_pc_5150/crypto-bench/tls13-286-flight-timing/resumed-head.bin"
+ticket_psk_fixture:
+incbin "build/ibm_pc_5150/crypto-bench/tls13-286-flight-timing/ticket-psk.bin"
+ticket_identity_fixture:
+incbin "build/ibm_pc_5150/crypto-bench/tls13-286-flight-timing/ticket-identity.bin"
+ticket_nonce_fixture:
+incbin "build/ibm_pc_5150/crypto-bench/tls13-286-flight-timing/ticket-nonce.bin"
+ticket_age_add_fixture:
+incbin "build/ibm_pc_5150/crypto-bench/tls13-286-flight-timing/ticket-age-add.bin"
+ticket_binder_hash_fixture:
+incbin "build/ibm_pc_5150/crypto-bench/tls13-286-flight-timing/ticket-binder-hash.bin"
+ticket_binder_fixture:
+incbin "build/ibm_pc_5150/crypto-bench/tls13-286-flight-timing/ticket-binder.bin"
+early_derived_fixture:
+incbin "build/ibm_pc_5150/crypto-bench/tls13-286-flight-timing/early-derived.bin"
+app_client_key_fixture:
+incbin "build/ibm_pc_5150/crypto-bench/tls13-286-flight-timing/app-client-key.bin"
+app_server_key_fixture:
+incbin "build/ibm_pc_5150/crypto-bench/tls13-286-flight-timing/app-server-key.bin"
+app_client_iv_fixture:
+incbin "build/ibm_pc_5150/crypto-bench/tls13-286-flight-timing/app-client-iv.bin"
+app_server_iv_fixture:
+incbin "build/ibm_pc_5150/crypto-bench/tls13-286-flight-timing/app-server-iv.bin"
+app_client_seq_fixture:
+incbin "build/ibm_pc_5150/crypto-bench/tls13-286-flight-timing/app-client-seq.bin"
+app_server_seq_fixture:
+incbin "build/ibm_pc_5150/crypto-bench/tls13-286-flight-timing/app-server-seq.bin"
+
+acquisition_controls:
+incbin "build/ibm_pc_5150/crypto-bench/tls13-286-flight-timing/acquisition-controls.bin"
+resumed_controls:
+incbin "build/ibm_pc_5150/crypto-bench/tls13-286-flight-timing/resumed-controls.bin"
+h2_helper_source:
+incbin "build/ibm_pc_5150/tls13-286-h2-helper.bin"
+h2_post_source:
+incbin "build/ibm_pc_5150/http2/post-head.bin"
+h2_tail_source:
+times 35 db 0
+incbin "build/ibm_pc_5150/http2/post-tail.bin"
+times 512 - ($ - h2_tail_source) db 0
+
+%if ($ - $$ + 0x1000) > 0xc000
+%error "flight timing fixtures overlap benchmark code"
+%endif
+; H2 uses 4230..5fec during the flight; no benchmark code may occupy it.
+times (0xc000 - 0x1000) - ($ - $$) db 0
 bench_main:
     cli
     xor ax, ax
@@ -75,7 +138,7 @@ enter_flight:
 
 install_callbacks:
     mov di, TLS13_286_LINK_LOAD_CORE_SECTORS_AT
-    mov ax, callback_ok
+    mov ax, callback_load
     call patch_jump
     mov di, TLS13_286_LINK_READ_ABS_SECTOR
     mov ax, bench_fail
@@ -136,8 +199,60 @@ init_base:
     mov byte [send_count], 0
     ret
 
+; Deterministic BIOS-media leaf: copy the exact embedded helper/parser sectors.
+; Their normal CRC checks and the full parser execute inside the timed route.
+callback_load:
+    cmp ax, TLS13_286_LINK_TCP_CLOSE_PHASE_KEY
+    jne .media
+    cmp bx, TLS13_286_LINK_TCP_CLOSE_DESTINATION
+    jne bench_fail
+    ; The memory transport's close leaf was installed as RET above.
+    clc
+    ret
+.media:
+    push ax
+    push cx
+    push si
+    push di
+    push es
+    cmp ax, 0x01a4
+    jne .post
+    cmp bx, 0x5500
+    jne bench_fail
+    mov si, h2_helper_source
+    mov cx, 512
+    jmp .copy
+.post:
+    cmp ax, 0x070c
+    jne .tail
+    cmp bx, 0x4230
+    jne bench_fail
+    mov si, h2_post_source
+    mov cx, 3584
+    jmp .copy
+.tail:
+    cmp ax, 0x01d2
+    jne bench_fail
+    cmp bx, 0x5230
+    jne bench_fail
+    mov si, h2_tail_source
+    mov cx, 512
+.copy:
+    xor ax, ax
+    mov es, ax
+    mov di, bx
+    rep movsb
+    pop es
+    pop di
+    pop si
+    pop cx
+    pop ax
+    clc
+    ret
+
 init_acquisition:
     call init_base
+    mov word [control_cursor], acquisition_controls
     mov si, acquisition_handoff
     call install_handoff
     mov si, acquisition_wire
@@ -152,6 +267,7 @@ init_acquisition:
 
 init_resumed:
     call init_base
+    mov word [control_cursor], resumed_controls
     mov si, resumed_handoff
     call install_handoff
     mov si, resumed_wire
@@ -262,6 +378,8 @@ callback_receive:
 callback_send:
     xor ax, ax
     mov es, ax
+    cmp byte [send_count], 2
+    jae .control
     cmp byte [run_mode], run_resumed
     je .resumed
     cmp byte [send_count], 0
@@ -290,15 +408,29 @@ callback_send:
     mov di, resumed_head
     cmp cx, flight_timing_resumed_head_bytes
     jne .bad
+    jmp short .compare
+.control:
+    cmp byte [send_count], 5
+    jae .bad
+    mov di, [control_cursor]
+    mov ax, [di + 3]
+    xchg al, ah
+    add ax, 5
+    cmp cx, ax
+    jne .bad
 .compare:
     repe cmpsb
     jne .bad
+    cmp byte [send_count], 2
+    jb .count
+    mov [control_cursor], di
+.count:
     inc byte [send_count]
     cmp byte [run_mode], run_acquisition
     jne .sent
     cmp byte [send_count], 2
     jne .sent
-    ; Split the policy deadline at the successful credential-free HEAD send.
+    ; Split the policy deadline at the successful credential-free preface send.
     ; Response/NST/close remains measured as post-dialogue lifecycle work.
     call read_tick
     sub ax, [tick_lo]
@@ -324,7 +456,7 @@ acquisition_done:
     pop ax
     cmp ax, tls13_286_tail_kind_authenticate
     jne bench_fail
-    cmp byte [send_count], 2
+    cmp byte [send_count], 5
     jne bench_fail
     mov ax, crypto_segment
     mov es, ax
@@ -362,7 +494,7 @@ acquisition_done:
 resumed_done:
     call tick_stop
     mov [resumed_ticks], ax
-    cmp byte [send_count], 2
+    cmp byte [send_count], 5
     jne bench_fail
     cmp byte [TLS13_286_LINK_APP_READY], 1
     jne bench_fail
@@ -433,12 +565,12 @@ bench_fail:
     call emit_crlf
     jmp resumed_done.hang
 
-%if ($ - $$ + 0x1000) > 0x4800
+%if ($ - $$ + 0x1000) > 0xc700
 %error "flight timing harness overlaps timing support"
 %endif
 
-; Keep timer/serial code in the same retired module gap, below FLIGHT.
-times (0x4870 - 0x1000) - ($ - $$) db 0
+; Keep timer/serial code above the low H2 parser and immutable fixtures.
+times (0xc770 - 0x1000) - ($ - $$) db 0
 
 tick_start:
     call read_tick_low
@@ -603,6 +735,7 @@ emit_hex16:
     ret
 
 wire_cursor dw 0
+control_cursor dw 0
 wire_remaining dw 0
 tick_lo dw 0
 tick_hi dw 0
@@ -623,60 +756,10 @@ str_n db ' N=', 0
 str_dt db ' dt=', 0
 str_check db ' N=1 dt=0 ck=', 0
 
-%if ($ - $$ + 0x1000) > tls13_286_flight_load
-%error "flight timing support overlaps flight component"
+%if ($ - $$ + 0x1000) > 0xe000
+%error "flight timing support escaped its reserved benchmark region"
 %endif
 
-times (tls13_286_flight_load - 0x1000) - ($ - $$) db 0
-incbin "build/ibm_pc_5150/tls13-286-flight.bin"
-
-times (stack_top - 0x1000) - ($ - $$) db 0
-sym_source:
-incbin "build/ibm_pc_5150/crypto-bench/tls13-286-flight-timing/sym-source.bin"
-hybrid_fixture:
-incbin "build/ibm_pc_5150/crypto-bench/tls13-286-flight-timing/hybrid.bin"
-acquisition_handoff:
-incbin "build/ibm_pc_5150/crypto-bench/tls13-286-flight-timing/acquisition-handoff.bin"
-acquisition_wire:
-incbin "build/ibm_pc_5150/crypto-bench/tls13-286-flight-timing/acquisition-wire.bin"
-acquisition_finished:
-incbin "build/ibm_pc_5150/crypto-bench/tls13-286-flight-timing/acquisition-client-finished.bin"
-acquisition_head:
-incbin "build/ibm_pc_5150/crypto-bench/tls13-286-flight-timing/acquisition-head.bin"
-resumed_handoff:
-incbin "build/ibm_pc_5150/crypto-bench/tls13-286-flight-timing/resumed-handoff.bin"
-resumed_wire:
-incbin "build/ibm_pc_5150/crypto-bench/tls13-286-flight-timing/resumed-wire.bin"
-resumed_finished:
-incbin "build/ibm_pc_5150/crypto-bench/tls13-286-flight-timing/resumed-client-finished.bin"
-resumed_head:
-incbin "build/ibm_pc_5150/crypto-bench/tls13-286-flight-timing/resumed-head.bin"
-ticket_psk_fixture:
-incbin "build/ibm_pc_5150/crypto-bench/tls13-286-flight-timing/ticket-psk.bin"
-ticket_identity_fixture:
-incbin "build/ibm_pc_5150/crypto-bench/tls13-286-flight-timing/ticket-identity.bin"
-ticket_nonce_fixture:
-incbin "build/ibm_pc_5150/crypto-bench/tls13-286-flight-timing/ticket-nonce.bin"
-ticket_age_add_fixture:
-incbin "build/ibm_pc_5150/crypto-bench/tls13-286-flight-timing/ticket-age-add.bin"
-ticket_binder_hash_fixture:
-incbin "build/ibm_pc_5150/crypto-bench/tls13-286-flight-timing/ticket-binder-hash.bin"
-ticket_binder_fixture:
-incbin "build/ibm_pc_5150/crypto-bench/tls13-286-flight-timing/ticket-binder.bin"
-early_derived_fixture:
-incbin "build/ibm_pc_5150/crypto-bench/tls13-286-flight-timing/early-derived.bin"
-app_client_key_fixture:
-incbin "build/ibm_pc_5150/crypto-bench/tls13-286-flight-timing/app-client-key.bin"
-app_server_key_fixture:
-incbin "build/ibm_pc_5150/crypto-bench/tls13-286-flight-timing/app-server-key.bin"
-app_client_iv_fixture:
-incbin "build/ibm_pc_5150/crypto-bench/tls13-286-flight-timing/app-client-iv.bin"
-app_server_iv_fixture:
-incbin "build/ibm_pc_5150/crypto-bench/tls13-286-flight-timing/app-server-iv.bin"
-app_client_seq_fixture:
-incbin "build/ibm_pc_5150/crypto-bench/tls13-286-flight-timing/app-client-seq.bin"
-app_server_seq_fixture:
-incbin "build/ibm_pc_5150/crypto-bench/tls13-286-flight-timing/app-server-seq.bin"
 
 image_end:
 

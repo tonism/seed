@@ -369,7 +369,11 @@ tls_handshake_hash equ tls_master_secret + tls_master_secret_len
 ; interleaved decrypt AND a mid-receive keep-alive SEND - both of which clobber the shared poly_acc.
 ; Reuses tls_master_secret (48 B), which is handshake-only: derived during the handshake and idle
 ; during the chat receive; the send/ping uses the derived keys + poly_acc, never the master secret.
-poly_rx_save equ tls_master_secret
+; Private H2 application lifetime: HPACK ends at 35bc. Its 68-byte
+; remainder holds the 65-byte saved receive MAC/one-time key. This frees the
+; retired handshake/TX arena for a bounded post-handshake TLS control prefix.
+h2_rx_mac_start equ 0x35bc
+poly_rx_save equ h2_rx_mac_start
 ; The one-time key (poly_r+poly_s, 32 B) ALSO lives in low_crypto_work, which the inter-chunk NIC
 ; receive reuses - so stash the (constant) otk here too and restore it before each MAC step. Spans
 ; the tail of tls_master_secret into tls_handshake_hash (also handshake-only); 33+32 = 65 B of the
@@ -498,8 +502,12 @@ chat_cache_end equ chat_key_cache + seed_key_len
 reconnect_state_start equ chat_cache_end
 chat_resend_prompt_len equ reconnect_state_start
 reconnect_retries equ chat_resend_prompt_len + 1
+; Once the endpoint returns, its retry budget is dead. Reuse that byte for
+; the final carry (0/0xff) until M consumes it before the next human prompt.
+; The config publisher initializes it on the ENV-restore/no-greeting path.
+chat_turn_failed equ reconnect_retries
 compact_next equ reconnect_retries + 1    ; legacy name; old '$' text compaction trigger is gone
-compacting_msg equ compact_next + 1
+compacting_msg equ compact_next + 1      ; product: 0 normal, 1 pending, 2 summary text captured
 ; Build 11 ESC-to-interrupt. esc_stop: the int 9 hook sets it on a plain ESC during a render (graceful
 ; stop) -- homed right after compacting_msg so emit_char suppresses on BOTH via one word cmp (0 extra
 ; bytes in the maxed render phase). esc_panic: set instead on Ctrl+ESC (stage 2 hard escape) -- the hook
@@ -619,7 +627,8 @@ render_type_user equ 1                     ; user prompt echo (dpi)
 render_type_agent equ 2                    ; model reply (agent_response)
 render_type_system equ 3                   ; tool results + status lines (tool_call / agent_endpoint / api_stream)
 ; Build 12 native tool calling: transient captured function_call state. State 1 means the SSE scanner
-; saw a function_call and copied raw bytes to fc_capture_buf; state 2 means tool_call executed it and
+; froze a completed function_call in fc_capture_buf (M also requires HTTP completion).
+; States 3/4/5 are incomplete and cannot dispatch; state 2 means tool_call executed it and
 ; the next request locally replays function_call + function_call_output. The string buffers are JSON-ready:
 ; call_id/name are raw identifiers, arguments is the escaped Responses API argument string, and output
 ; contains only Seed-generated JSON-safe ASCII. Args and output must live in reconnect-safe RAM because
@@ -631,22 +640,26 @@ fc_call_id_len equ fc_capture_len + 2
 fc_name_len equ fc_call_id_len + 1
 fc_args_len equ fc_name_len + 1
 fc_output_len equ fc_args_len + 2
-fc_suffix_len equ fc_output_len + 1           ; word: function_call + output suffix byte count
+fc_suffix_len equ fc_output_len + 1           ; reserved word keeps the native-state ABI stable
 fc_call_id equ fc_suffix_len + 2              ; <=47 chars + NUL
 fc_name equ fc_call_id + 48                   ; <=9 chars + NUL (longest native name: write_mem)
 fc_args_buf equ fc_name + 10                  ; raw escaped "arguments" string, parsed from capture
 fc_args_max equ 47
 fc_output_buf equ fc_args_buf + fc_args_max
 fc_output_max equ 44
-; One prior native tool pair for local store:false replay on every tier, including the 16K floor.
-; Metadata is packed into live scratch after parse: fc_match_state = prior call_id len,
-; fc_capture_len low = prior output len, fc_capture_len high = prior tool-name len.
+; Bounded completed-tool journal. Keep the original allocation/arena addresses:
+; its former single prior pair lost the write as soon as exec + read followed,
+; which made a stateless model start that sequence again. The current call is
+; still replayed structurally; older complete result lines are plain context.
 fc_prev_call_id equ fc_output_buf + fc_output_max
 fc_prev_call_id_max equ 48
 fc_prev_name_code equ fc_prev_call_id + fc_prev_call_id_max
 fc_prev_output equ fc_prev_name_code + 1
 fc_prev_output_max equ 42
 reconnect_state_end equ fc_prev_output + fc_prev_output_max
+fc_history_len equ fc_prev_call_id
+fc_history_buf equ fc_history_len + 1
+fc_history_max equ reconnect_state_end - fc_history_buf
 ; Build 11 ESC: the int 9 keyboard hook handler is staged to this pool slot at boot (position-independent
 ; code; runs from here so it survives the phase-overlay churn). esc_int9_old saves the BIOS int 9 vector
 ; the handler chains every key to. Both sit just below the arena/context pool.

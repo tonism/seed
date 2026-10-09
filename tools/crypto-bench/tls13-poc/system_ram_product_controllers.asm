@@ -208,6 +208,9 @@ direct_root_trampoline_image:
     rep stosw
     jmp bx
 direct_root_trampoline_image_end:
+%if direct_root_trampoline + (direct_root_trampoline_image_end - direct_root_trampoline_image) > 0x7a40
+%error "direct root return reservation reaches the cold stack scrub floor"
+%endif
 
 root_low_abort_image:
     incbin SYSRAM_LOW_ABORT_PATH

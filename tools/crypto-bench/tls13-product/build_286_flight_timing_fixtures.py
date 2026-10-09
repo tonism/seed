@@ -219,6 +219,17 @@ def main() -> None:
         fixture["resume_wire_records"]
     )
     application = fixture["resume_application"]
+    # The shared parser acknowledges SETTINGS, then sends the 17-byte PING
+    # reply through its 16-byte prefix and one-byte tail. Bind all ciphertext,
+    # not just Finished/preface, into the exact timing harness.
+    controls = (checker.h2_frame(4, 1),
+                checker.h2_frame(6, 1, payload=b'12345678')[:16],
+                checker.h2_frame(6, 1, payload=b'12345678')[16:])
+    def control_records(app):
+        return b''.join(checker.BASE.encrypted_record(
+            app['client_key'], app['client_iv'], seq,
+            checker.ORACLE.CONTENT_APPLICATION_DATA, payload)
+            for seq, payload in enumerate(controls, 1))
     outputs = {
         "sym_source": write("sym-source.bin", K14_SYM.read_bytes()),
         "hybrid": write("hybrid.bin", fixture["hybrid"]),
@@ -240,6 +251,10 @@ def main() -> None:
         "resumed_head": write(
             "resumed-head.bin", fixture["resume_head_record"]
         ),
+        "acquisition_controls": write('acquisition-controls.bin',
+                                      control_records(fixture['application'])),
+        "resumed_controls": write('resumed-controls.bin',
+                                  control_records(application)),
         "ticket_psk": write("ticket-psk.bin", fixture["ticket_psk"]),
         "ticket_identity": write(
             "ticket-identity.bin", fixture["ticket_identity"]
@@ -259,7 +274,7 @@ def main() -> None:
         "app_client_iv": write("app-client-iv.bin", application["client_iv"]),
         "app_server_iv": write("app-server-iv.bin", application["server_iv"]),
         "app_client_seq": write(
-            "app-client-seq.bin", (1).to_bytes(8, "big")
+            "app-client-seq.bin", (1 + len(controls)).to_bytes(8, "big")
         ),
         "app_server_seq": write(
             "app-server-seq.bin",

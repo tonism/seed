@@ -243,11 +243,15 @@ SYM_STAGE_BYTES = 12 * 512
 LIVE_PROTECTED_PLAIN = 2621
 USED_INV = 0xC3
 USED = 0x3C
-HEAD_REQUEST = (
-    b"HEAD /v1/models HTTP/1.1\r\n"
-    b"Host: api.openai.com\r\n"
-    b"\r\n"
-)
+def h2_frame(kind, flags=0, stream=0, payload=b''):
+    return len(payload).to_bytes(3,'big')+bytes([kind,flags])+stream.to_bytes(4,'big')+payload
+
+HEAD_REQUEST = (b'PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n' +
+                h2_frame(4,payload=struct.pack('>HIHIHIHI',1,0,2,0,4,0,6,4096)))
+H2_SETTINGS = h2_frame(4,payload=struct.pack('>HIHIHI',3,100,4,65535,5,16384))
+H2_CONTROL = H2_SETTINGS+h2_frame(4,1)+h2_frame(6,payload=b'12345678')
+H2_EE = bytes.fromhex('000d00000000001000050003026832')
+
 
 
 def load_module(path: Path, name: str) -> ModuleType:
@@ -287,7 +291,7 @@ def build_fixture() -> dict[str, object]:
     hello = integrated.client_hello + integrated.server_hello
     hybrid = integrated.candidate_mlkem_secret + integrated.server_x25519_public
     handshake = CHECK.derive_handshake(hybrid, hello)
-    ee = hs(8, b"\x00\x00")
+    ee = hs(8, H2_EE)
     certificate_der = (
         b"\x30\x82\x09\x5c"
         + bytes((index * 17 + 9) & 0xFF for index in range(2396))
@@ -359,11 +363,8 @@ def build_fixture() -> dict[str, object]:
     ticket_psk = BASE.hkdf_expand_label(
         resumption_master, b"resumption", ticket_nonce, 32
     )
-    http = (
-        b"HTTP/1.1 401 Unauthorized\r\n"
-        b"x-seed-check: acquisition\r\n\r\n"
-    )
-    http_ok = b"HTTP/1.1 200 OK\r\nx-seed-check: ok\r\n\r\n"
+    http = H2_CONTROL
+    http_ok = H2_CONTROL
 
     def app_records(parts: list[tuple[int, bytes]]) -> list[bytes]:
         return [
@@ -401,7 +402,7 @@ def build_fixture() -> dict[str, object]:
             (ORACLE.CONTENT_HANDSHAKE, nst),
             (
                 ORACLE.CONTENT_APPLICATION_DATA,
-                b"HTTP/1.1 503 Service Unavailable\r\n\r\n",
+                H2_CONTROL,
             ),
         ]
     )
@@ -409,7 +410,7 @@ def build_fixture() -> dict[str, object]:
         [
             (
                 ORACLE.CONTENT_APPLICATION_DATA,
-                b"HTTP/1.1 425 Too Early\r\n\r\n",
+                h2_frame(7,payload=bytes(8)),
             )
         ]
     )
@@ -417,7 +418,7 @@ def build_fixture() -> dict[str, object]:
         [
             (
                 ORACLE.CONTENT_APPLICATION_DATA,
-                b"HTTP/1.1 200 OK\r\nx-bad: one\n\r\n",
+                h2_frame(4,payload=b"x"),
             )
         ]
     )
@@ -425,7 +426,7 @@ def build_fixture() -> dict[str, object]:
         [
             (
                 ORACLE.CONTENT_APPLICATION_DATA,
-                b"HTTP/1.1 200 OK\r\nx-long: " + b"a" * 2048,
+                H2_SETTINGS+h2_frame(6,payload=b"12345678")*76,
             )
         ]
     )
@@ -476,7 +477,7 @@ def build_fixture() -> dict[str, object]:
     resume_hello = resume_client + resume_server
     resume_secret = BASE.hkdf_extract(early_derived, hybrid)
     resume_handshake = CHECK.derive_traffic(resume_secret, resume_hello)
-    resume_ee = hs(8, b"\x00\x00")
+    resume_ee = hs(8, H2_EE)
     resume_verify = hmac.new(
         resume_handshake["server_finished"],
         hashlib.sha256(resume_hello + resume_ee).digest(),
@@ -526,10 +527,7 @@ def build_fixture() -> dict[str, object]:
         ORACLE.CONTENT_APPLICATION_DATA,
         HEAD_REQUEST,
     )
-    resume_http = (
-        b"HTTP/1.1 401 Unauthorized\r\n"
-        b"x-seed-check: resumed\r\n\r\n"
-    )
+    resume_http = H2_CONTROL
     resume_post_parts = [
         (ORACLE.CONTENT_HANDSHAKE, nst[:37]),
         (ORACLE.CONTENT_HANDSHAKE, nst[37:]),
@@ -548,36 +546,7 @@ def build_fixture() -> dict[str, object]:
         )
         for sequence, (content_type, payload) in enumerate(resume_post_parts)
     ]
-    resumed_ticket_bytes = 0
-    resumed_http_bytes = bytearray()
-    ticket_complete_record: int | None = None
-    status_complete_record: int | None = None
-    for record_index, (content_type, payload) in enumerate(
-        resume_post_parts,
-        start=1,
-    ):
-        if content_type == ORACLE.CONTENT_HANDSHAKE:
-            resumed_ticket_bytes += len(payload)
-            if resumed_ticket_bytes == len(nst):
-                ticket_complete_record = record_index
-            elif resumed_ticket_bytes > len(nst):
-                raise AssertionError("resumed timing ticket framing drifted")
-        elif content_type == ORACLE.CONTENT_APPLICATION_DATA:
-            resumed_http_bytes.extend(payload)
-            if status_complete_record is None and len(resumed_http_bytes) >= 13:
-                if (
-                    resumed_http_bytes[:9] != b"HTTP/1.1 "
-                    or resumed_http_bytes[9:12] != b"401"
-                    or resumed_http_bytes[12] != 0x20
-                ):
-                    raise AssertionError("resumed timing HTTP status drifted")
-                status_complete_record = record_index
-    if ticket_complete_record is None or status_complete_record is None:
-        raise AssertionError("resumed timing release boundary is incomplete")
-    resume_publish_after_records = max(
-        ticket_complete_record,
-        status_complete_record,
-    )
+    resume_publish_after_records = len(resume_post_parts)
     live_record = BASE.encrypted_record(
         handshake["server_key"],
         handshake["server_iv"],
@@ -726,6 +695,7 @@ class FlightMachine:
         mutate_early_inverse_index: int | None = None,
         fail_send: bool = False,
         fail_send_at: int | None = None,
+        fail_h2_read: int | None = None,
         compat_ccs: bytes = EXACT_COMPAT_CCS,
         wire_records: list[bytes] | None = None,
         prior_coordinator_state: bytes | None = None,
@@ -1053,6 +1023,8 @@ class FlightMachine:
             index += 1
         self.initial_rx_chunks = len(self.rx)
         self.acks = 0
+        self.h2_reads: list[tuple[int,int]] = []
+        self.fail_h2_read = fail_h2_read
         self.sent: list[bytes] = []
         if fail_send and fail_send_at is not None:
             raise ValueError("choose fail_send or fail_send_at, not both")
@@ -1164,6 +1136,23 @@ class FlightMachine:
                 clear_cf(machine)
         elif address == LOAD_CORE:
             key = machine.reg_read(UC_X86_REG_AX) & 0xFFFF
+            dest = machine.reg_read(UC_X86_REG_BX)
+            if (key,dest) in ((0x01a4,0x5500),(0x070c,0x4230),(0x01d2,0x5230)):
+                assert len(self.sent)>=2, 'parser disk I/O delayed Finished/preface'
+                core = CORE.read_bytes()
+                for i in range(key>>8):
+                    sector=(key&255)+i; target=dest+512*i
+                    self.h2_reads.append((sector,target))
+                    failed = len(self.h2_reads) == self.fail_h2_read
+                    machine.mem_write(target, b'\xcc'*256 if failed else
+                                      core[sector*512:(sector+1)*512])
+                    machine.ctl_remove_cache(target,target+512)
+                    if failed:
+                        machine.reg_write(UC_X86_REG_EFLAGS,
+                                          machine.reg_read(UC_X86_REG_EFLAGS) | 1)
+                        return
+                clear_cf(machine)
+                return
             if key == RUNTIME["TLS13_286_LINK_SYM_PHASE_KEY"]:
                 self.sym_disk_loads += 1
                 raise AssertionError(
@@ -1236,6 +1225,11 @@ class FlightMachine:
         value: int,
         _user: object,
     ) -> None:
+        if _machine.reg_read(UC_X86_REG_CS) == 0x02A3:
+            if not any(lo <= address and address + size <= hi for lo, hi in (
+                (0x305E, 0x30B2), (0x5830, 0x5FEC), (0x7A00, 0x8000),
+            )):
+                raise AssertionError(f"H2 parser write escaped its lifetime: {address:#x}+{size}")
         start = CRYPTO_BASE + SYM_STAGE_STATUS_INV
         end = start + 2
         encoded = (
@@ -1475,7 +1469,7 @@ def assert_success_boundary(
         + app["server_key"]
         + app["client_iv"]
         + app["server_iv"]
-        + (1).to_bytes(8, "big")
+        + (len(flight.sent)-1).to_bytes(8, "big")
         + expected_server_records.to_bytes(8, "big")
     )
     if bytes(
@@ -1490,6 +1484,7 @@ def assert_abort_boundary(flight: FlightMachine, label: str) -> None:
     if not flight.aborted or flight.success:
         raise AssertionError(f"{label} did not return CF=1")
     assert_packaged_return(flight, success=False, label=label)
+    assert_zero(flight.machine, 0x062E, 0x0682, f"{label} H2 connection state")
     assert_zero(
         flight.machine,
         APP_CLIENT_KEY,
@@ -1601,6 +1596,23 @@ def assert_early_cache_consumed(
         )
 
 
+def assert_h2_sends(flight, fixture, *, resumed):
+    from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
+    prefix = 'resume_' if resumed else ''
+    assert flight.sent[:2] == [fixture[prefix+'client_finished_record'],fixture[prefix+'head_record']]
+    assert [len(w) for w in flight.sent[:2]] == [58,79]
+    app = fixture[prefix+'application']
+    plain=[]
+    for seq,wire in enumerate(flight.sent[1:]):
+        nonce=bytearray(app['client_iv'])
+        for i,b in enumerate(seq.to_bytes(8,'big')): nonce[4+i]^=b
+        data=ChaCha20Poly1305(app['client_key']).decrypt(bytes(nonce),wire[5:],wire[:5])
+        assert data[-1]==23
+        plain.append(data[:-1])
+    assert plain[0] == HEAD_REQUEST
+    assert b''.join(plain[1:]) == h2_frame(4,1)+h2_frame(6,1,payload=b'12345678')
+
+
 def main() -> None:
     fixture = build_fixture()
     capture = FlightMachine(fixture, resumed=False)
@@ -1629,13 +1641,7 @@ def main() -> None:
         raise AssertionError("CertificateVerify signature capture drifted")
     if bytes(capture.machine.mem_read(high + CAPTURE_STATUS_INV, 2)) != b"\x5a\xa5":
         raise AssertionError("capture status was not published last")
-    if capture.sent != [
-        fixture["client_finished_record"],
-        fixture["head_record"],
-    ]:
-        raise AssertionError(
-            "acquisition did not send exact Finished then credential-free HEAD"
-        )
+    assert_h2_sends(capture, fixture, resumed=False)
     if bytes(
         capture.machine.mem_read(high + TICKET_STATUS_INV, 2)
     ) != TICKET_TENTATIVE:
@@ -1728,7 +1734,7 @@ def main() -> None:
     http_first.run()
     if http_first.chain_kind != 6 or http_first.success:
         raise AssertionError(
-            "flight rejected HTTP-before-NST record/message fragmentation"
+            "flight rejected H2-before-NST record/message fragmentation"
         )
 
     server_error = FlightMachine(
@@ -1738,7 +1744,7 @@ def main() -> None:
     )
     server_error.run()
     if server_error.chain_kind != 6 or server_error.success:
-        raise AssertionError("flight rejected bounded HTTP 5xx liveness")
+        raise AssertionError("flight rejected fragmented H2 liveness")
 
     live_shape = FlightMachine(
         fixture,
@@ -1815,8 +1821,8 @@ def main() -> None:
     )
     too_early.run()
     if too_early.chain_kind == 6:
-        raise AssertionError("HTTP 425 reached tentative ticket publication")
-    assert_abort_boundary(too_early, "HTTP 425")
+        raise AssertionError("H2 GOAWAY reached tentative ticket publication")
+    assert_abort_boundary(too_early, "H2 GOAWAY")
 
     bare_lf = FlightMachine(
         fixture,
@@ -1825,8 +1831,8 @@ def main() -> None:
     )
     bare_lf.run()
     if bare_lf.chain_kind == 6:
-        raise AssertionError("bare HTTP LF reached tentative ticket publication")
-    assert_abort_boundary(bare_lf, "bare HTTP LF")
+        raise AssertionError("malformed H2 SETTINGS reached tentative ticket publication")
+    assert_abort_boundary(bare_lf, "malformed H2 SETTINGS")
 
     overlong_http = FlightMachine(
         fixture,
@@ -1835,8 +1841,8 @@ def main() -> None:
     )
     overlong_http.run()
     if overlong_http.chain_kind == 6:
-        raise AssertionError("overlong HTTP header reached ticket publication")
-    assert_abort_boundary(overlong_http, "overlong HTTP header")
+        raise AssertionError("oversize H2 control journal reached ticket publication")
+    assert_abort_boundary(overlong_http, "oversize H2 control journal")
 
     bad_post = bytearray(fixture["post_records"][0])
     bad_post[-1] ^= 1
@@ -1877,15 +1883,7 @@ def main() -> None:
         raise AssertionError(
             "resumed flight did not require the consumed ticket state"
         )
-    if resumed_route.sent != [
-        fixture["resume_client_finished_record"],
-        fixture["resume_head_record"],
-    ]:
-        raise AssertionError(
-            "resumed route did not send exact Finished then credential-free HEAD"
-        )
-    if [len(record) for record in resumed_route.sent] != [58, 72]:
-        raise AssertionError("resumed Finished/HEAD wire geometry drifted")
+    assert_h2_sends(resumed_route, fixture, resumed=True)
     app = fixture["resume_application"]
     for label, address, expected in (
         ("client key", APP_CLIENT_KEY, app["client_key"]),
@@ -1908,155 +1906,28 @@ def main() -> None:
         receive_cursor_end,
         "prior-connection resident receive cursors",
     )
-    # The status becomes decisive in the second HTTP fragment, after two
-    # complete NST records.  Publication preserves that exact record cursor;
-    # the remaining credential-free header tail is intentionally left for the
-    # resident authenticated stream.
-    assert_success_boundary(
-        resumed_route,
-        fixture,
-        expected_server_records=4,
-    )
-
-    # OpenAI may finish the credential-free liveness turn with one
-    # authenticated HTTP record whose header tail is not emitted until later
-    # connection activity.  The final route must not wait for another record
-    # after it has validated the status code.  Match the 678-byte ciphertext
-    # shape observed on the live 286 reconnect while retaining the strict full
-    # header/ticket requirement on acquisition.
-    partial_http = b"HTTP/1.1 401 Unauthorized\r\nx-seed-partial: live"
-    partial_http_record = BASE.encrypted_record(
-        fixture["resume_application"]["server_key"],
-        fixture["resume_application"]["server_iv"],
-        2,
-        ORACLE.CONTENT_APPLICATION_DATA,
-        partial_http,
-        padding_len=661 - len(partial_http),
-    )
-    if int.from_bytes(partial_http_record[3:5], "big") != 678:
-        raise AssertionError("partial HTTP reconnect fixture geometry drifted")
-    partial_http_route = FlightMachine(
-        fixture,
-        resumed=True,
-        wire_records=[
-            *fixture["resume_records"],
-            *fixture["resume_post_records"][:2],
-            partial_http_record,
-        ],
-        prior_coordinator_state=prior_coordinator_state,
-    )
-    partial_http_route.machine.mem_write(
-        prior_low_tail_start,
-        prior_low_tail_state,
-    )
-    partial_http_route.run()
-    if not partial_http_route.success or partial_http_route.rx:
-        raise AssertionError(
-            "authenticated partial HTTP status did not release the final "
-            "application route"
-        )
-    assert_success_boundary(
-        partial_http_route,
-        fixture,
-        expected_server_records=3,
-    )
-
-    no_ticket_http_record = BASE.encrypted_record(
-        fixture["resume_application"]["server_key"],
-        fixture["resume_application"]["server_iv"],
-        0,
-        ORACLE.CONTENT_APPLICATION_DATA,
-        partial_http,
-        padding_len=661 - len(partial_http),
-    )
-    no_ticket_http_route = FlightMachine(
-        fixture,
-        resumed=True,
-        wire_records=[
-            *fixture["resume_records"],
-            no_ticket_http_record,
-        ],
-        prior_coordinator_state=prior_coordinator_state,
-    )
-    no_ticket_http_route.machine.mem_write(
-        prior_low_tail_start,
-        prior_low_tail_state,
-    )
-    no_ticket_http_route.run()
-    if no_ticket_http_route.success:
-        raise AssertionError(
-            "valid HTTP status without a complete ticket reached key publication"
-        )
-    assert_abort_boundary(
-        no_ticket_http_route,
-        "valid HTTP status without a complete ticket",
-    )
-
-    http_before_ticket_record = BASE.encrypted_record(
-        fixture["resume_application"]["server_key"],
-        fixture["resume_application"]["server_iv"],
-        0,
-        ORACLE.CONTENT_APPLICATION_DATA,
-        partial_http,
-    )
-    ticket_after_http_record = BASE.encrypted_record(
-        fixture["resume_application"]["server_key"],
-        fixture["resume_application"]["server_iv"],
-        1,
-        ORACLE.CONTENT_HANDSHAKE,
-        fixture["nst"],
-    )
-    http_before_ticket_route = FlightMachine(
-        fixture,
-        resumed=True,
-        wire_records=[
-            *fixture["resume_records"],
-            http_before_ticket_record,
-            ticket_after_http_record,
-        ],
-        prior_coordinator_state=prior_coordinator_state,
-    )
-    http_before_ticket_route.machine.mem_write(
-        prior_low_tail_start,
-        prior_low_tail_state,
-    )
-    http_before_ticket_route.run()
-    if not http_before_ticket_route.success or http_before_ticket_route.rx:
-        raise AssertionError(
-            "final flight rejected authenticated HTTP-before-ticket ordering"
-        )
-    assert_success_boundary(
-        http_before_ticket_route,
-        fixture,
-        expected_server_records=2,
-    )
-
-    incomplete_status = b"HTTP/1.1 4"
-    incomplete_status_record = BASE.encrypted_record(
-        fixture["resume_application"]["server_key"],
-        fixture["resume_application"]["server_iv"],
-        2,
-        ORACLE.CONTENT_APPLICATION_DATA,
-        incomplete_status,
-    )
-    incomplete_status_route = FlightMachine(
-        fixture,
-        resumed=True,
-        wire_records=[
-            *fixture["resume_records"],
-            *fixture["resume_post_records"][:2],
-            incomplete_status_record,
-        ],
-        prior_coordinator_state=prior_coordinator_state,
-    )
-    incomplete_status_route.machine.mem_write(
-        prior_low_tail_start,
-        prior_low_tail_state,
-    )
-    incomplete_status_route.run()
-    if incomplete_status_route.success:
-        raise AssertionError("incomplete HTTP status reached key publication")
-    assert_abort_boundary(incomplete_status_route, "incomplete HTTP status")
+    assert_success_boundary(resumed_route, fixture, expected_server_records=5)
+    app = fixture['resume_application']
+    for label, parts, accepted in (
+        ('settings-without-ticket', [(23,H2_CONTROL)], False),
+        ('settings-before-ticket', [(23,H2_CONTROL),(22,fixture['nst'])], True),
+        ('ticket-before-settings', [(22,fixture['nst']),(23,H2_CONTROL)], True),
+        ('missing-settings-ack', [(22,fixture['nst']),(23,H2_SETTINGS)], False),
+        ('duplicate-settings-ack', [(22,fixture['nst']),(23,H2_CONTROL+h2_frame(4,1))], False),
+        ('incomplete-control', [(22,fixture['nst']),(23,H2_CONTROL+h2_frame(6,payload=b'12345678')[:11])], False),
+        ('data-before-stream', [(22,fixture['nst']),(23,H2_CONTROL+h2_frame(0,stream=1,payload=b'x'))], False),
+    ):
+        records=[BASE.encrypted_record(app['server_key'],app['server_iv'],n,kind,data)
+                 for n,(kind,data) in enumerate(parts)]
+        v=FlightMachine(fixture,resumed=True,wire_records=[*fixture['resume_records'],*records],
+                        prior_coordinator_state=prior_coordinator_state)
+        v.machine.mem_write(prior_low_tail_start,prior_low_tail_state)
+        v.run()
+        if accepted:
+            assert v.success and not v.rx,label
+            assert_success_boundary(v,fixture,expected_server_records=len(records))
+        else:
+            assert_abort_boundary(v,label)
 
     tampered = FlightMachine(fixture, resumed=False, mutate_wire=True)
     tampered.run()
@@ -2110,8 +1981,27 @@ def main() -> None:
             fixture["resume_head_record"],
         ]
     ):
-        raise AssertionError("failed resumed HEAD send did not fail closed")
-    assert_abort_boundary(head_send_failed, "resident HEAD send failure")
+        raise AssertionError("failed resumed preface send did not fail closed")
+    assert_abort_boundary(head_send_failed, "resident preface send failure")
+
+    # The shared parser overlays flight code only after Finished/preface.
+    # A torn read must unwind through the independent abort capsule, never
+    # execute the partially overwritten image or retain H2 authority.
+    for resumed_mode in (False, True):
+        for index in range(1, 10):
+            failed_read = FlightMachine(fixture, resumed=resumed_mode,
+                                        fail_h2_read=index)
+            failed_read.run()
+            assert len(failed_read.h2_reads) == index
+            assert_abort_boundary(failed_read,
+                                  f"H2 partial read {resumed_mode}/{index}")
+        for index in range(1, 6):
+            failed_send = FlightMachine(fixture, resumed=resumed_mode,
+                                        fail_send_at=index)
+            failed_send.run()
+            assert len(failed_send.sent) == index
+            assert_abort_boundary(failed_send,
+                                  f"H2 control send {resumed_mode}/{index}")
 
     bad_resume_post = bytearray(fixture["resume_post_records"][0])
     bad_resume_post[-1] ^= 1
@@ -2236,7 +2126,7 @@ def main() -> None:
         f"records={len(fixture['wire_records'])} cert={len(fixture['certificate'])} "
         f"tcp_chunks={capture.acks} prestage=12-sector+byte-exact "
         f"ticket={len(fixture['ticket_identity'])} "
-        "resume=early-cache+EE/Finished+authenticated-HEAD "
+        "resume=early-cache+EE/Finished+authenticated-H2 "
         f"capsule={len(resumed_route.capsule_image)} packaged_return=real"
     )
 

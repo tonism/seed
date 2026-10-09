@@ -2,8 +2,8 @@
 %error "PHASE_BASE must name the containing phase start label"
 %endif
 
-ext_xfer_gdt equ tls_rx_copy
-ext_xfer_buf equ tls_rx_copy + 0x30
+ext_xfer_gdt equ 0x3070
+ext_xfer_buf equ 0x2e70
 
 ext_read_chunk_phase:
     mov cx, [tool_readlen]

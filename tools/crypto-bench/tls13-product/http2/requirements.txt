@@ -1,0 +1,4 @@
+# Independent HTTP/2 and HPACK peer used by guarded CPU-emulation tests.
+h2==4.3.0
+hpack==4.2.0
+hyperframe==6.1.0

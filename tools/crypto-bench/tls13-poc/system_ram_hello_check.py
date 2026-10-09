@@ -70,7 +70,7 @@ def main() -> int:
         fixture.random,
         fixture.session,
         request_ticket=True,
-        record_size_limit=hello.PRODUCT_RECORD_SIZE_LIMIT,
+        alpn=b"h2",
     )
     server = hello.build_server(
         fixture.session,

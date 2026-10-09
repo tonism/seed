@@ -212,6 +212,11 @@ SYSTEM_AUTH = load_module(
 
 SYSTEM_REGENERATE_DOMAIN = b"S13 8088 attempt v2\0"
 
+# Product deadline fixtures negotiate h2 and use credential-free SETTINGS.
+SYM.RESUMED_ENCRYPTED_EXTENSIONS = bytes.fromhex("0800000f000d00000000001000050003026832")
+SYM.HEAD_REQUEST = (b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n" + bytes.fromhex("000018040000000000") +
+                    b"".join(struct.pack(">HI", k, v) for k,v in ((1,0),(2,0),(4,0),(6,4096))))
+
 
 def deterministic(label: bytes, length: int) -> bytes:
     return hashlib.shake_256(b"Seed shipped RAM-only pack|" + label).digest(length)
@@ -1010,12 +1015,13 @@ def deadline_gate(
     machine.mem_write(0x2FE0 if resumed else 0x2F40, root)
     if resumed:
         tail = fixture["resumed_tail"]
-        if len(tail) != 70:
+        if len(tail) != 83:
             raise AssertionError(
                 f"resumed coalesced-tail fixture is {len(tail)} bytes"
             )
         machine.mem_write(0x0F16, struct.pack("<H", len(tail)))
-        machine.mem_write(0x0F18, tail)
+        machine.mem_write(0x0F18, tail[:72])
+        machine.mem_write(0x3B90, tail[72:])
     guards = install_machine_guards(machine)
     install_io_rejection(machine)
     machine.mem_write(STACK_TOP - 2, struct.pack("<H", RETURN))
@@ -1097,7 +1103,7 @@ def deadline_gate(
             retained_len = struct.unpack(
                 "<H", bytes(uc.mem_read(0x0F16, 2))
             )[0]
-            retained_tail = bytes(uc.mem_read(0x0F18, retained_len))
+            retained_tail = bytes(uc.mem_read(0x0F18, min(retained_len, 72))) + bytes(uc.mem_read(0x3B90, max(0, retained_len - 72)))
             if (
                 retained_len != len(fixture["resumed_tail"])
                 or retained_tail != fixture["resumed_tail"]
@@ -1374,6 +1380,8 @@ def deadline_gate(
             0x0F60 - 0x0F16
         ):
             raise AssertionError("resumption retained its coalesced-flight quarantine")
+        if any(machine.mem_read(0x3B90, 12)):
+            raise AssertionError("resumption retained its extra ciphertext quarantine")
         expected_records = [
             fixture["client_finished_record"],
             fixture["head_record"],
@@ -1451,7 +1459,7 @@ def deadline_gate(
             if resumed
             else "reused as live c; scrubbed by acquisition lifecycle"
         ),
-        "coalesced_tail_bytes": 70 if resumed else 0,
+        "coalesced_tail_bytes": len(fixture["resumed_tail"]) if resumed else 0,
         "protected_client_records": [len(value) for value in sent_records],
     }
 
@@ -1893,7 +1901,7 @@ def resumed_hello_preconnect_gate(
         identity,
         age,
         psk,
-        record_size_limit=HELLO.PRODUCT_RECORD_SIZE_LIMIT,
+        alpn=b"h2",
     )
 
     entries = struct.unpack_from("<14H", hello.data, 0x30)
@@ -2256,6 +2264,8 @@ def post_gate(
     named: dict[str, Any],
     *,
     fresh: bool,
+    http_content_length: int = 1432,
+    corrupt_http_tag: bool = False,
 ) -> dict[str, Any]:
     controller_name = "fresh_post" if fresh else "final_post"
     sym_name = "acq_sym" if fresh else "res_sym"
@@ -2292,15 +2302,16 @@ def post_gate(
         nonce=deterministic(b"authenticated product second NST nonce", 1),
         extensions=SYM.NST_LIVE_EXTENSIONS,
     )
-    # Match OpenAI's post-Finished wire geometry exactly on both connections:
-    # one 461-byte encrypted record contains two 222-byte NST messages, then
-    # one 1,142-byte encrypted record contains the 1,125-byte HEAD response.
+    # Keep the observed two-ticket batch, then exercise the entire supported
+    # HEAD quarantine.  The old 1,125-byte fixture stopped just before a live
+    # symmetric-state overlap at 3510; a 1,162-byte response exposed it.
+    # The default reaches the 1,433-byte inner limit, including its type byte.
     # Fresh retains the first authenticated ticket; final authenticates and
     # discards both tickets before publishing the resumed application state.
     http_prefix = b"HTTP/1.1 200 OK\r\nX-Fill: "
     http = (
         http_prefix
-        + b"a" * (1125 - len(http_prefix) - len(b"\r\n\r\n"))
+        + b"a" * (http_content_length - len(http_prefix) - len(b"\r\n\r\n"))
         + b"\r\n\r\n"
     )
     contents = [
@@ -2311,6 +2322,9 @@ def post_gate(
         SYM.BASE.encrypted_record(key, iv, sequence, inner_type, content)
         for sequence, (inner_type, content) in enumerate(contents)
     ]
+    if corrupt_http_tag:
+        last = record_list[-1]
+        record_list[-1] = last[:-1] + bytes([last[-1] ^ 1])
     records = b"".join(record_list)
     queue = (
         segment_stream(records)
@@ -2653,6 +2667,21 @@ def post_gate(
         raise AssertionError(f"{controller_name} failed at {ip:#06x}: {exc}") from exc
     transition_incomplete = fresh and not reached_resumption_controller
     publication_incomplete = not fresh and not reached_return
+    if corrupt_http_tag:
+        if not failed or reached_commit or reached_return or reached_resumption_controller:
+            raise AssertionError(f"{controller_name} published a forged HEAD")
+        if transition_loads or bytes(machine.mem_read(SYM_SERVER_SEQ, 8)) != (1).to_bytes(8, "big"):
+            raise AssertionError(f"{controller_name} consumed a forged HEAD")
+        for label in ("post_head_complete", "post_http_done"):
+            address = BUILDER.label_address(controller.listing, label, 0x0900)
+            if machine.mem_read(address, 1) != b"\x00":
+                raise AssertionError(f"{controller_name} parsed unauthenticated HTTP")
+        assert_machine_guards(machine, guards)
+        return {
+            "http_inner_bytes": len(http) + 1,
+            "forged_tag_rejected_before_http_or_publication": True,
+            "disk_independent_abort_reached": True,
+        }
     if failed or not reached_commit or transition_incomplete or publication_incomplete:
         state = dict(commit_state)
         state["compact_root"] = bytes(machine.mem_read(COMPACT_ROOT, 34)).hex()
@@ -2770,7 +2799,7 @@ def post_gate(
                 hello_identity,
                 hello_age,
                 hello_psk,
-                record_size_limit=HELLO.PRODUCT_RECORD_SIZE_LIMIT,
+                alpn=b"h2",
             )
         )
         if expected_binder != HELLO.resumption_binder(hello_psk, truncated):
@@ -2894,6 +2923,8 @@ def post_gate(
     assert_machine_guards(machine, guards)
     return {
         "tls_records": len(contents),
+        "http_content_bytes": len(http),
+        "http_inner_bytes": len(http) + 1,
         "tcp_fragments": fragment_count,
         "multi_record_http": True,
         "authenticated_ticket": fresh,
@@ -2922,6 +2953,20 @@ def post_gate(
             else None
         ),
     }
+
+
+def post_h2_gate(work, images, slots, pack):
+    import prepare_http2_tests
+    out = ROOT / "build/ibm_pc_5150/http2-tests"
+    metadata = prepare_http2_tests.prepare(out, work, images, slots, pack)
+    os.environ["SEED_HTTP2_TEST_IMAGE"] = str(out)
+    sys.path.insert(0, str(HERE / "http2"))
+    import check_h2_liveness
+    check_h2_liveness.main()
+    result = json.loads((out / "liveness-gate.json").read_text())
+    if result["core_sha256"] != metadata["core_sha256"]:
+        raise AssertionError("cold H2 test image changed")
+    return result
 
 
 def main() -> int:
@@ -2973,10 +3018,7 @@ def main() -> int:
                 images["lifecycle"].data,
                 images["ticket_age"].data,
             ),
-            "post": {
-                "fresh": post_gate(images, named, fresh=True),
-                "final": post_gate(images, named, fresh=False),
-            },
+            "post": post_h2_gate(work, images, slots, exact_pack),
             "security_boundary": {
                 "display_ram": False,
                 "adapter_ram": False,

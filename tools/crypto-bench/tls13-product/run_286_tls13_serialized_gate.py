@@ -8,7 +8,7 @@ the route's two real provider-deadline windows:
 * acquisition uses the measured ML-KEM candidate operation, X25519, hardened
   pack transition proxy, full post-connect HELLO TX/RX CPU wrapper, current
   flight decode, and exact protected-flight controller through Finished + the
-  credential-free HEAD; authenticated response/ticket export remains
+  credential-free H2 preface; authenticated response/ticket export remains
   separately measured post-dialogue work;
 * uncached full ML-KEM FO and partially measured X.509/hostname/UTC/CV/table
   work then run offline;
@@ -16,9 +16,9 @@ the route's two real provider-deadline windows:
   that connection charges cached full ML-KEM decapsulation (with zero matrix
   SHAKE128 permutations), X25519, the pack transition proxy, full HELLO TX/RX
   CPU wrapper, current flight decode, and the exact resumed protected-flight
-  controller through Finished, credential-free HEAD, a complete authenticated
-  NST plus allowed HTTP status, and sequence-preserving application
-  publication.  Charging this post-HEAD dialogue is deliberately conservative
+  controller through Finished, credential-free H2 preface, a complete authenticated
+  NST plus H2 SETTINGS/PING liveness, and sequence-preserving application
+  publication.  Charging this post-preface dialogue is deliberately conservative
   for the initial-silence deadline.
 
 Every measured component aligns its timer to a BIOS tick edge.  Summing those
@@ -182,6 +182,7 @@ def build_generated_sources() -> None:
         "build_286_flight.py",
         "build_286_flight_timing_fixtures.py",
         "check_286_hello_timing_bench.py",
+        "check_286_flight_timing_bench.py",
     ):
         subprocess.run(
             [sys.executable, str(HERE / script)],
@@ -624,10 +625,10 @@ def main() -> None:
         "timing_model": (
             "sum of separately tick-edge-aligned target operations within "
             "each provider connection; acquisition charges through successful "
-            "Finished + credential-free HEAD, while response/NST/close and "
+            "Finished + credential-free H2 preface, while control replies/NST/close and "
             "offline work are measured separately; final resumption "
-            "conservatively charges its authenticated HEAD response/NST even "
-            "though successful HEAD transmission ends initial silence"
+            "conservatively charges its authenticated H2 control replies/NST even "
+            "though successful preface transmission ends initial silence"
         ),
         "deadline_composition": {
             "PACKMX": (
@@ -659,10 +660,9 @@ def main() -> None:
                 "start at the already-decoded FLIGHT entry, so they do not "
                 "repeat FLIGHTDC; they include symmetric relocation, key "
                 "schedule, authenticated records, and the named publication; "
-                "RESFLIGHT additionally includes exact credential-free HEAD "
-                "send, complete authenticated NST plus allowed HTTP status, "
-                "and advanced-sequence publication without requiring the "
-                "response header-tail terminator"
+                "RESFLIGHT additionally includes exact credential-free H2 preface "
+                "send, complete authenticated NST plus H2 SETTINGS/PING liveness, "
+                "and advanced-sequence publication after complete control frames"
             ),
         },
         "tick_ms": TICK_MS,
@@ -696,7 +696,7 @@ def main() -> None:
             "full_flight_lifecycle": acquisition_lifecycle,
             "policy": (
                 "ACQHEAD ends at the successful 58-byte Finished plus "
-                "72-byte credential-free HEAD send; ACQPOST partitions the "
+                "79-byte credential-free H2 preface send; ACQPOST partitions the "
                 "authenticated response, tentative NST export, close, and "
                 "symmetric retirement from the full ACQFLIGHT measurement"
             ),
@@ -766,7 +766,7 @@ def main() -> None:
                 "scope": (
                     "the exact 58-byte Client Finished is passed through the "
                     "generated resident tcp_send_payload callback, followed "
-                    "by the exact 72-byte credential-free HEAD on both "
+                    "by the exact 79-byte credential-free H2 preface on both "
                     "connection modes; either callback failure aborts before "
                     "application publication"
                 ),
@@ -778,13 +778,13 @@ def main() -> None:
                 "target uses the measured ML-KEM candidate to authenticate the "
                 "protected flight and server Finished provisionally, captures "
                 "ordinary Certificate/CV, sends Finished plus the immutable "
-                "credential-free HEAD, retains one tentative ticket, and closes"
+                "credential-free H2 preface, retains one tentative ticket, and closes"
             ),
             "final_resumption_in_window": (
                 "target offers psk_dhe_ke with one final-position "
                 "pre_shared_key, no early_data, fresh ML-KEM/X25519 material, "
                 "performs full ML-KEM decapsulation before Finished, then "
-                "sends and authenticates the credential-free HEAD dialogue "
+                "sends and authenticates the credential-free H2 preface dialogue "
                 "before publishing application keys and consumed sequences"
             ),
             "offline_authentication": (

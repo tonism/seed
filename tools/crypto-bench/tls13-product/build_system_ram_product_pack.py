@@ -25,6 +25,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 POC = ROOT / "tools/crypto-bench/tls13-poc"
 BOOT = ROOT / "targets/ibm_pc_5150/boot"
+HTTP = BOOT / "phases/http2"
+HTTP_BUILD = ROOT / "build/ibm_pc_5150/http2"
 PRODUCT_SOURCE = BOOT / "tls13/k14_product_pack.asm"
 
 SECTOR = 512
@@ -107,6 +109,9 @@ def assemble(
         "bin",
         *(f"-D{define}" for define in defines),
         f"-I{ROOT}/",
+        f"-I{work}/",
+        f"-I{HTTP_BUILD}/",
+        f"-I{HTTP}/",
         f"-I{POC}/",
         f"-I{BOOT}/",
         "-l",
@@ -345,6 +350,7 @@ def build_independent(work: Path) -> dict[str, Image]:
         POC / "system_ram_product_lifecycle.asm",
         (quoted_define("SYSRAM_LOW_ABORT_PATH", work / "abort.bin"),),
     )
+    images["h2_nst"] = assemble(work, "h2_nst", HTTP / "h2_nst.asm")
 
     if images["conditioner"].data[:4] != b"ERE1" or len(images["conditioner"].data) != SECTOR:
         fail("existing-read conditioner lost its exact one-sector ERE1 ABI")
@@ -420,10 +426,8 @@ def make_layout(images: dict[str, Image]) -> tuple[list[Slot], dict[str, Slot]]:
     add("resumption_fo", 0x0900, fixed=1)
     add("auth_return", 0x3550, fixed=1)
     add("fresh_post", 0x0900, fixed=3)
-    # The final connection authenticates and drains OpenAI's post-Finished
-    # NST batch before accepting HTTP.  Keep the validation explicit rather
-    # than squeezing it into two sectors; this consumes one reserved pack
-    # sector without growing the fixed-size pack or SEED.SYS.
+    # Cold owners occupy two executable sectors. The existing third sectors
+    # hold the 286 parser adapter (fresh) and ordinary response owner (final).
     add("final_post", 0x0900, fixed=3)
     # Consume one formerly reserved pack sector without moving any existing
     # phase key.  Keep this late monotonic-age helper immediately after the
@@ -431,6 +435,7 @@ def make_layout(images: dict[str, Image]) -> tuple[list[Slot], dict[str, Slot]]:
     # 2c00..2dff is disjoint from HELLO, its controller, TX staging, and the
     # ticket identity.
     add("ticket_age", TICKET_AGE_DESTINATION, images["ticket_age"])
+    add("h2_nst", 0x1800, images["h2_nst"], fixed=6)
 
     end = PACK_START_SECTOR + PACK_SECTORS
     if cursor > end:
@@ -630,9 +635,11 @@ def build_dependent(
     images["fresh_post"] = assemble(
         work,
         "fresh_post",
-        POC / "system_ram_post_controller.asm",
+        HTTP / "h2_cold_post.asm",
         (
             "SYSRAM_POST_FRESH=1",
+            "SYM_CRYPTO_CONSTANTS="
+            f"0x{label_address(images['acq_sym'].listing, 'chacha_constants', 0x1800):04x}",
             f"SYSRAM_LIFECYCLE_KEY=0x{named['lifecycle'].key:04x}",
             f"SYSRAM_RES_SYM_KEY=0x{named['res_sym'].key:04x}",
             f"SYSRAM_KEYGEN_KEY=0x{named['keygen'].key:04x}",
@@ -650,14 +657,26 @@ def build_dependent(
     images["final_post"] = assemble(
         work,
         "final_post",
-        POC / "system_ram_post_controller.asm",
+        HTTP / "h2_cold_post.asm",
         (
             "SYSRAM_POST_FINAL=1",
+            "SYM_CRYPTO_CONSTANTS="
+            f"0x{label_address(images['res_sym'].listing, 'chacha_constants', 0x1800):04x}",
             quoted_define("SYSRAM_SUCCESS_PATH", p("success")),
             "SYSRAM_RES_SYM_CRYPTO_CONSTANTS="
             f"0x{label_address(images['res_sym'].listing, 'chacha_constants', 0x1800):04x}",
         ),
     )
+    # X loads this immutable owner only after serializing the whole request.
+    # Cold entry clears the owner's RAM before using its success capsule.
+    owner = (HTTP_BUILD / "exchange.bin").read_bytes()
+    if len(images["fresh_post"].data) > 1024 or len(images["final_post"].data) > 1024:
+        fail("cold H2 owner reaches the adjacent helper sector")
+    if not 0 < len(owner) <= SECTOR:
+        fail("H2 response owner exceeds its one-sector allocation")
+    final = images["final_post"]
+    images["final_post"] = Image(final.name, final.data.ljust(1024, b"\0") + owner.ljust(SECTOR, b"\0"), final.listing)
+    (work / (final.name + ".bin")).write_bytes(images["final_post"].data)
 
     sym = images["acq_sym"]
     sym_labels = {

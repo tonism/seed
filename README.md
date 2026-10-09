@@ -5,7 +5,7 @@
   <img src="docs/images/seed-demo-286.gif" width="49%" alt="An earlier 286 Seed demo running the same cloud-model prompt under 86Box.">
 </p>
 
-<p align="center"><sub>Earlier end-to-end agent-loop demos. The current TLS 1.3 integration described below is under validation.</sub></p>
+<p align="center"><sub>Earlier end-to-end agent-loop demos. Current acceptance and remaining security limits are described below.</sub></p>
 
 **A frontier cloud model writes 8088 machine code, sends it to a 1981 IBM PC,
 runs it there, and reads the result back into its own context.** Seed is the
@@ -19,13 +19,14 @@ Seed is a small trusted control plane, not an OS or sandbox. It publishes its
 memory contract and leaves the remaining machine to the user and model. A
 reboot from known, preferably write-protected media is the recovery boundary.
 
-> **Current status.** TLS 1.3 has replaced the TLS 1.2 product path on this
-> work branch. Both CPU routes are integrated. The RAM-only 8088
-> rearchitecture passes its current-source offline, fail-closed composition
-> gates and the read-only exact-floor wire/reconnect matrix. The 286 route also
-> passes its read-only exact-floor four-flow gate. Repeated provider-edge
+> **Current status.** HTTP/2 over TLS 1.3 passes current-source offline guards
+> and live read-only chat, reconnect and native-program tests on the original
+> 8088/16 KiB, 8088/32 KiB and 286/512 KiB paths. All seven original-speed ISA
+> NIC profiles pass the response/reuse/reconnect matrix. The 16 KiB path
+> remains slow; measured timings and the 32 KiB model-format caveat are in
+> [HTTP/2 acceptance](docs/http2.md#functional-acceptance). Broader provider-edge
 > characterization and physical entropy-source validation remain open, so
-> this is not yet an unconditional secure-floor or release claim.
+> this is not an unconditional secure-floor or release claim.
 
 ## Why it is interesting
 
@@ -158,8 +159,10 @@ local effects.
   and negative-path gates. The RAM-only 8088 route passes the corresponding
   seven-profile original-speed wire/NIC matrix.
 - Cold start remains deliberately slow: target-local FO and identity proofs
-  run outside the short provider handshake windows. Current activity timelines
-  are in [architecture.md](docs/architecture.md#current-exact-floor-activity-timelines).
+  run outside the short provider handshake windows.
+  [HTTP/2 acceptance](docs/http2.md#functional-acceptance) records current
+  completion times; [architecture.md](docs/architecture.md#historical-exact-floor-activity-timelines)
+  retains earlier phase timelines.
 - Emulator timing sources receive zero entropy credit; representative physical
   characterization of PIT samples attached to the 8088's already-required
   floppy reads and of the 286 RTC/PIT source, plus health-test calibration,

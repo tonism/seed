@@ -486,6 +486,7 @@ class PostDpiExpectedResponseTests(unittest.TestCase):
         attest_rtc_utc: bool = False,
         changed_from_crc: int | None = 0x9999,
         response_crc_samples: list[int] | None = None,
+        process_poll_samples: list[int | None] | None = None,
     ) -> tuple[bool, int]:
         args = SimpleNamespace(
             oracle_screenshot=Path("/tmp/seed-post-dpi-oracle.png"),
@@ -496,6 +497,8 @@ class PostDpiExpectedResponseTests(unittest.TestCase):
         )
         process = mock.Mock(pid=5150)
         process.poll.return_value = None
+        if process_poll_samples is not None:
+            process.poll.side_effect = process_poll_samples
         with (
             mock.patch.object(
                 HARNESS,
@@ -570,6 +573,15 @@ class PostDpiExpectedResponseTests(unittest.TestCase):
             expected_response_text=None,
         )
         self.assertTrue(result)
+        self.assertEqual(samples, 2)
+
+    def test_exit_during_ocr_cannot_accept_a_ready_frame(self) -> None:
+        result, samples = self.run_prompt_gate(
+            [["the answer is ORCHID-731", ">"]] * 2,
+            expected_response_text="ORCHID-731",
+            process_poll_samples=[None, None, 0],
+        )
+        self.assertFalse(result)
         self.assertEqual(samples, 2)
 
     def test_rtc_question_is_not_a_dpi_prompt(self) -> None:
@@ -658,6 +670,30 @@ class RtcUtcGuardTests(unittest.TestCase):
 
 
 class HarnessSafetyTests(unittest.TestCase):
+    def test_identity_window_does_not_count_as_running_vm(self) -> None:
+        with (
+            mock.patch.object(HARNESS, "accept_moved_or_copied_dialog", side_effect=[False, True]) as accept,
+            mock.patch.object(HARNESS, "find_86box_window_id", return_value=999),
+            mock.patch.object(HARNESS, "has_86box_main_menu", side_effect=[False, True]) as main_menu,
+            mock.patch.object(HARNESS.time, "sleep"),
+        ):
+            self.assertTrue(HARNESS.wait_for_86box_window_or_identity_dialog("vm", 5150))
+        self.assertEqual(accept.call_args_list, [mock.call(5150), mock.call(5150)])
+        self.assertEqual(main_menu.call_args_list, [mock.call(5150), mock.call(5150)])
+
+    def test_missing_pid_window_never_falls_back_to_another_vm(self) -> None:
+        with (
+            mock.patch.object(
+                HARNESS, "find_86box_window_id", side_effect=[None, 999]
+            ) as find_window,
+            mock.patch.object(HARNESS.subprocess, "run") as capture,
+        ):
+            self.assertFalse(
+                HARNESS.screenshot_86box_window(Path("/tmp/seed-missing-vm.png"), "vm", 5150)
+            )
+        find_window.assert_called_once_with("vm", 5150)
+        capture.assert_not_called()
+
     def test_read_only_media_is_restored_byte_for_byte(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             floppy = Path(tmp) / "floppy.img"

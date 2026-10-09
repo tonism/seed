@@ -35,9 +35,9 @@ sha256_block_size             equ 64
 sha256_k_len                  equ 256
 
 hello_mss_max                 equ 384
-hello_message_len             equ 1381
+hello_message_len             equ 1384
 hello_body_len                equ hello_message_len - 4
-hello_extensions_len          equ 0x0516
+hello_extensions_len          equ 0x0519
 hello_resumption_delta        equ 47
 hello_prefix_fragment_len     equ 140
 hello_fragment_count          equ 6
@@ -1913,9 +1913,8 @@ hello_prefix_extensions:
 hello_prefix_extensions_len equ $ - hello_prefix_extensions
 
 hello_tail_suffix:
-    ; record_size_limit = 2048.  The receive side retains its independent
-    ; authenticated 16 KiB TLSCiphertext bound if the server omits this offer.
-    db 0x00,0x1c,0x00,0x02,0x08,0x00
+    ; ALPN selects only h2; DATA flow control is independent of TLS records.
+    db 0x00,0x10,0x00,0x05,0x00,0x03,0x02,'h2'
     ; RFC 7685 padding; this is the final extension.
     db 0x00,0x15,0x00,0x0e
     times 14 db 0

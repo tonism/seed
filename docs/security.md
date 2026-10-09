@@ -4,13 +4,12 @@ Seed has two TLS 1.3 profiles in one `SEED.SYS`. They share the record
 layer and OpenAI endpoint, but they do **not** make the same security claim.
 This document is the authority for that distinction.
 
-> **Validation status.** Both product routes are integrated and currently
-> integration-under-validation. The RAM-only 8088 architecture passes its
-> current-source offline cryptographic, layout, composition, and fail-closed
-> gates, exact-floor wire/reconnect gate, seven-NIC matrix, and CGA/MDA display
-> cases. The conforming 286 route passes its exact-floor four-flow live gate.
-> Physical entropy characterization and additional provider-edge repetition
-> also remain before either route is an unconditional secure-floor claim.
+> **Validation status.** Both routes are integrated. The current HTTP/2
+> transport passes guarded offline composition and original-speed live chat,
+> reconnect and native-tool acceptance on the 16 KiB, 32 KiB and 286/512 KiB
+> paths, plus the seven-profile ISA NIC matrix.
+> Physical entropy characterization remains a separate gate. See
+> [the transport contract](http2.md) and [campaign evidence](optimization-campaign.md).
 
 ## Claims at a glance
 
@@ -57,8 +56,8 @@ provisional
   verify the protected flight and exact server Finished with the provisional
   ML-KEM candidate
   send client Finished
-  permit only a compiled, literal, credential-free HEAD liveness request
-  authenticate the HEAD response and retain at most one bounded same-boot
+  permit only a compiled, credential-free H2 preface and SETTINGS
+  authenticate peer SETTINGS and acknowledgement of our SETTINGS and retain at most one bounded same-boot
   ticket as tentative state
 
 quarantine
@@ -72,10 +71,10 @@ committed
   only now restore access to USER.CFG credentials and construct the API request
 ```
 
-The provisional HEAD contains no Authorization header, API key, prompt,
+The provisional preface/SETTINGS exchange contains no Authorization header, API key, prompt,
 account identifier, cookie, or server-derived redirect target. It is still an
 external effect: the provider may log, fingerprint, rate-limit, or count it.
-The fresh socket must return both an authenticated HEAD completion and a
+The fresh socket must return both an authenticated SETTINGS/ACK completion and a
 bounded authenticated NewSessionTicket. A close before either completes fails
 the attempt; a ticket or close is not a substitute for liveness.
 
@@ -83,8 +82,8 @@ A received ticket is not trusted merely because its record tag verified under
 provisional keys. It stays RAM-only and tentative until full FO and
 exact-leaf/CV proof complete. The final connection consumes it once, performs
 fresh KEM work with no `early_data`, verifies its protected flight and
-Finished, sends the fixed HEAD only after client Finished, completes full FO
-validation and authenticated HEAD liveness, retires its lifetime-separated
+Finished, sends the H2 preface/SETTINGS only after client Finished, completes full FO
+validation and authenticated H2 liveness, retires its lifetime-separated
 conventional-RAM state, and only then promotes the route status-last. Tickets
 and keys never survive a restart.
 
@@ -151,7 +150,7 @@ it outside the security boundary:
    uses the exact ML-KEM candidate provisionally, verifies the protected flight
    and server Finished, captures the ordinary Certificate and
    CertificateVerify, sends client Finished plus the immutable
-   credential-free HEAD, and authenticates both the HTTP response and one
+   credential-free H2 preface/SETTINGS, and authenticates peer SETTINGS/ACK and one
    NewSessionTicket. That ticket is published only as tentative.
 2. With no provider connection timer running, the same machine performs full
    ML-KEM FO decapsulation and a constant-time comparison with the provisional
@@ -165,11 +164,10 @@ it outside the security boundary:
    early-derived value and the public ML-KEM A^T matrix. After ServerHello it
    consumes that matrix for complete full FO decapsulation before accepting a
    strict EncryptedExtensions-to-Finished flight. After server Finished
-   verifies, Seed sends client Finished and the credential-free HEAD, then
-   requires a complete authenticated ticket plus an allowed HTTP status. It
-   publishes application keys with the advanced server-record sequence without
-   waiting indefinitely for a missing response-header terminator; only then is
-   credential access restored.
+   verifies, Seed sends client Finished and the credential-free H2 preface/SETTINGS, then
+   requires a complete authenticated ticket plus peer SETTINGS/ACK. It
+   publishes application keys with the advanced server-record sequence; only
+   then is credential access restored.
 
 ### Pre-TCP cache boundary
 
@@ -206,7 +204,7 @@ only in RAM and are discarded on restart. The ticket and PSK are also volatile
 and never become a disk cache. Read-only floppy media is sufficient.
 
 The acquisition candidate is not an authority boundary: it can enable only the
-fixed credential-free HEAD and tentative ticket capture. A candidate mismatch,
+fixed credential-free H2 preface/SETTINGS and tentative ticket capture. A candidate mismatch,
 failed X.509/CV check, torn ticket state, bad binder/identity selection, or
 resumed Finished failure aborts and wipes without exposing the API key.
 
@@ -302,16 +300,16 @@ The architecture and exact memory contracts are in
 feasibility record remains in
 [`crypto-feasibility.md`](crypto-feasibility.md) as historical evidence only.
 
-Current emulator evidence covers every offline TLS 1.3 product/KAT/layout
-gate, including exact RAM-only acquisition/resumption composition and guards
-that keep video, adapter, config, and arena memory unchanged. Current-source
-read-only exact-floor runs prove fresh/resumed wire profiles, bounded reconnect,
-authenticated OpenAI dialogue, clean CGA/MDA display return, and all seven
-original-speed NIC profiles. The conforming 286 four-flow topology also passes
-at its exact floor. Before removing the integration-under-validation
-qualification:
+The current HTTP/2 emulator evidence covers the affected product/KAT/layout
+gates, RAM-only acquisition/resumption guards, and read-only original-speed
+fresh/resumed/reconnect runs on both CPU routes and all seven ISA NIC profiles.
+The three main CPU/RAM paths complete repeated conversation and native
+write/execute/read, and the NIC matrix includes CGA/MDA return to input.
+The 32 KiB numeric-format caveat is recorded in the
+[functional acceptance](http2.md#functional-acceptance). These functional
+passes do not remove the broader security qualification. Remaining work is to:
 
-- repeat deadline measurements across more cold boots and provider-edge
+- extend deadline characterization across cold boots and provider-edge
   variation; and
 - characterize entropy and health-test behavior for PIT samples from the
   8088's already-required floppy reads and for the 286 RTC/PIT source on

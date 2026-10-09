@@ -156,7 +156,8 @@ def main() -> int:
     ciphertext = fixture.mlkem_ciphertext
     scatter(vm, ciphertext)
 
-    resumed_ee = sym.RESUMED_ENCRYPTED_EXTENSIONS
+    # The product resumed-flight parser now requires its selected H2 ALPN.
+    resumed_ee = bytes.fromhex('0800000b0009001000050003026832')
     server_verify = hmac.new(
         handshake["server_finished"],
         hashlib.sha256(hello + resumed_ee).digest(),
@@ -181,10 +182,10 @@ def main() -> int:
     if finished_len != 58:
         raise AssertionError("system resumption built a noncanonical client Finished")
     vm.call(16)
-    head_len, _ = vm.call(11)
-    if head_len != 72:
+    preface_len, _ = vm.call(11)
+    if preface_len != 79:
         raise AssertionError(
-            f"system resumption built a noncanonical HEAD record: {head_len}"
+            f"system resumption built a noncanonical H2 preface record: {preface_len}"
         )
     vm.call(17)
 
@@ -201,7 +202,7 @@ def main() -> int:
         f"  image={len(image)} bytes, work-end={header.low_end:04x}, "
         f"high-end={header.high_end:04x}"
     )
-    print("  binder + resumed Finished + client Finished + application HEAD")
+    print("  binder + resumed Finished + client Finished + H2 preface")
     print("  root/K/c retained; abort/config/video/NIC RAM unchanged")
     return 0
 

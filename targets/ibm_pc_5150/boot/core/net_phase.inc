@@ -50,13 +50,15 @@ prepare_agent_endpoint_path:
 .pass:
     cmp byte [tls_key_schedule_ready], 1
     je .build
-    ; A tool output is a non-replayable local side effect: if its live
-    ; session died, return softly to DPI before entering the reconnect path.
-    mov al, [tool_fc_state]
-    or al, [agent_loop_pending]
-    jz .establish
+    ; Executed tool output/continuations cannot replay. An interrupted tool
+    ; capture has no local side effect yet and may retry the human request.
+    cmp byte [tool_fc_state], 2
+    je .nonreplayable
+    cmp byte [agent_loop_pending], 0
+    je .establish
+.nonreplayable:
     stc
-    ret
+    jmp .return
 .establish:
     call tls13_product_establish_route
     jc .burn
@@ -86,7 +88,7 @@ prepare_agent_endpoint_path:
     jc .burn
     test byte [compacting_msg], 0xff
     jnz .pass
-    ret
+    jmp .return
 .burn:
     ; The ready byte is the capability gate, but retire the complete published
     ; TLS 1.3 application state as well: failed records and failed route
@@ -109,6 +111,8 @@ prepare_agent_endpoint_path:
     dec byte [reconnect_retries]
     jz .pass
 .return:
+    sbb al, al
+    mov [chat_turn_failed], al
     ret
 
 ; K's streamed-answer fallback calls the same resident retirement leaf, then
@@ -143,13 +147,11 @@ tls13_product_establish_route:
     call TLS13_K14_PRODUCT_ROOT_ENTRY
     pushf
     call [nic_vt_restore]
-    ; Root success publishes READY=1, while its disk-independent abort returns
-    ; with READY=0.  Keep the capability hidden until the root return itself
-    ; has committed.
-    mov byte [tls_key_schedule_ready], 0
     popf
     jc .restore_dpi_failed
-    inc byte [tls_key_schedule_ready]
+    ; The root publishes READY last on success and clears it on abort. Keep
+    ; the explicit success value after NIC restore, whose registers are free.
+    mov byte [tls_key_schedule_ready], 1
     jmp tls13_product_route_mode
 
 .root_load_failed:

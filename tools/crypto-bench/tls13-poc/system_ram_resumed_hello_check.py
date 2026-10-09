@@ -66,7 +66,7 @@ def main() -> int:
         fixture.identity,
         fixture.age,
         fixture.psk,
-        record_size_limit=hello.PRODUCT_RECORD_SIZE_LIMIT,
+        alpn=b"h2",
     )
     server = hello.build_server(
         fixture.session,

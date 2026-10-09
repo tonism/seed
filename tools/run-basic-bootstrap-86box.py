@@ -456,8 +456,8 @@ on run argv
   set targetPid to (item 1 of argv) as integer
   set targetKeyCode to (item 2 of argv) as integer
   tell application "System Events"
-    set vmProcess to first application process whose unix id is targetPid
-    set frontmost of vmProcess to true
+    -- Stored process references resolve by app name when multiple VMs are open.
+    set frontmost of (first application process whose unix id is targetPid) to true
     delay 0.05
     key code targetKeyCode
   end tell
@@ -537,10 +537,9 @@ def click_86box_pause_menu(pid: int) -> None:
 on run argv
   set targetPid to (item 1 of argv) as integer
   tell application "System Events"
-    set vmProcess to first application process whose unix id is targetPid
-    set frontmost of vmProcess to true
+    set frontmost of (first application process whose unix id is targetPid) to true
     delay 0.05
-    click menu item "Pause" of menu 1 of menu bar item "Action" of menu bar 1 of vmProcess
+    click menu item "Pause" of menu 1 of menu bar item "Action" of menu bar 1 of (first application process whose unix id is targetPid)
   end tell
 end run
 """
@@ -553,8 +552,7 @@ def focus_86box_pid(pid: int) -> None:
 on run argv
   set targetPid to (item 1 of argv) as integer
   tell application "System Events"
-    set vmProcess to first application process whose unix id is targetPid
-    set frontmost of vmProcess to true
+    set frontmost of (first application process whose unix id is targetPid) to true
   end tell
 end run
 """
@@ -1834,42 +1832,37 @@ def launch_86box(
     return subprocess.Popen(cmd, **kwargs)
 
 
-def accept_moved_or_copied_dialog() -> bool:
-    """Dismiss 86Box's first-run/moved VM identity dialog non-interactively."""
+def accept_moved_or_copied_dialog(pid: int | None = None) -> bool:
+    """Accept only the named identity button, on the requested VM if supplied."""
     script = """
-try
-  tell application "86Box" to activate
-end try
-delay 0.05
-tell application "System Events"
-  if not (exists process "86Box") then return "none"
-  tell process "86Box"
-    repeat with oneWindow in windows
+on run argv
+  set targetPid to (item 1 of argv) as integer
+  tell application "System Events"
+    if targetPid is 0 then
+      if not (exists application process "86Box") then return "none"
+      set targetPid to unix id of first application process whose name is "86Box"
+    end if
+    if not (exists first application process whose unix id is targetPid) then return "none"
+    repeat with windowIndex from 1 to (count of windows of (first application process whose unix id is targetPid))
       try
-        if exists button "I Copied It" of oneWindow then
-          click button "I Copied It" of oneWindow
+        if exists button "I Copied It" of window windowIndex of (first application process whose unix id is targetPid) then
+          click button "I Copied It" of window windowIndex of (first application process whose unix id is targetPid)
           return "accepted"
         end if
       end try
       try
-        set dialogPosition to position of oneWindow
-        set dialogSize to size of oneWindow
-        set dialogWidth to item 1 of dialogSize
-        set dialogHeight to item 2 of dialogSize
-        if dialogWidth > 350 and dialogWidth < 750 and dialogHeight > 150 and dialogHeight < 350 then
-          set clickX to (item 1 of dialogPosition) + (dialogWidth * 0.34)
-          set clickY to (item 2 of dialogPosition) + dialogHeight - 44
-          click at {clickX, clickY}
+        if exists button "I Copied It" of group 1 of window windowIndex of (first application process whose unix id is targetPid) then
+          click button "I Copied It" of group 1 of window windowIndex of (first application process whose unix id is targetPid)
           return "accepted"
         end if
       end try
     end repeat
   end tell
-end tell
-return "none"
+  return "none"
+end run
 """
     result = subprocess.run(
-        ["osascript", "-e", script],
+        ["osascript", "-e", script, str(pid or 0)],
         capture_output=True,
         text=True,
     )
@@ -1883,15 +1876,34 @@ def wait_for_86box_window_or_identity_dialog(
 ) -> bool:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        window_id = find_86box_window_id(profile, pid)
-        if window_id is None and pid is not None:
-            window_id = find_86box_window_id(profile, None)
-        if window_id is not None:
-            return True
-        if accept_moved_or_copied_dialog():
+        if accept_moved_or_copied_dialog(pid):
             print("harness: accepted 86Box moved/copied identity dialog", flush=True)
+        window_id = find_86box_window_id(profile, pid)
+        # A copied-VM identity dialog is itself a visible window. The native
+        # main window may also appear just before that dialog, so a window ID
+        # alone can let direct-boot runs wait forever without starting the VM.
+        # The Action menu belongs to the running VM UI, not the identity UI.
+        if window_id is not None and (pid is None or has_86box_main_menu(pid)):
+            return True
         time.sleep(0.2)
     return False
+
+
+def has_86box_main_menu(pid: int) -> bool:
+    script = """
+on run argv
+  set targetPid to (item 1 of argv) as integer
+  tell application "System Events"
+    return exists menu bar item "Action" of menu bar 1 of (first application process whose unix id is targetPid)
+  end tell
+end run
+"""
+    result = subprocess.run(
+        ["osascript", "-e", script, str(pid)],
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode == 0 and result.stdout.strip() == "true"
 
 
 def screenshot(path: Path) -> None:
@@ -1992,10 +2004,8 @@ def screenshot_86box_window(
     profile: str | None = None,
     pid: int | None = None,
 ) -> bool:
-    """Capture the 86Box window by id. This does not activate or raise it."""
+    """Capture the requested VM only, without activating or raising it."""
     window_id = find_86box_window_id(profile, pid)
-    if window_id is None and pid is not None:
-        window_id = find_86box_window_id(profile, None)
     if window_id is None:
         return False
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -2054,8 +2064,7 @@ def screenshot_86box_native(path: Path, pid: int | None) -> bool:
 on run argv
   set targetPid to (item 1 of argv) as integer
   tell application "System Events"
-    set vmProcess to first application process whose unix id is targetPid
-    click menu item "Take screenshot" of menu 1 of menu bar item "Tools" of menu bar 1 of vmProcess
+    click menu item "Take screenshot" of menu 1 of menu bar item "Tools" of menu bar 1 of (first application process whose unix id is targetPid)
   end tell
 end run
 """
@@ -2876,6 +2885,11 @@ def wait_for_dpi_prompt(
                 visual_candidate_crc = None
                 visual_candidate_count = 0
             if prompt_ready:
+                # A VM can exit while capture/OCR is running. Never advance a
+                # controller from a stale frame after its target has exited.
+                if process.poll() is not None:
+                    print(f"{label}: process exited during DPI prompt capture")
+                    return False
                 print(
                     f"{label}: DPI prompt ready "
                     f"(shape={last_shape[0]} {last_shape[1]}, "

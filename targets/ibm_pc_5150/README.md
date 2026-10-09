@@ -3,9 +3,11 @@
 This is Seed's active bare-metal target: one 160 KiB FAT12 floppy for machines
 from a 4.77 MHz 8088 with 16 KiB through later x86 real-mode tiers.
 
-The TLS 1.3 product integration is currently under validation. The external
-NIC-driver work is a stable regression surface and must not be reshaped by the
-TLS work.
+The TLS 1.3 / HTTP/2 integration passes original-speed functional acceptance
+on the 16 KiB, 32 KiB and 286/512 KiB paths and all seven ISA NIC profiles.
+See [HTTP/2 acceptance](../../docs/http2.md#functional-acceptance) for evidence
+and latency limits; physical entropy validation remains separate. External
+NIC-driver behavior remains a stable regression surface.
 
 ## Artifact and entry
 
@@ -91,11 +93,10 @@ effective ML-KEM-only Seed boundary, not a standards-conforming
 `X25519MLKEM768` hybrid.
 
 Before full FO and dated exact-leaf/CertificateVerify proof, Seed can complete
-the TLS handshake, transmit only the compiled credential-free HEAD, and retain
-one bounded tentative NewSessionTicket after authenticating the fresh HEAD
-response. A close before either fresh result completes fails the attempt.
+the TLS handshake, transmit only the compiled credential-free H2 preface/SETTINGS, and retain
+one bounded tentative NewSessionTicket after authenticating the fresh SETTINGS/ACK. A close before either fresh result completes fails the attempt.
 After offline proof, the same-boot no-0RTT resumed connection performs fresh
-KEM work, sends the fixed HEAD after client Finished, and authenticates its
+KEM work, sends the fixed H2 preface/SETTINGS after client Finished, and authenticates its
 response before status-last route commit. The API key, prompt, context,
 redirects, and business request remain unreachable throughout. The ticket is
 volatile and survives neither restart nor failed proof.
@@ -110,7 +111,7 @@ full FO, and carries only compact status-last capsules across phase epochs.
 The bounded post-handshake receiver reuses retired conventional-RAM ranges.
 Exact executable composition gates guard config, arena/context, all display
 apertures, and adapter RAM. No video RAM, NIC RAM, or writable floppy slot is
-part of TLS storage. On the 32 KiB direct tier, the fixed low root frame's 26
+part of TLS storage. On the 32 KiB direct tier, the fixed low root frame's 28
 aliased arena bytes are shadowed in the conventional stack guard and restored
 on both success and abort, preserving the 224-byte arena and 224-byte context.
 
@@ -129,15 +130,14 @@ the acquisition transcript.
 
 Acquisition verifies the protected flight and server Finished with a
 provisional candidate, sends client Finished plus the immutable
-credential-free HEAD, and authenticates an HTTP response and tentative
+credential-free H2 preface/SETTINGS, and authenticates peer SETTINGS/ACK and a tentative
 NewSessionTicket. Offline full FO comparison and strict
 WE1/hostname/UTC/CertificateVerify proof promote that volatile ticket. The
 final no-0RTT PSK-DHE resumption consumes it, uses independent full hybrid
 keys, a real binder, `selected_identity=0`, full decapsulation, and a strict
-EncryptedExtensions-to-Finished flight. It sends the credential-free HEAD,
-then requires a complete authenticated ticket and allowed HTTP status before
-publishing credentials and the advanced application-record sequence; it does
-not wait indefinitely for a missing response-header terminator. There is no
+EncryptedExtensions-to-Finished flight. It sends the credential-free H2 preface/SETTINGS,
+then requires a complete authenticated ticket and peer SETTINGS/ACK before
+publishing credentials and the advanced application-record sequence; it waits for SETTINGS/ACK before publication. There is no
 0-RTT, compressed certificate, persisted ticket, mutable leaf file, or no-time
 bypass. A coherent BIOS RTC is consumed silently as the machine's configured
 platform UTC clock; invalid, incoherent, or out-of-range values fail closed.
@@ -153,17 +153,16 @@ client Finished, and credential publication.
 
 At the 6 MHz floor, matrix generation measures 45 ticks / 2.4716 s outside the
 live window and cached full FO measures 43 ticks / 2.3618 s versus 88 ticks /
-4.8334 s uncached. Current exact-floor wire and full activity measurements are
+4.8334 s uncached. Historical exact-floor wire and full activity measurements are
 recorded in
-[`../../docs/architecture.md`](../../docs/architecture.md#current-exact-floor-activity-timelines)
+[`../../docs/architecture.md`](../../docs/architecture.md#historical-exact-floor-activity-timelines)
 and [`../../docs/testing.md`](../../docs/testing.md).
 
-Both product routes are integrated and pass their current-source offline
-composition gates. Current read-only exact-floor runs prove fresh/resumed wire
-validity, bounded reconnect, authenticated dialogue, all seven original-speed
-NIC profiles, and clean CGA/MDA display cases. The conforming 286 four-flow
-topology also passes at 6 MHz / 512 KiB. Physical-entropy characterization and
-more provider-edge variation remain. See
+Both product routes are integrated. The earlier HTTP/1 implementation passed
+the offline composition gates, read-only exact-floor reconnect runs, seven-NIC
+matrix, and CGA/MDA display cases. The HTTP/2 repair is repeating that acceptance
+with conversation and native-tool checks. Physical-entropy characterization
+and more provider-edge variation remain. See
 [`../../docs/security.md`](../../docs/security.md).
 
 ## Read-only and reconnect contract

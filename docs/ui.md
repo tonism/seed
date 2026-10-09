@@ -92,10 +92,24 @@ Seed shows one dim `> reconnect` status. A second failure reports
 `> reconnect failed`. A tool continuation or partially rendered answer is
 never replayed.
 
+A failed response with no usable answer, or an unfinished tool call, returns
+to human input with the fast-typed dim status `> response failed; try again`.
+Seed discards the failed turn's pending tool capture so it cannot block the
+next prompt or execute later. An explicit user stop retains `> stopped`.
+An interrupted tool capture that has not executed can use the human turn's
+remaining retry; executed tool output and agent-loop continuations cannot.
+Already displayed answer text is preserved after a transport failure; Seed
+retires that session without replaying the partial answer.
+
 When the rolling conversation window fills, Seed compacts it: a dim status line,
 fast-typed like the boot banner, reads `compacting context`. The one-line recap the model
 emits to drive that compaction is captured silently and never drawn — the user sees only the
 status line, then the answer.
+The compaction prompt asks for the latest assistant answer and exact facts
+needed by follow-up questions within the available note budget.
+A no-text compaction retry retains the original conversation. Seed promotes
+captured summary text before constructing the pending question, including
+when the replacement note is shorter than the previous note.
 
 ## Tool Calls
 
@@ -108,5 +122,12 @@ Out-of-range memory calls are recoverable and use the same dim system grouping:
 `execute failed: <addr> out of range`.
 The structured result is sent back to the model as `function_call_output`; short user-facing
 results such as memory bytes may also render as normal answer text when the model responds.
-The agentic loop auto-continues until the model stops calling tools, then control returns to
-the `>` prompt.
+Seed dispatches a captured tool call only after both the response completion
+event and the HTTP response terminator arrive. A captured item alone never
+authorizes execution.
+The agentic loop requests one tool call at a time and carries a bounded journal
+of completed results. It allows eight calls per human turn. The last result is
+still sent to the model with tools disabled, so reaching that limit produces a
+final answer rather than silently returning to input. An unexpected further
+call is rejected through the visible response-failure path. After the model's
+answer, control returns to the `>` prompt.

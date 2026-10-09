@@ -1,3 +1,4 @@
+; PRIVATE RECEIVER COMPOSITION ONLY: no H2 scheduler/ALPN/loader yet.
 ; TLS 1.3 application-record layer for the committed Seed channel.
 ;
 ; The pre-commit handshake/proof is a cold phase chain.  Once that chain has
@@ -20,11 +21,12 @@
 ; text, mutate the conversation, dispatch a tool, or steer post-handshake
 ; state.
 ;
-; Every adapter uses the same conventional-RAM authenticated-record spool.
-; Video RAM belongs exclusively to the display and is never TLS scratch.  The
-; exact 2-KiB span matches the product ClientHello's advertised
-; record_size_limit=2048.  A peer need not negotiate that extension; this
-; local ceiling remains the authoritative fail-closed boundary.
+; Every adapter uses conventional RAM for the authenticated-record spool.
+; The small-RAM route retains its 2-KiB ceiling. On the conforming 286 tier,
+; the already arena-excluded, retired handshake reservation holds a complete
+; TLSCiphertext inner plaintext. A peer need not negotiate record_size_limit;
+; accepting the larger record still requires storage, MAC and type validation.
+; Video and adapter RAM are never selected.
 
 tls13_auth_spool_offset equ 0x2e00
 tls13_auth_spool_len equ 0x800
@@ -68,6 +70,11 @@ tls_load_server_payload:
 .receive:
     call [nic_vt_rx_fallback]
     jnc .loaded_from_tcp
+    ; Retire short control records at the TCP layer before waiting again.
+    ; Otherwise several records can exhaust our advertised receive window
+    ; without triggering the within-record acknowledgement path.
+    call ne_transmit_tcp_ack
+    jc .done
     call tcp_receive_payload
     jc .done
 .loaded_from_tcp:
@@ -159,7 +166,7 @@ tls_send_app_failed:
 
 tls_build_application_data_record:
     mov ax, [tls_app_len]
-    cmp ax, api_request_plain_len
+    cmp ax, 436
     ja .failed
     add ax, tls13_inner_type_len        ; content || inner_type
     mov [tls_app_chunk_len], ax
@@ -241,7 +248,8 @@ tls_receive_application_data:
     jb .failed
     mov dx, ax
     sub dx, tls_aead_tag_len
-    cmp dx, tls13_auth_spool_max_inner
+    ; Full TLS 1.3 ciphertext bound, independent of body/control retention.
+    cmp dx, 16624
     ja .failed
 .limit_ready:
     mov [tls_app_len], dx              ; encrypted inner plaintext bytes
@@ -249,7 +257,7 @@ tls_receive_application_data:
     mov [tls_app_total_len], ax
     jmp tls_receive_large_application_record
 .failed:
-    jmp tls_fail_error
+    jmp tls_h2_receive_failed
 
 tls_receive_large_application_record:
     call tls_clear_buffered_payload
@@ -273,9 +281,11 @@ tls_receive_large_application_record:
     mov ax, [tls_app_len]
     mov [tls_stream_skip_remaining], ax
     mov word [tls_app_record_len], tls_aead_tag_len
-    mov word [tls_tx_len], 0            ; authenticated-spool write offset
-    mov byte [tls_large_chacha_offset], 0
+    mov word [chacha_counter_low], 1
+    mov word [chacha_counter_high], 0
+    mov byte [tls_large_chacha_offset], chacha_block_len
     mov byte [tls_app_content_type], 0
+    call h2_rx_begin_record
 
     mov si, [tls_current_payload_ptr]
     mov cx, [tls_current_payload_len]
@@ -324,7 +334,7 @@ tls_receive_large_application_record:
     call tls_poly1305_rx_save
     pop dx
     mov cx, dx
-    call tls_stage_authenticated_cipher
+    call tls_h2_collect_cipher
     pop cx
     jc .failed
 
@@ -371,33 +381,79 @@ tls_receive_large_application_record:
     mov cx, tls_aead_tag_len
     call tls_compare_buffers
     jc .failed
-    call tls_check_staged_inner_type
-    jc .failed
-
-    ; Preserve a following record before the replay buffer is reused.  During
-    ; replay advertise a full receive buffer so the parser's keep-alive hook
-    ; cannot overwrite the saved tail with an outbound record.
-    mov cx, [tls_buffered_payload_len]
-    cmp cx, tls_pre_response_tail_len
+    ; No plaintext-dependent verdict or protocol publication precedes this
+    ; complete tag comparison. The collector's last-nonzero snapshot excludes
+    ; the authenticated inner type and zero padding from HTTP/2 state.
+tls_h2_tag_verified equ $
+    cmp word [h2_rx_last_position], 16384
     ja .failed
-    mov si, [tls_buffered_payload_ptr]
-    mov [tls_app_record_len], cx
-    jcxz .tail_saved
-    push ds
-    pop es
-    mov di, tls_app_record_buffer
-    rep movsb
-.tail_saved:
-    mov word [tls_buffered_payload_ptr], tls_app_record_buffer
-    mov word [tls_buffered_payload_len], tls_payload_buffer_len
-    call tls_replay_authenticated_plaintext
+    mov al, [h2_rx_last_value]
+    mov [tls_app_content_type], al
+    cmp al, 0x17
+    jne .tls_control
+    mov al, 1
+    call h2_rx_finish_record
     jc .failed
-    mov cx, [tls_app_record_len]
-    mov [tls_buffered_payload_len], cx
-    mov word [tls_buffered_payload_ptr], tls_app_record_buffer
-    xor ax, ax
-    mov [tls_app_len], ax
+    ; Preserve the DATA/control handoff while erasing the raw TLS-control
+    ; prefix and receive MAC. Keep a following encrypted record in RX, never
+    ; in the TX arena needed for HTTP/2 replies.
+    push si
+    push cx
+    push di
+    push bp
+    push dx
+    call tls_h2_clear_crypto_prefix
+    call tls_h2_preserve_tail
     call tls_increment_server_record_seq
+    pop dx
+    pop bp
+    pop di
+    pop cx
+    pop si
+    ret
+.tls_control:
+    cmp al, 0x16
+    je .ticket
+    cmp al, 0x15
+    jne .failed
+    cmp word [h2_rx_last_position], 2
+    jne .failed
+    mov al, [tls_app_record_buffer]
+    cmp al, 1
+    je .alert_ready
+    cmp al, 2
+    jne .failed
+.alert_ready:
+    mov al, [tls_app_record_buffer+1]
+    mov [handoff_addr+handoff_net_status], al
+    mov byte [handoff_addr+handoff_net_error], net_error_tls
+    jmp .failed
+.ticket:
+    mov cx, [h2_rx_last_position]
+    cmp cx, tls13_nst_record_max
+    ja .failed
+    mov si, tls_app_record_buffer
+    push cx
+    call tls_validate_post_handshake_nst
+    pop bp
+    jc .failed
+    ; The entire tag and bounded NST record have passed. Stage its content
+    ; in the dead per-record journals for the cold-only ticket derivation.
+    ; Ordinary application callers must still drain/retire this handoff.
+    call h2_rx_clear_record
+    cmp byte [0x062e+65], 1
+    je .ticket_retire                ; normal owner must inspect inner type
+    mov si, tls_app_record_buffer
+    mov di, h2_rx_journal
+    mov cx, bp
+    rep movsb
+.ticket_retire:
+    push bp
+    call tls_h2_clear_crypto_prefix
+    call tls_h2_preserve_tail
+    call tls_increment_server_record_seq
+    pop cx
+    mov si, h2_rx_journal
     ret
 
 .copy_current_to_rx:
@@ -410,254 +466,85 @@ tls_receive_large_application_record:
     mov cx, dx
     ret
 .failed:
+    jmp tls_h2_receive_failed
+
+tls_h2_receive_failed:
+    call h2_rx_clear_record
+    call tls_h2_clear_crypto_prefix
+    call tls_clear_buffered_payload
+    mov di, tls_rx_copy
+    mov cx, tls_payload_buffer_len / 2
+    xor ax, ax
+    rep stosw
     stc
     ret
 
-; Select the conventional-RAM authenticated spool.  Returns segment in AX,
-; offset in BX, and byte capacity in DX.  Video RAM is never selected.
-tls_get_auth_spool_geometry:
-    xor ax, ax
-    mov bx, tls13_auth_spool_offset
-    mov dx, tls13_auth_spool_len
-    clc
-    ret
-
-; Copy one ciphertext fragment to the selected authenticated spool.  SI and CX
-; Copy one ciphertext fragment to the conventional authenticated spool.  SI
-; and CX remain caller-owned.  The advertised 2-KiB record ceiling includes
-; the encrypted inner type, so no overflow byte is permitted.
-tls_stage_authenticated_cipher:
+; MAC has already consumed this ciphertext fragment. Decrypt only in private
+; scratch and run the fixed-work collector; all resulting effects stay private.
+; SI/CX/DX remain caller-owned. BP is a pointer into the public-length fragment.
+tls_h2_collect_cipher:
     push ax
     push bx
     push cx
     push dx
-    push bp
     push si
     push di
-    push es
-    mov bp, cx
-    call tls_get_auth_spool_geometry
-    jc .failed
-    mov es, ax
-    mov ax, dx
-    sub ax, [tls_tx_len]
-    jz .extra
-    cmp cx, ax
-    jbe .copy_count_ready
-    mov cx, ax
-.copy_count_ready:
-    sub bp, cx
+    push bp
+    call tls_xor_large_app_chunk
+    mov bp, si
+.byte:
+    jcxz .done
     push cx
-    mov di, bx
-    add di, [tls_tx_len]
-    rep movsb
-    pop ax
-    add [tls_tx_len], ax
-    mov cx, bp
-.extra:
-    or cx, cx
-    jz .done
-    mov al, [si]
-    mov [tls_app_content_type], al
-    mov byte [tls_large_chacha_offset], 1
-    inc si
-    dec cx
-    jnz .failed
+    mov al, [ds:bp]
+    ; Retain the same bounded prefix for EVERY record. This branch depends
+    ; only on the public byte position, never on unauthenticated plaintext.
+    mov bx, [h2_rx_position]
+    cmp bx, tls13_nst_record_max+1
+    jae .prefix_done
+    mov [tls_app_record_buffer+bx], al
+.prefix_done:
+    call h2_rx_feed_byte
+    inc bp
+    pop cx
+    loop .byte
 .done:
-    clc
-    jmp .return
-.failed:
-    stc
-.return:
-    pop es
+    pop bp
     pop di
     pop si
-    pop bp
     pop dx
     pop cx
     pop bx
     pop ax
-    ret
-
-; Find and authenticate TLSInnerPlaintext.type before any content reaches the
-; parser.  RFC 8446 padding is a run of zero bytes after the nonzero type, so
-; scan the authenticated ciphertext backward while retaining one ChaCha block.
-; On success tls_stream_skip_remaining is the exact content length for replay.
-tls_check_staged_inner_type:
-    push bp
-    mov bp, [tls_poly_app_cipher_len]
-    or bp, bp
-    jnz .nonempty
-    pop bp
-    stc
-    ret
-.nonempty:
-    dec bp
-    push es
-    call tls_get_auth_spool_geometry
-    jc .return
-    mov es, ax
-    cmp bp, dx
-    jb .counter_ready
-    jne .failed
-    cmp byte [tls_large_chacha_offset], 1
-    jne .failed
-.counter_ready:
-    mov ax, bp
-    mov cl, 6
-    shr ax, cl
-    inc ax
-    mov [chacha_counter_low], ax
-    mov word [chacha_counter_high], 0
-    mov word [chacha_key_ptr], tls_server_write_key
-    mov word [chacha_nonce_ptr], tls_client_nonce
-    call chacha20_block
-.scan:
-    cmp bp, dx
-    jb .from_spool
-    mov al, [tls_app_content_type]
-    jmp .decrypt
-.from_spool:
-    mov si, bx
-    add si, bp
-    mov al, [es:si]
-.decrypt:
-    mov di, bp
-    and di, chacha_block_len - 1
-    xor al, [chacha_block + di]
-    or al, al
-    jnz .have_type
-    or bp, bp
-    jz .failed
-    dec bp
-    or di, di
-    jnz .scan
-    dec word [chacha_counter_low]
-    call chacha20_block
-    jmp .scan
-.have_type:
-    cmp al, 0x17
-    je .type_ready
-    cmp al, 0x16
-    je .type_ready
-    cmp al, 0x15
-    jne .failed
-.type_ready:
-    mov [tls_stream_skip_remaining], bp
-    mov [tls_app_content_type], al
     clc
-.return:
-    pop es
-    pop bp
     ret
-.failed:
-    stc
-    jmp short .return
 
-; Replay authenticated content in block-aligned chunks.  The parser can load
-; phases and send keep-alives between calls without invalidating the next
-; ChaCha block, because every non-final chunk ends on a 64-byte boundary.
-tls_replay_authenticated_plaintext:
-    ; tls_check_staged_inner_type published the content length after removing
-    ; both the nonzero type byte and any authenticated zero padding.
-    cmp byte [tls_app_content_type], 0x15
-    je .alert_size
-    cmp byte [tls_app_content_type], 0x16
-    jne .type_ready
-    cmp word [tls_stream_skip_remaining], tls13_nst_record_max
-    ja .failed
-    jmp short .type_ready
-.alert_size:
-    cmp word [tls_stream_skip_remaining], 2
-    jne .failed
-.type_ready:
-    mov word [tls_tx_len], 0
-    mov word [chacha_key_ptr], tls_server_write_key
-    mov word [chacha_nonce_ptr], tls_client_nonce
-    mov word [chacha_counter_low], 1
-    mov word [chacha_counter_high], 0
-    mov byte [tls_large_chacha_offset], chacha_block_len
-.next:
-    mov cx, [tls_stream_skip_remaining]
-    or cx, cx
-    jz .done
-    cmp cx, tls13_auth_replay_chunk
-    jbe .count_ready
-    mov cx, tls13_auth_replay_chunk
-.count_ready:
-    push cx
-    call tls_get_auth_spool_geometry
-    jc .geometry_failed
-    pop cx
-    mov dx, cx
-    push ds
-    mov ds, ax
+tls_h2_clear_crypto_prefix:
     xor ax, ax
-    mov es, ax
-    mov si, bx
-    add si, [cs:tls_tx_len]
+    mov di, ne_tx_frame
+    mov cx, (agent_response_phase_load_addr-ne_tx_frame)/2
+    rep stosw                       ; erase retired key/keystream/MAC work
+    mov di, poly_rx_save
+    mov cx, 65
+    rep stosb
+    mov di, tls_app_record_buffer
+    mov cx, tls13_nst_record_max+1
+    rep stosb
+    ret
+
+tls_h2_preserve_tail:
+    mov si, [tls_buffered_payload_ptr]
+    mov cx, [tls_buffered_payload_len]
     mov di, tls_rx_copy
     rep movsb
-    pop ds
-    push ds
-    pop es
-    mov si, tls_rx_copy
-    mov cx, dx
-    call tls_xor_large_app_chunk
-    mov word [tls_app_data_ptr], tls_rx_copy
-    mov [tls_app_len], dx
-    cmp byte [tls_app_content_type], 0x15
-    je .alert
-    cmp byte [tls_app_content_type], 0x16
-    je .new_session_ticket
-    push dx
-%ifdef TLS13_APP_ORACLE_CHECK
-    call tls13_test_publish
-%else
-    call agent_response_phase_load_addr
-%endif
-    pop dx
-    jmp short .published
-.new_session_ticket:
-    push dx
-    call tls_validate_post_handshake_nst
-    pop dx
-    jc .failed
-    jmp short .published
-.alert:
-    ; The record tag and inner type have already authenticated.  Alerts never
-    ; enter the HTTP/SSE parser and never publish plaintext.  Preserve the
-    ; peer's description in the ordinary error detail before retiring this
-    ; connection; malformed levels still fail without accepting the record.
-    cmp dx, 2
-    jne .failed
-    cmp word [tls_tx_len], 0
-    jne .failed
-    mov al, [tls_rx_copy]
-    cmp al, 1
-    je .alert_level_ready
-    cmp al, 2
-    jne .failed
-.alert_level_ready:
-    mov al, [tls_rx_copy + 1]
-    mov [handoff_addr + handoff_net_status], al
-    mov byte [handoff_addr + handoff_net_error], net_error_tls
-    stc
+    mov word [tls_buffered_payload_ptr], tls_rx_copy
+    ; Only the still-encrypted following tail survives the successful receive.
+    mov cx, tls_rx_copy+tls_payload_buffer_len
+    sub cx, di
+    xor ax, ax
+    rep stosb
     ret
-.published:
-    add [tls_tx_len], dx
-    sub [tls_stream_skip_remaining], dx
-    jmp .next
-.geometry_failed:
-    pop cx
-    stc
-    ret
-.done:
-    clc
-    ret
-.failed:
-    stc
-    ret
+
+%include "core/h2_retention.inc"
 
 ; Validate and discard one authenticated post-handshake record containing one
 ; or more complete NewSessionTicket messages.  Seed has already promoted the
@@ -669,6 +556,7 @@ tls_replay_authenticated_plaintext:
 ; carry its uint32 value.  A fragmented or non-NST handshake fails closed.
 tls_validate_post_handshake_nst:
     push bp
+    push di
 .message:
     cmp cx, 19                         ; header + smallest bounded NST body
     jb .bad
@@ -744,12 +632,31 @@ tls_validate_post_handshake_nst:
     sub ax, si
     cmp dx, ax
     jne .bad_pop
+    mov di, si                       ; first extension in this message
 .extension:
     or dx, dx
     jz .message_done
     cmp dx, 4
     jb .bad_pop
     mov ax, [si]
+    push dx
+    mov bx, si
+    mov si, di
+.duplicates:
+    cmp si, bx
+    je .unique
+    cmp ax, [si]
+    je .duplicate
+    mov dx, [si + 2]
+    xchg dl, dh
+    add si, 4
+    add si, dx                       ; earlier entries are already bounded
+    jmp short .duplicates
+.duplicate:
+    pop dx
+    jmp .bad_pop
+.unique:
+    pop dx
     mov bx, [si + 2]
     xchg bl, bh
     add si, 4
@@ -769,12 +676,14 @@ tls_validate_post_handshake_nst:
     pop cx
     or cx, cx
     jnz .message
+    pop di
     pop bp
     clc
     ret
 .bad_pop:
     pop cx
 .bad:
+    pop di
     pop bp
     stc
     ret
@@ -790,78 +699,25 @@ tls_server_record_seq_available:
     and al, [si]
     inc si
     loop .next
-    cmp al, 0xff
-    je .failed
+    add al, 1                       ; carry iff every sequence byte was ff
     pop si
     pop cx
     pop ax
-    clc
     ret
-.failed:
-    pop si
-    pop cx
-    pop ax
-    stc
-    ret
-
-tls_preserve_buffered_payload:
-    mov cx, [tls_buffered_payload_len]
-    jcxz .done
-    push ds
-    pop es
-    mov si, [tls_buffered_payload_ptr]
-    mov di, tls_rx_copy
-    rep movsb
-    mov word [tls_buffered_payload_ptr], tls_rx_copy
-.done:
-    ret
-
-; ---------------------------------------------------------------------------
-; ChaCha20-Poly1305 helpers
-; ---------------------------------------------------------------------------
 
 tls_xor_app_data:
-    push ax
-    push bx
+    ; Sending starts a fresh keystream block, then shares the exact bounded
+    ; XOR iterator used for streamed input. Preserve the old sender ABI.
     push cx
     push dx
     push si
+    mov byte [tls_large_chacha_offset], chacha_block_len
     mov si, [tls_app_data_ptr]
     mov cx, [tls_app_chunk_len]
-.next_block:
-    or cx, cx
-    jz .done
-    push cx
-    call chacha20_block
-    pop cx
-    mov dx, cx
-    cmp dx, chacha_block_len
-    jbe .chunk_ready
-    mov dx, chacha_block_len
-.chunk_ready:
-    sub cx, dx
-    push cx
-    mov cx, dx
-    mov bx, chacha_block
-.xor_byte:
-    mov al, [si]
-    xor al, [bx]
-    mov [si], al
-    inc si
-    inc bx
-    loop .xor_byte
-    inc word [chacha_counter_low]
-    jnz .counter_ready
-    inc word [chacha_counter_high]
-.counter_ready:
-    pop cx
-    jmp .next_block
-.done:
+    call tls_xor_large_app_chunk
     pop si
     pop dx
     pop cx
-    pop bx
-    pop ax
     ret
 
 tls_xor_large_app_chunk:
@@ -1086,20 +942,11 @@ tls_compare_buffers:
     inc di
     loop .next
 .done:
-    or ah, ah
-    jnz .failed
+    neg ah                          ; carry iff any compared byte differed
     pop di
     pop si
     pop cx
     pop ax
-    clc
-    ret
-.failed:
-    pop di
-    pop si
-    pop cx
-    pop ax
-    stc
     ret
 
 tls_write_be16:

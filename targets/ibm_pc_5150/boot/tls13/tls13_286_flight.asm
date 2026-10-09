@@ -85,7 +85,9 @@ flight_main:
 .application_record:
     call flight_open_record
     jc .abort
-    cmp word [cs:flight_http_done], 0x0101
+    call flight_h2_ready
+    jc .application_record
+    cmp byte [cs:flight_ticket_seen], 1
     jne .application_record
     cmp word [cs:flight_nst_pos], 0
     jne .application_record
@@ -105,12 +107,13 @@ flight_finish_resumed:
  .application_record:
     call flight_open_record
     jc flight_main.abort
-    cmp byte [cs:flight_http_status_valid], 1
-    jne .application_record
+    call flight_h2_ready
+    jc .application_record
     cmp byte [cs:flight_ticket_seen], 1
     jne .application_record
     cmp word [cs:flight_nst_pos], 0
     jne .application_record
+    call flight_h2_publish
     call flight_publish_application
     call word [cs:TLS13_286_LINK_NIC_RESTORE_SLOT]
     jmp word [cs:tls13_286_abort_capsule_load + \
@@ -129,11 +132,9 @@ flight_begin_acquisition_dialogue:
     jc .bad
     call TLS13_286_FLIGHT_SYM_DERIVE_CLIENT_APPLICATION
     jc .bad
-    call TLS13_286_FLIGHT_SYM_BUILD_HEAD
-    jc .bad
-    cmp ax, 72
-    jne .bad
-    call flight_send_sym_io
+    mov si, flight_h2_preface
+    mov cx, flight_h2_preface_end - flight_h2_preface
+    call flight_h2_send
     jc .bad
     call TLS13_286_FLIGHT_SYM_DERIVE_SERVER_APPLICATION
     jc .bad
@@ -144,7 +145,7 @@ flight_begin_acquisition_dialogue:
     mov di, flight_http_total
     mov cx, 4
     rep stosw
-    mov byte [cs:flight_http_status_valid], 0
+    call flight_h2_load
     ret
 .bad:
     stc
@@ -631,7 +632,7 @@ flight_post_parse_bytes:
     je flight_post_nst_bytes
     cmp word [cs:flight_nst_pos], 0
     jne .bad
-    jmp flight_post_http_bytes
+    jmp flight_post_h2_bytes
 .bad:
     stc
     ret
@@ -681,118 +682,55 @@ flight_post_nst_bytes:
     stc
     ret
 
-; Strict bounded HTTP/1.1 HEAD-response header DFA.  Accept 2xx, 4xx other
-; than 425, or 5xx; forbid control bytes except HTAB/CR/LF and require the
-; response to end exactly at CRLFCRLF.
-flight_post_http_bytes:
-.byte:
-    cmp byte [cs:flight_http_done], 0
+%include "h2-286-post-abi.inc"
+%include "h2-helper-crc.inc"
+flight_h2_load:
+    mov ax,0x01a4
+    mov bx,0x5500
+    call TLS13_286_LINK_LOAD_CORE_SECTORS_AT
+    jc .bad
+    mov si,0x5500
+    mov dx,H2_HELPER_BYTES
+    call flight_crc16
+    cmp ax,H2_HELPER_CRC
     jne .bad
-    mov bx, [cs:flight_http_total]
-    cmp bx, flight_http_max
-    jae .bad
-    inc word [cs:flight_http_total]
-    lodsb
-    cmp bx, 9
-    jb .prefix
-    je .status_hundreds
-    cmp bx, 11
-    jbe .status_tail
-    cmp bx, 12
-    je .status_space
-    cmp al, 9
-    je .header
-    cmp al, 10
-    je .header
-    cmp al, 13
-    je .header
-    cmp al, 0x20
-    jb .bad
-    cmp al, 0x7e
-    ja .bad
-.header:
-    xor bx, bx
-    mov bl, [cs:flight_http_match]
-    or bl, bl
-    jz .match_cr
-    cmp bl, 1
-    je .match_lf
-    cmp bl, 2
-    je .match_second_cr
-    cmp al, 10
-    jne .bad
-    mov byte [cs:flight_http_done], 1
-    jmp .next
-.match_cr:
-    cmp al, 13
-    je .first_cr
-    cmp al, 10
-    je .bad
-    jmp .next
-.first_cr:
-    mov byte [cs:flight_http_match], 1
-    jmp .next
-.match_lf:
-    cmp al, 10
-    jne .bad
-    mov byte [cs:flight_http_match], 2
-    jmp short .next
-.match_second_cr:
-    cmp al, 13
-    je .second_cr
-    cmp al, 10
-    je .bad
-    mov byte [cs:flight_http_match], 0
-    jmp short .next
-.second_cr:
-    mov byte [cs:flight_http_match], 3
-    jmp short .next
-.prefix:
-    cmp al, [cs:flight_http_prefix + bx]
-    jne .bad
-    jmp short .next
-.status_hundreds:
-    mov byte [cs:flight_http_425], 0
-    cmp al, '4'
-    je .possible_425
-    cmp al, '2'
-    je .next
-    cmp al, '5'
-    jne .bad
-    jmp short .next
-.possible_425:
-    mov byte [cs:flight_http_425], 1
-    jmp short .next
-.status_tail:
-    cmp al, '0'
-    jb .bad
-    cmp al, '9'
-    ja .bad
-    cmp byte [cs:flight_http_425], 0
-    je .next
-    cmp bx, 10
-    jne .third_digit
-    cmp al, '2'
-    je .next
-    mov byte [cs:flight_http_425], 0
-    jmp short .next
-.third_digit:
-    cmp al, '5'
-    je .bad
-    mov byte [cs:flight_http_425], 0
-    jmp short .next
-.status_space:
-    cmp al, ' '
-    jne .bad
-    mov byte [cs:flight_http_status_valid], 1
-.next:
-    dec cx
-    jnz .byte
-    clc
-    ret
+    jmp word [0x5500]
 .bad:
     stc
     ret
+flight_post_h2_bytes:
+    jmp word [0x5502]
+flight_h2_ready:
+    jmp word [0x5504]
+flight_h2_publish:
+    jmp word [0x5506]
+flight_h2_send:
+    jcxz .done
+    cmp cx, 436                     ; complete TLS/TCP frame fits NIC scratch
+    ja .bad
+    mov word [FLIGHT_SYM_RECORD_KEY_PTR], TLS13_286_FLIGHT_SYM_CLIENT_APP_KEY
+    mov word [FLIGHT_SYM_RECORD_IV_PTR], TLS13_286_FLIGHT_SYM_CLIENT_APP_IV
+    mov word [FLIGHT_SYM_RECORD_SEQ_PTR], TLS13_286_FLIGHT_SYM_CLIENT_APP_SEQ
+    mov al, 0x17
+    call FLIGHT_SYM_SEAL_RECORD
+    jc .return
+    jmp flight_send_sym_io
+.bad:
+    stc
+    ret
+.done:
+    clc
+.return:
+    ret
+
+flight_h2_preface:
+    db 'PRI * HTTP/2.0',13,10,13,10,'SM',13,10,13,10
+    db 0,0,24,4,0,0,0,0,0
+    db 0,1,0,0,0,0
+    db 0,2,0,0,0,0
+    db 0,4,0,0,0,0
+    db 0,6,0,0,0x10,0
+flight_h2_preface_end:
 
 flight_wire_byte:
     call flight_wire_available
@@ -1125,6 +1063,11 @@ flight_complete_message:
     ret
 
 flight_validate_ee:
+    ; Called only after the complete enclosing record tag succeeds.
+    ; Each EE extension must be both offered and legal here. Track duplicates
+    ; and require the single selected ALPN to be h2 on EACH connection.
+    push di
+    xor di, di
     mov cx, [cs:flight_msg_len]
     cmp cx, 2
     jb .bad
@@ -1137,26 +1080,67 @@ flight_validate_ee:
     mov si, flight_message_work + 6
 .extension:
     or dx, dx
-    jz .good
+    jz .done
     cmp dx, 4
     jb .bad
     mov ax, [si]
-    cmp ax, 0x2a00                    ; early_data
-    je .bad
-    cmp ax, 0x2900                    ; pre_shared_key
-    je .bad
     mov bx, [si + 2]
     xchg bl, bh
     add si, 4
     sub dx, 4
     cmp bx, dx
     ja .bad
+    cmp ax, 0x1000
+    je .alpn
+    or ax, ax
+    jz .sni
+    cmp ax, 0x0a00
+    jne .bad
+    test di, 4
+    jnz .bad
+    or di, 4
+    cmp bx, 4
+    jb .bad
+    test bl, 1
+    jnz .bad
+    mov ax, [si]
+    xchg al, ah
+    add ax, 2
+    jc .bad
+    cmp ax, bx
+    jne .bad
+    jmp short .next
+.sni:
+    test di, 2
+    jnz .bad
+    or di, 2
+    or bx, bx
+    jnz .bad
+    jmp short .next
+.alpn:
+    test di, 1
+    jnz .bad
+    or di, 1
+    cmp bx, 5
+    jne .bad
+    cmp word [si], 0x0300
+    jne .bad
+    cmp byte [si+2], 2
+    jne .bad
+    cmp word [si+3], 0x3268
+    jne .bad
+.next:
     add si, bx
     sub dx, bx
-    jmp short .extension
-.good:
+    jmp .extension
+.done:
+    test di, 1
+    jz .bad
+    pop di
+    clc
     ret
 .bad:
+    pop di
     stc
     ret
 
@@ -1459,6 +1443,11 @@ flight_retire_symmetric:
 
 flight_abort:
     cld
+    xor ax, ax
+    mov es, ax
+    mov di, 0x062e
+    mov cx, 84/2
+    rep stosw
     call word [cs:TLS13_286_LINK_NIC_RESTORE_SLOT]
     jmp word [cs:tls13_286_abort_capsule_load + \
         tls13_286_abort_capsule_entry_ptr]
@@ -1470,8 +1459,6 @@ flight_compat_ccs_tail:
 flight_cv_context:
     db 'TLS 1.3, server CertificateVerify'
 flight_cv_context_len equ $ - flight_cv_context
-flight_http_prefix:
-    db 'HTTP/1.1 '
 
 flight_image_end:
 

@@ -391,6 +391,20 @@ sym_server_app_open_begin:
 ; acceptance; AX=2 means authenticated early-data rejection.  The caller
 ; remains responsible for exact plaintext shape and Finished verification.
 sym_authenticate_resumed_flight:
+%ifdef TLS13_SYM_SYSTEM_RAM_RESUMPTION
+    ; No-0RTT profile: h2 EE (15/19), Finished (36), inner type (1).
+    mov ax, 15
+    mov cx, 52
+    mov dx, sym_io_base + 57
+    cmp word [sym_io_base + 3], 0x4400
+    je .h2_ready
+    cmp word [sym_io_base + 3], 0x4800
+    jne .failed
+    add ax, 4
+    add cx, 4
+    add dx, 4
+.h2_ready:
+%else
     mov al, [sym_io_base + 4]
     cmp al, 0x3f
     je .accepted
@@ -404,6 +418,7 @@ sym_authenticate_resumed_flight:
     mov ax, 10
     mov cx, 47
     mov dx, sym_io_base + 52
+%endif
 .open:
     push dx
     push cx
@@ -416,11 +431,15 @@ sym_authenticate_resumed_flight:
     pop si
     call sym_open_finish
     jc .failed
+%ifdef TLS13_SYM_SYSTEM_RAM_RESUMPTION
+    mov ax, 2
+%else
     mov ax, 1
     cmp byte [sym_io_base + 4], 0x3f
     je .done
     inc ax
 .done:
+%endif
     clc
     ret
 .failed_pop:
@@ -1421,9 +1440,23 @@ tls13_no_psk_derived:
 tls13_zeros times sha256_digest_len db 0
 tls13_finished_header db 0x14,0x00,0x00,0x20
 tls13_head_request:
+%ifdef TLS13_SYM_SYSTEM_RAM
+%define PRIVATE_H2_PREFACE 1
+%elifdef TLS13_SYM_SYSTEM_RAM_RESUMPTION
+%define PRIVATE_H2_PREFACE 1
+%endif
+%ifdef PRIVATE_H2_PREFACE
+    db 'PRI * HTTP/2.0',13,10,13,10,'SM',13,10,13,10
+    db 0,0,24,4,0,0,0,0,0
+    db 0,1,0,0,0,0       ; HEADER_TABLE_SIZE = 0
+    db 0,2,0,0,0,0       ; ENABLE_PUSH = 0
+    db 0,4,0,0,0,0       ; INITIAL_WINDOW_SIZE = 0 until request consumption
+    db 0,6,0,0,0x10,0    ; MAX_HEADER_LIST_SIZE = 4096
+%else
     db 'HEAD /v1/models HTTP/1.1',13,10
     db 'Host: api.openai.com',13,10
     db 13,10
+%endif
 tls13_head_request_len equ $ - tls13_head_request
 
 tls13_group_handshake:

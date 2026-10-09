@@ -182,6 +182,15 @@ ready_attr equ 0x0f5f
 cursor_row equ 0x0f55
 cursor_col equ 0x0f56
 dpi_prompt_row equ 24
+dpi_input_buf equ 0x36c2
+dpi_input_len_byte equ 0x37c1
+chat_resend_prompt_len equ 0x3c9c
+screen_cols equ 0x0f57
+video_seg equ 0x0f58
+dpi_prompt_marker_row equ 0x0f33
+agent_loop_pending equ 0x0f66
+tool_fc_state equ 0x3ceb
+fc_capture_len equ 0x3ced
 type_ticks equ 1
 
 parent_time_phase:
@@ -722,17 +731,66 @@ def assert_invalid_rtc(built: Built) -> int:
     return len(cases)
 
 
+def check_reconnect_prompt(built: Built) -> int:
+    """Compose actual parent preparation with the actual bootstrap admission."""
+    import check_286_product_bootstrap as B
+    rows = 0
+    date, time = Date(2026, 7, 30), Time(14, 25, 36)
+    for columns, video in ((40, 0xb800), (80, 0xb000)):
+        for length in (0, 1, 79, 255):
+            for state in (0, 1, 3, 4, 5):
+                m = Machine(built, attempt(date, time), loop_cache_count=LOOP_CACHE_ENTRIES)
+                text = bytes(65 + i % 26 for i in range(length))
+                m.uc.mem_write(B.PROMPT_SOURCE, b'\xd3' * 256)
+                m.uc.mem_write(B.RESEND_PROMPT_LEN, bytes([length]))
+                m.uc.mem_write(B.TOOL_FC_STATE, bytes([state]))
+                m.uc.mem_write(B.SCREEN_COLS, bytes([columns]))
+                m.uc.mem_write(B.VIDEO_SEG, struct.pack('<H', video))
+                m.uc.mem_write(B.PROMPT_MARKER_ROW, b'\x85')
+                m.uc.mem_write(video << 4, b'\xa7' * 4000)
+                row, col = 5, 2
+                for char in text:
+                    m.uc.mem_write((video << 4) + (row * columns + col) * 2, bytes([char, 7]))
+                    col += 1
+                    if col == columns:
+                        row += 1
+                        col = 2
+                before = bytes(m.uc.mem_read(video << 4, 4000))
+                result = m.run()
+                assert_success(result, date, time, expected_preload_calls=0)
+                assert bytes(m.uc.mem_read(B.PROMPT_SOURCE, 255)) == text.ljust(255, b'\0')
+                assert m.uc.mem_read(B.PROMPT_LEN_SOURCE, 1)[0] == length
+                assert m.uc.mem_read(B.TOOL_FC_STATE, 1)[0] == 0
+                assert bytes(m.uc.mem_read(video << 4, 4000)) == before
+                bootstrap = B.Machine(B.IMAGE_PATH.read_bytes(), B.make_tail(), mode=int(bool(length)))
+                bootstrap.uc.mem_write(B.PROMPT_SOURCE, bytes(m.uc.mem_read(B.PROMPT_SOURCE, 256)))
+                bootstrap.uc.mem_write(B.RESEND_PROMPT_LEN, bytes([length]))
+                bootstrap.call(expect='stage')
+                assert not bootstrap.carry
+                assert bytes(bootstrap.uc.mem_read(B.ESCROW_PROMPT, 255)) == text.ljust(255, b'\0')
+                assert bootstrap.uc.mem_read(B.ESCROW_PROMPT_LEN, 1)[0] == length
+                rows += 1
+    for address, value in ((B.TOOL_FC_STATE, 2), (B.TOOL_FC_STATE, 6), (B.AGENT_LOOP_PENDING, 1)):
+        m = Machine(built, [], loop_cache_count=LOOP_CACHE_ENTRIES)
+        m.uc.mem_write(address, bytes([value]))
+        result = m.run()
+        assert result.carry and result.bios_calls == result.preload_calls == 0
+        rows += 1
+    return rows
+
+
 def main() -> None:
     built = build()
     policy = assert_gate_and_policy(built)
     valid = assert_valid_paths(built)
     invalid = assert_invalid_rtc(built)
+    reconnect = check_reconnect_prompt(built)
     print(
         "TLS13 286 PARENT TIME PASS "
         f"bytes={built.phase_bytes} sectors={(built.phase_bytes + 511) // 512} "
         f"publication=0000:{PUBLICATION:04x}+{PUBLICATION_BYTES} "
         f"high=derived:{HIGH_PUBLICATION_OFF:04x}+{PUBLICATION_BYTES} "
-        f"policy={policy} valid={valid} reject={invalid} "
+        f"policy={policy} valid={valid} reject={invalid} reconnect={reconnect} "
         f"bios_call_bound={MAX_BIOS_CALLS} "
         "utc=platform-rtc interactive=none ntp=none cache=ram-shadow ready=last"
     )

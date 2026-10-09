@@ -413,9 +413,12 @@ def parse_client_hello(stream: bytes) -> dict[str, object]:
     if FORBIDDEN_CLIENT_EXTENSIONS.intersection(kinds):
         raise ValueError("ClientHello exposed compression or early_data")
 
-    if kinds == ACQUISITION_CLIENT_EXTENSION_ORDER:
+    alpn_h2 = 16 in kinds
+    acquisition_order = tuple(16 if k == 28 else k for k in
+                              ACQUISITION_CLIENT_EXTENSION_ORDER) if alpn_h2 else ACQUISITION_CLIENT_EXTENSION_ORDER
+    if kinds == acquisition_order:
         hello_profile = "acquisition"
-    elif kinds == RESUMPTION_CLIENT_EXTENSION_ORDER:
+    elif kinds == acquisition_order + (41,):
         hello_profile = "resumption"
     else:
         raise ValueError(f"wrong ClientHello extension order {kinds}")
@@ -436,6 +439,9 @@ def parse_client_hello(stream: bytes) -> dict[str, object]:
         45: PSK_DHE_KE,
     }
     values = dict(extensions)
+    if alpn_h2:
+        del expected_values[28]
+        expected_values[16] = b"\x00\x03\x02h2"
     for kind, expected in expected_values.items():
         if values.get(kind) != expected:
             raise ValueError(f"wrong ClientHello extension {kind}")
@@ -444,11 +450,11 @@ def parse_client_hello(stream: bytes) -> dict[str, object]:
     binder = b""
     obfuscated_ticket_age: int | None = None
     if hello_profile == "acquisition":
-        if len(message) != ACQUISITION_CLIENT_HELLO_HANDSHAKE_BYTES:
+        if len(message) != ACQUISITION_CLIENT_HELLO_HANDSHAKE_BYTES + (3 if alpn_h2 else 0):
             raise ValueError(
                 f"wrong acquisition ClientHello length {len(message)}"
             )
-        if 5 + record_length != ACQUISITION_CLIENT_HELLO_RECORD_BYTES:
+        if 5 + record_length != ACQUISITION_CLIENT_HELLO_RECORD_BYTES + (3 if alpn_h2 else 0):
             raise ValueError(
                 "wrong acquisition ClientHello record length "
                 f"{5 + record_length}"
@@ -486,6 +492,7 @@ def parse_client_hello(stream: bytes) -> dict[str, object]:
         expected_handshake_bytes = (
             RESUMPTION_CLIENT_HELLO_FIXED_HANDSHAKE_BYTES
             + identity_length
+            + (3 if alpn_h2 else 0)
         )
         if len(message) != expected_handshake_bytes:
             raise ValueError(
@@ -532,7 +539,8 @@ def parse_client_hello(stream: bytes) -> dict[str, object]:
         "extension_order": list(kinds),
         "handshake_bytes": len(message),
         "record_bytes": 5 + len(message),
-        "record_size_limit": 2048,
+        "record_size_limit": None if alpn_h2 else 2048,
+        "alpn": "h2" if alpn_h2 else None,
         "psk_dhe_ke_offered": True,
         "pre_shared_key_offered": hello_profile == "resumption",
         "pre_shared_key_is_final": kinds[-1] == 41,
@@ -654,6 +662,7 @@ def is_286_candidate(stream: bytes) -> bool:
             RESUMPTION_CLIENT_HELLO_FIXED_HANDSHAKE_BYTES
             + MAX_TICKET_IDENTITY_BYTES
             + 5
+            + 3  # h2 ALPN replaces the six-byte legacy record-size extension
         )
         and body[:1] == b"\x01"
         and SNI in body
@@ -1346,6 +1355,7 @@ def fixture_client_hello(
         13: b"\x00\x02\x04\x03",
         27: b"\x02\x00\x02",
         51: struct.pack(">H", len(key_share_entry)) + key_share_entry,
+        16: b"\x00\x03\x02h2",
         28: b"\x08\x00",
         21: b"\x00" * 14,
         45: PSK_DHE_KE,

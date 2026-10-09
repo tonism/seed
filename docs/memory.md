@@ -265,8 +265,8 @@ EMS physical view (where the page frame sits)   (cell 8 KiB · row 256 KiB)
 0x00003600..0x00003E40   TLS, reconnect, config, and tool state
 0x00003E40..0x00003EA0   direct user/agent arena (96 B)
 0x00003EA0..0x00003F00   conversation context window (96 B)
-0x00003F00..0x00003F1A   TLS root return + UI/control snapshot (TLS lifetime)
-0x00003F1A..0x00004000   remaining stack guard
+0x00003F00..0x00003F1C   TLS root return + UI/control snapshot (TLS lifetime)
+0x00003F1C..0x00004000   remaining stack guard
 ```
 
 This is the headline floor. Native tools still work here, but memory read/write
@@ -284,8 +284,10 @@ turn.
 ```
 
 The low-memory arena/context pool is only modestly larger than the 16 KiB floor
-because the extra RAM is buying a floppy-free normal chat turn: the K window,
+because the extra RAM caches much of the normal chat turn: the K window,
 normal-turn phases, identity prompt, and tools schema live in the high cache.
+HTTP/2 parser transitions still read the floppy; their exact low-memory
+ownership is documented in [http2.md](http2.md).
 During an 8088 TLS route, the fixed `0x3f00..0x3f1c` root ABI temporarily
 aliases 28 bytes of this direct-tier arena. Root first copies those bytes to
 `0x7a00..0x7a1c`, saves the original caller return at `0x7a1c`, and installs a
