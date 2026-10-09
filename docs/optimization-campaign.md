@@ -1,6 +1,6 @@
 # Seed Optimization Campaign
 
-## Current checkpoint: functional reliability acceptance complete
+## Current checkpoint: OPT-016 cleanup committed
 
 The maintainer stopped wider optimization work until the original 4.77 MHz
 8088 / exactly 16 KiB floor was reliable. OPT-017 and OPT-020 now satisfy the
@@ -11,7 +11,7 @@ write/execute/read with the correct result. All seven original-speed ISA NIC
 profiles pass first-response/reuse/reconnect checks, including 3c503/MDA and
 two separate 3c501 runs.
 
-The final runtime is
+The committed reliability runtime is
 `e3e0b888fa41e2ea72db3854e54da6a28226752f84c6c0a5a25da94e0815574f`.
 `OPT-020/final-audit.json` binds all ten reviewed runs and 29 prompted turns to
 that runtime, the canonical images, exact owned captures and unchanged
@@ -28,13 +28,26 @@ provider-edge characterization remain separate security work. This is not an
 unconditional secure-floor or release claim.
 
 The reliability investigation is 100% complete for this gate; the wider
-campaign's rocks-turned estimate remains approximately 40%. The maintainer has
-approved committing and pushing this validated checkpoint, then resuming the
-optimization plan. Resume OPT-016 against this HTTP/2 baseline, measuring the
-complete consecutive-turn cost of DPI request-phase prefetch before any product
-edit. After that bounded question, select offline-proof profiling. This approval
-covers the reliability checkpoint and its branch push; later implementation
-checkpoints still require their own commit approval. All test VMs are closed.
+campaign's rocks-turned estimate is approximately 42%. The validated
+checkpoint was committed as `38b2f40` and pushed to
+`codex/build-13-tls13-rearchitecture-spike` with the maintainer's approval.
+The subsequently requested OPT-016 source cleanup is now validated locally.
+Its runtime is
+`2e5d631fa81bb575343fb52782195672e0fc3e4d797a905c9142b329cf3e65b1`;
+`OPT-016/integration/final-audit.json` accepts nine cases and 27 prompted turns
+across all three CPU/RAM paths and seven ISA NIC profiles. The 32 KiB
+numeric-format caveat remains explicitly recorded. The build and current
+offline gates pass; all VMs used for this validation are closed.
+
+The maintainer approved committing this validated cleanup and campaign record,
+then pushing the current work branch. Later implementation checkpoints still
+require their own commit and push approval. The maintainer requested a fresh
+context and continuation
+with OPT-022 after this cleanup. Start its private prototypes on this same
+checkout, preserving the validated OPT-016 change. OPT-021's packed FO and
+exact-leaf/CV profiles select the rotation experiment below. Implementing this
+already-measured cleanup does not change the approximately 42% rocks-turned
+estimate.
 Future concurrent tests must keep at most three VMs open and close each VM as
 soon as its test finishes. Historical entries retaining VMs do not override
 that request.
@@ -371,11 +384,11 @@ merely that one spike ran.
 | Wish | State | Best current result | Active/next spike |
 | --- | --- | --- | --- |
 | 1. 8088 handshake margin | partially solved | seven-NIC matrix worst 11.2196 s; matched 3c503 13.7220 -> 11.2317 s; under-12 target observed | OPT-002 committed as `de9cf53` |
-| 2. 8088 dialogue loop | partially solved | OPT-017/020 HTTP/2 reliability gate passes all three CPU/RAM paths, 29 prompted turns, native tools and seven ISA NIC profiles; 16 KiB text replies remain about 4–13 minutes | Resume OPT-016 on the validated HTTP/2 baseline; earlier receiver prototypes remain historical |
-| 3. 8088 offline proof | backlog | baseline above | — |
+| 2. 8088 dialogue loop | partially solved | OPT-017/020 reliability acceptance retained by OPT-016's nine-case, 27-turn source integration matrix across all three CPU/RAM paths and seven ISA NICs; historical 16 KiB text replies take about 4–13 minutes | OPT-016 validated locally; OPT-022 next |
+| 3. 8088 offline proof | active | OPT-021: 89.5% of full-FO instructions in Keccak, 52.3% in its rotation helper; no whole-route time claim | OPT-022 |
 | 4. Floppy capacity | backlog | 308/309 FAT sectors unchanged; OPT-015 shrinks K to 3,510 B / seven loaded sectors inside the same fixed fifteen-sector file slot | OPT-015 committed as `88175d7`; no FAT-sector saving |
 | 5. 16 KiB memory/executable space | partially solved | OPT-015 removes 1,801 B of uncalled application code; user arena/context remains 96/96 B. OPT-013 model-cache saving is consumed temporarily by reconstruction | OPT-015 committed as `88175d7`; receiver constructions already counted SHA removal |
-| 6. Interactive floppy activity | partially solved | OPT-015 reduced its historical dialogue fixture from 28 to 24 reads. HTTP/2 introduces a different parser/load schedule; current full-cycle attribution is required | OPT-016 resumed after reliability acceptance; no current HTTP/2 prefetch saving claimed yet |
+| 6. Interactive floppy activity | partially solved | OPT-016 source two-turn fixture: 145 -> 142 reads with no seek change; native and ENV routes each also save three reads; cached disk counts unchanged | Prefetch cleanup committed with this checkpoint |
 | 8. Conforming hybrid TLS on 8088 | backlog | ~45.75 s X25519 blocker | — |
 | 9. 8088 freshness/rotation | backlog | current key rotated before the old leaf expired; trust construction remains open | OPT-003 operational evidence |
 | 10. Whole-system Pareto audit | partially solved | OPT-009/010 receiver/overlay bounds and OPT-011/012 codec work reconciled with OPT-013 cache reconstruction: 509 named preserved bytes, 414-B component, 8-B stack; existing loader schedule still exceeds 16 KiB | OPT-013 audit complete; broader audit remains open |
@@ -398,6 +411,11 @@ optimization, conforming 8088 TLS and freshness/rotation remain mostly
 unexplored. Count resolved avenues and remaining worthwhile questions across
 the campaign, not the number of spikes or successful implementations. Explain
 material revisions as the remaining search space becomes clearer.
+
+After the accepted reliability repair and OPT-016/021 measurements, the current
+estimate is approximately **42% explored**, with a rough **32–52% range**.
+This increase reflects the completed prefetch question and the first concrete
+offline-proof attribution; it does not count an unimplemented rotation gain.
 
 ## Selection policy
 
@@ -2271,10 +2289,123 @@ Exploration coverage remains approximately 35% (rough 25–45%).
 - Exit: a measured, narrowly validated product improvement, or a bounded
   negative finding if the work only shifts or the benefit is not worthwhile.
   Record either result and then select the offline-proof profiling question.
-- Status/owner: **selected to resume after the approved OPT-017/020 checkpoint
-  commit and push**, in the existing campaign context. Rebind the measurement
-  to the repaired HTTP/2 runtime; the old HTTP/1 counts above are historical.
-  No OPT-016 product edit or new performance claim has been made.
+- Status/owner: **complete; source cleanup committed with this checkpoint**,
+  in the existing campaign context. The private baseline is byte-bound to the
+  accepted HTTP/2 runtime; the old HTTP/1 counts above are historical.
+  The maintainer's later cleanup request supersedes the measured deferral below.
+
+#### OPT-016 measurement on the accepted HTTP/2 runtime
+
+Twelve private actual-code runs compare the exact committed runtime against a
+single layout-preserving branch over the DPI prefetch. All other bytes stay
+identical. Two text turns read 145 -> 142 sectors; write/execute/read plus its
+answer and the next human turn read 404 -> 401; a native `save_env` attempt on
+write-protected media, its continuation and the next human turn read 223 -> 220.
+Each pair removes three prompt-restoration reads, with no additional next-submit
+work. Track transitions and total head steps do not change. The corresponding
+cached-loader fixtures read 56 -> 56, 170 -> 170 and 91 -> 91 sectors, saving
+only a RAM copy. These cached cases exercise the canonical 32 KiB cache with
+the fixture's 16 KiB stack/arena, not a new full 32 KiB live acceptance.
+
+The request documents, rendered output, display, live state/key/context/arena
+hashes, native execution count, ENV write attempts, stack and segment/DF
+contracts match at both returned prompts. Uncached instruction-hook counts drop
+by only 100–103 among 4.31–14.14 million; cached counts by 802–805. Counts include
+REP terminal hooks and external-leaf entries; no elapsed-time or calibrated
+cycle saving has been established. The prototype uses the same sectors and RAM.
+
+Disposition: **measurement complete; defer this small standalone integration**.
+The 0.7–2.1% read-count reduction is real in these fixtures, but gives no seek
+reduction, cached disk benefit or recovered FAT sector. It does not justify
+another product phase-loading change and full live NIC matrix before profiling
+the much larger unexplored offline-proof spans. This is a prioritization
+judgment, not a claim that three removed reads have zero latency. No shipping
+source changed and no live VM was started. Evidence: `OPT-016/prototype-binding.json`,
+`measure.py`, `comparison.json`, and the twelve per-case reports. Continue with
+OPT-021; revisit prefetch when it can accompany a larger measured phase-loading
+improvement. Do not promote the old HTTP/1 24 -> 21 estimate to this baseline.
+
+#### OPT-016 source integration
+
+The maintainer explicitly requested the small OPT-016 cleanup before a fresh
+context for the next optimization. This supersedes the prioritization deferral;
+it does not authorize a commit or push. The candidate removes only DPI's
+request-helper prefetch and its now-unused failure branch/macro. Save preparation
+still precedes input or native continuation; the resident scheduler retains the
+actual request load and its failure handling. Validation must bind the rebuilt
+source candidate, rather than treating the earlier binary bypass as acceptance.
+The source candidate is
+`2e5d631fa81bb575343fb52782195672e0fc3e4d797a905c9142b329cf3e65b1`.
+Only runtime sector 201 (DPI) changes; its emitted code shrinks from 511 to
+480 bytes, with the same one-sector padding, 150,016-byte runtime, RAM contract
+and FAT geometry. The full build, inspection, BASIC timer-quarantine checks,
+18 HTTP/2 composition gates and 13 standalone RAM/config/erasure/cold-send gates
+pass. All eight reassembled serialized 286 timing payloads are byte-identical
+to the accepted measurements; those prior timings are retained, not rerun or
+presented as new DPI timing.
+
+Six source-candidate comparisons confirm the measured 145 -> 142, 404 -> 401
+and 223 -> 220 uncached reads, with unchanged cached read counts, seeks and
+both returned-prompt snapshots. Source removal saves 102–108 instruction hooks
+uncached and 804–810 cached; these remain uncalibrated instruction counts.
+Additional baseline/candidate pairs preserve ESC clearing, backspace editing,
+the submitted request and cursor state. A partial request-helper read failure
+produces the visible retry message, returns to input and accepts a successful
+subsequent turn.
+
+The initial cached ENV comparison mixed the old synthetic disk's 12 free
+clusters with the shipping disk's one free cluster. It correctly reached the
+full-media path before attempting a write. That failed fixture observation is
+preserved under `integration/initial-shipping-media/`; the corrected comparison
+uses identical synthetic media, replacing only the candidate runtime sector.
+The separate shipping-image ENV gates passed unchanged. Evidence is under
+`OPT-016/integration/`, including `candidate-binding.json`,
+`comparison-media-binding.json`, `comparison.json`,
+`request-phase-failure.json` and `offline-checkpoint.json`.
+
+Current status: **offline and live integration acceptance complete**.
+`integration/final-audit.json` passes all nine cases, 27 prompted turns and
+seven distinct original-speed 16 KiB NIC profiles, binding their exact owned
+captures, reviewed replies, unchanged read-only images and protected inputs to
+the source candidate. Both `286-512k-02` and `ne2k8-16k-02` pass all five
+visible turns, exact-flow TLS/reconnect checks, AX=42 and readback
+`B8 2A 00 CB`. `ne2k8-32k-02` passes the functional and exact-flow gates through
+the existing manual-completion path: the model spelled out the correct AX and
+hex bytes despite the numeric request. Its literal-format failure and observer
+stop remain preserved, with the reviewed screenshot and semantic result in
+`manual-completion.json`; this is not an automatic numeric-format pass.
+
+The six additional NIC cases (`3c503-16k-mda`, `wd8003e-16k`, `ne1k-16k`,
+`3c501-16k`, `novell-ne1k-16k` and `wd8003eb-16k`) pass both visible dependent
+turns and the post-idle reconnect, with their exact-flow gates accepted. All
+test VMs are closed, the queue is empty and the three-VM cap was retained.
+`integration/closure.json` records the final audit hash and zero active VM PIDs.
+Local `gpt-6.1-sol` / `max` preferences and the pre-existing tracked VM config
+and NVR state remain unchanged. No elapsed-time improvement is inferred from
+this regression matrix.
+
+The first three live observers were deliberately stopped and their VMs closed
+after a harness mismatch: the revised question allowed ordinary word formatting,
+the 286 visibly returned `Forty-two.` plus its input prompt, but the observer
+expected the literal unpunctuated `FORTYTWO`. The private runner now tolerates
+punctuation/spaces for the four arithmetic word answers, with wrong-answer
+checks and literal native numeric matching retained. Initial captures/results
+and `integration/initial-live-observer/reason.json` preserve this observer
+failure. Replacement main-path cases have the `-02` suffix; no product change
+or runtime failure is inferred from the stopped observers.
+
+The copied runner initially used nonexistent canonical paths for two auxiliary
+capture analyzers. Their original exit-2 logs remain preserved; completed
+captures are reprocessed with the unchanged OPT-020 compatibility wrappers,
+recorded in each affected case's `postprocess-repair.json`. The tracked
+`check_live_h2_case.py` exact-owned-flow gate is the acceptance authority; the
+generic analyzer may reject mixed captures containing other VMs/host traffic.
+
+Disposition: retain the narrowly validated source cleanup in the maintainer-
+approved checkpoint, `perf: remove redundant DPI request prefetch`. The
+maintainer also approved pushing the current branch. OPT-022 is separate
+ongoing work; preserve its edits and ignored evidence without including its
+unfinished implementation in this checkpoint.
 
 ### Local testing model selection after OPT-015
 
@@ -2324,7 +2455,7 @@ or push was made. Exploration remains approximately 35% (rough 25–45%).
 ### OPT-017 — Restore reliable repeated chat and failure recovery
 
 - Priority/status: **functional emulator acceptance complete through OPT-020;
-  checkpoint approved for commit and push**. The current shipping-source receiver and native
+  checkpoint committed and pushed as `38b2f40`**. The current shipping-source receiver and native
   journal pass repeated conversation, bounded reconnect and native execution on
   all three CPU/RAM paths, plus the seven-profile NIC matrix. The earlier
   small-record and tool-continuation failures are preserved below as history.
@@ -2871,7 +3002,7 @@ or push was made. Exploration remains approximately 35% (rough 25–45%).
 ### OPT-020 — Test HTTP/2 flow control as a bounded authenticated receiver
 
 - Status: **integrated; functional emulator acceptance complete; checkpoint
-  approved for commit and push**.
+  committed and pushed as `38b2f40`**.
   The shipping-source OpenAI route uses HTTP/2 on both CPU profiles. Guarded
   authentication/publication composition, exact-floor repeated chat, native
   write/execute/read, bounded reconnect and all seven NIC profiles pass on the
@@ -3486,3 +3617,105 @@ or push was made. Exploration remains approximately 35% (rough 25–45%).
   The 32 KiB numeric-format caveat, slow 16 KiB timings and physical entropy
   limits remain explicit. No commit or push. Proposed checkpoint message:
   `Fix minimum-memory chat and native-tool reliability`.
+
+### OPT-021 — Attribute the 8088 offline-proof workers
+
+- Wishes: 3, with whole-route accounting for 1, 2 and 10.
+- Question: do current, byte-bound full-FO and exact-leaf/CV worker profiles
+  identify a concentrated computation cost worth a narrowly scoped follow-up?
+- Baseline: `38b2f40`, runtime `e3e0b888fa41e2ea72db3854e54da6a28226752f84c6c0a5a25da94e0815574f`.
+  Campaign-entry 154.6 s initial and 69.4 s resumed proof spans are historical,
+  not measurements of this HTTP/2 revision or of either worker in isolation.
+- Allowed surface: isolated measurement under `build/optimization-campaign/OPT-021/`
+  and this ledger; no shipping crypto or trust changes. Start with exact packed
+  FO and authentication workers, then account for regeneration/controllers and
+  phase I/O before any whole-route performance claim.
+- Required evidence: match emitted worker bytes to this runtime's actual pack
+  slots; execute valid deterministic or recorded credential-free public vectors;
+  attribute instructions to routines; retain the worker's result, RAM bounds,
+  stack and preserved-state checks. State cycle-model and elapsed-time limits.
+  Physical entropy, provider deadline and live-security claims stay separate.
+- Exit: rank one measured follow-up with explicit missing evidence, or record
+  why the supposed hotspot is not supported. Implementation still requires its
+  own bounded spike and relevant acceptance; no optimization commit is approved.
+- Status/owner: **scoped worker profiling complete**, in the existing campaign
+  context; follow-up OPT-022 selected below.
+
+#### OPT-021 result and selected follow-up
+
+Both independently rebuilt workers match the bytes and SHA-256 in the committed
+runtime's actual pack slots. The valid full-FO vector passes in 5,835,668
+instruction hooks: `fo_rotl64_to` accounts for 3,053,688 (52.3%) and the remaining
+`fo_keccak_f1600` body for 2,169,307 (37.2%). Together Keccak accounts for 89.5%.
+The FO image is 2,829 bytes in its existing six-sector slot, leaving 243 bytes
+of padding. Its stack low-water is `0x3fe6` (26 bytes below the floor stack top).
+
+The recorded credential-free exact-leaf/CV vector passes in 9,906,882 hooks.
+`p256_kmul8` accounts for 41.9%, reduction for 13.1%, and the other multiplication,
+add/subtract and inversion helpers account for much of the rest. The auth image
+is 6,592 bytes in thirteen sectors, with 64 bytes of padding; stack low-water
+is `0x3fa8` (88 bytes). Both runs reject CPU instruction/data accesses at or
+above `0x4000` while executing and retain the original checker result and
+preserved-state assertions. The harness maps extra poison sentinels, not extra
+usable target memory.
+
+These are **worker instruction counts**, including REP terminal and callback
+hooks. Variable-count shifts and multiplication make instruction percentages
+especially unsuitable as wall-clock percentages. Regeneration, candidate work,
+controllers, floppy loads and the complete current proof spans remain outside
+these numbers. They do not imply a measured 89.5% proof-time opportunity.
+
+Disposition: **profiling complete for the two scoped workers; select OPT-022**.
+Prioritize FO rotations because FO repeats in both proof epochs, its hotspot is
+concentrated, and its current slot has more implementation room than P-256.
+Keep the P-256 result as a later measured avenue. Evidence is
+`OPT-021/fo-profile.json`, `auth-profile.json`, `profile.py` and their exact
+assembled worker/listing files. Product source, runtime, images and local model
+configuration remain unchanged after the reliability commit.
+
+### OPT-022 — Test faster 8088 full-FO Keccak rotations
+
+- Wishes: 3; preserve whole-route and floppy accounting for 1, 2, 4 and 10.
+- Question: can public-count specialization or less loop/address bookkeeping in
+  `fo_rotl64_to` reduce complete full-FO target computation by at least 10%
+  while retaining its six-sector slot and current RAM/stack contract?
+- Baseline: the validated OPT-016 DPI cleanup committed with this entry;
+  current runtime
+  `2e5d631fa81bb575343fb52782195672e0fc3e4d797a905c9142b329cf3e65b1`.
+  OPT-016 changes only runtime sector 201, so the packed FO and auth workers
+  remain byte-identical to OPT-021. Bind prototypes to this current source
+  using `OPT-016/integration/candidate-binding.json` and `final-audit.json`.
+  OPT-021 exact packed FO is 2,829 bytes, 5,835,668 instruction hooks,
+  rotation share 52.3%, stack low-water `0x3fe6`.
+  No calibrated current elapsed time exists yet. The helper already decomposes
+  rotations into whole words plus paired variable shifts; it is not a naive
+  64-iteration bit loop.
+- Allowed surface: first isolate prototypes/measurements under
+  `build/optimization-campaign/OPT-022/`; only consider
+  `tools/crypto-bench/tls13-poc/fo_tail_kernel.asm` for eventual integration.
+  Do not propagate a candidate into keygen, candidate, P-256, deadline or
+  application crypto copies without separate byte/cost/lifetime accounting.
+- Required evidence: all rotation counts and word boundaries, register/source/
+  destination/stack equivalence, complete valid and implicit-rejection FO,
+  hostile/corrupted inputs, exact pack composition and zeroization. Preserve
+  public-only addressing/control choices and all authority transitions.
+  Count emitted bytes, full-worker instructions and variable-shift costs;
+  use original-speed target A/B timing before claiming elapsed savings. Before
+  integration run the relevant current build/offline/live gates, with no extra
+  VM windows beyond the established cleanup policy.
+- Exit: a narrowly validated working improvement, or a bounded negative if
+  net full-worker benefit, slot size or security/memory checks do not hold.
+  Later commit/push still require maintainer approval.
+- Status/owner: **selected; maintainer requested a fresh campaign context**
+  after OPT-016 for the 8088 carry/rotation rewrite, equivalence argument and
+  target-cycle validation. OPT-016 integration and OPT-021 profiling are
+  complete; no OPT-022 implementation has been started in this controller.
+  Use this same checkout so the active OPT-022 edits and ignored measurement
+  artifacts remain available. Preserve unrelated VM config/NVR,
+  screenshots and capture state, and keep the local model preference unchanged.
+
+The requested fresh chat is already active as
+`01a121fb-5930-7720-b97f-1f461376d7b5`. Inspect its status and current local
+ledger before continuing OPT-022; wait for an active owner before editing or
+launching duplicate tests. This commit records the OPT-016 implementation and
+OPT-022 handoff, not the other chat's unfinished rotation integration.

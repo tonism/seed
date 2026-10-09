@@ -11,19 +11,15 @@
     dw %1 - (PHASE_LOAD_ADDR + ($ - PHASE_BASE) + 2)
 %endmacro
 
-%macro phase_jmp_res 1
-    db 0xe9
-    dw %1 - (PHASE_LOAD_ADDR + ($ - PHASE_BASE) + 2)
-%endmacro
-
 dpi_phase:
     mov byte [recert_flag], 0
     ; Build 11 ESC gate: the DPI is live now -- open the int 9 hook's ESC/Ctrl+ESC gate. Until this runs
     ; (the entire boot network bring-up), the hook ignores ESC so it can't longjmp into a half-built chat
     ; loop. Idempotent -- set every loop; only the first transition matters.
     mov byte [dpi_reached], 1
-    ; Build 12 env save/load: resident chat_loop already ran tool_call. If that armed save_env, run the
-    ; save prep at 0x0900 before loading the request helper there.
+    ; Resident chat_loop already ran tool_call. If that armed save_env, run save prep
+    ; before accepting input or continuing the tool loop. The scheduler loads the
+    ; request helper when it sends; DPI does not need a separate prefetch.
     cmp byte [save_pending], 0
     je .save_skipped
     mov ax, (((core_save_prep_phase_end - core_save_prep_phase_start + 511) / 512) << 8) | ((core_save_prep_phase_start - $$) / 512)
@@ -32,14 +28,6 @@ dpi_phase:
     jc .save_skipped
     call bx                          ; load_core_sectors_at preserves bx (still = net_setup_phase_start)
 .save_skipped:
-    cmp byte [api_stream_event_ready], 1
-    je .request_phase_ready
-    mov ax, (((core_agent_request_phase_end - core_agent_request_phase_start + 511) / 512) << 8) | ((core_agent_request_phase_start - $$) / 512)
-    mov bx, net_setup_phase_start
-    phase_call_res load_core_sectors_at
-    jc .agent_failed
-    mov byte [api_stream_event_ready], 1
-.request_phase_ready:
     call .drain_kbd
     ; Native tool loop: the tool phase set agent_loop_pending after executing a structured function_call.
     ; An auto-continue is NOT a user
@@ -137,10 +125,6 @@ dpi_phase:
     or byte [dpi_prompt_marker_row], 0x80
     call .sync_cursor
     ret
-.agent_failed:
-    mov al, handoff_status_agent_failed
-    phase_jmp_res show_failure
-
 .render_prompt:
     cmp byte [api_stream_seen], 0
     je .no_response_seen
@@ -271,7 +255,6 @@ dpi_phase:
 .drain_done:
     ret
 
-%unmacro phase_jmp_res 1
 %unmacro phase_call_res 1
 
 %ifdef PHASE_LOAD_ADDR_DEFAULTED
