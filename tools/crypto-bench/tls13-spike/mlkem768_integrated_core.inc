@@ -170,6 +170,115 @@ keccak_f1600:
     jb .round
     ret
 
+; The runtime-root 8088 overlay uses the separately verified FO rotation.
+; Other ML-KEM consumers retain their exact existing implementation.
+%ifdef MLKEM_KEYGEN_RUNTIME_ROOT
+rotl64_to:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    cmp cl, 1
+    jne .general
+    mov ax, [si]
+    mov bx, [si + 2]
+    mov dx, [si + 4]
+    mov bp, [si + 6]
+    ; Seed carry from w3, then insert the final w2 carry into shifted w3.
+    shl bp, 1
+    rcl ax, 1
+    rcl bx, 1
+    rcl dx, 1
+    adc bp, 0
+    stosw
+    mov ax, bx
+    stosw
+    mov ax, dx
+    stosw
+    mov ax, bp
+    stosw
+    jmp .done
+.general:
+    ; Rotate residual bits with fixed source offsets, then place each
+    ; output at its public whole-word rotation index. No lane value indexes RAM.
+    mov bl, cl
+    xor bh, bh
+    shr bx, 1
+    shr bx, 1
+    shr bx, 1
+    and bx, 6
+    and cl, 15
+    jz .whole_words
+    mov ch, 16
+    sub ch, cl
+    mov ax, [si + 0]
+    shl ax, cl
+    mov dx, [si + 6]
+    xchg cl, ch
+    shr dx, cl
+    xchg cl, ch
+    or ax, dx
+    mov [bx + di], ax
+    add bx, 2
+    and bx, 6
+    mov ax, [si + 2]
+    shl ax, cl
+    mov dx, [si + 0]
+    xchg cl, ch
+    shr dx, cl
+    xchg cl, ch
+    or ax, dx
+    mov [bx + di], ax
+    add bx, 2
+    and bx, 6
+    mov ax, [si + 4]
+    shl ax, cl
+    mov dx, [si + 2]
+    xchg cl, ch
+    shr dx, cl
+    xchg cl, ch
+    or ax, dx
+    mov [bx + di], ax
+    add bx, 2
+    and bx, 6
+    mov ax, [si + 6]
+    shl ax, cl
+    mov dx, [si + 4]
+    xchg cl, ch
+    shr dx, cl
+    xchg cl, ch
+    or ax, dx
+    mov [bx + di], ax
+    jmp short .done
+.whole_words:
+    mov ax, [si + 0]
+    mov [bx + di], ax
+    add bx, 2
+    and bx, 6
+    mov ax, [si + 2]
+    mov [bx + di], ax
+    add bx, 2
+    and bx, 6
+    mov ax, [si + 4]
+    mov [bx + di], ax
+    add bx, 2
+    and bx, 6
+    mov ax, [si + 6]
+    mov [bx + di], ax
+.done:
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+%else
 rotl64_to:
     push ax
     push bx
@@ -232,6 +341,8 @@ rotl64_to:
     pop bx
     pop ax
     ret
+
+%endif
 
 ; ---------------------------------------------------------------------------
 ; ML-KEM q=3329 NTT and polynomial base multiplication

@@ -1,6 +1,6 @@
 # Seed Optimization Campaign
 
-## Current checkpoint: OPT-016 cleanup committed
+## Current checkpoint: OPT-022/024 Keccak rotations
 
 The maintainer stopped wider optimization work until the original 4.77 MHz
 8088 / exactly 16 KiB floor was reliable. OPT-017 and OPT-020 now satisfy the
@@ -28,7 +28,7 @@ provider-edge characterization remain separate security work. This is not an
 unconditional secure-floor or release claim.
 
 The reliability investigation is 100% complete for this gate; the wider
-campaign's rocks-turned estimate is approximately 42%. The validated
+campaign's rocks-turned estimate is approximately 44%. The validated
 checkpoint was committed as `38b2f40` and pushed to
 `codex/build-13-tls13-rearchitecture-spike` with the maintainer's approval.
 The subsequently requested OPT-016 source cleanup is now validated locally.
@@ -39,18 +39,62 @@ across all three CPU/RAM paths and seven ISA NIC profiles. The 32 KiB
 numeric-format caveat remains explicitly recorded. The build and current
 offline gates pass; all VMs used for this validation are closed.
 
-The maintainer approved committing this validated cleanup and campaign record,
-then pushing the current work branch. Later implementation checkpoints still
-require their own commit and push approval. The maintainer requested a fresh
-context and continuation
-with OPT-022 after this cleanup. Start its private prototypes on this same
-checkout, preserving the validated OPT-016 change. OPT-021's packed FO and
-exact-leaf/CV profiles select the rotation experiment below. Implementing this
-already-measured cleanup does not change the approximately 42% rocks-turned
-estimate.
+The OPT-016 cleanup and its campaign checkpoint were committed as `831170c`
+and pushed to the current work branch with the maintainer's approval. Later
+implementation checkpoints still require their own commit and push approval. The maintainer requested a fresh
+context and continuation with OPT-022 after this cleanup. The selected FO
+rotation helper is now a validated local working improvement on this same
+checkout. Its runtime is
+`866fba3b4cdf77f6fce9830791f409cfb78e6ee6f7e768bea038a41a328a6b0a`.
+Original-speed target A/B measures 415 -> 334 BIOS ticks for the complete FO
+worker: 22.7940 -> 18.3451 s, 19.52% less elapsed time. The worker is 2,915 B
+inside the same six sectors, with unchanged 26-B stack, RAM layout, FAT size
+and phase-read geometry. Shipping build, inspection, BASIC helper generation,
+18 HTTP/2 and 13 standalone TLS gates pass. Eight serialized 286 payloads
+remain byte-identical to their accepted timing baseline.
+
+`OPT-022/integration/final-audit.json` accepts nine reviewed cases and 24 text
+replies across all three CPU/RAM paths and seven original-speed ISA NICs,
+with reuse, a ten-minute idle window and one bounded reconnect per case.
+Native/ENV acceptance is retained separately from OPT-016 by unchanged bytes.
+The initial 3c501 early-peer-close failure and WD8003EB UI timeout remain
+unaccepted evidence; unchanged repeats pass. The WD8003EB repeat used a
+1,800-second UI observer budget and actually completed its second turn in
+1,011.68 s; its earlier 1,200-second timeout is not relabeled as success.
+Earlier interrupted/invalid observations are retained too. Their underlying
+causes remain unestablished. All VMs are closed and protected inputs match.
+This is functional emulator acceptance and FO computation timing, with zero
+physical entropy credit and no whole-proof speed claim. OPT-022 finished
+uncommitted, as originally requested. The separate OPT-016 checkpoint changed
+no protected source or runtime bytes.
 Future concurrent tests must keep at most three VMs open and close each VM as
 soon as its test finishes. Historical entries retaining VMs do not override
 that request.
+
+OPT-023 then attributed the composed 8088 proof and measured regeneration on
+this exact baseline. OPT-024 is now a second validated local improvement:
+full runtime-root KeyGen takes 417 -> 332 BIOS ticks, 22.903892 -> 18.235233 s,
+**20.38% less worker computation time**. Code grows 84 B inside the same seven
+sectors; stack, mutable RAM, phase reads and FAT size are unchanged. Only the
+KeyGen slot and its conditioner's relocated references change. The shipping
+runtime is
+`3790f719c938f48f4e2e5c5070e413a90a64a52e841d51dbe72cee6b4fa2a74a`.
+Build/inspect/BASIC, 18 HTTP/2 and 13 standalone TLS gates pass, and eight 286
+payloads remain byte-identical. `OPT-024/integration/final-audit.json` accepts
+nine cases / 24 text replies with reuse and bounded post-idle reconnect across
+all three CPU/RAM paths and seven ISA NICs. Native/ENV acceptance is retained
+by unchanged bytes. The original NE1000 1,200-second post-idle observer timeout
+remains failed evidence; one unchanged repeat passes in 948.83 s under the same
+limit. Its cause remains unestablished. All VMs are closed, overlap never
+exceeded three, and prior source/config/evidence is preserved. This is worker
+timing and functional emulator acceptance, with no whole-route latency or
+physical entropy claim. Overall rocks turned is **46% (rough 36–56%)**.
+OPT-022 and OPT-024 were uncommitted at validation. The maintainer has now
+approved committing the combined rotation checkpoint and pushing the current
+work branch. The commit includes both verified helpers, the required Makefile
+prerequisite and this ledger. Existing VM cfg/NVR, screenshots, captures and
+ignored evidence stay outside the commit. Later implementation checkpoints
+still require their own commit and push approval.
 
 This file is the durable controller for an open-ended Seed optimization
 campaign. It exists so a maintainer can start or resume the campaign with one
@@ -384,8 +428,8 @@ merely that one spike ran.
 | Wish | State | Best current result | Active/next spike |
 | --- | --- | --- | --- |
 | 1. 8088 handshake margin | partially solved | seven-NIC matrix worst 11.2196 s; matched 3c503 13.7220 -> 11.2317 s; under-12 target observed | OPT-002 committed as `de9cf53` |
-| 2. 8088 dialogue loop | partially solved | OPT-017/020 reliability acceptance retained by OPT-016's nine-case, 27-turn source integration matrix across all three CPU/RAM paths and seven ISA NICs; historical 16 KiB text replies take about 4–13 minutes | OPT-016 validated locally; OPT-022 next |
-| 3. 8088 offline proof | active | OPT-021: 89.5% of full-FO instructions in Keccak, 52.3% in its rotation helper; no whole-route time claim | OPT-022 |
+| 2. 8088 dialogue loop | partially solved | OPT-017/020 reliability acceptance retained by OPT-016's nine-case, 27-turn source integration matrix across all three CPU/RAM paths and seven ISA NICs; historical 16 KiB text replies take about 4–13 minutes | OPT-016 committed; OPT-024 regression matrix validated; next investigate current reply/return latency |
+| 3. 8088 offline proof | partially solved | OPT-022 FO: 415 -> 334 BIOS ticks; OPT-024 KeyGen: 417 -> 332 ticks, 22.9039 -> 18.2352 s, same sector/RAM/read budgets | OPT-024 validated locally; P-256 and remaining Keccak costs remain open; no whole-route speed claim |
 | 4. Floppy capacity | backlog | 308/309 FAT sectors unchanged; OPT-015 shrinks K to 3,510 B / seven loaded sectors inside the same fixed fifteen-sector file slot | OPT-015 committed as `88175d7`; no FAT-sector saving |
 | 5. 16 KiB memory/executable space | partially solved | OPT-015 removes 1,801 B of uncalled application code; user arena/context remains 96/96 B. OPT-013 model-cache saving is consumed temporarily by reconstruction | OPT-015 committed as `88175d7`; receiver constructions already counted SHA removal |
 | 6. Interactive floppy activity | partially solved | OPT-016 source two-turn fixture: 145 -> 142 reads with no seek change; native and ENV routes each also save three reads; cached disk counts unchanged | Prefetch cleanup committed with this checkpoint |
@@ -413,9 +457,26 @@ the campaign, not the number of spikes or successful implementations. Explain
 material revisions as the remaining search space becomes clearer.
 
 After the accepted reliability repair and OPT-016/021 measurements, the current
-estimate is approximately **42% explored**, with a rough **32–52% range**.
+estimate was approximately **42% explored**, with a rough **32–52% range**.
 This increase reflects the completed prefetch question and the first concrete
 offline-proof attribution; it does not count an unimplemented rotation gain.
+
+After OPT-022's equivalence, rejection, composition and original-speed timing
+results, the current estimate is approximately **44% explored**, with a rough
+**34–54% range**. The narrow public-count rotation avenue now has a measured
+working improvement; its final nine-case live integration matrix is complete.
+This counts investigation coverage, not completed product or whole-proof work.
+
+After OPT-023's composed fresh/resumed proof attribution and original-speed
+regeneration timing, the estimate is approximately **46% explored**, with a
+rough **36–56% range**. The newly measured regeneration and phase-load costs
+close an attribution gap; no unimplemented KeyGen speedup is counted.
+
+After OPT-024's full equivalence, timing, composition and live regression, the
+estimate remains **46% explored (rough 36–56%)**. This is a validated application
+of the already identified rotation avenue, not a reason to count the wider
+proof or dialogue questions as closed. The retained NE1000 observer timeout
+also limits any broader reliability or latency inference.
 
 ## Selection policy
 
@@ -3706,16 +3767,335 @@ configuration remain unchanged after the reliability commit.
 - Exit: a narrowly validated working improvement, or a bounded negative if
   net full-worker benefit, slot size or security/memory checks do not hold.
   Later commit/push still require maintainer approval.
-- Status/owner: **selected; maintainer requested a fresh campaign context**
-  after OPT-016 for the 8088 carry/rotation rewrite, equivalence argument and
-  target-cycle validation. OPT-016 integration and OPT-021 profiling are
-  complete; no OPT-022 implementation has been started in this controller.
+- Status/owner: **validated local working improvement; uncommitted as
+  requested**. This fresh campaign context completed the carry/rotation rewrite,
+  equivalence argument, original-speed timing and nine-case source integration.
+  OPT-016 and OPT-021 evidence is retained by exact source/runtime bindings.
   Use this same checkout so the active OPT-022 edits and ignored measurement
   artifacts remain available. Preserve unrelated VM config/NVR,
   screenshots and capture state, and keep the local model preference unchanged.
 
-The requested fresh chat is already active as
-`01a121fb-5930-7720-b97f-1f461376d7b5`. Inspect its status and current local
-ledger before continuing OPT-022; wait for an active owner before editing or
-launching duplicate tests. This commit records the OPT-016 implementation and
-OPT-022 handoff, not the other chat's unfinished rotation integration.
+#### OPT-022 private result and integration gate
+
+The first prototype unrolls four residual-shift outputs with fixed source-word
+loads and a public destination-word index, removing the offset-pair loads and
+mutable loop bookkeeping. A second adds a public one-bit path for theta and
+rho=1, using a carry chain without spilling lane operands. The selected worker
+is 2,915 bytes, leaving 157 bytes in the same six-sector slot (baseline 2,829 /
+243). Its full valid execution is 4,599,332 instruction hooks versus 5,835,668
+(21.2% fewer), with unchanged stack low-water `0x3fe6`. The simpler unrolled
+variant is 2,875 bytes / 4,735,556 hooks. CL-shift EU accounting is included in
+the private ranking model; its common-instruction, REP/prefetch and IRQ limits
+remain explicit. It is not a calibrated cycle total.
+
+Each of the three variants passes 7,360 primitive cases: all 64 rotation counts,
+all one-bit basis lanes, word/carry boundaries, zero/ones and deterministic
+random lanes, high count bits, varied registers/CH and odd source/destination
+addresses. Registers, source bytes, destination guards, exact write ranges and
+caller-only stack residue agree. Both original and selected full workers pass
+the same 31 valid/corruption/implicit-rejection and public-read-failure cases,
+with floor memory guards and preserved config/capsule/video/device sentinels.
+Addresses, branches and shift counts depend only on public rotation counts;
+comparison, selection and authority transitions are unchanged.
+
+Sequential read-only ROM BASIC A/B runs on the original 4.772728 MHz / exactly
+16 KiB profile execute the exact packed bytes and real RAM public-object copies.
+Three valid repeats plus one implicit-rejection run each measure 415 baseline
+ticks and 334 candidate ticks: 22.7940 -> 18.3451 s, saving 4.4490 s / 19.52%.
+Setup, serial and output verification are outside each interval; timer IRQs are
+included. Both VMs closed immediately. These are emulator full-worker timings,
+not whole-route, provider-deadline or physical entropy claims.
+
+The private exact pack changes only FO. Its keys/destinations, 130-sector pack,
+293-sector runtime, RAM ranges and fresh/resumed phase-load sequences stay
+unchanged. Both real regeneration/candidate/full-FO chains, fresh exact-leaf/CV,
+root status-last, abort cleanup and eight-entry lifecycle/erasure gates pass.
+OPT-021's FO baseline and auth evidence remain bound to OPT-016's runtime by
+exact slot bytes; auth was not reprofiled. The selected private runtime is
+`866fba3b4cdf77f6fce9830791f409cfb78e6ee6f7e768bea038a41a328a6b0a`.
+The initial private flat-runtime binding (`238e5105...`) incorrectly replaced
+the final 286 adapter in reserved raw-pack sector 164 with zeroes. Shipping
+Make preserved the adapter correctly. The private binder now replaces only
+FO's actual six sectors and explicitly checks sector 164 preservation; the
+corrected flat image equals the shipping build and differs only in 126–131.
+This was caught before any product VM launch. The worker/vector/timing evidence
+is unaffected; the corrected composition report supersedes the earlier log.
+
+The source helper is now selected for integration in `fo_tail_kernel.asm` only.
+`make`, `make inspect` and `make basic-bootstrap` pass on the corrected runtime,
+along with 18 HTTP/2 composition and 13 standalone TLS gates. Eight serialized
+286 payloads independently reassemble byte-identically to their accepted
+baseline; prior timing acceptance is retained without a new timing claim.
+The final live acceptance below passes; earlier incomplete observations are
+retained as history. Live validation uses four dependent text turns with one
+ten-minute idle/reconnect on the three CPU/RAM paths, and two turns with idle/reconnect on the remaining six original-speed
+NIC profiles. Native/ENV/application workers are byte-identical; their OPT-016
+acceptance is retained separately, not relabeled as newly exercised native
+turns. Evidence and the equivalence argument are under
+`OPT-022/REPORT.md`, `binding.json`, variant profiles/hostile results,
+`equivalence.json`, private timing results and `composition/report.json`.
+
+The first live queue accepted the 286/512 KiB and 8088/32 KiB cases: four visible
+text replies each, exact owned TLS flows, deadline checks, reuse and one bounded
+post-idle reconnect. The 8088/16 KiB case completed its first three dependent
+replies, and 3c503/MDA completed its first reply. Their pending post-idle replies
+and NE1000's first reply were interrupted when all three 86Box processes exited
+within ten seconds, before the 1,200-second reply timeout. Logs report process
+exit rather than a runtime failure screen; no new 86Box crash report was found.
+The cause is unknown. The initial queue stopped
+without launching remaining cases, and all its VMs closed. Protected entry
+inputs and read-only images remain byte-identical. These captures remain
+unaccepted in `integration/interrupted/` and `integration/interruption.json`.
+The related campaign chat separately committed and pushed OPT-016 as `831170c`
+while intending OPT-022 to continue. `integration/concurrent-checkpoint.json`
+records unchanged protected source/runtime bytes across that checkpoint.
+No pause instruction was received; the two accepted cases were retained and
+the seven unfinished cases were rerun. The nine-case gate was incomplete at
+that resume checkpoint and subsequently passes in the final audit below. This OPT-022 chat has made no commit or push.
+
+The first NE2K retry hit a private observer failure: a ROM BASIC syntax error in
+line 90 was mistaken for the greeting by the prompt-shape oracle. It never
+established Seed acceptance and was closed and archived separately. Concurrent
+host modifier-key sequences are a suspected injection cause. The private
+runner now serializes exact-PID input, requires `Hello` at greeting and refuses
+BASIC syntax-error frames. The other two retry VMs completed both replies and
+passed their owned wire gates; NE2K was rerun with the stricter observer and
+passed all four replies.
+Product and tracked harness sources are unchanged. Details are in
+`integration/observer-failure.json` and `integration/interrupted/`.
+
+The first 3c501 attempt visibly fails at `agent setup failed 00/12`. Its exact
+owned acquisition flow has 12 client retransmit payloads, and peer FIN precedes
+client Finished by 1.7981 seconds. This failed gate is retained under
+`integration/failures/3c501-before-greeting-01/`; the failure cause remains
+unestablished. Full FO is scheduled after acquisition retirement, and the
+failing deadline workers are byte-identical; this placement is a static
+inference, not an instruction trace. The one bounded candidate repeat on the same
+image/profile/model completed both replies and passed independent visual and
+owned wire gates. Independent process inspection confirms closure;
+the automatic report briefly retained the old PID, so the private runner now
+waits for PID retirement after scoped closure. No wire gate is waived.
+
+The initial WD8003EB second turn exceeded the private 1,200-second UI
+observation budget. Its final screenshot contains the correct `Fifty` answer
+but no returned input prompt, so the case closed without acceptance. The delay
+cause is unestablished. `integration/wd8003eb-observer-timeout.json` binds its
+result, screenshot and capture. One unchanged-image/profile/model repeat
+completed as `wd8003eb-16k-02` with a 1,800-second UI observation budget; answer,
+input-prompt, ownership and all TLS deadline/wire checks passed. No product
+or tracked harness change was made for this observation budget.
+
+#### OPT-022 final local checkpoint
+
+`integration/final-audit.json` independently rechecks the exact candidate core,
+all frozen read-only FAT images, protected source/config/capture inputs, complete
+hash-bound visual reviews, owned TLS flows and post-idle connection ordering.
+All nine cases / 24 text replies pass. It requires exactly four owned TLS flows
+per case and the second acquisition after the full idle window; the main cases'
+first three replies reuse the initial use connection. Every VM closed at its
+test end, the shared launch guard kept at most three open, and zero remain.
+The source integration changes only the FO helper and this campaign ledger;
+unrelated cfg/NVR, original 3c501 screenshots, root capture and local model
+preference remain preserved. HEAD is the independently approved OPT-016
+checkpoint `831170c`, not a new OPT-022 commit.
+
+The complete FO worker saves 4.4490 s / 19.52%, meets the >=10% question and
+retains the six-sector/RAM/stack contract. This closes OPT-022 as a narrow working
+improvement. Broader proof/dialogue latency, physical entropy and provider-edge
+characterization remain separate work. Investigation coverage stays about
+**44% explored** (rough **34–54%**), counting the resolved rotation avenue rather
+than treating the wider wishes as solved. No further optimization, commit or
+push is included in this request. A future coherent checkpoint title is
+`perf: speed up 8088 full-FO Keccak rotations`; committing still requires the
+maintainer's explicit go.
+
+### OPT-023 — Attribute the composed 8088 offline proof after OPT-022
+
+- Wishes: 3, with 1, 2, 4, 6 and 10 cost reconciliation.
+- Question: after the accepted FO rotation change, which remaining worker or
+  phase-loading cost dominates the fresh and resumed offline proof, and does
+  that evidence favor a narrow regeneration/Keccak change over P-256 work?
+- Baseline: HEAD `831170c` plus the uncommitted OPT-022 helper; current runtime
+  `866fba3b4cdf77f6fce9830791f409cfb78e6ee6f7e768bea038a41a328a6b0a`.
+  FO alone measures 334 BIOS ticks / 18.3451 s. OPT-021 omitted regeneration,
+  candidate/controller execution and phase loads; the campaign-entry whole-
+  proof times are not current-revision measurements.
+- Allowed surface: this ledger and isolated evidence under
+  `build/optimization-campaign/OPT-023/`. Shipping sources, current images,
+  OPT-022's uncommitted helper, local config and all prior evidence stay intact.
+- Required evidence: independently recheck OPT-022's recorded result; bind
+  freshly assembled pack bytes to the shipping runtime; execute both actual
+  offline chains with routine/phase attribution, exact successful load/sector
+  accounting, preserved-state and conventional-RAM guards. Separate target
+  instruction counts from elapsed time and modeled disk reads from real I/O.
+  Use original-speed isolated timing if needed to rank the dominant workers;
+  at most three VMs may be open and each closes when finished.
+- Exit: a quantified next optimization with a bounded source/validation scope,
+  or a supported negative result. No product gain follows from attribution
+  alone. Continue ordinary investigation automatically; a substantial new
+  algorithm/security construction follows the recorded fresh-context rule.
+- Status/owner: **completed in the resumed campaign controller**. The designated
+  OPT-022 chat is completed/idle, and process inspection found zero 86Box VMs.
+  Preserve earlier failed observations. No commit or push is authorized.
+  Overall rocks turned starts at approximately **44%** (rough **34–54%**).
+
+#### OPT-023 result
+
+Disposition: **attribution complete; select OPT-024**. The redirected OPT-022
+audit rechecks all nine cases / 24 replies without rewriting prior evidence.
+Freshly assembled pack bytes match the shipping runtime, allowing only its
+already documented reserved 286-adapter sector. Both exact offline chains pass
+their original output/status/lifetime guards plus below-16-KiB CPU access guards.
+
+The fresh chain executes 20,857,974 instruction hooks: KeyGen 5,966,592, candidate
+375,360, FO 4,598,900 and exact-leaf/CV 9,906,881. The resumed chain executes
+10,950,948: KeyGen 5,966,488, candidate 375,377 and FO 4,598,796. Remaining hooks
+are controllers, copies and host-service entries. KeyGen rotation and remaining
+Keccak body account for 3,195,720 and 2,270,205 hooks, respectively (91.6% of
+regeneration combined). Instruction percentages are not wall-time percentages.
+
+The chains request 56 / 42 phase sectors; 53 / 39 are loaded before the fixture
+stops at the next three-sector owner request. Adjacent requested-track transitions
+are 16 / 12 and head steps 52 / 41. Initial entry loading, post-proof liveness,
+BIOS/media/NIC time and IRQ work are excluded from these instruction/load counts.
+This is the composed cryptographic offline interval, not the complete cold route.
+The synthetic stack lows (3fb8h / 3fe6h) are not full product/BIOS stack bounds.
+
+A separate read-only 4.772728 MHz / exactly 16 KiB ROM BASIC run times the exact
+3,103-byte KeyGen worker. Three repeats each take 417 BIOS ticks / 22.903892 s;
+all 2,400 output bytes match the independent oracle. Setup, serial and comparison
+are outside timing; BIOS timer IRQs are included and INT 1Ch is quarantined.
+Its VM closed immediately, leaving zero VMs. Shipping sources/images and prior
+evidence are unchanged. `OPT-023/REPORT.md`, `comparison.json`, profiles, pack
+binding and `keygen-timing/result.json` retain the details and host-profiler
+failures. No physical entropy or whole-route speed claim follows.
+
+KeyGen is the next narrow candidate because it repeats in both offline epochs,
+has a measured 22.9-second cost and 481 bytes free in its seven-sector slot,
+and can test the rotation mechanism already proved for FO. P-256 is larger in
+the fresh instruction profile but has 64 bytes of slot padding and needs a
+different arithmetic investigation. Overall rocks turned is about **46%**
+(rough **36–56%**). No commit or push was made.
+
+### OPT-024 — Test the FO rotation mechanism in 8088 runtime-root KeyGen
+
+- Wishes: 3, with 1, 4, 6 and 10 regression/accounting.
+- Question: can the accepted public-count rotation helper reduce full 8088
+  runtime-root KeyGen computation by at least 10%, without adding sectors,
+  stack, persistent RAM or phase reads, or changing any derived output?
+- Baseline: OPT-023's byte-bound current runtime; KeyGen is 3,103 bytes / seven
+  sectors, 417 ticks / 22.903892 s for its acquisition fixture. OPT-022 remains
+  uncommitted and must be preserved.
+- Allowed surface: private variants and evidence under
+  `build/optimization-campaign/OPT-024/`; eventual selection only in the shared
+  `tools/crypto-bench/tls13-spike/mlkem768_integrated_core.inc`, explicitly gated
+  to the 8088 runtime-root KeyGen route. Scope includes narrowly necessary
+  persistent checks and this ledger. Other candidate, deadline, FO, P-256 and
+  286 arithmetic must remain byte-identical. Do not widen the optimization to
+  those consumers automatically.
+- Required evidence: all rotation counts/register/stack/write-range equivalence;
+  both root epochs, complete KeyGen and nonce outputs, invalid-epoch refusal,
+  conditioner output and erasure, preserved ciphertext/config/arena/device
+  sentinels, and exact composed pack/lifetime/authority gates. Account for
+  relocated conditioner references and every changed slot. Original-speed A/B
+  timing must measure the full worker. A retained source change requires fresh
+  build/inspect/BASIC, current offline gates, affected live CPU/RAM/NIC/reuse/
+  reconnect regression and unchanged 286 payloads. Keep at most three VMs open
+  and close each at completion; preserve all failed evidence.
+- Exit: a narrowly validated working checkpoint, or revert only this spike's
+  source edits and retain its supported negative result. No commit or push.
+- Status/owner: **validated local working checkpoint**, after OPT-023 completed.
+  No separate chat or agent is running this spike; no commit or push was made.
+
+#### OPT-024 result — validated local working checkpoint
+
+The runtime-root-only selection reduces full KeyGen from 417 to 332 BIOS
+ticks: 22.903892 -> 18.235233 s, saving 4.668659 s / 20.38%. Three repeats of
+each worker agree on the original 4.772728 MHz / exactly 16 KiB ROM BASIC
+profile. Each checks all 2,400 derived-key bytes outside the timed interval;
+setup and serial work are excluded, timer IRQs included, and INT 1Ch is
+quarantined. Both timing VMs closed immediately. This is worker computation
+timing, not a whole-proof, provider-deadline or physical entropy claim.
+
+Each rotation implementation passes 7,360 primitive cases, including all
+counts, one-bit basis lanes, high count bits, odd addresses, register and write
+guards. Eight full-worker cases cover both public epochs on the baseline root
+and three candidate roots; complete keys and nonces match independent oracles,
+invalid AL epochs refuse without state mutation, and stack use stays 26 B.
+The private report excludes an initially miscalculated nonce-hook estimate;
+output/refusal/guard checks and measured KeyGen hooks are unaffected. Raw
+observations are preserved in `OPT-024/full-results.json` and the qualified
+result is `full-validation.json`.
+
+KeyGen grows 3,103 -> 3,187 B inside the same seven sectors, leaving 397 B.
+Only the KeyGen slot and its conditioner's relocated references change. Eight
+packed-conditioner cases retain exact outputs, health refusal, freeze, abort
+and shared-work erasure. Both real offline chains, exact-leaf/CV, root
+status-last, abort and eight-entry lifetime gates pass on the private pack.
+The candidate runtime is
+`3790f719c938f48f4e2e5c5070e413a90a64a52e841d51dbe72cee6b4fa2a74a`;
+its only changed sectors against OPT-022 are 57–61 and 64. Runtime length,
+phase reads, slot geometry and all other workers remain unchanged.
+
+The source selection is integrated only under `MLKEM_KEYGEN_RUNTIME_ROOT` in
+the shared core; OPT-022's FO change remains intact. The first build stopped
+because the default host Python lacked `cryptography`; its evidence remains,
+and the existing OPT-011 environment supplied the dependency without a product
+workaround. The resumed build's independent HTTP/2 image-binding guard then
+caught a stale 8088 pack before any live launch. The shared core was a 286-tail
+prerequisite but absent from common pack prerequisites. One necessary Makefile
+line repairs that incremental dependency. Both rejected build logs and original
+hashes remain; no check is bypassed.
+
+The corrected shipping runtime matches the private candidate exactly. `make`,
+`make inspect`, `make basic-bootstrap`, the incremental dependency check,
+18 HTTP/2 composition gates and 13 standalone TLS gates pass. All eight
+serialized 286 payloads independently reassemble byte-identically to OPT-022's
+accepted baseline. Runtime length is still 150,016 B / 293 sectors, FAT use is
+308/309 data sectors, and all phase-read geometry is unchanged.
+
+`OPT-024/integration/final-audit.json` accepts nine independently reviewed
+cases / 24 text replies. Exactly 16 KiB ROM BASIC, 32 KiB direct boot and
+286/512 KiB each complete four replies, reuse, ten minutes idle and one bounded
+reconnect. The six remaining original-speed NIC cases complete two dependent
+replies around the same idle/reconnect test, covering all seven ISA NIC profiles
+including 3c503/MDA. Every saved answer screen has the correct answer and
+returned input prompt. Each capture is restricted to its exact recorded VM's
+owned TLS flows. Local model/config and read-only images remain frozen.
+Native/ENV and 286 timing acceptance are retained by explicit unchanged bytes;
+these are new text-turn tests, not new native/ENV coverage.
+
+The first NE1000 post-idle turn exceeded its fixed 1,200-second observer without
+a second visible answer or returned input prompt. Its VM closed and the matrix
+stopped launching new cases; the already active WD8003E and 3c501 cases finished
+and passed. The failed capture passes all four exact-owned TLS boundaries,
+contains complete records and shows application traffic within five seconds of
+timeout without a peer close. Its cause remains unestablished; this cannot prove
+eventual completion or provider semantics. All 343 failed-case files remain
+hash-identical and unaccepted. One unchanged NE1000 repeat completed its second
+turn in 948.83 s under the same 1,200-second limit. WD8003EB retained its
+predeclared 1,800-second observer and completed its second turn in 947.00 s.
+No timeout is relabeled as success and no product deadline is relaxed.
+
+Ten live attempts submitted 26 prompts: the accepted nine cases contain 24
+completed replies; the retained failed NE1000 case contains one completed and
+one timed-out turn. All VMs closed at completion or timeout. Recorded live
+lifetime intervals overlap by at most three, and final process inspection shows
+zero VMs. The audit verifies 690 protected files, all 4,471 OPT-022 evidence
+files and all 126 OPT-023 evidence files remain unchanged. Existing cfg/NVR,
+screenshots, wire capture, local config and OPT-022 edits are preserved.
+
+Overall rocks turned remains **46% (rough 36–56%)**. The measured gain is full
+KeyGen computation; it does not establish whole-proof, dialogue-latency,
+provider-deadline or physical entropy improvement. The source change is a
+working checkpoint; at validation HEAD was `831170c` and no commit or push had
+been performed. The maintainer subsequently approved committing and pushing
+the combined OPT-022/024 checkpoint as
+`perf: speed up 8088 Keccak rotations`.
+
+Next after the maintainer continues: attribute current dialogue/return latency,
+starting from these preserved captures and screens to separate proof,
+application-record, provider and compaction costs. The long post-idle turns and
+retained observer timeout make that a higher-priority measurement than assuming
+another small arithmetic gain will materially shorten the full interaction.
+P-256 and remaining Keccak-body work remain open; neither wish is closed.

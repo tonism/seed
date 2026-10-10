@@ -893,6 +893,8 @@ fo_keccak_f1600:
     jb .round
     ret
 
+; CL is a public Keccak rotation count; caller lanes are disjoint.
+; Preserve caller registers without spilling the newly loaded lane words.
 fo_rotl64_to:
     push ax
     push bx
@@ -901,51 +903,93 @@ fo_rotl64_to:
     push si
     push di
     push bp
-    mov bp, si
-    mov al, cl
-    mov ah, al
-    and al, 15
-    mov [fo_rot_bits], al
-    mov dl, 16
-    sub dl, al
-    mov [fo_rot_inv_bits], dl
-    mov al, ah
-    shr al, 1
-    and ax, 0x0018
-    mov bx, fo_rot_word_pairs
-    add bx, ax
-    cmp byte [fo_rot_bits], 0
-    je .whole_words
-    mov word [fo_rot_outputs], 4
-.mixed:
-    mov dl, [bx]
-    xor dh, dh
-    mov si, dx
-    mov ax, [bp + si]
-    mov cl, [fo_rot_bits]
-    shl ax, cl
-    mov dl, [bx + 1]
-    xor dh, dh
-    mov si, dx
-    mov dx, [bp + si]
-    mov cl, [fo_rot_inv_bits]
-    shr dx, cl
-    or ax, dx
+    cmp cl, 1
+    jne .general
+    mov ax, [si]
+    mov bx, [si + 2]
+    mov dx, [si + 4]
+    mov bp, [si + 6]
+    ; Seed carry from w3, then insert the final w2 carry into shifted w3.
+    shl bp, 1
+    rcl ax, 1
+    rcl bx, 1
+    rcl dx, 1
+    adc bp, 0
     stosw
+    mov ax, bx
+    stosw
+    mov ax, dx
+    stosw
+    mov ax, bp
+    stosw
+    jmp .done
+.general:
+    ; Rotate residual bits with fixed source offsets, then place each
+    ; output at its public whole-word rotation index. No lane value indexes RAM.
+    mov bl, cl
+    xor bh, bh
+    shr bx, 1
+    shr bx, 1
+    shr bx, 1
+    and bx, 6
+    and cl, 15
+    jz .whole_words
+    mov ch, 16
+    sub ch, cl
+    mov ax, [si + 0]
+    shl ax, cl
+    mov dx, [si + 6]
+    xchg cl, ch
+    shr dx, cl
+    xchg cl, ch
+    or ax, dx
+    mov [bx + di], ax
     add bx, 2
-    dec word [fo_rot_outputs]
-    jnz .mixed
+    and bx, 6
+    mov ax, [si + 2]
+    shl ax, cl
+    mov dx, [si + 0]
+    xchg cl, ch
+    shr dx, cl
+    xchg cl, ch
+    or ax, dx
+    mov [bx + di], ax
+    add bx, 2
+    and bx, 6
+    mov ax, [si + 4]
+    shl ax, cl
+    mov dx, [si + 2]
+    xchg cl, ch
+    shr dx, cl
+    xchg cl, ch
+    or ax, dx
+    mov [bx + di], ax
+    add bx, 2
+    and bx, 6
+    mov ax, [si + 6]
+    shl ax, cl
+    mov dx, [si + 4]
+    xchg cl, ch
+    shr dx, cl
+    xchg cl, ch
+    or ax, dx
+    mov [bx + di], ax
     jmp short .done
 .whole_words:
-    mov cx, 4
-.whole:
-    mov dl, [bx]
-    xor dh, dh
-    mov si, dx
-    mov ax, [bp + si]
-    stosw
+    mov ax, [si + 0]
+    mov [bx + di], ax
     add bx, 2
-    loop .whole
+    and bx, 6
+    mov ax, [si + 2]
+    mov [bx + di], ax
+    add bx, 2
+    and bx, 6
+    mov ax, [si + 4]
+    mov [bx + di], ax
+    add bx, 2
+    and bx, 6
+    mov ax, [si + 6]
+    mov [bx + di], ax
 .done:
     pop bp
     pop di

@@ -104,6 +104,7 @@ TLS13_PRODUCT_SOURCES := $(wildcard tools/crypto-bench/tls13-poc/*.py) \
 	$(HTTP2_SOURCES) \
 	$(wildcard targets/$(TARGET)/boot/tls13/*.asm) \
 	$(wildcard targets/$(TARGET)/boot/tls13/*.inc) \
+	tools/crypto-bench/tls13-spike/mlkem768_integrated_core.inc \
 	tools/check-tls13-existing-read-sampler.py
 TLS13_286_TAIL_HIDDEN_INPUTS := tools/check-p256.py \
 	tools/crypto-bench/tls13-spike/x25519_bench.asm \
