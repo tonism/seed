@@ -19,6 +19,41 @@ def module(name,path):
     value=importlib.util.module_from_spec(spec);sys.modules[name]=value
     spec.loader.exec_module(value);return value
 
+def reviewed_native_completion(case,binding,result,events):
+    """Validate a separate visual review without replacing the automatic miss."""
+    assert binding.get('native_program') and binding.get('case_scope','main')=='main'
+    assert not result['answer'] and result['error']=='KeyboardInterrupt()'
+    manual=json.loads((case/'manual-completion.json').read_text())
+    submitted=[e for e in events if e['event']=='submitted']
+    completed=[e for e in events if e['event']=='answer']
+    assert manual['turn']==len(submitted)==len(completed)+1
+    assert len(result['turns'])==len(completed) and all(result['turns'])
+    assert manual['ready'] and manual['input_prompt_returned']
+    assert manual['semantic_ax_decimal']==42 and manual['semantic_bytes']=='B8 2A 00 CB'
+    assert manual['visible_response']
+    stopped=next(e['utc_epoch'] for e in events if e['event']=='controller_error')
+    assert submitted[-1]['utc_epoch']<manual['utc_epoch']<=stopped
+    screenshot=case/manual['screenshot']
+    assert screenshot.parent==case and screenshot.suffix=='.png'
+    assert hashlib.sha256(screenshot.read_bytes()).hexdigest()==manual['screenshot_sha256']
+    kind=manual.get('review_kind','numeric-format-mismatch')
+    if kind=='numeric-format-mismatch':
+        assert not manual['numeric_format_followed']
+    else:
+        assert kind=='ocr-omission' and manual['numeric_format_followed'] is True
+        # Require the unchanged detector's omission on these exact reviewed
+        # pixels, a recognized prompt, and completion within the native budget.
+        observation=json.loads((case/'ocr-observation.json').read_text())
+        assert observation['screenshot']==manual['screenshot']
+        assert observation['screenshot_sha256']==manual['screenshot_sha256']
+        assert observation['expected']=='42' and observation['missing']==['42']
+        assert observation['engine'] and observation['lines']
+        assert '42' not in ' '.join(observation['lines'])
+        assert observation['visual_prompt'] and observation['ocr_prompt']
+        assert manual['utc_epoch']<=observation['observed_utc_epoch']<=stopped
+        assert manual['utc_epoch']-submitted[-1]['utc_epoch']<=2400
+    return manual
+
 def main():
     ap=argparse.ArgumentParser(description=__doc__)
     ap.add_argument('case',type=Path)
@@ -34,25 +69,7 @@ def main():
     assert result['greeting']
     manual=None
     if args.manual_completion:
-        # Preserve the failed automatic oracle. A hash-bound visual review can
-        # establish functional completion when the model spells out a correct
-        # numeric result and the observer is deliberately stopped afterward.
-        # This does not excuse a runtime error or claim format compliance.
-        assert binding.get('native_program') and binding.get('case_scope','main')=='main'
-        assert not result['answer'] and result['error']=='KeyboardInterrupt()'
-        manual=json.loads((case/'manual-completion.json').read_text())
-        submitted=[e for e in events if e['event']=='submitted']
-        completed=[e for e in events if e['event']=='answer']
-        assert manual['turn']==len(submitted)==len(completed)+1
-        assert len(result['turns'])==len(completed) and all(result['turns'])
-        assert manual['ready'] and manual['input_prompt_returned']
-        assert manual['semantic_ax_decimal']==42 and manual['semantic_bytes']=='B8 2A 00 CB'
-        assert manual['visible_response'] and not manual['numeric_format_followed']
-        stopped=next(e['utc_epoch'] for e in events if e['event']=='controller_error')
-        assert submitted[-1]['utc_epoch']<manual['utc_epoch']<=stopped
-        screenshot=case/manual['screenshot']
-        assert screenshot.parent==case and screenshot.suffix=='.png'
-        assert hashlib.sha256(screenshot.read_bytes()).hexdigest()==manual['screenshot_sha256']
+        manual=reviewed_native_completion(case,binding,result,events)
         events.append(dict(event='answer',turn=manual['turn'],ready=True,utc_epoch=manual['utc_epoch']))
     else:
         assert result['answer'] and not result['error']

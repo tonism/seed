@@ -7,6 +7,10 @@ org 0x2a00
 dw exchange
 h2 equ 0x062e
 tx equ 0x3912
+rx_remaining equ 0x2e00+10
+rx_budget equ 0x2e00+16
+rx_charged equ 0x2e00+18
+rx_capacity equ 512
 
 exchange:
     call load_core_sectors_at          ; AX/BX supplied by completed X
@@ -100,6 +104,27 @@ failed:
     jmp request_aux_fail
 
 credit_consumed:
+    ; Refill only after consuming the whole grant, or retire final connection
+    ; credit at END_STREAM. Immediate small grants can sustain fragmented DATA.
+    ; The collector debits a frame's declared length at its header: budget
+    ; zero alone does not prove its payload arrived. Keep receiving carried
+    ; frames and controls before granting more. T has consumed this record.
+    mov ax, [rx_budget]
+    mov bx, ax
+    add bx, [rx_charged]
+    jc .invalid_credit
+    cmp bx, rx_capacity
+    ja .invalid_credit
+    cmp byte [h2+18], 2
+    je .grant
+    or ax, [rx_remaining]
+    jnz .done
+.grant:
+    ; No pending DATA remains. Previously consumed bytes are exactly the
+    ; original grant minus the unspent budget; no extra persistent counter.
+    mov ax, rx_capacity
+    sub ax, [rx_budget]
+    mov [rx_charged], ax
     call h2_rx_consume_credit
     jc .done
     or ax, ax
@@ -120,6 +145,9 @@ credit_consumed:
     mov si, tx+5
     call h2_tx_control
 .done:
+    ret
+.invalid_credit:
+    stc
     ret
 window_frame:
     xor ax, ax

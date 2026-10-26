@@ -21,8 +21,13 @@ A request opens one odd-numbered stream with literal HPACK fields, then sends
 JSON through the peer's stream and connection windows. It preserves the source
 while waiting for credit and limits each TLS plaintext send to 436 bytes so
 Ethernet/IP/TCP/TLS framing still fits the 512-byte packet scratch. After request
-END_STREAM it grants 512 response bytes at a time. Authenticated control replies
-are drained before receiving more response DATA. The transport acknowledges
+END_STREAM it grants 512 response bytes at a time. It replenishes credit only
+after the entire grant is authenticated and consumed, including any DATA payload
+carried across TLS records. This avoids sustaining small DATA fragments with
+small WINDOW_UPDATE increments. At response END_STREAM it returns the final
+consumed connection credit without reopening the closed stream. Control frames
+continue to be processed while credit is withheld, and authenticated control
+replies are drained before receiving more response DATA. The transport acknowledges
 complete short TCP payloads before waiting for a new payload; otherwise several
 small WINDOW_UPDATE records can exhaust the peer's TCP window.
 
@@ -108,14 +113,17 @@ one write, one execute and one read, then returns to the input prompt. The
 32 KiB model answer spells out the correct value and bytes under the earlier
 letters-only instruction; its numeric-format check failed, while independent
 visual and capture review established functional completion. The raw automatic
-result and that caveat are retained.
+result and that caveat are retained. On the 16 KiB path, the model returned the
+correct digits, but OCR omitted the result lines. A separate timed review of
+the saved image established completion and the returned prompt within the
+original observer budget; the automatic miss remains recorded.
 
 All seven original-speed ISA NIC profiles pass first-response reuse and a
 dependent reply after ten minutes idle and one bounded reconnect. This includes
-3c503 with MDA and two separate 3c501 runs. Read-only images and protected inputs
+3c503 with MDA. Read-only images and protected inputs
 remain unchanged, and all test VMs close after completion.
 
-Functional completion is slow at the 16 KiB floor: the four text turns took
+Functional completion is slow at the 16 KiB floor: earlier text turns took
 about 4–13 minutes each, and the post-idle native sequence took about 32 minutes.
 These are measured completions, not a latency improvement or a guarantee for
 every provider response. The security distinctions and physical-source limits

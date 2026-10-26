@@ -137,6 +137,13 @@ Only after reviewing the complete result and returned input prompt may the
 observer be stopped and `--manual-completion` used with a separate timed,
 screenshot-hash-bound review. That path establishes functional completion;
 it does not establish numeric-format compliance or waive runtime errors.
+If the model used digits but OCR omitted the result, record `review_kind` as
+`ocr-omission` and retain the unchanged detector's output on the same saved
+image in `ocr-observation.json`. This separate review requires the correct
+complete result, a recognized returned prompt, and completion within the
+original native observer budget. Preserve the automatic miss and distinguish
+the observed numeric compliance from automatic detection; neither review path
+may excuse a runtime failure.
 
 Run the product-level offline gates:
 

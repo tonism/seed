@@ -1,6 +1,29 @@
 # Seed Optimization Campaign
 
-## Current checkpoint: OPT-022/024 Keccak rotations
+## Current checkpoint: OPT-026 response-credit batching
+
+OPT-026 is integrated into the shipping source and current floppy image,
+validated against the committed `29bca48` baseline.
+The controlled fragmented 4 KiB response uses 12.42% fewer instruction hooks,
+40.88% fewer sector reads and half as many outgoing records. The unsplit case
+adds 99 hooks (0.0013%) with unchanged reads and records. Only the response-owner
+sector changes; there is no RAM, stack or FAT growth. These are exact-code
+synthetic measurements, not a live dialogue-latency gain.
+
+Build/inspect/BASIC, nineteen HTTP/2 gates, thirteen standalone guards and the
+strengthened fourteen-case credit gate pass. Nine reviewed original-speed live
+cases complete 27 prompted turns across all three CPU/RAM paths and seven ISA
+NICs, with reuse, ten minutes idle, bounded reconnect and fresh native-tool
+coverage on the three main paths. Separate reviews retain the 16 KiB native OCR
+omission and 32 KiB numeric-format mismatch; neither automatic miss is hidden.
+All VMs are closed, overlap never exceeded three, and protected inputs and prior
+evidence match. `build/optimization-campaign/OPT-026/integration/final-audit.json`
+binds the pre-commit validation checkpoint. The maintainer approved committing
+and pushing this implementation and its documentation as
+`perf: batch HTTP/2 response receive credit` on the current work branch.
+The shipping runtime is
+`707f614c955194abc486d31882ab978abbb2236f8facd9450bafe4a3d9ebd54f`.
+Overall rocks turned remains **48% (rough 38–58%)**.
 
 The maintainer stopped wider optimization work until the original 4.77 MHz
 8088 / exactly 16 KiB floor was reliable. OPT-017 and OPT-020 now satisfy the
@@ -89,12 +112,12 @@ limit. Its cause remains unestablished. All VMs are closed, overlap never
 exceeded three, and prior source/config/evidence is preserved. This is worker
 timing and functional emulator acceptance, with no whole-route latency or
 physical entropy claim. Overall rocks turned is **46% (rough 36–56%)**.
-OPT-022 and OPT-024 were uncommitted at validation. The maintainer has now
-approved committing the combined rotation checkpoint and pushing the current
-work branch. The commit includes both verified helpers, the required Makefile
-prerequisite and this ledger. Existing VM cfg/NVR, screenshots, captures and
-ignored evidence stay outside the commit. Later implementation checkpoints
-still require their own commit and push approval.
+OPT-022 and OPT-024 were uncommitted at validation. With the maintainer's
+approval, the combined rotation checkpoint was committed and pushed as
+`29bca48` on the current work branch. It includes both verified helpers, the
+required Makefile prerequisite and this ledger. Existing VM cfg/NVR,
+screenshots, captures and ignored evidence stayed outside the commit. Later
+implementation checkpoints still require their own commit and push approval.
 
 This file is the durable controller for an open-ended Seed optimization
 campaign. It exists so a maintainer can start or resume the campaign with one
@@ -428,11 +451,11 @@ merely that one spike ran.
 | Wish | State | Best current result | Active/next spike |
 | --- | --- | --- | --- |
 | 1. 8088 handshake margin | partially solved | seven-NIC matrix worst 11.2196 s; matched 3c503 13.7220 -> 11.2317 s; under-12 target observed | OPT-002 committed as `de9cf53` |
-| 2. 8088 dialogue loop | partially solved | OPT-017/020 reliability acceptance retained by OPT-016's nine-case, 27-turn source integration matrix across all three CPU/RAM paths and seven ISA NICs; historical 16 KiB text replies take about 4–13 minutes | OPT-016 committed; OPT-024 regression matrix validated; next investigate current reply/return latency |
-| 3. 8088 offline proof | partially solved | OPT-022 FO: 415 -> 334 BIOS ticks; OPT-024 KeyGen: 417 -> 332 ticks, 22.9039 -> 18.2352 s, same sector/RAM/read budgets | OPT-024 validated locally; P-256 and remaining Keccak costs remain open; no whole-route speed claim |
+| 2. 8088 dialogue loop | partially solved | OPT-026 fragmented 4 KiB response: 12.42% fewer instruction hooks and half the outgoing records; normal unsplit hooks increase 0.0013%; no live latency gain established | OPT-026 integrated and validated; compare post-tag phase loads and fixed-work multiplication next |
+| 3. 8088 offline proof | partially solved | OPT-022 FO: 415 -> 334 BIOS ticks; OPT-024 KeyGen: 417 -> 332 ticks, 22.9039 -> 18.2352 s, same sector/RAM/read budgets | OPT-022/024 committed as `29bca48`; P-256 and remaining Keccak costs remain open; no whole-route speed claim |
 | 4. Floppy capacity | backlog | 308/309 FAT sectors unchanged; OPT-015 shrinks K to 3,510 B / seven loaded sectors inside the same fixed fifteen-sector file slot | OPT-015 committed as `88175d7`; no FAT-sector saving |
 | 5. 16 KiB memory/executable space | partially solved | OPT-015 removes 1,801 B of uncalled application code; user arena/context remains 96/96 B. OPT-013 model-cache saving is consumed temporarily by reconstruction | OPT-015 committed as `88175d7`; receiver constructions already counted SHA removal |
-| 6. Interactive floppy activity | partially solved | OPT-016 source two-turn fixture: 145 -> 142 reads with no seek change; native and ENV routes each also save three reads; cached disk counts unchanged | Prefetch cleanup committed with this checkpoint |
+| 6. Interactive floppy activity | partially solved | OPT-026 controlled fragmented response: 274 -> 162 reads; unsplit response unchanged at 146; no RAM/FAT growth | OPT-026 nine-case live matrix accepted; quantify remaining per-record phase loads and seek costs |
 | 8. Conforming hybrid TLS on 8088 | backlog | ~45.75 s X25519 blocker | — |
 | 9. 8088 freshness/rotation | backlog | current key rotated before the old leaf expired; trust construction remains open | OPT-003 operational evidence |
 | 10. Whole-system Pareto audit | partially solved | OPT-009/010 receiver/overlay bounds and OPT-011/012 codec work reconciled with OPT-013 cache reconstruction: 509 named preserved bytes, 414-B component, 8-B stack; existing loader schedule still exceeds 16 KiB | OPT-013 audit complete; broader audit remains open |
@@ -477,6 +500,16 @@ estimate remains **46% explored (rough 36–56%)**. This is a validated applicat
 of the already identified rotation avenue, not a reason to count the wider
 proof or dialogue questions as closed. The retained NE1000 observer timeout
 also limits any broader reliability or latency inference.
+
+After OPT-025's exact-flow dialogue attribution and emitted-code profiling,
+the estimate is **48% explored (rough 38–58%)**. This closes a current-cost
+attribution gap and identifies a bounded fragmentation question; it does not
+count OPT-026's candidate as an accepted improvement.
+
+After OPT-026's complete-route comparison, tradeoff check and live regression,
+the estimate remains **48% explored (rough 38–58%)**. It validates the identified
+fragmentation avenue; ordinary record processing, whole-dialogue latency and
+the wider proof, memory and security questions remain open.
 
 ## Selection policy
 
@@ -4099,3 +4132,164 @@ application-record, provider and compaction costs. The long post-idle turns and
 retained observer timeout make that a higher-priority measurement than assuming
 another small arithmetic gain will materially shorten the full interaction.
 P-256 and remaining Keccak-body work remain open; neither wish is closed.
+
+### OPT-025 — Attribute current dialogue and post-idle return latency
+
+- Wishes: 2 and 6, with 3 and 10 as supporting attribution. The combined
+  OPT-022/024 rotation checkpoint is committed and pushed as `29bca48`.
+- Question: do preserved current-runtime captures and source attribution locate
+  a dominant avoidable local dialogue/return cost, distinct from reconnect
+  proof and provider wait?
+- Baseline: runtime
+  `3790f719c938f48f4e2e5c5070e413a90a64a52e841d51dbe72cee6b4fa2a74a`;
+  OPT-024's exact 16 KiB NE2000 turns take 293.42, 646.06, 745.29 and
+  959.76 seconds to the returned prompt. The final turn follows ten minutes
+  idle. Its original NE1000 observer timeout remains failed evidence.
+- Allowed surface: this ledger and isolated scripts/reports under
+  `build/optimization-campaign/OPT-025/`. Product code, local configuration,
+  generated shipping artifacts and prior evidence remain read-only.
+- Required evidence: exact owned-flow and runtime binding; record arrival and
+  transmit timelines aligned with submitted/returned-prompt events; source
+  attribution and explicit limits where encryption or missing target traces
+  prevent separation. Compare the three CPU/RAM paths and retained timeout.
+- Exit: identify one bounded follow-up with measured potential, or record why
+  these observations cannot support the proposed attribution and select the
+  next useful measurement. No latency win from record counts alone.
+- Status/owner: completed in the current campaign chat, sequentially after the
+  committed OPT-022/024 checkpoint. No new VM, commit or push authorized by
+  this entry. Overall rocks turned remains **46% (rough 36–56%)**.
+
+#### OPT-025 result — measurement complete; credit batching selected
+
+All nine accepted OPT-024 captures and the retained NE1000 timeout are rebound
+to their exact VM-owned flows and current runtime. Ordinary 543-byte incoming /
+48-byte outgoing record cycles have median gaps of about 6.6 s at 16 KiB,
+4.87 s at 32 KiB and 2.49 s on the 286; the next incoming record typically
+follows in 13–15 ms. Disjoint incoming-to-outgoing gaps cover 89.3%, 92.9% and
+94.3% of the three reused 16 KiB NE2000 turns. These are host-side wire
+intervals combining local work, delivery and scheduling, not pure CPU or
+provider-compute times. A provider-wait-only explanation is unsupported.
+
+The retained NE1000 case repeats 58/516-byte incoming records, consistent with
+27/485-byte DATA frames, and sends 68 credit-shaped records during its first
+turn versus 35 on the unchanged repeat. Its failed post-idle turn spends most
+of the observer window in response-shaped traffic before another request-shaped
+burst at 1009.51 s. No eventual completion or sole cause is inferred; that
+case remains unaccepted. Source and wire support compaction before later
+16 KiB replies and the added post-idle route setup, but ciphertext and missing
+target traces prevent an exact split of all provider/proof/compaction costs.
+
+The exact emitted 993-byte synthetic response fixture executes 2,033,992
+instruction hooks and 50 sector reads: two T reads plus three 16-sector H2/K
+round trips. Fixed-work Poly1305 word multiplication is the largest hook group
+(37.75%), followed by retention (17.57%) and ChaCha quarter rounds (16.57%,
+excluding rotation helpers). Hook shares are not elapsed-time shares.
+`OPT-025/REPORT.md`, `capture-attribution.json` and `two-window-profile.json`
+retain methods, bindings and limits. No product or prior evidence changed,
+and no VM or provider request was needed.
+
+Select bounded credit batching next: the current immediate per-record
+replenishment may sustain the observed two-part window fragmentation. Test
+whether waiting for consumption of the full grant collapses that pattern,
+with exact partial-frame accounting and end-of-stream connection credit.
+[RFC 9113 §6.9.1](https://www.rfc-editor.org/rfc/rfc9113.html#section-6.9.1)
+permits the receiver to choose replenishment timing and advises against tiny
+increments. Post-tag phase-load avoidance and fixed-work multiplication remain
+ranked alternatives. Overall rocks turned is now **48% (rough 38–58%)** for the
+attribution gap and tested source explanation, not an unimplemented gain.
+
+### OPT-026 — Batch consumed HTTP/2 receive credit
+
+- Wishes: 2 and 6, with 10 as a tradeoff check.
+- Question: can authenticated, consumed-credit batching collapse a persistent
+  27/485-byte response split into full 512-byte grants, reducing record work and
+  phase reads while preserving exact flow-credit, rejection and lifetime rules?
+- Baseline: committed `29bca48` and OPT-025's bound current-runtime attribution.
+  The retained NE1000 first turn has 68 credit-shaped records and takes 424.89 s;
+  its unchanged repeat has 35 and takes 291.99 s. This is observational context,
+  not a controlled A/B or proof of identical provider bodies.
+- Allowed surface: isolated experiments under `OPT-026/`, then the narrow
+  receive-credit routine and directly affected HTTP/2 gates if justified.
+  Preserve pre-tag crypto/retention, 512-B DATA capacity, all trust and memory
+  invariants, model/config, prior evidence and unrelated checkout changes.
+- Required evidence: independent peer reproduction; complete/split/padded DATA
+  frames and TLS records; zero and final partial credit; hostile overrun and
+  forgery; continued control processing; repeated streams, compaction, native,
+  cancel/abort/reconnect; emitted size and read accounting. Any source checkpoint
+  needs build/inspect, current composition gates and exact-floor live regression
+  across the three CPU/RAM routes and affected original-speed ISA NICs.
+- Exit: validated worthwhile working checkpoint, or a supported rejection and
+  automatic selection of the next measured opportunity. No unvalidated timing
+  claim or relaxed observer deadline. Commit and push require maintainer approval.
+- Status/owner: integrated and validated in this campaign chat, sequentially
+  after OPT-025. The maintainer approved this checkpoint's commit and push.
+  All VMs are closed. Overall rocks turned remains **48% (rough 38–58%)**.
+
+#### OPT-026 result — integrated and validated
+
+The response owner now returns consumed DATA credit after the entire 512-byte
+grant is consumed, or retires final connection credit at END_STREAM. It checks
+both remaining budget and carried payload before replenishing; control frames
+continue to be processed. No persistent counter or authority transition changes.
+The owner grows 318 -> 360 bytes inside its existing sector. Only file sector
+167 differs from `29bca48`; runtime length remains 150,016 bytes / 293 sectors,
+FAT use 308/309, and RAM/stack allocation unchanged. Shipping runtime:
+`707f614c955194abc486d31882ab978abbb2236f8facd9450bafe4a3d9ebd54f`.
+
+The independent peer sends the identical 4,096-byte response through the actual
+emitted R/X/K/H2/T route and real AEAD. With an initial 27/485-byte split, DATA
+frames fall 16 -> 9, outgoing TLS records 16 -> 8, sector reads 274 -> 162,
+and instruction hooks 8,765,564 -> 7,676,601 (12.42% fewer). The unsplit response
+retains eight frames, eight outgoing records and 146 reads; hooks increase
+7,614,896 -> 7,614,995, just 99 / 0.0013%. Both reach the same synthetic stack
+low of 0x3fac. Measurement excludes request upload; BIOS, NIC, display and
+provider are fixture leaves. This is neither target-cycle nor elapsed-time A/B.
+
+Thirteen baseline and fourteen candidate cases cover split headers/payloads,
+padding, trailers, carried PING, final partial credit, forged records and
+ungranted DATA overrun. Credit conservation includes padding and no zero or
+duplicate grants. The permanent gate's final strengthening explicitly checks
+one matching PING ACK; all fourteen cases pass again on the frozen runtime.
+The rejected K-slot placement and the observer's earlier complete-frame parser
+failure on both variants remain preserved private evidence.
+
+Fresh build, inspection and BASIC helper generation pass, with nineteen HTTP/2
+composition gates and thirteen standalone TLS/RAM/config guards. Eight serialized
+286 components reassemble byte-identically to their accepted timing baseline.
+The final audit accepts nine cases / 27 prompted turns. Exactly 16 KiB ROM BASIC,
+32 KiB direct boot and 286/512 KiB each complete four dependent text replies,
+ten minutes idle, bounded reconnect and native write/execute/read with AX 42
+and bytes B8 2A 00 CB. The six remaining original-speed NIC profiles complete
+two dependent replies around the same idle/reconnect check, including 3c503/MDA.
+Each gate uses the exact VM-owned four-flow capture and reviewed saved pixels.
+
+The 32 KiB native model spells its correct result in words. The 16 KiB model
+uses digits correctly, but the unchanged OCR detector omits its lower result
+lines despite recognizing the input prompt. Both complete results and returned
+prompts were reviewed before stopping their observers, within the original
+2,400-second budget. Raw automatic misses remain `KeyboardInterrupt()` results;
+separate timed, screenshot-hash-bound reviews establish functional completion.
+The case validator and testing documentation now distinguish these two review
+kinds; five test methods cover two positive cases and 23 refusals, including
+runtime errors, missing prompts, wrong bindings and late completion. No timeout
+is relabeled success. An incomplete-preview inference was corrected by decoded
+pixels and exact image identity; all original PNGs and earlier review notes remain.
+
+The initial supervisor stopped new launches after the first manual observer
+stop. Its final global-empty assertion then saw the resumed NIC queue; that
+exit and traceback remain recorded separately. The resumed supervisor finishes
+successfully. The independent final audit verifies all nine VMs closed, maximum
+overlap three and zero remaining processes, plus 688 protected files and all
+8,058 prior evidence files unchanged. Existing cfg/NVR, screenshots, root capture
+and user-local model/config remain preserved. At validation, HEAD was `29bca48`.
+The subsequent documentation update describes batching in `docs/http2.md`;
+all validated implementation, test and built-image bytes remain unchanged.
+
+Disposition: retain this narrow response-credit improvement. No original-speed
+dialogue gain, physical entropy credit or provider-deadline improvement is
+claimed. Live full-record cycle medians remain about 6.6 s at 16 KiB, 4.88 s at
+32 KiB and 2.49 s on the 286; these are observational intervals, not controlled
+A/B. Next compare post-tag phase-load avoidance against fixed-work Poly1305
+multiplication over the complete normal response route. Overall rocks turned
+remains **48% (rough 38–58%)**. The maintainer subsequently approved commit and
+push with the message `perf: batch HTTP/2 response receive credit`.
