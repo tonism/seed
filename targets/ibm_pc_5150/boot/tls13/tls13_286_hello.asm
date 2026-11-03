@@ -137,8 +137,7 @@ hello_prepare_selected:
     mov byte [hello_phase], hello_phase_tx
     mov byte [hello_hash_enabled], 1
     mov byte [tls13_286_hello_status_off], 0
-    xor ax, ax
-    clc
+    xor ax, ax                    ; XOR also publishes CF=0
     ret
 hello_prepare_failed:
     stc
@@ -634,8 +633,7 @@ hello_hybrid_selected:
     mov cx, 16
     rep stosw
     pop es
-    xor ax, ax
-    clc
+    xor ax, ax                    ; XOR also publishes CF=0
     ret
 
 hello_consume_mlkem_matrix:
@@ -1201,8 +1199,7 @@ hello_fragment_consumed:
     mov byte [hello_phase], hello_phase_tx_done
     mov byte [hello_hash_enabled], 0
 .done:
-    xor ax, ax
-    clc
+    xor ax, ax                    ; XOR also publishes CF=0
     ret
 
 hello_build_prefix:
@@ -1608,8 +1605,7 @@ hello_server_begin:
     pop di
     pop cx
     pop ax
-    xor ax, ax
-    clc
+    xor ax, ax                    ; XOR also publishes CF=0
     ret
 
 hello_server_feed:
@@ -1762,8 +1758,7 @@ hello_server_feed:
     pop cx
     pop si
     call sha256_update
-    xor ax, ax
-    clc
+    xor ax, ax                    ; XOR also publishes CF=0
     ret
 .bad:
     pop cx
@@ -1804,8 +1799,7 @@ hello_server_finish:
     pop si
     mov byte [hello_phase], hello_phase_complete
     mov byte [tls13_286_hello_status_off], 1
-    xor ax, ax
-    clc
+    xor ax, ax                    ; XOR also publishes CF=0
     ret
 
 hello_export_transcript_context:
@@ -1915,9 +1909,12 @@ hello_prefix_extensions_len equ $ - hello_prefix_extensions
 hello_tail_suffix:
     ; ALPN selects only h2; DATA flow control is independent of TLS records.
     db 0x00,0x10,0x00,0x05,0x00,0x03,0x02,'h2'
+    ; RFC 8446 4.2.3: YE2 signs certificates with P-384/SHA-384; the
+    ; separate CertificateVerify offer remains P-256/SHA-256 only.
+    db 0x00,0x32,0x00,0x04,0x00,0x02,0x05,0x03
     ; RFC 7685 padding; this is the final extension.
-    db 0x00,0x15,0x00,0x0e
-    times 14 db 0
+    db 0x00,0x15,0x00,0x06
+    times 6 db 0
     ; Request same-boot PSK-DHE tickets without offering a PSK or 0-RTT.
     db 0x00,0x2d,0x00,0x02,0x01,0x01
 hello_tail_suffix_len equ $ - hello_tail_suffix

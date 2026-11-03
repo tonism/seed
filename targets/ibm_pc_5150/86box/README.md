@@ -238,7 +238,7 @@ For the 8088 profile:
 profile      original 4.77 MHz, exactly 16 KiB, dynarec off
 entry        ROM BASIC sidecar
 media        host/read-only Seed image
-wire         fresh TLS 1.3 Finished near the deadline, credential-free HEAD,
+wire         fresh TLS 1.3 Finished near the deadline, credential-free H2 liveness,
              full FO + dated exact-leaf/CV, status-last credential unlock
 result       authenticated OpenAI response, live-session reuse, one bounded reconnect
 matrix       seven original-speed ISA NIC profiles; CGA and MDA display cases
@@ -249,9 +249,9 @@ For the 286 conforming route:
 ```text
 profile      6 MHz 286, 512 KiB conventional RAM
 wire 1       candidate-hybrid acquisition, verified protected flight/server
-             Finished, client Finished + credential-free HEAD, authenticated
-             HTTP response and tentative NewSessionTicket
-offline      full FO compare, platform-UTC date, WE1/hostname/purpose/leaf/CV,
+             Finished, client Finished + credential-free H2 preface/SETTINGS,
+             authenticated peer SETTINGS/ACK and tentative NewSessionTicket
+offline      full FO compare, platform-UTC date, YE2/hostname/purpose/leaf/CV,
              target tables, and status-last ticket promotion
 wire 2       no-0RTT PSK-DHE resumption with independent X25519MLKEM768 keys,
              real binder, selected_identity=0, full decap, strict EE->Finished

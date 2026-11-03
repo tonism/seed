@@ -114,7 +114,7 @@ TAIL_KIND_ACQUIRE = 5
 CRYPTO_SEG = 0x7000
 CRYPTO_BASE = CRYPTO_SEG << 4
 HIGH_RESERVE_BYTES = 64 * 1024
-PACK_BYTES = 44 * 512
+PACK_BYTES = 41 * 512
 RAW_OFF = 0x5800
 RAW_BYTES = 1024 * 6
 RAW = CRYPTO_BASE + RAW_OFF
@@ -429,7 +429,7 @@ def build_images(temp: Path) -> Built:
     if len(stage) != 2048:
         raise AssertionError("root stage is not exactly four sectors")
     if len(pack) != PACK_BYTES:
-        raise AssertionError("module pack is not exactly 44 sectors")
+        raise AssertionError("module pack is not exactly 41 sectors")
     if stage[:8] != b"S286CTL2":
         raise AssertionError("pack-loader magic drifted")
     if u16(stage, 8) != ABI_VERSION or u16(stage, 12) != 4:

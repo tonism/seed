@@ -134,9 +134,9 @@ ordinary phase entries:      29
 application K executable:    5310 B / 11 sectors (inside its 15-sector slot)
 8088 TLS 1.3 cold pack:      130 sectors, file sectors 45..174
 286 TLS 1.3 tail:            82 sectors, file sectors 212..293
-  module cache:              44 sectors / 22528 bytes
+  module cache:              41 sectors / 20992 bytes
   root / entropy / hello /
-    flight / auth / footer:  38 sectors
+    flight / auth / footer:  41 sectors
 ```
 
 The resident nucleus is still fixed at four sectors; current growth is cold
@@ -179,7 +179,7 @@ fundamentally different ISA — an ARM/RISC port where binary reuse is literally
 impossible. Compile-time multi-build per tier is out.
 
 TLS trust state is part of `SEED.SYS` or volatile RAM: the 8088 route uses an
-immutable exact-leaf object, while the 286 route bakes the WE1 P-256 issuer
+immutable exact-leaf object, while the 286 route bakes the YE2 P-384 issuer
 point and generates the leaf tables on the target. No `LEAF.DER` file is
 packaged and no writable-medium trust cache is required.
 
@@ -387,7 +387,7 @@ Timing-sensitive spans are explicitly preloaded:
          parser/crypto swaps and response-owner loads still read the floppy.
          The rare COMPACT prompt can also stream from floppy.
 
-286      reads and validates the complete 44-sector asymmetric module pack into
+286      reads and validates the complete 41-sector asymmetric module pack into
          its top-relative 64 KiB reservation before opening TCP. Before each
          live connection it also stages the immutable 12-sector 8088
          symmetric image in the high record quarantine, verifies its already-
@@ -454,7 +454,7 @@ agent phase "o"
          -> stage the immutable symmetric image before opening acquisition TCP
          -> provisional hybrid proof, client Finished, credential-free
             H2 preface/SETTINGS, and authenticated tentative NewSessionTicket
-         -> offline full FO comparison plus WE1/leaf/time/CV validation and
+         -> offline full FO comparison plus YE2/leaf/time/CV validation and
             table generation; promote the same-boot ticket
          -> no-0RTT PSK-DHE resumption with independent X25519MLKEM768 keys,
             a real binder, selected_identity=0, and pre-TCP symmetric-image,
@@ -699,7 +699,7 @@ acquisition connection
 
 offline, no provider timer
   perform complete ML-KEM FO decapsulation and constant-time candidate compare
-  validate platform-UTC certificate dates, api.openai.com, purpose, and WE1
+  validate platform-UTC certificate dates, api.openai.com, purpose, and YE2
   verify acquisition CertificateVerify and generate P-256 G/leaf tables
   promote the same-boot ticket only after every proof succeeds
 
@@ -723,7 +723,7 @@ The final route is no-0RTT PSK-DHE resumption: the PSK authenticates the
 same-boot ticket, while the independent genuine `X25519MLKEM768` exchange
 provides fresh hybrid key agreement. There is no compressed certificate,
 persisted ticket, persisted leaf, mutable trust file, early data, or no-time
-bypass. The immutable trust object is the WE1 P-256 point. A coherent BIOS RTC
+bypass. The immutable trust object is the YE2 P-384 point. A coherent BIOS RTC
 is used silently as the machine's configured platform UTC clock, as on a
 conventional TLS client. Invalid, incoherent, or out-of-range values fail
 closed. Unauthenticated NTP and user confirmation are not trust inputs.
@@ -747,12 +747,12 @@ measured baseline put public matrix generation at 45 ticks / 2.4716 s before
 TCP and full FO at 43 ticks / 2.3618 s with the cache versus 88 ticks / 4.8334 s
 without it. The current read-only 6 MHz / 512 KiB live reconnect capture has the
 required `acquisition -> resumption -> acquisition -> resumption` topology.
-All four ServerHello-to-client-Finished intervals are below 8.60 seconds.
+All four ServerHello-to-client-Finished intervals meet the provider deadline.
 The target completes four dependent replies and native write/execute/read,
 then returns the correct result and a clean DPI prompt.
 
 The candidate ML-KEM path is deliberately not an authority boundary. The
-offline full FO comparison, X.509/hostname/time/WE1/CV checks, and
+offline full FO comparison, X.509/hostname/time/YE2/CV checks, and
 status-last ticket promotion all precede the final credential connection.
 Offline component and serialized timing gates remain structural evidence, not
 a substitute for the live pcap. The integrated 6 MHz / 512 KiB single-profile
@@ -849,10 +849,11 @@ processing separate.
 
 #### 286 cold start and observed edge variation
 
-The clean-route timing uses the successful acquisition/resumption pair from
-the activity sweep. The same source also has a strict four-flow acceptance
-capture whose ServerHello-to-Finished intervals are the 8.8880 / 8.6428 /
-8.9518 / 8.6425-second values above.
+The following historical WE1 timing uses the successful acquisition/resumption
+pair from the activity sweep. It predates the YE2 issuer repair and does not
+measure the current certificate authentication cost. The same historical
+source has a strict four-flow acceptance capture with ServerHello-to-Finished
+intervals of 8.8880 / 8.6428 / 8.9518 / 8.6425 seconds.
 
 ```text
 6 MHz 286, 512 KiB, direct boot, platform UTC, read-only floppy
@@ -879,6 +880,12 @@ route was abandoned before text or credential-bearing dialogue, and the
 bounded fresh route recovered. The nominal 186.7-second line removes that
 observed `X` span and uses the successful pair's measured phases; it is a normalized
 activity view, not a claim that every cold boot completes in that time.
+
+The current YE2 issuer component takes 1,572 BIOS ticks (86.3427 s) on the
+6 MHz 286. This measures SHA-384, P-384 signature verification and public
+scratch erasure, separately from full FO, parsing/time checks, P-256 table
+generation, CertificateVerify, disk and network work. It runs outside the
+provider deadline. It is not a replacement whole-route latency measurement.
 
 ### Entropy and validation boundary
 
@@ -929,8 +936,9 @@ tickets cannot make application credentials reachable.
   under exact emulated phase execution, including direct-tier arena restoration.
   The earlier HTTP/1 runtime passed bounded reconnect on all seven
   original-speed NIC profiles, plus NIC-present CGA/MDA and no-card/no-driver
-  cases. HTTP/2 changes shared packet, timing, and phase-loading behavior;
-  its current-source matrix must pass before inheriting those claims.
+  cases. The current HTTP/2 image independently passes the seven-profile
+  first-response, reuse and bounded reconnect matrix, including 3c503/MDA.
+  These live cases do not rerun the historical no-card/no-driver scenarios.
 - OpenAI is the only current wire profile. Adding a provider is an explicit
   certificate/protocol/timing architecture task, not another config row.
 
@@ -1110,7 +1118,7 @@ mid-session revert that discards the current arena/context pool, restores the sa
 redisplays.
 
 **TLS trust is not persisted.** TLS 1.3 ships no mutable leaf file. The 8088
-exact-leaf point and the 286 WE1 issuer point are immutable program assets.
+exact-leaf point and the 286 YE2 issuer point are immutable program assets.
 Captured certificates, generated P-256 tables, tentative tickets, attempt
 bundles, and traffic keys are same-boot RAM state and are scrubbed or lost on
 restart. A restored environment therefore repeats a complete cold tier route

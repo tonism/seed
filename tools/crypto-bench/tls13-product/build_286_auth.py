@@ -147,7 +147,7 @@ def main() -> None:
         "component_sectors": sectors,
         "component_sha256": hashlib.sha256(component).hexdigest(),
         "trust_boundary": {
-            "anchor": "Google Trust Services WE1 P-256 public key",
+            "anchor": "Let's Encrypt YE2 P-384 public key",
             "hostname": "api.openai.com",
             "trusted_time_required": True,
             "host_generated_runtime_tables": False,

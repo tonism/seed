@@ -705,7 +705,7 @@ pack_blob_end:
 
 image_end:
 
-%if (pack_blob_end - pack_blob) != 44 * 512
+%if (pack_blob_end - pack_blob) != 41 * 512
 %error "cached-pack loader gate needs regenerated module-pack metadata"
 %endif
 %if (image_end - $$ + 0x1000) > 0xf000

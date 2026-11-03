@@ -42,8 +42,13 @@ fail closed. Full-record and equal-geometry forged-input gates check these
 boundaries; emulator traces do not establish physical timing resistance.
 
 After authentication, a shared parser validates frames, settings, credit,
-HPACK/Huffman fields, status, content length and trailers. The Responses parser
-sees authenticated DATA only. Success requires both `response.completed` and
+HPACK/Huffman fields, status, content length and trailers. A complete unpadded,
+non-final DATA frame on an established response stream can avoid loading that
+parser and restoring the crypto phase. The shortcut checks the queue, header,
+stream state, body-count overflow and content-length bounds before publishing
+DATA. Other frames use the shared parser. Both paths publish identical parser
+state and output; neither shortcut nor fallback changes pre-tag authentication.
+The Responses parser sees authenticated DATA only. Success requires both `response.completed` and
 HTTP/2 END_STREAM. A captured function call remains unexecuted until both
 conditions hold. A failed human request with no visible output gets one fresh
 route and one resend; a partially rendered reply or executed tool continuation
@@ -81,8 +86,9 @@ uses formerly reserved cold-pack sectors; ordinary tickets cannot overwrite
 native-tool state. The 286 reuses the same parser through a one-sector adapter
 loaded after Finished. These are phases inside the same flat `SEED.SYS`.
 
-The 32 KiB route caches its ordinary loop and assets, but H2 parser transitions
-currently still read the floppy. This repair does not claim a floppy-free turn.
+The 32 KiB route caches its ordinary loop and assets. Frames requiring the
+shared H2 parser still read the floppy. Ordinary eligible DATA avoids that
+transition; this does not make the whole turn floppy-free.
 Cold NST cleanup preserves the direct-tier root shadow/trampoline below
 `7a40`. The 286 reconnect parent reconstructs a pending human prompt from its
 ordinary screen text before escrow, since transport retirement clears the
@@ -92,6 +98,8 @@ temporary input buffer. Executed/pending tools cannot enter that restoration.
 `tools/crypto-bench/tls13-product/run_http2_gates.py`; its independent peer
 checks real encrypted requests and responses, disk-failure unwinds, window
 backpressure, compaction, retries, native effects, far context and erasure.
+The DATA shortcut gate compares persistent parser/queue state and output over
+746 equivalent cases and checks 93 side-effect-free fallbacks.
 Use `check_live_h2_case.py` to bind explicit host-pcap flows to a frozen image
 and reviewed answer screenshots. Encrypted control exchanges are not evidence
 of model replies. Live original-speed evidence accompanies the offline gates;
@@ -104,19 +112,33 @@ The same runtime passes these read-only 86Box cases using `gpt-6.1-sol` with
 
 | CPU / RAM | Entry | Completed scenario |
 | --- | --- | --- |
-| 4.77 MHz 8088 / 16 KiB | ROM BASIC sidecar | Four dependent text replies, ten-minute idle, one reconnect, native write/execute/read and final answer |
+| 4.77 MHz 8088 / 16 KiB | ROM BASIC sidecar | Four text replies including dependent questions, ten-minute idle, one reconnect, native write/execute/read and final answer |
 | 4.77 MHz 8088 / 32 KiB | Direct floppy boot | The same conversation, idle recovery and native program |
 | 6 MHz 286 / 512 KiB | Direct floppy boot | The same conversation, idle recovery and native program |
 
-The native program is `B8 2A 00 CB`: load AX with 42 and return. Each run executes
+The native program is `B8 2A 00 CB`: load AX with 42 and return. Each accepted run executes
 one write, one execute and one read, then returns to the input prompt. The
-32 KiB model answer spells out the correct value and bytes under the earlier
-letters-only instruction; its numeric-format check failed, while independent
-visual and capture review established functional completion. The raw automatic
-result and that caveat are retained. On the 16 KiB path, the model returned the
+current and earlier 32 KiB model answers spelled out the correct value and
+bytes under the earlier letters-only instruction. Their numeric-format checks
+failed, while independent visual and capture reviews established functional
+completion. The raw automatic results and that caveat are retained.
+On an earlier 16 KiB run, the model returned the
 correct digits, but OCR omitted the result lines. A separate timed review of
 the saved image established completion and the returned prompt within the
-original observer budget; the automatic miss remains recorded.
+original observer budget; the automatic miss remains recorded. The current
+286 run also required an independently reviewed native OCR omission. Its
+correct numeric result and returned prompt were visible within the original
+budget; the unchanged automatic result remains a miss.
+
+The first 16 KiB attempt on the current issuer repair returned correct native
+values after three writes, three executes and two reads. That attempt remains
+excluded from the one-sequence acceptance gate. A private exact-image probe of
+the wrapped prompt, compaction and native journal found identical serialized
+requests and results on the candidate and the previously accepted baseline;
+it did not establish the cause of the live repetition.
+An unchanged full repeat passes all four text turns, idle/reconnect and the
+native sequence with exactly one write, execute and read. Its numeric answer
+and returned prompt pass both automatic detection and independent visual review.
 
 All seven original-speed ISA NIC profiles pass first-response reuse and a
 dependent reply after ten minutes idle and one bounded reconnect. This includes

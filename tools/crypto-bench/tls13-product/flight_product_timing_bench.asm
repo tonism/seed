@@ -102,11 +102,12 @@ times 35 db 0
 incbin "build/ibm_pc_5150/http2/post-tail.bin"
 times 512 - ($ - h2_tail_source) db 0
 
-%if ($ - $$ + 0x1000) > 0xc000
+%if ($ - $$ + 0x1000) > 0xc200
 %error "flight timing fixtures overlap benchmark code"
 %endif
 ; H2 uses 4230..5fec during the flight; no benchmark code may occupy it.
-times (0xc000 - 0x1000) - ($ - $$) db 0
+; The current four-certificate fixture needs the additional 512-byte page.
+times (0xc200 - 0x1000) - ($ - $$) db 0
 bench_main:
     cli
     xor ax, ax
@@ -565,12 +566,12 @@ bench_fail:
     call emit_crlf
     jmp resumed_done.hang
 
-%if ($ - $$ + 0x1000) > 0xc700
+%if ($ - $$ + 0x1000) > 0xc900
 %error "flight timing harness overlaps timing support"
 %endif
 
 ; Keep timer/serial code above the low H2 parser and immutable fixtures.
-times (0xc770 - 0x1000) - ($ - $$) db 0
+times (0xc970 - 0x1000) - ($ - $$) db 0
 
 tick_start:
     call read_tick_low

@@ -1,9 +1,48 @@
 # Seed Optimization Campaign
 
-## Current checkpoint: OPT-026 response-credit batching
+## Current checkpoint: OPT-028 issuer repair and OPT-027 DATA fast path
 
-OPT-026 is integrated into the shipping source and current floppy image,
-validated against the committed `29bca48` baseline.
+The issuer repair is integrated and functionally verified on the same checkout.
+The 8088 route uses the independently authenticated current exact leaf; the
+286 route verifies the YE2 P-384/SHA-384 issuer on target, then the P-256 leaf's
+CertificateVerify. Both routes retain their existing authority, RAM, read-only
+media, entropy and bounded-reconnect boundaries. The current runtime is
+`9d83b0e2f3bf0293530cd344bb2e2a55144be19f380a5648d3d68e9567f04ea1`,
+150,016 bytes / 293 sectors. The two selected OPT-027 request/response sectors
+are byte-identical to the preserved candidate.
+
+Fresh build/inspect/BASIC, twenty HTTP/2 gates, sixteen standalone TLS/fixture
+guards and eight serialized 286 components pass. Nine reviewed original-speed
+live cases complete 27 prompted turns on 16 KiB BASIC, 32 KiB direct boot and
+286/512 KiB, including all seven ISA NIC profiles, ten-minute idle recovery,
+one bounded reconnect, and native write/execute/read on the three main paths.
+The 286 native OCR omission and 32 KiB numeric-format mismatch have separate
+timed visual reviews; their automatic misses remain intact. The first 16 KiB
+attempt repeated native actions and is excluded. One unchanged full repeat
+passes automatically with exactly one write, execute and read, the correct
+AX/bytes, and a returned prompt. No failure is relabeled as a pass.
+
+`build/optimization-campaign/OPT-028/integration/final-audit.json` binds the
+accepted image, source, captures, reviews and documentation. All ten attempted
+live cases are retained, all VMs are closed, and overlap never exceeded three.
+All 42,368 prior evidence files and unrelated local changes are preserved.
+Fifteen directly affected product/target docs now describe the current issuer
+and layout. This is functional emulator acceptance, with no physical entropy
+credit or new whole-dialogue latency claim.
+
+The maintainer requested this repair and successful verification in this same
+chat before considering new work in a fresh chat. That verification is now
+complete. The maintainer has approved committing and pushing this checkpoint
+as `fix: restore provider trust and validate HTTP/2 fast path` on
+`codex/build-13-tls13-rearchitecture-spike`. The commit containing this entry
+is the implementation checkpoint; `b5402f6` is its predecessor and the audit's
+recorded pre-commit HEAD. The next selected measurement is OPT-029 below.
+Overall rocks turned remains **48% (rough 38–58%)**.
+
+## Previous committed checkpoint: OPT-026 response-credit batching
+
+OPT-026 was validated against the committed `29bca48` baseline. Its frozen image
+is retained alongside the now-accepted local OPT-027/028 image described above.
 The controlled fragmented 4 KiB response uses 12.42% fewer instruction hooks,
 40.88% fewer sector reads and half as many outgoing records. The unsplit case
 adds 99 hooks (0.0013%) with unchanged reads and records. Only the response-owner
@@ -21,7 +60,7 @@ evidence match. `build/optimization-campaign/OPT-026/integration/final-audit.jso
 binds the pre-commit validation checkpoint. The maintainer approved committing
 and pushing this implementation and its documentation as
 `perf: batch HTTP/2 response receive credit` on the current work branch.
-The shipping runtime is
+That checkpoint's runtime is
 `707f614c955194abc486d31882ab978abbb2236f8facd9450bafe4a3d9ebd54f`.
 Overall rocks turned remains **48% (rough 38–58%)**.
 
@@ -407,7 +446,7 @@ the missing speedup/provider capability.
 
 ### 9. Improve 8088 identity freshness and rotation
 
-Investigate whether the dated exact-leaf object can gain a WE1-authorized
+Investigate whether the dated exact-leaf object can gain an issuer-authorized
 rotation path and meaningful freshness without trusted RTC hardware, a helper,
 writable state, TOFU, unauthenticated time, or allowing an expired compromised
 leaf to assert its own time. Model the trust graph explicitly. Deliver a sound
@@ -451,13 +490,13 @@ merely that one spike ran.
 | Wish | State | Best current result | Active/next spike |
 | --- | --- | --- | --- |
 | 1. 8088 handshake margin | partially solved | seven-NIC matrix worst 11.2196 s; matched 3c503 13.7220 -> 11.2317 s; under-12 target observed | OPT-002 committed as `de9cf53` |
-| 2. 8088 dialogue loop | partially solved | OPT-026 fragmented 4 KiB response: 12.42% fewer instruction hooks and half the outgoing records; normal unsplit hooks increase 0.0013%; no live latency gain established | OPT-026 integrated and validated; compare post-tag phase loads and fixed-work multiplication next |
+| 2. 8088 dialogue loop | partially solved | OPT-027 controlled unsplit 4 KiB response: 2.78% fewer instruction hooks and 76.71% fewer reads over OPT-026; no live latency gain established | DATA shortcut is functionally accepted through OPT-028 and approved for commit/push; OPT-029 measures the remaining fixed-work multiplication avenue |
 | 3. 8088 offline proof | partially solved | OPT-022 FO: 415 -> 334 BIOS ticks; OPT-024 KeyGen: 417 -> 332 ticks, 22.9039 -> 18.2352 s, same sector/RAM/read budgets | OPT-022/024 committed as `29bca48`; P-256 and remaining Keccak costs remain open; no whole-route speed claim |
 | 4. Floppy capacity | backlog | 308/309 FAT sectors unchanged; OPT-015 shrinks K to 3,510 B / seven loaded sectors inside the same fixed fifteen-sector file slot | OPT-015 committed as `88175d7`; no FAT-sector saving |
 | 5. 16 KiB memory/executable space | partially solved | OPT-015 removes 1,801 B of uncalled application code; user arena/context remains 96/96 B. OPT-013 model-cache saving is consumed temporarily by reconstruction | OPT-015 committed as `88175d7`; receiver constructions already counted SHA removal |
-| 6. Interactive floppy activity | partially solved | OPT-026 controlled fragmented response: 274 -> 162 reads; unsplit response unchanged at 146; no RAM/FAT growth | OPT-026 nine-case live matrix accepted; quantify remaining per-record phase loads and seek costs |
+| 6. Interactive floppy activity | partially solved | OPT-027 controlled responses reach 34 reads from 146 unsplit / 162 fragmented; same RAM/FAT allocation and outgoing-record count | Functional live acceptance complete through OPT-028; no whole-turn floppy-free or elapsed-time claim |
 | 8. Conforming hybrid TLS on 8088 | backlog | ~45.75 s X25519 blocker | — |
-| 9. 8088 freshness/rotation | backlog | current key rotated before the old leaf expired; trust construction remains open | OPT-003 operational evidence |
+| 9. 8088 freshness/rotation | backlog | image refresh restores the rotated leaf and YE2 issuer compatibility; general on-target freshness/rotation remains open | OPT-003 operational evidence and OPT-028 bounded compatibility repair |
 | 10. Whole-system Pareto audit | partially solved | OPT-009/010 receiver/overlay bounds and OPT-011/012 codec work reconciled with OPT-013 cache reconstruction: 509 named preserved bytes, 414-B component, 8-B stack; existing loader schedule still exceeds 16 KiB | OPT-013 audit complete; broader audit remains open |
 
 ## Progress reporting
@@ -510,6 +549,11 @@ After OPT-026's complete-route comparison, tradeoff check and live regression,
 the estimate remains **48% explored (rough 38–58%)**. It validates the identified
 fragmentation avenue; ordinary record processing, whole-dialogue latency and
 the wider proof, memory and security questions remain open.
+
+After OPT-027's selected DATA shortcut and OPT-028's issuer repair and full live
+verification, the estimate remains **48% explored (rough 38–58%)**. These close
+the selected implementation and compatibility checks, without closing general
+rotation, physical entropy or the remaining optimization search space.
 
 ## Selection policy
 
@@ -4293,3 +4337,339 @@ A/B. Next compare post-tag phase-load avoidance against fixed-work Poly1305
 multiplication over the complete normal response route. Overall rocks turned
 remains **48% (rough 38–58%)**. The maintainer subsequently approved commit and
 push with the message `perf: batch HTTP/2 response receive credit`.
+
+### OPT-027 — Compare ordinary response phase loads and fixed-work multiplication
+
+- Wishes: 2 and 6, with 5 and 10 as footprint and whole-route checks.
+- Question: which bounded construction removes more ordinary response work
+  without growing the 16 KiB live footprint or changing authentication,
+  protocol rejection, credit, native effects, or reconnect behavior?
+- Baseline: committed `b5402f6`, runtime
+  `707f614c955194abc486d31882ab978abbb2236f8facd9450bafe4a3d9ebd54f`.
+  The controlled 4 KiB unsplit response takes 7,614,995 instruction hooks,
+  146 sector reads and eight outgoing records; its fragmented counterpart
+  takes 7,676,601 hooks and 162 reads. K uses 4,081 of 4,096 executable bytes;
+  the response owner uses 360 of 512. These are synthetic instruction/read
+  measurements, not target timing or a live latency claim.
+- Allowed surface: isolated scripts, source copies and images under
+  `build/optimization-campaign/OPT-027/`, plus this ledger. A justified narrow
+  winner may then change its application implementation and directly affected
+  gates. Preserve the shipping build during the comparison and all earlier
+  evidence, local config and unrelated changes throughout.
+- Required evidence: identical split/unsplit complete response fixtures;
+  emitted size, phase reads/seeks, memory/stack lifetime and fixed-work checks;
+  arithmetic or parser equivalence and hostile-input refusals appropriate to
+  the candidate. A product checkpoint additionally needs fresh build/inspect,
+  current offline gates and original-speed CPU/RAM/NIC live regression.
+- Exit: select and validate a worthwhile narrow implementation, or record the
+  supported negative result and select the next measured opportunity. Seek a
+  fresh context only if the selected work needs a substantial independent
+  algorithmic or security investigation. Do not commit or push.
+- Status/owner: selected locally and functionally accepted through OPT-028 in
+  the same campaign chat. Baseline and preservation inventory remain frozen in
+  `OPT-027/`; the initial provider-compatibility failures below are retained.
+  Overall rocks turned remains **48% (rough 38–58%)**.
+
+#### OPT-027 selection — DATA fast path; live acceptance completed through OPT-028
+
+The multiplication prototype doubles the fixed-loop body, growing K by its
+remaining 15 bytes to 4,096. The identical unsplit 4 KiB response drops from
+7,614,995 to 7,433,555 instruction hooks (2.38%) but keeps 146 reads. It is not
+selected. The refined DATA fast path instead uses 7,403,450 hooks (2.78% fewer)
+and 34 reads (76.71% fewer); requested adjacent track changes fall 45 to 10.
+For the fragmented fixture, hooks fall 7,676,601 -> 7,464,013 and reads 162 ->
+34 (79.01% fewer), with track changes 50 -> 10. Both keep eight outgoing
+records and the same measured response stack low. These are synthetic emitted
+instruction/read counts, not calibrated target timing, physical seeks or a
+live latency gain.
+
+Only a complete authenticated, unpadded, non-final DATA frame on an established
+active stream can use the shortcut. Strict queue/header/state checks, body-count
+overflow and content-length bounds precede publication; every other case uses
+the unchanged shared parser. The differential gate compares full persistent
+parser/queue state and output, with 746 accepted equivalence cases and 93
+side-effect-free fallbacks. Strengthening that test to include a set direction
+flag exposed a missing CLD in an intermediate prototype; the final one fixes
+it and passes all 839 cases. Earlier artifacts and the failed audit remain.
+
+The request helper grows 403 -> 510 bytes and the response owner 360 -> 455,
+both within existing sectors. K stays 4,081 bytes, and no RAM, stack allocation
+or FAT sector is added. The private final prototype changes only sectors 167
+and 185, with runtime
+`b34b33a098c8129315b7a50f6e977ea6dd7fa564aa3a2234bdeebff475dcfa6c`.
+Its symbolic helper export and differential gate are now in the product source.
+`OPT-027/comparison.json` and `DESIGN.md` retain the comparison and boundary
+argument. The following integration result supersedes their earlier pending
+build status. No commit or push; overall rocks turned remains **48% (rough
+38–58%)**.
+
+#### OPT-027 integration and provider compatibility pause
+
+Fresh `make`, `make inspect` and `make basic-bootstrap` pass. The emitted
+runtime exactly matches the selected prototype above. All 20 HTTP/2 gates
+(including the 839-case differential and 14-case credit gates), 13 standalone
+sampler/entropy/RAM/retirement/dispatch/cold-send guards and the eight unchanged
+serialized 286 component bindings pass. `OPT-027/integration/` retains the
+logs, immutable boot/test copies and source/artifact hashes. No additional
+source change followed that validation.
+
+The fallback tradeoff is bounded: the 200-byte final response takes 553,684 ->
+553,728 instruction hooks (+0.00795%), with 34 reads and one outgoing record
+unchanged. A padded 4 KiB response takes 7,888,804 -> 7,889,104 hooks (+0.00380%),
+with 162 reads and nine outgoing records unchanged. Neither fixture uses the
+shortcut; the added refusal checks do not introduce a phase read. These remain
+synthetic response-only counts, not live elapsed time.
+
+The fresh read-only live matrix stopped after its first three cases: original
+4.77 MHz NE2000 at 16 KiB BASIC and 32 KiB direct boot, plus 6 MHz 286/512 KiB.
+Each shows the pre-greeting setup failure. The unchanged frozen OPT-026 image
+also fails before greeting on 16 KiB and 286. All five VMs closed when their
+observations finished; no other NIC case was launched and no turn, reuse,
+reconnect or native-tool acceptance is claimed. Raw failures, OCR, screenshots,
+socket ownership and captures remain under `integration/live/`; the shared
+config, user config and frozen images are unchanged.
+
+Credential-free host probes on both observed provider addresses verify the
+current certificate chain, hostname and validity, including a repeat with
+Seed's TLS 1.3 ChaCha20-Poly1305, X25519MLKEM768, P-256 CertificateVerify and h2
+selection. The observed leaf is valid from November 2, 2026 to January 31, 2027, with SPKI
+SHA-256 `6ea3c81fbd1ba27325dfa35f3d518bc1b66076d6e9e74a09a86f5cef92a6d6c2`,
+different from the image's `94655ad1...11e028f`. Its issuer is Let's Encrypt
+YE2, whose key is P-384; the leaf certificate signature uses SHA-384. Verification
+under the tracked WE1 anchor refuses the leaf. Public probe logs/certificates,
+chain-link checks and exact-flow failure summaries are in `OPT-027/diagnosis/`.
+
+The 8088 target captures contain only the fresh ClientHello, Finished and fixed
+credential-free HEAD geometry, with no resumed connection. The 286 captures
+stop after ClientHello and a larger protected server flight, before client
+Finished. Those encrypted captures do not identify the first rejected target
+check or independently reveal the peer certificate. The host-verified trust
+mismatch is a concrete compatibility blocker; baseline reproduction prevents
+attributing these failures to the DATA shortcut. Live candidate acceptance
+still needs to be completed after compatibility is restored.
+
+Disposition: preserve the local candidate and its evidence, leave product
+capability claims unchanged, and pause for the trust-scope decision below.
+`OPT-027/pause/checkpoint.json` binds the preserved candidate and records the
+final preservation audit. Nothing is committed or pushed. Overall rocks turned
+remains **48% (rough 38–58%)**.
+
+### OPT-028 — Provider certificate and issuer compatibility repair
+
+- Wishes: 1 and 9, as a live-acceptance prerequisite for OPT-027.
+- Question: can the newly authenticated provider leaf and YE2 issuer route be
+  supported on both existing floors, with strict on-target authentication and
+  unchanged RAM/media/authority/entropy/reconnect boundaries?
+- Baseline: frozen OPT-026 and local OPT-027 both fail before greeting; public
+  host verification establishes the new P-256 leaf and P-384/SHA-384 issuer.
+  See OPT-027's diagnosis and preservation checkpoint. The existing 286
+  certificate-capture and signature bounds also need explicit review.
+- Approved scope: replace the explicit WE1-only issuer
+  constraint with an independently authenticated immutable current issuer;
+  assess and implement the required bounded P-384/SHA-384 authentication,
+  refresh the 8088 image-dated leaf through an independently verified fixture,
+  and update directly affected composition, rejection, timing and product docs.
+  Retain the conforming 286 route and every other hard invariant. A pin-only
+  refresh does not repair the required 286 issuer path.
+- Required evidence: current certificate/hostname/time/CV provenance; hostile
+  arithmetic/parser/pack/authority/lifetime/zeroization checks; full target-local
+  composition and footprint/timing accounting; fresh build/inspect; read-only
+  16 KiB/32 KiB/286 first response, reuse, reconnect and original-speed NIC
+  acceptance. Rerun OPT-027's live matrix after the repaired baseline works.
+- Exit: validated compatibility checkpoint, or a concrete infeasibility or
+  product-direction decision. No automatic commit, push, downgrade or relaxed
+  verification.
+- Status: **validated in this same campaign chat, explicitly authorized by the
+  maintainer after the OPT-027 pause**. The maintainer requests repair and
+  successful verification here before reconsidering a chat for new work.
+  This supersedes the earlier fresh-context requirement for this spike. No new
+  chat or agent has been started. `OPT-028/before.json` freezes the incoming
+  checkout, OPT-027 candidate and all prior evidence. The final verification
+  result below completes the repair; the maintainer subsequently approved
+  committing and pushing the verified checkpoint.
+  Overall rocks turned remains **48% (rough 38–58%)**.
+
+#### OPT-028 chronological validation record
+
+The repair is integrated locally and under full validation. The independently
+verified November 2 credential-free fixture carries a 928-byte P-256 leaf,
+the immutable YE2 P-384 anchor, and a 3,434-byte ordinary Certificate message.
+The new SHA-384/P-384 verifier fits in the existing offline auth controller:
+6,935 raw bytes and 6,121 stored bytes in twelve sectors. It shares one strict
+signature-scalar parser with the X.509 profile and erases its public scratch
+in the retired low module window before P-256 table generation. Historical
+WE1 research fixtures remain unchanged; the product uses separate current
+fixtures and the refreshed exact-leaf pin.
+
+The module pack contracts from 44 to 41 sectors by removing unused padding.
+Config escrow moves into that freed gap, allowing a 4 KiB Certificate
+quarantine without increasing conventional RAM or moving private-state slots.
+The 286 advertises the issuer's certificate algorithm separately from its
+unchanged P-256 CertificateVerify offer, keeping ClientHello length constant.
+The first full composition found HELLO five stored bytes over its sector
+boundary; redundant carry clears and stronger host-side LZ4 packing recover
+the existing eleven-sector allocation. This is not a relaxed FAT budget.
+
+The independent target-code arithmetic/hash gate passes 900 field cases,
+70 inverses, signature/DER/point failures and guarded-memory checks. The real
+composed authentication gate passes full FO, YE2/hostname/UTC/CV proof,
+status-last authority ordering, scratch retirement and altered-signature
+rejections. Updated tablegen, ECDSA, root/pack and abort-restoration gates pass.
+The exact issuer routine takes 1,572 BIOS ticks (86.3427 s) on the 6 MHz /
+512 KiB 286, including SHA-384, P-384 and scratch erasure, with a separate
+changed-signature refusal. Its VM closed. This is an offline component
+measurement; full shipping build, serialized deadline timing and live matrix
+acceptance are still pending. Evidence is in `OPT-028/`; no commit or push.
+
+The current acquisition/resumption HELLO and protected-flight gates also pass,
+including the 3,434-byte captured chain and correctly framed 4,096/4,097-byte
+Certificate boundaries. The exact-leaf and publication gates pass. An optional
+historical shared-parser regression initially stopped before executing target
+code because it still hard-coded July lengths/dates against its unchanged
+September fixture. Binding those expectations to the recorded capture and
+independently decoded certificate dates restores its full tamper/time matrix;
+the original failure remains recorded. A mid-repair audit confirms all 42,368
+prior evidence files match, including the preserved OPT-027 checkpoint.
+
+Fresh `make`, inspection and BASIC sidecar generation now pass, including all
+twenty HTTP/2 gates and sixteen standalone TLS/fixture guards. The repaired
+runtime is `9d83b0e2f3bf0293530cd344bb2e2a55144be19f380a5648d3d68e9567f04ea1`,
+still 150,016 bytes / 293 sectors. Compared with the frozen OPT-027 image,
+only the TLS loader, exact pin and 286 tail differ; the two OPT-027 HTTP/2
+request/response sectors remain byte-identical.
+
+The first serialized timing attempt stopped before opening a VM because the
+larger certificate fixture exceeded the benchmark's reserved data area by
+280 bytes. Moving its benchmark-only callbacks and timer support up one
+512-byte page restores the checked separation. The semantic gate passes
+unchanged shipping flight bytes, exact ciphertext, ticket export and final
+key/sequence publication. The original failure remains recorded. All eight
+serialized components now pass: the conservative current-controller CPU
+totals are 158 ticks / 8.6782 s for acquisition and 170 ticks / 9.3373 s for
+resumption. Disk, network and resident callback latency still require live
+evidence. `OPT-028/integration/candidate-binding.json` binds the frozen image
+and completed gates; the three main live cases are running with at most three
+VMs. Product-documentation proposals are prepared but remain unapplied until
+live acceptance. No new checkpoint is claimed yet.
+
+Live verification is in progress on the frozen image. The 286, 32 KiB
+NE2000 and 16 KiB 3c503/MDA cases pass their explicit owned-flow and visual
+gates. The 286 native result needs the separately preserved OCR-omission
+review; the 32 KiB model spells out its correct result, requiring the separate
+numeric-format review. Neither raw automatic miss is relabeled success.
+
+The first 16 KiB main run completes the four text turns, idle/reconnect and
+correct native AX/bytes, but repeats native actions (three writes, three
+executes, two reads). It is not accepted by the one-sequence gate. A private
+exact-image diagnostic covers the actual 80-byte wrapped prompt, required
+compaction, native journal and BIOS scrolling. Baseline and candidate produce
+identical requests and tool results. Its initial incomplete fixture omitted the
+compaction reply; that diagnostic failure and its requests are retained.
+An unchanged full main-floor repeat is queued after the first VM closes.
+Remaining ISA cases continue under the three-VM limit. Full acceptance and
+product-documentation promotion are still pending; no commit or push.
+
+The unchanged 16 KiB full repeat now passes automatic completion and independent
+visual/owned-flow review: four correct text replies, ten minutes idle, bounded
+reconnect, exactly one native write/execute/read, AX 42, bytes `B8 2A 00 CB`,
+and returned input. The first repeated-action attempt remains excluded.
+The 3c501, Novell NE1000, NE1000 and WD8003E cases also pass. Eight cases are
+accepted and closed; only WD8003EB's post-idle dependent reply remains active.
+Fifteen directly affected documentation files are prepared for promotion after
+that gate. The image and shipping sources remain frozen. No commit or push;
+overall rocks turned remains **48% (rough 38–58%)**.
+
+#### OPT-028 final verification
+
+All nine required cases pass on the frozen image: 16 KiB NE2000 (the unchanged
+full repeat), 32 KiB NE2000, 286/512 KiB, 3c503/MDA, NE1000, WD8003E, 3c501,
+Novell NE1000 and WD8003EB. The three main cases complete four text turns and
+the native program; the six additional NIC cases complete two text turns each,
+for 27 accepted prompted turns. Each case uses four exact-PID-owned TLS flows,
+completes at least ten minutes idle and one bounded reconnect, and returns to
+input with the correct replies. The main cases reuse their first final
+connection for the first three text turns. Every 286 ClientHello carries the
+separate P-384/SHA-384 certificate-signature offer.
+
+Native acceptance retains the two reviewed observer exceptions: the 286's
+correct numeric result was omitted by OCR, while the 32 KiB model spelled out
+the correct value/bytes. Both complete within the original observer budget;
+their raw automatic misses and timed screenshot-hash-bound reviews remain
+separate. The first 16 KiB attempt's three writes, three executes and two reads
+remain an explicit rejection despite its correct final result. The unchanged
+full repeat passes automatically with one of each action, AX 42 and bytes
+`B8 2A 00 CB`. The private wrapped-prompt comparison did not establish the cause
+of the original repetition; no reliability or latency conclusion is drawn
+from the repeat alone.
+
+The private wire observer initially used the 8088 parser on the 286 capture and
+included unrelated VM flows. Its failed output remains intact. The corrected
+observer selects the bound CPU route and exact-PID-owned ports, reproduces a
+preserved 8088 control, and agrees with the independently applied canonical
+286 gate. This observer repair changes no shipping code or acceptance rule.
+
+Both live controllers exit successfully. All ten attempted VMs are closed,
+maximum overlap is three, and the original read-only images, protected config,
+unrelated changes and 42,368 prior evidence files are preserved. The final
+audit binds these checks, the 20 HTTP/2 and 16 standalone gates, all eight
+serialized components, current source/image hashes, and 15 updated documentation
+files. The 86.3427-second issuer measurement remains a component cost, not a
+whole-route speed claim. Physical entropy and provider-edge repetition remain
+separate open work.
+
+The first final-audit attempt treated `capture_finished` logging timestamps as
+exact VM exit times. Two completion records lagged slot reuse by 0.546 and
+0.365 seconds, making four observation intervals overlap. The shared launch
+lock and process-count history enforce/show at most three live VMs; the
+completion log is written after shutdown, polling and evidence hashing. The
+audit now records both quantities and reconciles those exact events with the
+PID snapshots. Its initial source/failure and the reconciliation remain in
+`OPT-028/audit-observation-repair/`; no live evidence or shipping code changed.
+
+This was a validated local working checkpoint before commit approval; the
+recorded audit remains that pre-commit evidence. The maintainer subsequently
+approved commit and push. The next selected measurement is OPT-029; a new chat
+is optional for that bounded work now that a verified checkpoint exists.
+Overall rocks turned remains **48% (rough 38–58%)**.
+
+Earlier proposed handoff, retained for history; the repair was completed here:
+
+```text
+Read AGENTS.md and docs/optimization-campaign.md, then execute spike OPT-028
+from the ledger. The maintainer authorizes replacing the WE1-only issuer
+constraint with the independently authenticated current provider issuer and
+the bounded verification required for it. Preserve OPT-027 and all existing
+changes/evidence. Keep at most three VMs open and close each when finished.
+Report overall rocks-turned completion at every pause. Do not commit or push.
+```
+
+### OPT-029 — Time fixed-work response multiplication on the current path
+
+- Wishes: 2 and 6, with 3 and 10 as cost and tradeoff checks.
+- Question: after credit batching and the DATA shortcut, does the existing
+  fixed-work Poly1305 multiplication prototype produce a worthwhile measured
+  original-speed response gain within the unchanged code/RAM/stack/FAT budget?
+- Baseline: the accepted OPT-027/028 checkpoint containing this entry, runtime
+  `9d83b0e2f3bf0293530cd344bb2e2a55144be19f380a5648d3d68e9567f04ea1`.
+  OPT-027's unsplit 4 KiB fixture uses 7,403,450 instruction hooks, 34 reads and
+  eight outgoing records. Its unselected multiplication-only prototype reduced
+  old-path hooks by 2.38% and occupied all 4,096 K-slot bytes; it has no measured
+  elapsed-time gain and has not been accepted into the product.
+- Allowed surface: isolated copies, harnesses and reports under
+  `build/optimization-campaign/OPT-029/`, plus this ledger. Keep shipping source,
+  images, local config, prior evidence and unrelated changes read-only.
+  Reuse the existing prototype and profiling fixtures rather than duplicating
+  OPT-025's attribution or claiming its old hook shares are current timings.
+- Required evidence: exact baseline/candidate image binding; current response
+  cost attribution; identical split/unsplit fixtures and full fixed-work AEAD
+  behavior; emitted size, read/record counts, RAM/stack guards; repeated matched
+  4.77 MHz target timing with provider/display substitutions stated explicitly.
+  Keep forged-record and data-independent-work checks. New measurements must
+  distinguish component timing from complete-turn latency.
+- Exit: select a justified narrow implementation follow-up or record the
+  bounded negative result and rank the next remaining cost. This measurement
+  does not authorize a new crypto design, relaxed verification, product change,
+  commit or push. Keep at most three VMs open and close each when finished.
+- Status/owner: selected next in the campaign chat; not started. A fresh chat
+  is optional for this bounded measurement. Overall rocks turned remains
+  **48% (rough 38–58%)** until new evidence closes another question.

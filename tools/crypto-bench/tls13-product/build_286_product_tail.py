@@ -5,7 +5,7 @@ The input is a sector-aligned, K14-complete SEED.SYS prefix whose header still
 describes only that prefix.  This builder appends, in fixed order:
 
 * the four-sector low root stage;
-* the 44-sector cached asymmetric-module pack;
+* the 41-sector cached asymmetric-module pack;
 * compressed entropy, HELLO, protected-flight, and authentication images;
 * one final discovery/footer sector.
 
@@ -97,7 +97,7 @@ ROOT_LOAD = 0x3400
 ROOT_ENTRY = 0x391E
 ROOT_SECTORS = 4
 ROOT_BYTES = ROOT_SECTORS * SECTOR_BYTES
-MODULE_PACK_SECTORS = 44
+MODULE_PACK_SECTORS = 41
 MODULE_PACK_BYTES = MODULE_PACK_SECTORS * SECTOR_BYTES
 CONTROLLER_LOAD = 0x1800
 CONTROLLER_LIMIT = 0x3400

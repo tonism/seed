@@ -1,6 +1,6 @@
-; Request-only helper copied from R's third file sector to unused K headroom.
+; Request helper copied from R's third file sector beside K.
 ; K ends at 2800; H2 post ends below 2800; collector state begins at 2e00.
-; T/normal exchange ownership is not implemented by this helper.
+; The response owner also uses the bounded DATA preflight at the end.
 bits 16
 cpu 8086
 org 0x2800
@@ -110,3 +110,49 @@ aux_fail:
     ret
 
 %include "upload-body.inc"
+
+h2 equ 0x062e
+; Post-tag response preflight: SI/CX DATA and DI/BP controls. Accept exactly
+; one complete unpadded, non-final DATA frame on the active stream. CF refuses
+; without state writes or changes to SI/CX/DI/BP, so the full parser can run.
+aux_response_data_check:
+    cmp bp, 9
+    jne .fallback
+    cmp word [h2+10], 0
+    jne .fallback
+    mov al, [h2+9]
+    or al, [h2+16]
+    or al, [h2+59]
+    jnz .fallback
+    cmp word [h2+18], 1
+    jne .fallback
+    cmp byte [h2+47], 1
+    jne .fallback
+    cmp cx, 512
+    ja .fallback
+    mov ax, cx
+    add ax, 9
+    cmp ax, [0x2e6c]
+    jne .fallback
+    cmp byte [di], 0
+    jne .fallback
+    cmp word [di+3], 0
+    jne .fallback
+    mov ax, [di+1]
+    xchg al, ah
+    cmp ax, cx
+    jne .fallback
+    mov ax, [di+5]
+    cmp ax, [h2+20]
+    jne .fallback
+    mov ax, [di+7]
+    cmp ax, [h2+22]
+    jne .fallback
+    mov ax, [h2+20]
+    or ax, [h2+22]
+    jz .fallback
+    clc
+    ret
+.fallback:
+    stc
+    ret

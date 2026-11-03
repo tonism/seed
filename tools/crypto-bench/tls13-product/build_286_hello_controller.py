@@ -79,7 +79,9 @@ def compress_raw_lz4(raw: bytes) -> bytes:
         decoded = directory / "hello.roundtrip"
         source.write_bytes(raw)
         subprocess.run(
-            ["lz4", "-q", "-l", "-9", "-f", str(source), str(legacy)],
+            # Keep the explicit issuer-algorithm offer within eleven sectors.
+            # This changes only host packing; the raw-block decoder is unchanged.
+            ["lz4", "-q", "-l", "-12", "-f", str(source), str(legacy)],
             cwd=ROOT,
             check=True,
         )

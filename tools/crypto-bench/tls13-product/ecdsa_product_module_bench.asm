@@ -20,8 +20,8 @@ cv_digest_phys equ crypto_base + tls13_286_cv_digest_off
 result_phys equ crypto_base + tls13_286_ecdsa_result_off
 cert_digest_phys equ 0x0c00
 cert_signature_phys equ 0x0c20
-generator_phys equ 0x2c5e
-leaf_phys equ 0x2d35
+generator_phys equ 0x3220
+leaf_phys equ 0x32ad
 q_selected_entry_offset equ (13 - 1) * 64
 
 %macro span_phys 2

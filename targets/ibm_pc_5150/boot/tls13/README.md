@@ -9,8 +9,8 @@ machine and selects one of two OpenAI-only routes:
 | 4.77 MHz 8088, 16 KiB | streamed K14 schedule, ChaCha20-Poly1305/SHA-256 and ML-KEM-768 contribution | TLS 1.3 wire protocol with the bounded Seed boundary described below; not standards-conforming hybrid TLS |
 | 6 MHz 286, 512 KiB | authenticated acquisition plus no-0RTT PSK-DHE resumption with independent full `X25519MLKEM768` | fully standards-conforming final credential-bearing TLS 1.3 path |
 
-Both paths are integrated in the product source and are currently
-**integration-under-validation**. Current-source offline gates establish the
+Both paths are integrated in the product source with functional emulator
+acceptance. Current-source offline gates establish the
 byte layouts, ABIs, fail-closed transitions, and cryptographic known-answer
 behavior. Current read-only exact-floor runs prove the RAM-only 8088 fresh and
 resumed wire profiles, bounded reconnect, authenticated dialogue, all seven
@@ -29,9 +29,9 @@ literal, credential-free liveness probes after provisional decapsulation. It
 does **not** make the API key or a business request reachable until the same
 machine has completed full Fujisaki-Okamoto validation, exact dated leaf
 possession/CertificateVerify validation, and status-last capability
-publication. The fresh connection must authenticate both its HEAD response and
-tentative ticket. The final same-boot resumption offers no early data, performs
-fresh KEM work, and sends its HEAD only after client Finished.
+publication. The fresh connection must authenticate both peer SETTINGS/ACK
+and its tentative ticket. The final same-boot resumption offers no early data, performs
+fresh KEM work, and sends its H2 preface/SETTINGS only after client Finished.
 
 The exact leaf's issuer, hostname, purpose, and validity interval are trusted
 image-generation provenance. The 8088 does not yet have a trusted runtime
@@ -59,12 +59,12 @@ The 286 route uses three ordered stages:
 acquisition
   candidate ML-KEM + real X25519
   authenticated protected flight and server Finished
-  client Finished + immutable credential-free HEAD
-  authenticated HTTP response + tentative NewSessionTicket
+  client Finished + immutable credential-free H2 preface/SETTINGS
+  authenticated peer SETTINGS/ACK + tentative NewSessionTicket
 
 offline authority
   complete ML-KEM FO decapsulation and constant-time candidate comparison
-  strict WE1 / api.openai.com / purpose / UTC-validity / CertificateVerify
+  strict YE2 / api.openai.com / purpose / UTC-validity / CertificateVerify
   generate P-256 tables and promote the same-boot ticket status-last
 
 final credential connection
@@ -75,8 +75,8 @@ final credential connection
   verify server Finished, send client Finished, then publish credentials
 ```
 
-The acquisition candidate can authorize only the fixed credential-free HEAD
-and tentative ticket capture. It cannot expose the API key or business
+The acquisition candidate can authorize only the fixed credential-free
+H2 preface/SETTINGS and tentative ticket capture. It cannot expose the API key or business
 request. The final channel is standards-conforming no-0RTT PSK-DHE resumption:
 the authenticated same-boot ticket is combined with a fresh genuine
 `X25519MLKEM768` exchange.

@@ -34,14 +34,16 @@ At the 512 KiB floor, `crypto_base` is `0x70000`:
 
 | Physical range | Bytes | Owner |
 | --- | ---: | --- |
-| `70000..757ff` | 22,528 | module-pack cache |
+| `70000..751ff` | 20,992 | module-pack cache |
+| `75200..75663` | 1,124 | preserved parent config/control escrow |
+| `75664..757ff` | 412 | unused gap before the G table |
 | `75800..777bf` | 8,128 | entropy scratch, candidate escrow, then width-7 P-256 G table |
 | `777c0..7977f` | 8,128 | target-generated validated-leaf table |
 | `79780..7a77f` | 4,096 | ordinary Certificate quarantine and same-boot pin |
 | `7a780..7bf0f` | 6,032 | private attempts, ticket/PSK, metadata, hashes, descriptors, guards |
 | `7bf10..7ffff` | 16,624 | full authenticated-record plaintext quarantine |
 
-The current product pack occupies 22,528 bytes (44 sectors). The
+The current product pack occupies 20,992 bytes (41 sectors). The
 remaining conventional far pool is `0x10000..0x70000`, or 384 KiB. With
 the current 50/50 conventional layout this yields a 192 KiB executable arena
 and 192 KiB context window. Native extended memory and EMS may enlarge or move
@@ -63,16 +65,16 @@ through the resident disk callback and validates:
 - raw-LZ4 decode ending exactly at the declared length; and
 - CRC-16/CCITT-FALSE of every decoded image.
 
-The current pack is 22,528 bytes (44 sectors), including target-side ML-KEM
+The current pack is 20,992 bytes (41 sectors), including target-side ML-KEM
 key generation and the callable target table generator. Product modules are
 assembled for `0000:4230` and carry an `S286MOD2` header; no runtime relocation
 stream is needed.
 
 The complete product tail follows the 211-sector prefix and occupies 82
 sectors, file sectors 212 through 293 (the tail footer stores raw start sector
-211). It contains 4 root-stage sectors, the 44-sector module pack, 7
+211). It contains 4 root-stage sectors, the 41-sector module pack, 7
 entropy/precompute sectors, one shared 11-sector acquisition/resumption HELLO
-image, 6 protected-flight sectors, 9 offline-auth sectors, and a one-sector
+image, 6 protected-flight sectors, 12 offline-auth sectors, and a one-sector
 footer. The distinct acquisition and resumption directory entries
 intentionally alias the byte-identical HELLO image at different entry points.
 
@@ -116,6 +118,13 @@ operation lengths are:
 | X25519 shared | scalar and 32-byte server share | 32-byte shared secret |
 | P-256 tablegen | 64-byte affine point and 16,256-byte temporary far span | 8,128-byte width-7 table |
 | ECDSA verify | 32-byte CV digest, strict DER signature, G and leaf tables | one-byte decision |
+
+The offline auth controller contains the bounded SHA-384/P-384 verifier
+for the YE2-signed leaf. It uses public scratch at `0000:4230..58ff`, in the
+retired module window, and wipes that whole span on either issuer result
+before decoding the next P-256 module. The leaf remains P-256; target table
+generation covers only G and the authenticated leaf. No host table or runtime
+helper participates.
 
 The entropy seed is gathered on the target. It is not supplied by a build
 machine or persisted as a private key.
@@ -208,9 +217,11 @@ tables, ticket, PSK, and attempts live in RAM, and a restart repeats the whole
 route. There is no 0-RTT, compressed certificate, persisted ticket, mutable
 leaf, or persisted private key.
 
-The immutable trust object in `SEED.SYS` is the Google Trust Services WE1 P-256
-public point. No leaf file is shipped or refreshed. Certificate validity uses
-the coherent BIOS RTC as the platform UTC clock after Seed obtains a valid BCD
+The immutable trust object in `SEED.SYS` is the Let’s Encrypt YE2 P-384
+public point. The strict leaf signature algorithm is ECDSA/SHA-384, advertised
+in `signature_algorithms_cert` separately from the P-256/SHA-256
+CertificateVerify offer. No leaf file is shipped or refreshed. Certificate
+validity uses the coherent BIOS RTC as the platform UTC clock after Seed obtains a valid BCD
 Gregorian value in the supported date range. There is no interactive clock
 question; invalid time fails closed. Unauthenticated network time is not a
 trust input.
@@ -233,7 +244,7 @@ and failure-path wipes. The aggregate serialized gate models their ordered
 target work. These remain offline evidence, not a live product-handshake claim.
 
 The read-only 6 MHz / 512 KiB single-profile VM pcap now proves the ordered
-acquisition/resumption/reconnect/resumption topology, four sub-nine-second
+acquisition/resumption/reconnect/resumption topology, four on-time
 ServerHello-to-client-Finished intervals, authenticated OpenAI application
 data, and bounded same-request replay over the resident TCP/NIC path. Broader
 injected CPU/RAM/time/entropy/auth/Finished/FO/pack/abort gates now pass. The

@@ -7,14 +7,13 @@
 ;   * parse the exact ordinary TLS 1.3 Certificate handshake;
 ;   * apply the strict api.openai.com P-256 leaf profile;
 ;   * require a caller-published trusted UTC value and check validity;
-;   * generate G and immutable Google Trust Services WE1 width-7 tables on
-;     this target, then verify the leaf signature under WE1;
-;   * replace the WE1 table with the authenticated leaf table and verify the
-;     captured TLS CertificateVerify digest/signature; and
+;   * verify the SHA-384 leaf signature under the immutable YE2 P-384 key;
+;   * generate G and the authenticated P-256 leaf width-7 tables on this
+;     target, then verify the captured TLS CertificateVerify; and
 ;   * publish AUTH only after every preceding operation succeeds.
 ;
 ; No build host supplies a leaf key or runtime comb table.  The only baked
-; trust object is the WE1 P-256 affine point.  Read-only media is sufficient:
+; trust object is the YE2 P-384 affine point.  Read-only media is sufficient:
 ; all certificate evidence, tables, and decisions live in the 64 KiB high
 ; reservation and are discarded on restart.
 
@@ -32,10 +31,6 @@ auth_table_scratch_bytes     equ 16256
 auth_chain_max               equ 4
 auth_chain_cert_max          equ 2048
 auth_normalized_time_bytes   equ 14
-auth_ecdsa_digest_slot       equ 0x0c00
-auth_ecdsa_signature_slot    equ 0x0c20
-auth_ecdsa_slots_end         equ \
-    auth_ecdsa_signature_slot + tls13_286_cv_signature_max
 auth_header:
     db 'S286AU02'
     dw tls13_286_abi_version
@@ -97,21 +92,9 @@ auth_entry:
     jc auth_abort
     call auth_validate_time
     jc auth_abort
-    call auth_hash_tbs
+    call auth_verify_issuer
     jc auth_abort
-
-    ; Reuse the retired protected-record quarantine for temporary table
-    ; generation.  It never overlaps the advertised far pool or module cache.
     call auth_build_generator_table
-    jc auth_abort
-    mov si, auth_we1_point
-    mov ax, tls13_286_leaf_table_off
-    call auth_build_table
-    jc auth_abort
-    mov si, auth_ecdsa_digest_slot
-    mov cx, [x509_sig_len]
-    mov di, [x509_sig_ptr]
-    call auth_verify_near_signature
     jc auth_abort
 
     mov si, auth_leaf_point
@@ -230,7 +213,7 @@ auth_wipe_candidate_fo:
 
 ; Validate the complete ordinary Certificate handshake and copy only the first
 ; certificate to bounded low scratch.  Remaining entries are structurally
-; consumed; their presence never substitutes for proof under the baked WE1
+; consumed; their presence never substitutes for proof under the baked YE2
 ; key.  This profile did not offer per-Certificate extensions, so each entry
 ; must carry an empty extension vector.
 auth_parse_certificate_message:
@@ -471,7 +454,7 @@ auth_validate_time:
     stc
     ret
 
-; Exact Gregorian validation for 2000..2099, covering WE1's lifetime.
+; Exact Gregorian validation for 2000..2099, within the supported platform-UTC range.
 auth_time_validate:
     push ax
     push bx
@@ -574,14 +557,32 @@ auth_decimal_pair:
     pop dx
     ret
 
-auth_hash_tbs:
-    call sha256_init
-    mov si, [x509_tbs_ptr]
-    mov cx, [x509_tbs_len]
-    call sha256_update
-    mov di, auth_ecdsa_digest_slot
-    call sha256_finish
-    clc
+; Strict DER, positive canonical scalars and 0<r,s<n, shared with P-384.
+x509_check_ecdsa_signature:
+    mov [pv_sig],si
+    add si,cx
+    mov [pv_sig_end],si
+    jmp pv_parse
+
+; Reuse only the retired ML-KEM low overlay. No module executes here until
+; this complete public scratch span is erased and its replacement decoded.
+auth_verify_issuer:
+    mov si,[x509_tbs_ptr]
+    mov cx,[x509_tbs_len]
+    call sha384_hash
+    jc .wipe
+    mov si,s_digest
+    mov di,[x509_sig_ptr]
+    mov cx,[x509_sig_len]
+    mov bp,pc_issuer
+    call p384_verify
+.wipe:
+    pushf
+    xor ax,ax
+    mov di,0x4230
+    mov cx,(s_scratch_end-0x4230)/2
+    rep stosw
+    popf
     ret
 
 auth_build_generator_table:
@@ -616,14 +617,6 @@ auth_build_table:
 .bad:
     stc
     ret
-
-; Verify a near digest/signature using G and the current high leaf-table slot.
-; SI=digest, DI=signature, CX=signature length.
-auth_verify_near_signature:
-    jmp near auth_verify_near_signature_hardened
-    ; Preserve the established point/tablegen addresses.  The hardened body
-    ; lives after all three fixed P-256 point objects.
-    times 55 - ($ - auth_verify_near_signature) db 0
 
 auth_verify_captured_cv:
     call auth_clear_desc
@@ -769,55 +762,23 @@ auth_set_high_span:
     pop ax
     ret
 
-; Strict fixed-profile P-256 X.509 parser shared with the independently gated
-; 16 KiB research route.  Only its state-placement equate is product-local.
+; P-256 leaf/SPKI/CV with an exact P-384/SHA-384 issuer profile. The same
+; strict scalar parser serves framing and the subsequent issuer equation.
+%define X509_ISSUER_P384 1
 parser_x509_state_start equ auth_parser_state
 %include "cert_parser_p256.inc"
 
-; Shipping SHA-256 implementation used for the exact TBSCertificate span.
-sha256_block_size equ 64
-sha256_k_len      equ 256
-sha256_digest_len equ 32
-%include "core/sha256.inc"
+%include "tls13/p384_verify_286.inc"
+%include "tls13/p384_ye2_constants.inc"
+%include "tls13/sha384_286.inc"
+%include "tls13/sha384_constants.inc"
 
-sha256_initial_state:
-    dw 0xe667,0x6a09,0xae85,0xbb67
-    dw 0xf372,0x3c6e,0xf53a,0xa54f
-    dw 0x527f,0x510e,0x688c,0x9b05
-    dw 0xd9ab,0x1f83,0xcd19,0x5be0
-sha256_k:
-    dw 0x2f98,0x428a,0x4491,0x7137,0xfbcf,0xb5c0,0xdba5,0xe9b5
-    dw 0xc25b,0x3956,0x11f1,0x59f1,0x82a4,0x923f,0x5ed5,0xab1c
-    dw 0xaa98,0xd807,0x5b01,0x1283,0x85be,0x2431,0x7dc3,0x550c
-    dw 0x5d74,0x72be,0xb1fe,0x80de,0x06a7,0x9bdc,0xf174,0xc19b
-    dw 0x69c1,0xe49b,0x4786,0xefbe,0x9dc6,0x0fc1,0xa1cc,0x240c
-    dw 0x2c6f,0x2de9,0x84aa,0x4a74,0xa9dc,0x5cb0,0x88da,0x76f9
-    dw 0x5152,0x983e,0xc66d,0xa831,0x27c8,0xb003,0x7fc7,0xbf59
-    dw 0x0bf3,0xc6e0,0x9147,0xd5a7,0x6351,0x06ca,0x2967,0x1429
-    dw 0x0a85,0x27b7,0x2138,0x2e1b,0x6dfc,0x4d2c,0x0d13,0x5338
-    dw 0x7354,0x650a,0x0abb,0x766a,0xc92e,0x81c2,0x2c85,0x9272
-    dw 0xe8a1,0xa2bf,0x664b,0xa81a,0x8b70,0xc24b,0x51a3,0xc76c
-    dw 0xe819,0xd192,0x0624,0xd699,0x3585,0xf40e,0xa070,0x106a
-    dw 0xc116,0x19a4,0x6c08,0x1e37,0x774c,0x2748,0xbcb5,0x34b0
-    dw 0x0cb3,0x391c,0xaa4a,0x4ed8,0xca4f,0x5b9c,0x6ff3,0x682e
-    dw 0x82ee,0x748f,0x636f,0x78a5,0x7814,0x84c8,0x0208,0x8cc7
-    dw 0xfffa,0x90be,0x6ceb,0xa450,0xa3f7,0xbef9,0x78f2,0xc671
-
-times 16 db 0                   ; keep all tablegen point slots fixed
 align 2
 auth_generator_point:
     dw 49814,55448,14661,62625,13216,11755,32129,30467
     dw 16626,25508,59109,63676,16967,57644,53746,27415
     dw 20981,14271,16488,52150,24270,27441,13143,11214
     dw 40470,31759,60234,36583,32667,65050,17122,20451
-
-; Immutable Google Trust Services WE1 P-256 anchor from the second certificate
-; in tools/x509/certs/ecdsa_live_chain.pem, little endian x then y.
-auth_we1_point:
-    dw 60806,54652,14311,50713,6021,49500,3904,22599
-    dw 23995,49735,34112,8451,18252,26455,15102,28621
-    dw 64086,3842,9659,58918,39157,11302,22927,65296
-    dw 59550,50374,63640,2563,5029,55066,33241,19355
 
 auth_month_days db 31,28,31,30,31,30,31,31,30,31,30,31
 
@@ -829,90 +790,12 @@ auth_list_remaining dw 0
 auth_chain_count db 0
 auth_table_point dw 0
 auth_table_output dw 0
-times 10 db 0                   ; keep auth_desc/parsed-leaf product slots fixed
 auth_desc times tls13_286_desc_bytes db 0
 auth_leaf_point times 64 db 0
-
-auth_verify_near_signature_hardened:
-    cmp cx, 8
-    jb .bad
-    cmp cx, tls13_286_cv_signature_max
-    ja .bad
-    push cx
-
-    ; auth_hash_tbs already published the digest in its exact low slot.  Copy
-    ; only the parser-selected DER signature into the matching fixed slot.
-    mov si, di
-    mov di, auth_ecdsa_signature_slot
-    rep movsb
-
-    mov word [auth_desc + tls13_286_desc_op], \
-        tls13_286_mod_op_ecdsa_verify
-    mov di, auth_desc + tls13_286_desc_input0
-    mov ax, auth_ecdsa_digest_slot
-    mov dx, 32
-    call auth_set_near_span
-    mov di, auth_desc + tls13_286_desc_input1
-    mov ax, auth_ecdsa_signature_slot
-    pop dx
-    call auth_set_near_span
-    call auth_verify_common
-    ret
-.bad:
-    stc
-    ret
 
 auth_not_before times auth_normalized_time_bytes db 0
 auth_not_after times auth_normalized_time_bytes db 0
 auth_now times auth_normalized_time_bytes db 0
-
-; SHA-256/HMAC data contract.  HMAC symbols are present because the shared
-; source assembles both entry families even though this controller calls only
-; SHA-256.
-sha256_state times 32 db 0
-sha256_a times 4 db 0
-sha256_b times 4 db 0
-sha256_c times 4 db 0
-sha256_d times 4 db 0
-sha256_e times 4 db 0
-sha256_f times 4 db 0
-sha256_g times 4 db 0
-sha256_h times 4 db 0
-sha256_t1 times 4 db 0
-sha256_t2 times 4 db 0
-sha256_new_e times 4 db 0
-sha256_tmp times 4 db 0
-sha256_w_ptr dw 0
-sha256_k_ptr dw 0
-sha256_len_low dw 0
-sha256_len_high dw 0
-sha256_saved_len_low dw 0
-sha256_saved_len_high dw 0
-sha256_bit_len0 dw 0
-sha256_bit_len1 dw 0
-sha256_bit_len2 dw 0
-sha256_bit_len3 dw 0
-sha256_digest_ptr dw 0
-hmac_key_ptr dw 0
-hmac_key_len dw 0
-hmac_data1_ptr dw 0
-hmac_data1_len dw 0
-hmac_data2_ptr dw 0
-hmac_data2_len dw 0
-hmac_output_ptr dw 0
-sha256_block_len db 0
-sha256_saved_block_len db 0
-sha256_schedule_count db 0
-sha256_round_count db 0
-sha256_block times sha256_block_size db 0
-sha256_w times sha256_k_len db 0
-sha256_saved_state times 32 db 0
-sha256_saved_block times sha256_block_size db 0
-hmac_ipad times 64 db 0
-hmac_opad times 64 db 0
-hmac_inner_digest times 32 db 0
-hmac_prepared_inner_state times 32 db 0
-hmac_prepared_outer_state times 32 db 0
 
 auth_image_end:
 
@@ -931,18 +814,9 @@ auth_image_end:
 %if auth_leaf_buffer + auth_leaf_capacity > auth_parser_state
 %error "TLS 1.3 286 auth leaf buffer overlaps parser state"
 %endif
-%if auth_leaf_buffer + auth_leaf_capacity > auth_ecdsa_digest_slot
-%error "TLS 1.3 286 auth leaf buffer overlaps normalized ECDSA evidence"
+%if auth_generator_point - $$ + 0x1800 != 0x3220
+%error "TLS 1.3 286 generator point moved from its bounded tablegen slot"
 %endif
-%if auth_ecdsa_slots_end > auth_parser_state
-%error "TLS 1.3 286 normalized ECDSA evidence overlaps parser state"
-%endif
-%if auth_generator_point - $$ + 0x1800 != 0x2c5e
-%error "TLS 1.3 286 generator point moved from the tablegen product slot"
-%endif
-%if auth_we1_point - $$ + 0x1800 != 0x2c9e
-%error "TLS 1.3 286 WE1 point moved from the tablegen product slot"
-%endif
-%if auth_leaf_point - $$ + 0x1800 != 0x2d35
-%error "TLS 1.3 286 parsed leaf point moved from the tablegen product slot"
+%if auth_leaf_point - $$ + 0x1800 != 0x32ad
+%error "TLS 1.3 286 leaf point moved from its bounded tablegen slot"
 %endif

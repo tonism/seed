@@ -306,9 +306,10 @@ stack guard and does not change the published arena/context sizes.
 
 The route gate uses the BIOS Data Area conventional-memory word, not the
 16/32 KiB entry handoff ceiling. The top-relative reservation contains the
-22,528-byte module cache, generated P-256 tables, authenticated same-boot leaf
-state, volatile ticket/PSK, entropy/attempt bundles, a full-record quarantine,
-descriptors, and guards. It is never
+20,992-byte module cache, generated P-256 tables, authenticated same-boot leaf
+state, volatile ticket/PSK, entropy/attempt bundles, a 4 KiB Certificate
+quarantine, a full-record quarantine, descriptors, and guards. Config escrow
+uses the gap between the reduced module pack and the first P-256 table. It is never
 advertised as agent arena or context. With the current 50/50 conventional
 policy, the remaining 384 KiB far pool yields 192 KiB for each.
 

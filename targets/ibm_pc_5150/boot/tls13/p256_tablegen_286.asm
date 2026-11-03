@@ -5,7 +5,7 @@
 ; projective subset sums, and batch-normalizes them with one inversion.  The
 ; 15,? KiB far scratch is explicit in the operation descriptor; no table or
 ; private state is embedded by the host.  The operation boundary is deliberately
-; narrower than a general P-256 service: it accepts only the three affine-point
+; narrower than a general P-256 service: it accepts only the two affine-point
 ; slots emitted by the fixed authentication controller and the corresponding
 ; high-reservation table destination.
 
@@ -23,9 +23,8 @@ table_projective_bytes equ table_points * table_point_bytes
 table_prefix_off equ table_projective_bytes
 tablegen_scratch_bytes equ \
     table_projective_bytes + table_points * table_prefix_bytes
-table_generator_phys equ 0x2c5e
-table_we1_phys equ 0x2c9e
-table_leaf_phys equ 0x2d35
+table_generator_phys equ 0x3220
+table_leaf_phys equ 0x32ad
 table_module_stack_bytes equ 512
 
 module_header:
@@ -198,20 +197,11 @@ module_select_point:
     cmp word [bx + tls13_286_span_len + 2], 0
     jne .bad
     cmp word [bx + tls13_286_span_off], table_generator_phys & 15
-    jne .try_we1
+    jne .try_leaf
     cmp word [bx + tls13_286_span_seg], table_generator_phys >> 4
-    jne .try_we1
+    jne .try_leaf
     mov word [table_input_phys], table_generator_phys
     mov word [table_expected_output_off], tls13_286_g_table_off
-    clc
-    ret
-.try_we1:
-    cmp word [bx + tls13_286_span_off], table_we1_phys & 15
-    jne .try_leaf
-    cmp word [bx + tls13_286_span_seg], table_we1_phys >> 4
-    jne .try_leaf
-    mov word [table_input_phys], table_we1_phys
-    mov word [table_expected_output_off], tls13_286_leaf_table_off
     clc
     ret
 .try_leaf:

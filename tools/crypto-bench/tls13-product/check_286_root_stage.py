@@ -45,8 +45,8 @@ FAT_DATA_START = 11
 CRYPTO_SEG = 0x7000
 CRYPTO_BASE = CRYPTO_SEG << 4
 HIGH_RESERVE = 0x10000
-PACK_BYTES = 44 * 512
-PACK_SECTORS = 44
+PACK_BYTES = 41 * 512
+PACK_SECTORS = 41
 COMPONENT_TEMP = 0x4230
 COMPONENT_TEMP_BYTES = 0x6300 - COMPONENT_TEMP
 FOOTER_HIGH = CRYPTO_BASE + 0xB602
@@ -144,8 +144,8 @@ def make_tail(
     mutate_entries: Callable[[list[Entry]], None] | None = None,
     mutate_footer: Callable[[bytearray], None] | None = None,
 ) -> Tail:
-    total = 270
     tail_start = 220
+    total = tail_start + 4 + PACK_SECTORS + 1 + 1
     root_start = tail_start
     pack_start = root_start + 4
     component_start = pack_start + PACK_SECTORS
@@ -577,7 +577,7 @@ def main() -> None:
 
     print("TLS13 286 ROOT STAGE PASS")
     print("  exact 0000:3400..3bff image + stable 3910 service table PASS")
-    print("  44-sector product pack cache/CRC/profile validation PASS")
+    print("  41-sector product pack cache/CRC/profile validation PASS")
     print("  bounded low LZ4 staging + complete compressed-stage wipe PASS")
     print("  complete 1800..33ff controller window + abort retirement PASS")
     print("  hostile footer/duplicate/read/CRC/bounds paths bootstrap-abort cleanly")

@@ -7,11 +7,13 @@
 ; length/tag accepts a forged cert.
 ;
 ; It enforces strict TLV bounds/minimal lengths for the walked fields,
-; positional Certificate/TBS structure, exact ECDSA-with-SHA256 algorithms,
+; positional Certificate/TBS structure, exact ECDSA-with-SHA256 algorithms
+; (SHA384 with X509_ISSUER_P384; callers supply its strict scalar parser),
 ; exact uncompressed P-256 SPKI,
 ; required leaf usage extensions, and exactly one SAN extension containing the
 ; exact host.  It extracts the TBS span, strict DER ECDSA signature, leaf point,
-; and validity fields.  Signature proof under WE1, point validation, hashing,
+; and validity fields. Signature proof under the caller's immutable issuer,
+; point validation, hashing,
 ; and trusted-time policy are separate phases.
 ;
 ; in:  SI = pointer to the leaf Certificate DER, CX = its total length.
@@ -160,7 +162,7 @@ x509_parse_leaf:
     jne     .reject
     DER_ASCEND                      ; [frame T released] -> Certificate level, cursor at outer sigAlg
 
-    ; ---- outer signatureAlgorithm == inner (== ecdsa-with-SHA256) ----
+    ; ---- outer signatureAlgorithm == inner (exact selected issuer profile) ----
     call    .read_sigalg
     jc      .reject
 
@@ -171,7 +173,11 @@ x509_parse_leaf:
     jne     .reject
     cmp     cx, 9                   ; 1 unused-bits byte + minimum 8-byte DER
     jb      .reject
+    %ifdef X509_ISSUER_P384
+    cmp     cx, 105                 ; unused-bits byte + maximum 104-byte DER
+%else
     cmp     cx, 73                  ; 1 unused-bits byte + maximum 72-byte DER
+%endif
     ja      .reject
     cmp     byte [di], 0x00
     jne     .reject
@@ -556,6 +562,9 @@ x509_check_positive_integer:
 ; Strict short-form-or-minimal-long-form DER ECDSA signature framing.
 ; Scalar order/range is rechecked by issuer_auth; this gate enforces canonical
 ; positive, nonzero, at-most-256-bit r/s.
+; The P-384 product profile supplies this entry using its strict verifier's
+; DER parser (including scalar-order checks), avoiding duplicate framing code.
+%ifndef X509_ISSUER_P384
 x509_check_ecdsa_signature:
     push    ax
     push    bx
@@ -612,6 +621,8 @@ x509_check_ecdsa_signature:
     pop     bx
     pop     ax
     ret
+
+%endif
 
 ; der_descend -- the called body of DER_DESCEND. Given der_read's outputs (DI=content, CX=len),
 ; saves the parent (cursor SI, bound [der_end]) and narrows the strict-DER window to [DI, DI+CX).
@@ -737,7 +748,11 @@ der_read_int:
 
 ; ---- constants ----
 x509_sigalg_content:                ; OID ecdsa-with-SHA256, absent parameters
+%ifdef X509_ISSUER_P384
+    db 0x06,0x08,0x2a,0x86,0x48,0xce,0x3d,0x04,0x03,0x03
+%else
     db 0x06,0x08,0x2a,0x86,0x48,0xce,0x3d,0x04,0x03,0x02
+%endif
 x509_spki_alg_content:              ; id-ecPublicKey + prime256v1
     db 0x06,0x07,0x2a,0x86,0x48,0xce,0x3d,0x02,0x01
     db 0x06,0x08,0x2a,0x86,0x48,0xce,0x3d,0x03,0x01,0x07

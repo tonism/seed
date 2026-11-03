@@ -89,6 +89,8 @@ TLS13_286_MLKEM_CHECK := tools/crypto-bench/tls13-product/check_mlkem_product_mo
 TLS13_286_X25519_CHECK := tools/crypto-bench/tls13-product/check_x25519_product_module.py
 TLS13_286_HELLO_CHECK := tools/crypto-bench/tls13-product/check_286_hello_controller.py
 TLS13_286_FLIGHT_CHECK := tools/crypto-bench/tls13-product/check_286_flight.py
+TLS13_286_ISSUER_CHECK := tools/crypto-bench/tls13-product/check_issuer_p384.py
+TLS13_286_AUTH_CHECK := tools/crypto-bench/tls13-product/check_286_auth.py
 TLS13_286_SERIALIZED_REPORT_TEST := tools/crypto-bench/tls13-product/test_run_286_tls13_serialized_gate.py
 TLS13_FAT_BUDGET_CHECK := tools/check-tls13-fat-budget.py
 TLS13_286_TAIL_GATE := $(BUILD_DIR)/tls13-286-product-tail.check
@@ -98,6 +100,7 @@ TLS13_PRODUCT_SOURCES := $(wildcard tools/crypto-bench/tls13-poc/*.py) \
 	$(wildcard tools/crypto-bench/tls13-product/*.py) \
 	$(wildcard tools/crypto-bench/tls13-product/*.asm) \
 	$(wildcard tools/crypto-bench/tls13-product/*.inc) \
+	$(wildcard tools/crypto-bench/tls13-product/fixtures/*) \
 	$(wildcard tools/crypto-bench/tls13-product/http2/*.py) \
 	$(wildcard tools/crypto-bench/tls13-product/http2/*.asm) \
 	tools/crypto-bench/tls13-product/http2/requirements.txt \
@@ -444,11 +447,13 @@ $(TLS13_286_TAIL_REPORT): $(TLS13_286_TAIL_ABI) $(TLS13_286_TAIL) $(TLS13_286_TA
 			--skip-dependency-build; \
 	fi
 
-$(TLS13_286_TAIL_GATE): $(TLS13_286_TAIL) $(TLS13_286_TAIL_ABI) $(TLS13_286_TAIL_REPORT) $(TLS13_286_TAIL_CHECK) $(TLS13_286_MLKEM_CHECK) $(TLS13_286_X25519_CHECK) $(TLS13_286_HELLO_CHECK) $(TLS13_286_FLIGHT_CHECK) $(TLS13_286_SERIALIZED_REPORT_TEST) $(TLS13_286_TAIL_BASE_SYS) | $(BUILD_DIR)
+$(TLS13_286_TAIL_GATE): $(TLS13_286_TAIL) $(TLS13_286_TAIL_ABI) $(TLS13_286_TAIL_REPORT) $(TLS13_286_TAIL_CHECK) $(TLS13_286_MLKEM_CHECK) $(TLS13_286_X25519_CHECK) $(TLS13_286_HELLO_CHECK) $(TLS13_286_FLIGHT_CHECK) $(TLS13_286_ISSUER_CHECK) $(TLS13_286_AUTH_CHECK) $(TLS13_286_SERIALIZED_REPORT_TEST) $(TLS13_286_TAIL_BASE_SYS) | $(BUILD_DIR)
 	python3 $(TLS13_286_MLKEM_CHECK)
 	python3 $(TLS13_286_X25519_CHECK)
 	python3 $(TLS13_286_HELLO_CHECK)
 	python3 $(TLS13_286_FLIGHT_CHECK)
+	python3 $(TLS13_286_ISSUER_CHECK)
+	python3 $(TLS13_286_AUTH_CHECK)
 	python3 -m unittest $(TLS13_286_SERIALIZED_REPORT_TEST)
 	python3 $(TLS13_286_TAIL_CHECK) \
 		--prefix $(TLS13_286_TAIL_BASE_SYS) \

@@ -72,7 +72,7 @@ RTC_VALUE = bytes.fromhex("202607301425365aa5")
 CRYPTO_BASE = 0x70000
 HIGH_RESERVE = 0x10000
 RTC_HIGH = CRYPTO_BASE + RTC_HIGH_OFF
-ESCROW_CONFIG = CRYPTO_BASE + 0xA31C
+ESCROW_CONFIG = CRYPTO_BASE + 0x5200
 ESCROW_LOW = CRYPTO_BASE + 0xB552
 ESCROW_FOOTER = CRYPTO_BASE + 0xB602
 ESCROW_META = CRYPTO_BASE + 0xB862
@@ -257,7 +257,7 @@ class Machine:
             self.corrupt_escrow_copy
             and not self.escrow_copy_corrupted
             and uc.reg_read(UC_X86_REG_DS) == (CRYPTO_BASE >> 4)
-            and uc.reg_read(UC_X86_REG_SI) == 0xA31C
+            and uc.reg_read(UC_X86_REG_SI) == 0x5200
             and uc.reg_read(UC_X86_REG_CX) == CONFIG_BYTES
         ):
             uc.mem_write(ESCROW_CONFIG, b"\xA5")

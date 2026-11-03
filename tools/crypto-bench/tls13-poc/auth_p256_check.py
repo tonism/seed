@@ -45,8 +45,10 @@ ORACLE_SOURCE = (
     ROOT / "tools/crypto-bench/tls13-spike/auth_integrated_oracle.py"
 )
 LIVE_CHAIN = ROOT / "tools/x509/certs/ecdsa_live_chain.pem"
-LIVE_LEAF = HERE / "issuer_auth_live_leaf.pem"
-LIVE_VECTOR = HERE / "issuer_auth_live_vector.json"
+PRODUCT_FIXTURES = HERE.parent / "tls13-product/fixtures"
+PRODUCT_CHAIN = PRODUCT_FIXTURES / "provider_auth_live_chain.pem"
+LIVE_LEAF = PRODUCT_FIXTURES / "provider_auth_live_leaf.pem"
+LIVE_VECTOR = PRODUCT_FIXTURES / "provider_auth_live_vector.json"
 
 ORIGIN = 0x1800
 K_END = 0x3600
@@ -941,17 +943,17 @@ def live_compact_gate(
     if spki_digest.hex() != vector["leaf"]["spki_sha256"]:
         raise AssertionError("live leaf SPKI differs from vector")
 
-    chain = split_pem_chain(LIVE_CHAIN.read_bytes())
+    chain = split_pem_chain(PRODUCT_CHAIN.read_bytes())
     if len(chain) < 2:
-        raise AssertionError("tracked ECDSA chain no longer contains WE1")
+        raise AssertionError("tracked ECDSA chain no longer contains the current issuer")
     capture = dt.datetime.fromisoformat(vector["captured_utc"])
     if capture.tzinfo is None:
         raise AssertionError("live capture time lost its UTC offset")
-    we1_path = directory / "auth-p256-live-we1.pem"
+    issuer_path = directory / "auth-p256-live-issuer.pem"
     public_path = directory / "auth-p256-live-public.pem"
     signed_path = directory / "auth-p256-live-cv-signed.bin"
     signature_path = directory / "auth-p256-live-cv.der"
-    we1_path.write_bytes(chain[1])
+    issuer_path.write_bytes(chain[1])
     public_path.write_bytes(public_pem)
     signed_path.write_bytes(signed_input)
     signature_path.write_bytes(signature)
@@ -963,7 +965,7 @@ def live_compact_gate(
             "-no-CAfile",
             "-no-CApath",
             "-trusted",
-            str(we1_path),
+            str(issuer_path),
             "-partial_chain",
             "-verify_hostname",
             "api.openai.com",
@@ -978,7 +980,7 @@ def live_compact_gate(
     )
     if leaf_verify.returncode:
         raise AssertionError(
-            "live leaf fails WE1/name/time/purpose validation: "
+            "live leaf fails issuer/name/time/purpose validation: "
             + (leaf_verify.stderr or leaf_verify.stdout).strip()
         )
     leaf_text = subprocess.run(
@@ -988,7 +990,7 @@ def live_compact_gate(
         text=True,
     ).stdout
     for required in (
-        "Signature Algorithm: ecdsa-with-SHA256",
+        "Signature Algorithm: ecdsa-with-SHA384",
         "Public Key Algorithm: id-ecPublicKey",
         "ASN1 OID: prime256v1",
         "TLS Web Server Authentication",
@@ -1126,7 +1128,7 @@ def live_compact_gate(
         "captured_utc": vector["captured_utc"],
         "credential_sent": False,
         "host_validation": {
-            "we1_chain": True,
+            "issuer_chain": True,
             "hostname": "api.openai.com",
             "capture_time": True,
             "server_purpose_and_leaf_profile": True,

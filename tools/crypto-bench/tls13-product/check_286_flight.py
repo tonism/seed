@@ -6,6 +6,9 @@ from __future__ import annotations
 import hashlib
 import hmac
 import importlib.util
+import base64
+import json
+import re
 from collections import deque
 from pathlib import Path
 import struct
@@ -73,7 +76,7 @@ LOOP_SHADOW_DATA_OFF = 16
 LOOP_SHADOW_BYTES = LOOP_SHADOW_DATA_OFF + LOOP_CACHE_BYTES
 LOOP_SHADOW_BASE = CRYPTO_BASE - LOOP_SHADOW_BYTES
 PACK_CACHE_OFF = 0x0000
-PACK_CACHE_BYTES = 22528
+PACK_CACHE_BYTES = 20992
 BDA_MEMORY_KB = 0x0413
 HANDOFF_STATUS = 0x0619
 DPI_REACHED = 0x3CA2
@@ -131,7 +134,7 @@ RESUMPTION_EARLY_STATUS_INV = (
 RESUMPTION_EARLY_STATUS = RESUMPTION_EARLY_STATUS_INV + 1
 TICKET_TENTATIVE = b"\x5a\xa5"
 TICKET_USED = b"\x96\x69"
-ESCROW_CONFIG_OFF = 0xA31C
+ESCROW_CONFIG_OFF = 0x5200
 ESCROW_CONFIG_SOURCE = 0x3B9C
 ESCROW_CONFIG_BYTES = 0x0464
 ESCROW_LOW_OFF = 0xB552
@@ -240,7 +243,7 @@ FLIGHT_RECORD_PLAIN_MAX = (1 << 14) + 256 - 16
 RECORD_PLAIN_OFF = HIGH_BYTES - FLIGHT_RECORD_PLAIN_MAX
 SYM_STAGE_OFF = RECORD_PLAIN_OFF
 SYM_STAGE_BYTES = 12 * 512
-LIVE_PROTECTED_PLAIN = 2621
+LIVE_PROTECTED_PLAIN = 3589
 USED_INV = 0xC3
 USED = 0x3C
 def h2_frame(kind, flags=0, stream=0, payload=b''):
@@ -286,24 +289,30 @@ def hs(kind: int, body: bytes) -> bytes:
     return bytes([kind]) + len(body).to_bytes(3, "big") + body
 
 
-def build_fixture() -> dict[str, object]:
+def build_fixture(certificate_bytes: int | None = None) -> dict[str, object]:
     integrated = ORACLE.build_integrated_fixture()
     hello = integrated.client_hello + integrated.server_hello
     hybrid = integrated.candidate_mlkem_secret + integrated.server_x25519_public
     handshake = CHECK.derive_handshake(hybrid, hello)
     ee = hs(8, H2_EE)
-    certificate_der = (
-        b"\x30\x82\x09\x5c"
-        + bytes((index * 17 + 9) & 0xFF for index in range(2396))
-    )
-    certificate_entry = (
-        len(certificate_der).to_bytes(3, "big")
-        + certificate_der
-        + b"\x00\x00"
+    chain_pem = (HERE / "fixtures/provider_auth_live_chain.pem").read_bytes()
+    chain = [base64.b64decode(value) for value in re.findall(
+        rb"-----BEGIN CERTIFICATE-----\s*(.*?)\s*-----END CERTIFICATE-----",
+        chain_pem, re.S,
+    )]
+    if certificate_bytes is not None:
+        ordinary_bytes = 8 + sum(len(cert) + 5 for cert in chain)
+        assert certificate_bytes >= ordinary_bytes
+        # Preserve the complete TLS list/entry framing and bounded leaf.
+        # This unused issuer entry is opaque to the protected-flight parser.
+        chain[-1] += bytes(certificate_bytes - ordinary_bytes)
+    certificate_entry = b"".join(
+        len(cert).to_bytes(3, "big") + cert + b"\x00\x00" for cert in chain
     )
     certificate_list = len(certificate_entry).to_bytes(3, "big") + certificate_entry
     certificate = hs(11, b"\x00" + certificate_list)
-    signature = bytes.fromhex("3006020101020101")
+    vector = json.loads((HERE / "fixtures/provider_auth_live_vector.json").read_text())
+    signature = bytes.fromhex(vector["certificate_verify"]["signature_der"])
     cv = hs(15, b"\x04\x03" + len(signature).to_bytes(2, "big") + signature)
     before_finished = hello + ee + certificate + cv
     verify = hmac.new(
@@ -547,13 +556,14 @@ def build_fixture() -> dict[str, object]:
         for sequence, (content_type, payload) in enumerate(resume_post_parts)
     ]
     resume_publish_after_records = len(resume_post_parts)
+    live_plain_bytes = max(LIVE_PROTECTED_PLAIN, len(content) + 1)
     live_record = BASE.encrypted_record(
         handshake["server_key"],
         handshake["server_iv"],
         0,
         ORACLE.CONTENT_HANDSHAKE,
         content,
-        padding_len=LIVE_PROTECTED_PLAIN - len(content) - 1,
+        padding_len=live_plain_bytes - len(content) - 1,
     )
     max_record = BASE.encrypted_record(
         handshake["server_key"],
@@ -571,7 +581,7 @@ def build_fixture() -> dict[str, object]:
         content,
         padding_len=FLIGHT_RECORD_PLAIN_MAX + 1 - len(content) - 1,
     )
-    if len(live_record) - 5 - 16 != LIVE_PROTECTED_PLAIN:
+    if len(live_record) - 5 - 16 != live_plain_bytes:
         raise AssertionError("live protected-record geometry drifted")
     if len(max_record) - 5 - 16 != FLIGHT_RECORD_PLAIN_MAX:
         raise AssertionError("maximum protected-record geometry drifted")
@@ -1754,7 +1764,7 @@ def main() -> None:
     live_shape.run()
     if live_shape.chain_kind != 6 or live_shape.success:
         raise AssertionError(
-            "flight rejected OpenAI's 2621-byte protected plaintext shape"
+            "flight rejected OpenAI's current protected plaintext shape"
         )
 
     maximum = FlightMachine(
@@ -1768,6 +1778,19 @@ def main() -> None:
             "flight rejected the maximum conforming TLS 1.3 plaintext"
         )
     assert_capture_memory_boundary(maximum, "maximum protected record")
+
+    for certificate_bytes, accepted in ((4096, True), (4097, False)):
+        # The flight quarantines complete messages; strict X.509 structure is
+        # authenticated separately by the real offline-auth controller gate.
+        boundary_fixture = build_fixture(certificate_bytes=certificate_bytes)
+        boundary = FlightMachine(boundary_fixture, resumed=False)
+        boundary.run()
+        if (boundary.chain_kind == 6) != accepted:
+            raise AssertionError(f"Certificate quarantine bound failed: {certificate_bytes}")
+        if accepted:
+            assert_capture_memory_boundary(boundary, "4 KiB Certificate")
+        else:
+            assert_abort_boundary(boundary, "over-cap Certificate")
 
     oversized = FlightMachine(
         fixture,

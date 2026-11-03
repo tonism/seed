@@ -12,10 +12,9 @@ org 0x1000
 
 bench_crypto_seg equ BENCH_CRYPTO_SEG
 bench_stack_top equ 0x8000
-auth_generator_point equ 0x2c5e
-auth_we1_point equ 0x2c9e
-auth_desc equ 0x2d01
-auth_leaf_point equ 0x2d35
+auth_generator_point equ 0x3220
+auth_desc equ 0x3279
+auth_leaf_point equ 0x32ad
 tablegen_scratch_bytes equ 16256
 
 %define HIGH_SEG(object_off) (bench_crypto_seg + ((object_off) >> 4))
@@ -415,13 +414,6 @@ generator_x:
 generator_y:
     dw 20981,14271,16488,52150,24270,27441,13143,11214
     dw 40470,31759,60234,36583,32667,65050,17122,20451
-
-; Preserve the authentication controller's exact immutable WE1 geometry even
-; though this timing image exercises the generator mapping.
-    dw 60806,54652,14311,50713,6021,49500,3904,22599
-    dw 23995,49735,34112,8451,18252,26455,15102,28621
-    dw 64086,3842,9659,58918,39157,11302,22927,65296
-    dw 59550,50374,63640,2563,5029,55066,33241,19355
 
 times (auth_desc - 0x1000) - ($ - $$) db 0
 operation_desc:

@@ -46,7 +46,7 @@ tls13_286_record_plain_bytes       equ \
 tls13_286_record_plain_off         equ \
     tls13_286_high_reserve_bytes - tls13_286_record_plain_bytes
 tls13_286_pack_cache_off           equ 0x0000
-tls13_286_pack_cache_bytes         equ 22528
+tls13_286_pack_cache_bytes         equ 20992
 tls13_286_g_table_off              equ 0x5800
 tls13_286_w7_table_bytes           equ 8128
 ; Before table generation this public table window is the raw, unconditioned
@@ -75,12 +75,10 @@ tls13_286_candidate_status_valid    equ 0xa5
 tls13_286_candidate_status_inverse  equ 0x5a
 tls13_286_leaf_table_off           equ 0x77c0
 tls13_286_certificate_off          equ 0x9780
-; OpenAI is the sole current provider.  Bound its complete Certificate
-; handshake to 2,972 bytes (the exact product fixture is 2,413 bytes) and use
-; the remaining gap before private state for one contiguous authenticated
-; snapshot of 0x3b9c..0x3fff.  That includes the complete low band HELLO
-; necessarily reuses as SHA/controller work.
-tls13_286_certificate_max          equ 0x0b9c
+; The current ordinary four-certificate flight is 3,434 bytes. Bound the
+; complete handshake to 4 KiB without moving any private-state slot. The
+; low config snapshot occupies retired pack padding below the G table.
+tls13_286_certificate_max          equ 4096
 tls13_286_private_off              equ 0xa780
 tls13_286_mlkem_dk_off             equ tls13_286_private_off
 tls13_286_mlkem_dk_bytes           equ 2400
@@ -115,8 +113,7 @@ tls13_286_metadata_bytes           equ \
 ; UI/control block here, then validates them before either abort restoration
 ; or final publication.  A complete validated tail footer is retained beside
 ; the snapshots so later stages never trust low scratch after it is reused.
-tls13_286_escrow_config_off         equ \
-    tls13_286_certificate_off + tls13_286_certificate_max
+tls13_286_escrow_config_off         equ 0x5200
 tls13_286_escrow_config_source      equ 0x3b9c
 tls13_286_escrow_config_bytes       equ \
     0x4000 - tls13_286_escrow_config_source
@@ -393,9 +390,14 @@ tls13_286_escrow_status_inverse     equ 0x5a
 %if tls13_286_leaf_table_off + tls13_286_w7_table_bytes > tls13_286_certificate_off
 %error "TLS 1.3 286 leaf table overlaps captured Certificate"
 %endif
-%if tls13_286_escrow_config_off + tls13_286_escrow_config_bytes != \
-    tls13_286_private_off
-%error "TLS 1.3 286 full low-state escrow no longer fills the certificate gap"
+%if tls13_286_certificate_off + tls13_286_certificate_max > tls13_286_private_off
+%error "TLS 1.3 286 Certificate quarantine overlaps private state"
+%endif
+%if tls13_286_pack_cache_off + tls13_286_pack_cache_bytes > tls13_286_escrow_config_off
+%error "TLS 1.3 286 pack cache overlaps config escrow"
+%endif
+%if tls13_286_escrow_config_off + tls13_286_escrow_config_bytes > tls13_286_g_table_off
+%error "TLS 1.3 286 config escrow overlaps G table"
 %endif
 %if tls13_286_mlkem_dk_off + tls13_286_mlkem_dk_bytes > tls13_286_entropy_seed_off
 %error "TLS 1.3 286 ML-KEM decapsulation key overlaps entropy seed"

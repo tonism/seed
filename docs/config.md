@@ -63,14 +63,15 @@ until their tier-specific capability is committed:
 - On the 8088 profile, only TLS handshake state, one bounded
   tentative ticket, and the compiled credential-free liveness request are
   reachable during provisional and quarantine states. The fresh connection
-  must authenticate both its HEAD response and tentative ticket; a close
+  must authenticate both peer SETTINGS/ACK and its tentative ticket; a close
   before either completes fails the attempt. Full ML-KEM FO validation, exact
   dated leaf possession, CertificateVerify, and a no-0RTT resumed connection
-  with authenticated post-Finished HEAD liveness must precede status-last
+  with authenticated post-Finished H2 liveness must precede status-last
   route promotion.
 - On the 286 conforming profile, acquisition may transmit only the immutable
-  credential-free HEAD and retain an authenticated ticket as tentative state.
-  Full ML-KEM FO comparison and strict WE1/hostname/UTC/CV authentication must
+  credential-free H2 preface/SETTINGS and retain an authenticated ticket as
+  tentative state.
+  Full ML-KEM FO comparison and strict YE2/hostname/UTC/CV authentication must
   promote that ticket before the final no-0RTT PSK-DHE connection can consume
   it. The final connection must use an independent full hybrid exchange, a
   valid binder with `selected_identity=0`, full decapsulation, and a verified
@@ -97,7 +98,7 @@ no dependency on writes succeeding
 ```
 
 TLS 1.3 trust is not stored in a mutable leaf file. `SEED/LEAF.DER` is absent:
-the 8088 exact-leaf object and the 286 WE1 issuer point are immutable program
+the 8088 exact-leaf object and the 286 YE2 issuer point are immutable program
 assets in `SEED.SYS`; same-boot leaf objects and generated tables are volatile
 RAM state.
 

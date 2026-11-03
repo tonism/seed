@@ -85,7 +85,7 @@ def main() -> None:
         machine.hook_add(UC_HOOK_CODE, clock, begin=address, end=address)
     machine.hook_add(UC_HOOK_CODE, stop, begin=halt, end=halt)
     machine.hook_add(UC_HOOK_INTR, bios)
-    machine.hook_add(UC_HOOK_CODE, trace, begin=0xc000, end=0xc700)
+    machine.hook_add(UC_HOOK_CODE, trace, begin=0xc200, end=0xc900)
     machine.hook_add(UC_HOOK_INSN, port_in, None, 1, 0, UC_X86_INS_IN)
     machine.hook_add(UC_HOOK_INSN, port_out, None, 1, 0, UC_X86_INS_OUT)
     machine.emu_start(LOAD, 1024 * 1024, count=20_000_000)

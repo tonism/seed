@@ -22,9 +22,12 @@ exchange:
     jc failed
     cmp byte [tls_app_content_type], 0x16
     je .receive                       ; normal owner validated/drained NST
+    call fast_data
+    jnc .parsed
     mov ax, 4
     call exchange_h2
     jc failed
+.parsed:
     cmp word [h2+45], 0               ; final HTTP status not known yet
     je .accepted_status
     cmp word [h2+45], 200
@@ -165,4 +168,45 @@ window_frame:
     mov ax, bx
     xchg al, ah
     stosw
+    ret
+
+; Eligible complete DATA is processed only after the receiver authenticated
+; the whole record. Anything else reaches the unchanged shared parser.
+fast_data:
+    test byte [di+5], 0x80           ; reserved stream bit uses the general parser
+    jnz .fallback
+    call request_aux_response_check
+    jc .fallback
+    mov ax, [h2+36]
+    mov dx, [h2+38]
+    add ax, cx
+    adc dx, 0
+    jc .fallback
+    cmp byte [h2+44], 0
+    je .publish
+    cmp dx, [h2+42]
+    ja .fallback
+    jb .publish
+    cmp ax, [h2+40]
+    ja .fallback
+.publish:
+    mov [h2+36], ax
+    mov [h2+38], dx
+    ; Reproduce all persistent parser state, including the completed header.
+    cld
+    mov bp, cx
+    mov si, di
+    mov di, h2
+    mov cx, 9
+    rep movsb
+    mov [h2+12], bp
+    xor ax, ax
+    mov [h2+14], ax
+    mov [h2+58], al
+    mov ax, bp
+    xor bx, bx
+    xor cx, cx
+    ret                              ; XOR clears carry
+.fallback:
+    stc
     ret

@@ -50,14 +50,14 @@ STATE = 0x4024
 STATE_BYTES = 18
 STATE_CACHE_SEG = 0
 STATE_CACHE_CAPACITY = 2
-PACK_CACHE_BYTES = 22528
+PACK_CACHE_BYTES = 20992
 CONTROLLER_START = 0x1800
 CONTROLLER_LIMIT = 0x3400
-DESC = 0x2D01
+DESC = 0x3279
 DESC_BYTES = 52
-GENERATOR = 0x2C5E
-WE1 = 0x2C9E
-LEAF = 0x2D35
+GENERATOR = 0x3220
+OLD_ISSUER_SLOT = 0x2C9E
+LEAF = 0x32AD
 RECORD_PLAIN_OFF = 0xBF10
 SCRATCH_BYTES = 16256
 G_TABLE_OFF = 0x5800
@@ -188,7 +188,7 @@ def new_machine(
     machine.mem_map(0, 0x100000)
     machine.mem_write(ORIGIN, image)
     auth = AUTH.read_bytes()
-    for physical in (GENERATOR, WE1):
+    for physical in (GENERATOR,):
         start = physical - CONTROLLER_START
         machine.mem_write(physical, auth[start : start + 64])
     # The parsed leaf is mutable in product, but a valid generator is enough
@@ -313,7 +313,6 @@ def main() -> None:
     mutable_start = label_address(LISTING, "module_mutable_start", ORIGIN)
     exact_symbols = {
         "auth_generator_point": GENERATOR,
-        "auth_we1_point": WE1,
         "auth_desc": DESC,
         "auth_leaf_point": LEAF,
     }
@@ -396,7 +395,7 @@ def main() -> None:
     )
     reject(
         "we1-to-g",
-        descriptor(0x7000, point=WE1, output_off=G_TABLE_OFF),
+        descriptor(0x7000, point=OLD_ISSUER_SLOT, output_off=G_TABLE_OFF),
         ERROR_BOUNDS,
     )
     reject(

@@ -194,7 +194,7 @@ FAT12 builder     nested 8.3 directory support for the scoped runtime layout
 splash order      draw the CPU-class splash before driver loading/failure handling
 floppy policy     startup reads only; user save/config writes only when requested
 TLS trust         no SEED/LEAF.DER in the TLS 1.3 image; immutable exact-leaf
-                  and WE1 objects plus volatile same-boot RAM state
+                  and YE2 objects plus volatile same-boot RAM state
 NE.DRV            shared NE/DP8390 driver validated on 16-bit NE2000 and Novell NE2000
 NE PnP            RTL8019AS and DE-220P ISA PnP activation, then shared NE.DRV
 NE PCI            RTL8029AS PCI BIOS discovery, then shared NE.DRV
@@ -248,11 +248,11 @@ provider          OpenAI/api.openai.com only
 8088 floor        4.77 MHz, 16 KiB; bounded Seed boundary, effective
                   ML-KEM-only KEX, deferred FO and exact-leaf/CV proof
 8088 route        provisional Finished + authenticated credential-free
-                  HEAD/NST; offline full FO/exact-leaf/CV; final no-0RTT
-                  resumption with fresh KEM work and post-Finished HEAD
+                  H2 preface/SETTINGS/NST; offline full FO/exact-leaf/CV; final
+                  no-0RTT resumption with fresh KEM work and H2 liveness
 286 floor         6 MHz, 512 KiB; fully conforming X25519MLKEM768,
-                  WE1/hostname/UTC-validity/CV authentication
-286 route         provisional acquisition + credential-free HEAD/NST;
+                  YE2 P-384/SHA-384 and hostname/UTC-validity/CV authentication
+286 route         provisional acquisition + credential-free H2 preface/SETTINGS/NST;
                   offline full FO/X.509/CV promotion; final no-0RTT PSK-DHE
                   resumption with independent hybrid keys and strict EE->Finished
 286 pre-TCP       12-sector symmetric image, with the 8088 raw-writer tail
@@ -260,19 +260,21 @@ provider          OpenAI/api.openai.com only
                   state operand verified;
                   complemented early-derived value; 4,608-byte / nine-polynomial
                   public ML-KEM matrix; all status-last, one-shot, and fail-closed
-286 timing        current serialized 6 MHz structural gate passes; normalized
-                  successful cold route is 186.7 s power-on-to-DPI
-286 live gate     current read-only exact-floor four-flow gate passes at
-                  8.8880 / 8.6428 / 8.9518 / 8.6425 s; authenticated
-                  FORTYTWO response and DPI return
+286 timing        current serialized 6 MHz structural gate passes; the new
+                  SHA-384/P-384 issuer component takes 1,572 ticks / 86.3427 s
+                  outside the provider deadline, excluding the rest of authentication
+286 live gate     current read-only exact-floor four-flow gate passes;
+                  authenticated dependent replies, native write/execute/read,
+                  session reuse, ten-minute idle and one bounded reconnect
 8088 live gate    current read-only 16 KiB four-flow captures pass on all seven
-                  original-speed ISA profiles; worst interval 13.7898 s;
+                  original-speed ISA profiles; first response and post-idle reconnect;
                   authenticated response, reuse, and bounded reconnect
-8088 activity     404.3 s harnessed power-on-to-DPI: 59.1 s ROM BASIC entry
-                  plus 345.2 s Seed runtime; reused test turn is 64.3 s
-286 activity      one provider-edge sweep exercised a 117.8 s bounded pre-text
-                  retry and completed in 304.5 s; strict clean topology remains
-                  the four-flow acceptance capture above
+8088 activity     historical HTTP/1 sample: 404.3 s harnessed power-on-to-DPI;
+                  59.1 s ROM BASIC entry plus 345.2 s Seed runtime;
+                  reused test turn is 64.3 s
+286 activity      historical WE1/HTTP/1 sample: a 117.8 s bounded pre-text
+                  retry completed in 304.5 s; the normalized clean route was
+                  186.7 s. These are not current YE2 route timings
 failure/visual    hostile/torn/abort and conventional-RAM guard gates pass;
                   NIC-present CGA/MDA screens are clean; current no-card
                   CGA/MDA and isolated no-driver retry/restart menus pass
@@ -283,7 +285,7 @@ reconnect         one fresh same-request retry only for a human no-text failure;
 resident          four sectors / 2,048 bytes, unchanged
 SEED.SYS          150,016 bytes / 293 sectors in the current integration image
 8088 pack         130 cold sectors at file sectors 45..174
-286 tail          82 sectors at file sectors 212..293; 44-sector module pack
+286 tail          82 sectors at file sectors 212..293; 41-sector module pack
 286 RAM reserve   top 64 KiB conventional; 512 KiB floor leaves 192 KiB arena
                   and 192 KiB context under the current 50/50 split
 FAT budget        293 runtime + 15 auxiliary sectors use 308/309 data sectors;
@@ -298,9 +300,20 @@ module, dispatch, FAT, driver/image build, both exact-floor live routes,
 reuse/reconnect, CGA/MDA display, read-only media, failure menus, and the
 seven-NIC matrix pass. Representative physical timing samples from the 8088's
 already-required floppy reads and from the 286 RTC/PIT source, plus more
-cold-boot/provider-edge repetition, remain release gates. The exact-floor
-boot/activity timelines are current; repeat them if timing-affecting source or
-the measured model/reasoning profile changes.
+cold-boot/provider-edge repetition, remain release gates. The earlier
+boot/activity timelines remain historical; the current issuer component
+timing is recorded separately from whole-route latency.
+
+The current issuer compatibility checkpoint refreshes the immutable 8088
+leaf and authenticates the 286 leaf under the independently verified YE2
+P-384 key using target SHA-384/P-384 code. A 4 KiB Certificate quarantine fits
+inside the same 64 KiB reservation by moving config escrow into removed pack
+padding. The auth controller occupies twelve sectors; the complete image
+remains 293 sectors. Build/inspection/BASIC, twenty HTTP/2 gates, sixteen
+standalone TLS and fixture guards, serialized 286 timing, and nine reviewed
+live cases with 27 prompted turns pass. Prior failed runs remain recorded in
+[the campaign ledger](optimization-campaign.md#opt-028--provider-certificate-and-issuer-compatibility-repair).
+The runtime splash number is unchanged.
 
 ## Forward-looking ideas
 

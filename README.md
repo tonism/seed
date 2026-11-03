@@ -52,23 +52,23 @@ reboot from known, preferably write-protected media is the recovery boundary.
 | Floor | Route | Honest claim |
 | --- | --- | --- |
 | 4.77 MHz 8088, 16 KiB | TLS 1.3 wire protocol, SHA-256, ChaCha20-Poly1305, genuine ML-KEM-768 contribution; fixed X25519 `u=9` | bounded Seed credential-release boundary; effective ML-KEM-only and deferred authentication, not standards-conforming hybrid TLS |
-| 6 MHz 286, 512 KiB | real ML-KEM-768 + real X25519, strict WE1/leaf/time/CV authentication | fully standards-conforming TLS 1.3 `X25519MLKEM768` protocol path |
+| 6 MHz 286, 512 KiB | real ML-KEM-768 + real X25519, strict YE2 P-384/SHA-384 and leaf/time/CV authentication | fully standards-conforming TLS 1.3 `X25519MLKEM768` protocol path |
 
 The 8088 permits only TLS handshake completion, the compiled credential-free
-HEAD probe, and a bounded tentative ticket before full Fujisaki-Okamoto
+H2 preface/SETTINGS, and a bounded tentative ticket before full Fujisaki-Okamoto
 validation and exact dated-leaf possession complete. The fresh connection
-must authenticate both the HEAD response and ticket; a close before either
+must authenticate both the SETTINGS/ACK and ticket; a close before either
 fails the attempt. After offline proof, a no-0RTT resumed connection performs
-fresh KEM work, sends its HEAD only after Finished, and authenticates that
-response before status-last route promotion. The API key, prompt, context,
+fresh KEM work, sends its H2 preface/SETTINGS only after Finished, and
+authenticates peer SETTINGS/ACK before status-last route promotion. The API key, prompt, context,
 redirects, and business request remain unreachable throughout. The ticket is
 volatile, survives neither restart nor failed proof, and grants no credential
 access by itself.
 
 The 286 first authenticates a credential-free acquisition: candidate ML-KEM
 plus real X25519, protected-flight/Finished verification, client Finished, the
-literal HEAD, and an authenticated tentative ticket. It then completes full
-FO and strict WE1/hostname/UTC/CertificateVerify checks offline. Only a
+literal H2 preface/SETTINGS, and an authenticated tentative ticket. It then
+completes full FO and strict YE2/hostname/UTC/CertificateVerify checks offline. Only a
 promoted same-boot ticket can enter the final no-0RTT PSK-DHE connection,
 which uses independent hybrid keys, a real binder, full decapsulation, and a
 strict resumed Finished before credentials become reachable. The ticket and

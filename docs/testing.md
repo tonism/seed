@@ -109,8 +109,8 @@ never by source port.
 
 ## TLS 1.3 acceptance gates
 
-The TLS 1.3 source is integrated. Its current HTTP/2 transport is undergoing
-fresh exact-floor repetition, reconnect and native-program validation. Older
+The TLS 1.3 source is integrated. Its current HTTP/2 transport passes
+exact-floor repetition, reconnect and native-program validation. Older
 HTTP/1 captures below remain regression history. Offline gates never replace
 live target results, and emulator timing receives no physical entropy credit.
 See [http2.md](http2.md) for the current memory and protocol contract.
@@ -143,7 +143,10 @@ image in `ocr-observation.json`. This separate review requires the correct
 complete result, a recognized returned prompt, and completion within the
 original native observer budget. Preserve the automatic miss and distinguish
 the observed numeric compliance from automatic detection; neither review path
-may excuse a runtime failure.
+may excuse a runtime failure. The native scenario also requires exactly one
+write, one execute and one read. A correct final value after repeated actions
+does not pass that scenario; retain the attempt separately from any later
+unchanged repeat.
 
 Run the product-level offline gates:
 
@@ -185,9 +188,10 @@ polynomials and removes 27 matrix SHAKE128 permutations from live
 decapsulation. The v4 report measures post-connect HELLO TX/RX wrappers and
 protected-flight controllers, but still excludes named resident
 connect/load/NIC work and complete offline authentication timing. The current
-live exact-floor monitors are recorded in
-[`architecture.md`](architecture.md#historical-exact-floor-activity-timelines).
-Rerun both the serialized gate and those monitors after timing-affecting source,
+live exact-floor captures are bound in the [campaign ledger](optimization-campaign.md).
+The activity timelines in
+[`architecture.md`](architecture.md#historical-exact-floor-activity-timelines)
+are historical. Rerun the serialized gate and live monitors after timing-affecting source,
 model, or provider changes; do not substitute the structural report for a live
 measurement. Run the cache/controller hostile gates alongside the timing model:
 
@@ -206,10 +210,25 @@ client Finished or application publication. Matrix payload corruption must
 take the full implicit-rejection path and then fail server Finished, never
 becoming a candidate-only shortcut.
 
+The issuer repair additionally requires the shipping SHA-384/P-384 gate,
+complete authentication controller and current-chain flight gate:
+
+```sh
+python3 tools/crypto-bench/tls13-product/check_issuer_p384.py
+python3 tools/crypto-bench/tls13-product/check_286_auth.py
+python3 tools/crypto-bench/tls13-product/check_286_flight.py
+```
+
+These cover independent arithmetic/hash oracles, strict signature scalars,
+changed issuer signatures, SHA-256 substitution, date/hostname failures,
+status-last ticket promotion and scratch retirement. The flight gate accepts
+a correctly framed 4,096-byte Certificate and refuses 4,097 bytes. Historical
+WE1 fixtures remain separate from the current public provider fixture.
+
 The final 286 gate is a 6 MHz, 512 KiB pcap
 showing a provisional hybrid acquisition, verified protected flight, client
 Finished plus the immutable credential-free H2 preface/SETTINGS, peer SETTINGS/ACK and
-NewSessionTicket capture, offline full FO/X.509/hostname/UTC/WE1/CV
+NewSessionTicket capture, offline full FO/X.509/hostname/UTC/YE2/CV
 authentication, and a final no-0RTT PSK-DHE resumption. The final connection
 must use independent ML-KEM/X25519 keys, a correct binder,
 `selected_identity=0`, the three pre-TCP cache lifecycles, full FO after

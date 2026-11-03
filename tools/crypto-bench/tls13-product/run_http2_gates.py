@@ -45,7 +45,7 @@ def main():
         (out/'floppy-160k.img').write_bytes(args.image.read_bytes())
     env = dict(os.environ, SEED_HTTP2_TEST_IMAGE=str(out))
     gates = ('tls_receiver', 'phase_bridge', 'h2_outbound', 'h2_requests', 'h2_cold_send',
-             'h2_far_requests', 'h2_exchange', 'h2_receive_credit', 'h2_scheduler', 'h2_tools', 'h2_tool_prompt', 'h2_env', 'h2_publication',
+             'h2_far_requests', 'h2_exchange', 'h2_receive_credit', 'h2_fast_data', 'h2_scheduler', 'h2_tools', 'h2_tool_prompt', 'h2_env', 'h2_publication',
              'h2_tcp_window', 'h2_request_failures', 'h2_nst',
              'h2_normal_nst', 'h2_handshake', 'h2_liveness')
     if args.only:

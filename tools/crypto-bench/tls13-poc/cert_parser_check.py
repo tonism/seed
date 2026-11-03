@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import datetime as dt
 import hashlib
 import json
 import re
@@ -14,6 +15,7 @@ import tempfile
 from pathlib import Path
 from typing import Iterable, Sequence
 
+from cryptography import x509
 from unicorn import UC_ARCH_X86, UC_HOOK_CODE, UC_MODE_16, Uc
 from unicorn.x86_const import (
     UC_X86_REG_AX,
@@ -42,6 +44,16 @@ SYM_SOURCE = HERE / "tls13_sym_overlay.asm"
 LIVE_LEAF = HERE / "issuer_auth_live_leaf.pem"
 LIVE_VECTOR = HERE / "issuer_auth_live_vector.json"
 TRACKED_CHAIN = ROOT / "tools/x509/certs/ecdsa_live_chain.pem"
+
+# Keep this historical WE1 regression bound to its own captured fixture.
+# July literals became stale when that fixture rotated in September.
+FIXTURE_CERT = x509.load_pem_x509_certificate(LIVE_LEAF.read_bytes())
+NOT_BEFORE = FIXTURE_CERT.not_valid_before_utc.strftime("%Y%m%d%H%M%S").encode()
+NOT_AFTER = FIXTURE_CERT.not_valid_after_utc.strftime("%Y%m%d%H%M%S").encode()
+CAPTURE_TIME = dt.datetime.fromisoformat(
+    json.loads(LIVE_VECTOR.read_text())["captured_utc"]
+).strftime("%Y%m%d%H%M%S").encode()
+NOT_BEFORE_DER = NOT_BEFORE[2:] + b"Z"
 
 ORIGIN = 0x1800
 RAM_END = 0x10000
@@ -572,9 +584,9 @@ def validate_outputs(
     assert isinstance(point, bytes)
     if target.read(OUTPUT_LEAF_X, 64) != point:
         raise AssertionError("leaf point mismatch")
-    if target.read(OUTPUT_NOT_BEFORE, 14) != b"20260708020442":
+    if target.read(OUTPUT_NOT_BEFORE, 14) != NOT_BEFORE:
         raise AssertionError("normalized notBefore mismatch")
-    if target.read(OUTPUT_NOT_AFTER, 14) != b"20261006030417":
+    if target.read(OUTPUT_NOT_AFTER, 14) != NOT_AFTER:
         raise AssertionError("normalized notAfter mismatch")
     if target.read(CV_STATUS, 1) != b"\x01":
         raise AssertionError("CertificateVerify status missing")
@@ -673,7 +685,8 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         raise AssertionError("fixture TBS digest mismatch")
     if hashlib.sha256(b" " * 64 + CV_CONTEXT + b"\x00" + transcript_hash).digest() != expected_cv_digest:
         raise AssertionError("fixture CertificateVerify digest mismatch")
-    if len(cert_message) != 2495 or len(cv_message) != 78:
+    expected_lengths = vector["wire_profile"]["server_handshake_message_bytes"][1:3]
+    if [len(cert_message), len(cv_message)] != expected_lengths:
         raise AssertionError("live message geometry changed")
 
     with tempfile.TemporaryDirectory(prefix="seed-cert-parser-") as temp_name:
@@ -881,7 +894,7 @@ def run(args: argparse.Namespace) -> dict[str, object]:
     ):
         raise AssertionError("direct hash clear state geometry changed")
     hash_clear_seal.load(time_image)
-    hash_clear_seal.write(CHUNK_START, b"20260725201059")
+    hash_clear_seal.write(CHUNK_START, CAPTURE_TIME)
     call_reject(
         hash_clear_seal.call(t_entries[0], si=CHUNK_START, cx=14),
         "time after direct hash clear",
@@ -910,7 +923,7 @@ def run(args: argparse.Namespace) -> dict[str, object]:
     # Explicit time-policy comparator: it can elevate 001fh -> 003fh only
     # against a caller-supplied trusted value. It is not a time source.
     target.load(time_image)
-    capture_time = b"20260725201059"
+    capture_time = CAPTURE_TIME
     target.write(CHUNK_START, capture_time)
     time_instructions = call_ok(
         target.call(t_entries[0], si=CHUNK_START, cx=len(capture_time)),
@@ -933,8 +946,8 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         raise AssertionError("time clear did not downgrade profile")
     time_rejections = 0
     bad_times = (
-        b"20260708020441",  # one second before notBefore
-        b"20261006030418",  # one second after notAfter
+        (FIXTURE_CERT.not_valid_before_utc - dt.timedelta(seconds=1)).strftime("%Y%m%d%H%M%S").encode(),
+        (FIXTURE_CERT.not_valid_after_utc + dt.timedelta(seconds=1)).strftime("%Y%m%d%H%M%S").encode(),
         b"202x0725201059",
         b"19990725201059",
         b"20261325201059",
@@ -983,7 +996,7 @@ def run(args: argparse.Namespace) -> dict[str, object]:
     target.write(OUTPUT_NOT_BEFORE, saved_not_before)
     target.write(OUTPUT_NOT_AFTER, saved_not_after)
 
-    for boundary in (b"20260708020442", b"20261006030417"):
+    for boundary in (NOT_BEFORE, NOT_AFTER):
         target.write(CHUNK_START, boundary)
         call_ok(
             target.call(t_entries[0], si=CHUNK_START, cx=14),
@@ -1179,13 +1192,13 @@ def run(args: argparse.Namespace) -> dict[str, object]:
     der_cases.append(
         (
             "invalid validity digit",
-            replace_once(leaf, b"260708020442Z", b"26070802044xZ"),
+            replace_once(leaf, NOT_BEFORE_DER, NOT_BEFORE_DER[:-2] + b"xZ"),
         )
     )
     der_cases.append(
         (
             "invalid validity month",
-            replace_once(leaf, b"260708020442Z", b"261308020442Z"),
+            replace_once(leaf, NOT_BEFORE_DER, NOT_BEFORE_DER[:2] + b"13" + NOT_BEFORE_DER[4:]),
         )
     )
     sig_start = int(parts["sig_start"]) + 1
@@ -1444,8 +1457,8 @@ def run(args: argparse.Namespace) -> dict[str, object]:
             "trusted_time_bit_not_earned_by_parser": f"0x{LEAF_TRUSTED_TIME_BIT:04x}",
             "issuer_auth_required_after_separate_policy": f"0x{LEAF_ISSUER_AUTH_PROFILE:04x}",
             "certificate_verify": f"0x{CV_PROFILE_VALUE:04x}",
-            "normalized_not_before": "20260708020442",
-            "normalized_not_after": "20261006030417",
+            "normalized_not_before": NOT_BEFORE.decode(),
+            "normalized_not_after": NOT_AFTER.decode(),
         },
         "live_integration_gate": {
             "status": (

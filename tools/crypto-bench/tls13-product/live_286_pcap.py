@@ -416,6 +416,9 @@ def parse_client_hello(stream: bytes) -> dict[str, object]:
     alpn_h2 = 16 in kinds
     acquisition_order = tuple(16 if k == 28 else k for k in
                               ACQUISITION_CLIENT_EXTENSION_ORDER) if alpn_h2 else ACQUISITION_CLIENT_EXTENSION_ORDER
+    issuer_p384 = alpn_h2 and 50 in kinds
+    if issuer_p384:
+        acquisition_order = (0, 43, 10, 13, 51, 16, 50, 21, 45)
     if kinds == acquisition_order:
         hello_profile = "acquisition"
     elif kinds == acquisition_order + (41,):
@@ -442,6 +445,9 @@ def parse_client_hello(stream: bytes) -> dict[str, object]:
     if alpn_h2:
         del expected_values[28]
         expected_values[16] = b"\x00\x03\x02h2"
+    if issuer_p384:
+        expected_values[50] = b"\x00\x02\x05\x03"
+        expected_values[21] = bytes(6)
     for kind, expected in expected_values.items():
         if values.get(kind) != expected:
             raise ValueError(f"wrong ClientHello extension {kind}")
@@ -541,6 +547,9 @@ def parse_client_hello(stream: bytes) -> dict[str, object]:
         "record_bytes": 5 + len(message),
         "record_size_limit": None if alpn_h2 else 2048,
         "alpn": "h2" if alpn_h2 else None,
+        "certificate_signature_scheme": (
+            "ecdsa_secp384r1_sha384" if issuer_p384 else "ecdsa_secp256r1_sha256"
+        ),
         "psk_dhe_ke_offered": True,
         "pre_shared_key_offered": hello_profile == "resumption",
         "pre_shared_key_is_final": kinds[-1] == 41,
@@ -1356,6 +1365,7 @@ def fixture_client_hello(
         27: b"\x02\x00\x02",
         51: struct.pack(">H", len(key_share_entry)) + key_share_entry,
         16: b"\x00\x03\x02h2",
+        50: b"\x00\x02\x05\x03",
         28: b"\x08\x00",
         21: b"\x00" * 14,
         45: PSK_DHE_KE,
@@ -1386,6 +1396,8 @@ def fixture_client_hello(
             if resumed
             else ACQUISITION_CLIENT_EXTENSION_ORDER
         )
+    if 50 in extension_order:
+        values[21] = bytes(6)
     extensions = b"".join(
         _fixture_extension(kind, values[kind])
         for kind in extension_order

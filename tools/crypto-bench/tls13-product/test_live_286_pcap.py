@@ -206,6 +206,22 @@ class Live286PcapTests(unittest.TestCase):
         )
         self.assertEqual(result["relevant_connection_attempts"], 2)
 
+    def test_current_issuer_offer_keeps_cv_and_wire_length_fixed(self) -> None:
+        for resumed in (False, True):
+            order = (0, 43, 10, 13, 51, 16, 50, 21, 45) + ((41,) if resumed else ())
+            wire = ANALYZER.fixture_client_hello(7, resumed=resumed, extension_order=order)
+            parsed = ANALYZER.parse_client_hello(wire)
+            self.assertEqual(parsed["alpn"], "h2")
+            self.assertEqual(parsed["certificate_signature_scheme"], "ecdsa_secp384r1_sha384")
+            legacy = ANALYZER.fixture_client_hello(
+                7, resumed=resumed, extension_order=tuple(x for x in order if x != 50)
+            )
+            self.assertEqual(len(wire), len(legacy))
+            wrong = wire.replace(bytes.fromhex("0032000400020503"), bytes.fromhex("0032000400020403"))
+            self.assertNotEqual(wrong, wire)
+            with self.assertRaises(ValueError):
+                ANALYZER.parse_client_hello(wrong)
+
     def test_exact_client_hello_profile_and_forbidden_extension(self) -> None:
         hello = ANALYZER.fixture_client_hello(7)
         parsed = ANALYZER.parse_client_hello(hello)

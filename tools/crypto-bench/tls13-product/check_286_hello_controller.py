@@ -111,7 +111,7 @@ ROOT_PARENT_STATUS_INV = ROOT_PARENT_SP + 4
 CRYPTO_SEG = 0x7000
 CRYPTO_BASE = CRYPTO_SEG << 4
 HIGH_BYTES = 64 * 1024
-PACK_BYTES = 44 * 512
+PACK_BYTES = 41 * 512
 CORE_START_LBA = 11
 DK_OFF = 0xA780
 DK_BYTES = 2400
@@ -1547,8 +1547,9 @@ def client_oracle(
         + ek
         + client_x
         + bytes.fromhex("001000050003026832")
-        + bytes.fromhex("0015000e")
-        + bytes(14)
+        + bytes.fromhex("0032000400020503")
+        + bytes.fromhex("00150006")
+        + bytes(6)
         + bytes.fromhex("002d00020101")
     )
     if len(extensions) != 0x519:
@@ -1853,7 +1854,7 @@ def assert_begin(built: Built) -> bytes:
     if lengths != [140, 384, 384, 384, 32, 65]:
         raise AssertionError(f"ClientHello fragmentation drifted: {lengths!r}")
     extension_types = parse_client_extensions(record)
-    if extension_types != [0, 43, 10, 13, 51, 16, 21, 45]:
+    if extension_types != [0, 43, 10, 13, 51, 16, 50, 21, 45]:
         raise AssertionError(
             f"ClientHello extension surface drifted: {extension_types!r}"
         )
@@ -2677,7 +2678,7 @@ def assert_psk_extension(
 ) -> None:
     items = parse_client_extension_items(record)
     kinds = [kind for kind, _value in items]
-    if kinds != [0, 43, 10, 13, 51, 16, 21, 45, 41]:
+    if kinds != [0, 43, 10, 13, 51, 16, 50, 21, 45, 41]:
         raise AssertionError(
             f"resumed ClientHello extension surface drifted: {kinds!r}"
         )

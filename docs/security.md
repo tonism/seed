@@ -96,7 +96,7 @@ of that exact key through TLS CertificateVerify. “Dated exact leaf” refers t
 that image provenance; the 8088 route does not yet have a trusted runtime
 clock, so it cannot independently know that the current boot is still inside
 the interval. A changed leaf fails closed and requires a new trusted Seed
-image unless a separately validated WE1-authorized rotation path is later
+image unless a separately validated issuer-authorized rotation path is later
 added. Image expiry is therefore an operational trust limit of this 8088
 boundary, not a silently enforced target check.
 
@@ -131,7 +131,7 @@ reports at least 512 KiB conventional RAM. It implements a real
 - the standard hybrid secret construction;
 - SHA-256 and ChaCha20-Poly1305 handshake and record protection;
 - strict ordinary Certificate parsing;
-- Google Trust Services WE1 P-256 issuer verification;
+- Let’s Encrypt YE2 P-384 issuer verification using SHA-384;
 - exact `api.openai.com` hostname, purpose, key-use, and validity policy; and
 - P-256 CertificateVerify over the acquisition transcript, followed by a
   standards-conforming authenticated PSK-DHE resumption.
@@ -154,7 +154,7 @@ it outside the security boundary:
    NewSessionTicket. That ticket is published only as tentative.
 2. With no provider connection timer running, the same machine performs full
    ML-KEM FO decapsulation and a constant-time comparison with the provisional
-   candidate, then strictly validates WE1, hostname, purpose, key use, UTC
+   candidate, then strictly validates YE2, hostname, purpose, key use, UTC
    validity, and the acquisition CertificateVerify. Only the complete proof
    promotes the volatile ticket.
 3. The final connection consumes the promoted ticket before reading its PSK
@@ -198,10 +198,20 @@ the live provider windows. CPU/RAM, RTC/time, entropy, certificate, CV,
 Finished, FO/cache, pack, and abort rejection gates pass. Physical RTC/PIT
 entropy characterization remains open.
 
-The immutable trust object is the WE1 P-256 affine point baked into
+The immutable trust object is the YE2 P-384 affine point baked into
 `SEED.SYS`. The leaf, generated tables, private state, and same-boot pin live
 only in RAM and are discarded on restart. The ticket and PSK are also volatile
 and never become a disk cache. Read-only floppy media is sufficient.
+
+The bounded certificate profile accepts at most four entries in a 4 KiB
+ordinary Certificate message and authenticates the P-256 leaf directly under
+the immutable YE2 key. Additional chain entries do not introduce authority.
+The ClientHello advertises ECDSA/P-384/SHA-384 for certificate signatures
+separately from P-256/SHA-256 CertificateVerify. Both checks execute on the
+target. A future issuer change requires an authenticated image update; there
+is no fallback to the previous issuer or weaker validation. Public fixture
+provenance is recorded in the
+[fixture notes](../tools/crypto-bench/tls13-product/fixtures/README.md).
 
 The acquisition candidate is not an authority boundary: it can enable only the
 fixed credential-free H2 preface/SETTINGS and tentative ticket capture. A candidate mismatch,
@@ -217,7 +227,7 @@ Pinning is part of the TLS architecture, not a packaging afterthought. The
 useful authority chain is:
 
 ```text
-durable issuer authority     WE1 point in the immutable image
+durable issuer authority     YE2 point in the immutable image
 acquisition identity         authenticated api.openai.com leaf + live CV
 same-boot bridge             promoted ticket derived only after full offline proof
 credential-bearing channel  binder + independent hybrid KEX + resumed Finished
@@ -230,7 +240,7 @@ two guessed leaf files: issuer authorization, exact live acquisition identity,
 and the promoted same-boot ticket are distinct links with distinct lifetimes.
 
 The 8088 fast route currently has only the immutable exact-leaf identity
-object; adding trusted runtime time and a general WE1-authorized rotation path
+object; adding trusted runtime time and a general issuer-authorized rotation path
 at that floor remains future work. Until then, leaf change or the image
 object's validity end requires an updated trusted image. Baking “current and
 guessed next leaf” is not a sound substitute:
@@ -305,7 +315,7 @@ gates, RAM-only acquisition/resumption guards, and read-only original-speed
 fresh/resumed/reconnect runs on both CPU routes and all seven ISA NIC profiles.
 The three main CPU/RAM paths complete repeated conversation and native
 write/execute/read, and the NIC matrix includes CGA/MDA return to input.
-The 32 KiB numeric-format caveat is recorded in the
+The native format/OCR exceptions and excluded repeated-action attempt are recorded in the
 [functional acceptance](http2.md#functional-acceptance). These functional
 passes do not remove the broader security qualification. Remaining work is to:
 

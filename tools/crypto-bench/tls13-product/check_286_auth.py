@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Hostile offline gate for the TLS 1.3 286 offline-auth controller.
 
-The accepted path executes the real target P-256 table generator three times
-and the real width-7 ECDSA module twice under Unicorn.  Host crypto is used
+The accepted path executes the real target P-256 table generator twice
+and the real width-7 ECDSA module once under Unicorn.  Host crypto is used
 only as an independent oracle for the resulting G/leaf tables and fixture
 provenance.  Parser/time/status failures are required to stop before any
 asymmetric module can publish AUTH.
@@ -21,7 +21,7 @@ import subprocess
 import sys
 from types import ModuleType
 
-from unicorn import UC_ARCH_X86, UC_HOOK_CODE, UC_MODE_16, Uc
+from unicorn import UC_ARCH_X86, UC_HOOK_CODE, UC_HOOK_MEM_WRITE, UC_MODE_16, Uc
 from unicorn.x86_const import (
     UC_X86_REG_AX,
     UC_X86_REG_BX,
@@ -57,9 +57,9 @@ TABLEGEN_SOURCE = (
 TABLEGEN = CRYPTO_BUILD / "tls13-286-p256-tablegen.bin"
 WIDTH7_SOURCE = HERE / "build_width7_ecdsa.py"
 ORACLE_SOURCE = HERE.parent / "tls13-spike/auth_integrated_oracle.py"
-LIVE_LEAF = HERE.parent / "tls13-poc/issuer_auth_live_leaf.pem"
-LIVE_CHAIN = ROOT / "tools/x509/certs/ecdsa_live_chain.pem"
-LIVE_VECTOR = HERE.parent / "tls13-poc/issuer_auth_live_vector.json"
+LIVE_LEAF = HERE / "fixtures/provider_auth_live_leaf.pem"
+LIVE_CHAIN = HERE / "fixtures/provider_auth_live_chain.pem"
+LIVE_VECTOR = HERE / "fixtures/provider_auth_live_vector.json"
 
 AUTH_LOAD = 0x1800
 MODULE_LOAD = 0x4230
@@ -68,9 +68,9 @@ CRYPTO_BASE = CRYPTO_SEG << 4
 STACK_TOP = 0x8000
 
 PACK_CACHE_OFF = 0x0000
-PACK_CACHE_BYTES = 22528
+PACK_CACHE_BYTES = 20992
 CERT_OFF = 0x9780
-CERT_MAX = 0x0B9C
+CERT_MAX = 4096
 G_TABLE_OFF = 0x5800
 CANDIDATE_CIPHERTEXT_OFF = G_TABLE_OFF
 CANDIDATE_CIPHERTEXT_BYTES = 1088
@@ -257,7 +257,7 @@ class AuthMachine:
         cv_digest: bytes,
         cv_signature: bytes,
         *,
-        rtc: tuple[int, int, int, int, int, int] = (2026, 7, 25, 20, 10, 59),
+        rtc: tuple[int, int, int, int, int, int] = (2026, 11, 2, 18, 46, 20),
         capture_status: bytes = READY,
         rtc_status: bytes = READY,
         candidate_status: bytes = READY,
@@ -369,11 +369,33 @@ class AuthMachine:
         self.chain_kind: int | None = None
         self.aborted = False
         self.stopped = False
-        self.machine.hook_add(UC_HOOK_CODE, self._hook)
+        self.authority_writes: list[tuple[int, int, int]] = []
+        for offset in (AUTH_STATUS_OFF, TICKET_STATUS_OFF):
+            self.machine.hook_add(
+                UC_HOOK_MEM_WRITE, self._authority_write,
+                begin=CRYPTO_BASE + offset, end=CRYPTO_BASE + offset + 1,
+            )
+        # Observe the same transitions without calling Python for every limb
+        # instruction in the real SHA/P-384/P-256/ML-KEM implementations.
+        transitions = {
+            STUB_DECODE, STUB_CALL, STUB_CHAIN, STUB_ABORT,
+            self.capsule_abort_entry,
+            *(module_entry(image) for image in self.modules.values()),
+        }
+        for address in transitions:
+            self.machine.hook_add(
+                UC_HOOK_CODE, self._hook, begin=address, end=address
+            )
+
+    def _authority_write(self, _machine, _access, address, size, value, _data):
+        self.authority_writes.append((address - CRYPTO_BASE, size, value))
 
     def _hook(self, machine: Uc, address: int, _size: int, _data: object) -> None:
         if address == STUB_DECODE:
             kind = machine.reg_read(UC_X86_REG_AX)
+            if kind == KIND_TABLEGEN and self.decode_kinds == [KIND_MLKEM]:
+                if bytes(machine.mem_read(0x4230, 0x5900 - 0x4230)) != bytes(0x5900 - 0x4230):
+                    raise AssertionError("issuer public scratch survived into table generation")
             self.decode_kinds.append(kind)
             image = self.modules.get(kind)
             if image is None:
@@ -564,7 +586,8 @@ def expect_post_fo_reject(
         stub_mlkem=True,
         **kwargs,
     )
-    target.run(40_000_000)
+    # Signature failures execute the full bounded P-384 equation before abort.
+    target.run(500_000_000)
     if not target.aborted or target.chain_kind is not None:
         raise AssertionError(f"{name}: rejection did not take abort path")
     if target.decode_kinds != [KIND_MLKEM] or target.operations != [OP_MLKEM]:
@@ -608,10 +631,10 @@ def main() -> None:
     vector = json.loads(LIVE_VECTOR.read_text())
     leaf = pem_der(LIVE_LEAF)
     tracked = split_pem(LIVE_CHAIN)
-    if len(tracked) != 3:
-        raise AssertionError("tracked chain must contain leaf, WE1, root")
-    we1, root = tracked[1:]
-    certificate = certificate_message(leaf, [we1, root])
+    if len(tracked) != 4 or tracked[0] != leaf:
+        raise AssertionError("current chain must contain exact leaf and three issuers")
+    chain = tracked[1:]
+    certificate = certificate_message(leaf, chain)
     digest = bytes.fromhex(
         vector["certificate_verify"]["signed_input_sha256"]
     )
@@ -630,8 +653,6 @@ def main() -> None:
         KIND_TABLEGEN,
         KIND_TABLEGEN,
         KIND_ECDSA,
-        KIND_TABLEGEN,
-        KIND_ECDSA,
     ]:
         raise AssertionError(f"module ordering drifted: {accepted.decode_kinds}")
     if accepted.operations != [
@@ -639,12 +660,15 @@ def main() -> None:
         OP_TABLEGEN,
         OP_TABLEGEN,
         OP_ECDSA,
-        OP_TABLEGEN,
-        OP_ECDSA,
     ]:
         raise AssertionError(f"operation ordering drifted: {accepted.operations}")
+    if accepted.authority_writes != [
+        (AUTH_STATUS_OFF, 2, 0), (TICKET_STATUS_OFF, 2, 0),
+        (AUTH_STATUS_OFF, 1, 0x5A), (AUTH_STATUS_OFF + 1, 1, 0xA5),
+        (TICKET_STATUS_OFF, 1, 0xC3), (TICKET_STATUS_OFF + 1, 1, 0x3C),
+    ]:
+        raise AssertionError(f"authority publication ordering drifted: {accepted.authority_writes}")
     if accepted.tablegen_scratch_descriptors != [
-        EXACT_TABLEGEN_SCRATCH,
         EXACT_TABLEGEN_SCRATCH,
         EXACT_TABLEGEN_SCRATCH,
     ]:
@@ -743,7 +767,11 @@ def main() -> None:
         certificate,
         digest,
         signature,
-        rtc=(2026, 10, 7, 0, 0, 0),
+        rtc=(2027, 2, 1, 0, 0, 0),
+    )
+    expect_post_fo_reject(
+        "not-yet-valid", certificate, digest, signature,
+        rtc=(2026, 11, 2, 14, 44, 35),
     )
     expect_post_fo_reject(
         "invalid-calendar",
@@ -785,22 +813,43 @@ def main() -> None:
         wrong_host_leaf[marker] ^= 1
     expect_post_fo_reject(
         "hostname",
-        certificate_message(bytes(wrong_host_leaf), [we1, root]),
+        certificate_message(bytes(wrong_host_leaf), chain),
         digest,
         signature,
     )
+
+    bad_leaf_signature = leaf[:-1] + bytes([leaf[-1] ^ 1])
+    expect_post_fo_reject(
+        "issuer-signature", certificate_message(bad_leaf_signature, chain),
+        digest, signature,
+    )
+    # A legacy issuer algorithm must be refused by both AlgorithmIdentifiers.
+    sha384_oid = bytes.fromhex("06082a8648ce3d040303")
+    if leaf.count(sha384_oid) != 2:
+        raise AssertionError("current leaf issuer algorithm geometry drifted")
+    wrong_algorithm = leaf.replace(sha384_oid, sha384_oid[:-1] + b"\x02")
+    expect_post_fo_reject(
+        "issuer-algorithm", certificate_message(wrong_algorithm, chain),
+        digest, signature,
+    )
+    bad_cv = AuthMachine(certificate, digest, signature[:-1] + bytes([signature[-1] ^ 1]))
+    bad_cv.run()
+    if not bad_cv.aborted or bad_cv.chain_kind is not None:
+        raise AssertionError("changed CertificateVerify did not abort")
+    if bad_cv.authority_writes != [(AUTH_STATUS_OFF, 2, 0), (TICKET_STATUS_OFF, 2, 0)]:
+        raise AssertionError("failed CertificateVerify published authority")
 
     report = {
         "raw_bytes": len(AUTH.read_bytes()),
         "ordinary_certificate_bytes": len(certificate),
         "leaf_bytes": len(leaf),
-        "chain_entries": 3,
+        "chain_entries": 4,
         "target_module_sequence": accepted.decode_kinds,
         "target_operation_sequence": accepted.operations,
         "g_table_sha256": hashlib.sha256(actual_g).hexdigest(),
         "leaf_table_sha256": hashlib.sha256(actual_leaf).hexdigest(),
         "leaf_sha256": hashlib.sha256(leaf).hexdigest(),
-        "we1_sha256": hashlib.sha256(we1).hexdigest(),
+        "issuer_sha256": hashlib.sha256(chain[0]).hexdigest(),
         "trusted_time": "silent coherent platform-UTC publication required",
         "early_rejections": [
             "torn capture",
@@ -810,10 +859,14 @@ def main() -> None:
             "torn tentative ticket",
             "candidate/full-FO mismatch",
             "expired certificate",
+            "not-yet-valid certificate",
             "invalid calendar",
             "handshake length",
             "unoffered CertificateEntry extension",
             "wrong hostname",
+            "invalid issuer signature",
+            "wrong issuer algorithm",
+            "invalid CertificateVerify",
         ],
         "passed": True,
     }

@@ -2,7 +2,7 @@
 ;
 ; The pack loader is already resident at 0000:3400.  This continuation is
 ; fixed at 0000:3910, leaving the complete 0x3c00..3fff live-state band
-; untouched.  Entry caches and validates the 44-sector asymmetric pack before
+; untouched.  Entry caches and validates the 41-sector asymmetric pack before
 ; any NIC lease, then loads the compressed precompute controller.  Later
 ; controllers call the same bounded component loader through the fixed table.
 
@@ -54,7 +54,7 @@ root_entry:
     cmp word [si + tls13_286_tail_entry_flags], \
         tls13_286_tail_flag_product
     jne root_abort
-    cmp word [si + tls13_286_tail_entry_sectors], 44
+    cmp word [si + tls13_286_tail_entry_sectors], 41
     jne root_abort
     cmp word [si + tls13_286_tail_entry_image_bytes], \
         tls13_286_pack_cache_bytes
@@ -68,7 +68,7 @@ root_entry:
     push cs
     pop ds
     mov ax, [cs:root_component_sector]
-    mov cx, 44
+    mov cx, 41
     xor bx, bx
     mov es, [cs:tls13_286_root_state_crypto_seg]
     call root_read_sectors

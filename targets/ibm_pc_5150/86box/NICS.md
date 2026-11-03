@@ -157,7 +157,7 @@ EPIC100.DRV  vm-net-epic100
 The conforming TLS floor is specifically a 6 MHz 286 with 512 KiB
 conventional RAM. A faster 386/486 NIC profile or the larger checked-in
 `vm-net-286` profile does not prove it. The exact run must show the
-acquisition connection, target-side offline WE1/hostname/UTC-validity/CV
+acquisition connection, target-side offline YE2/hostname/UTC-validity/CV
 proof, full FO comparison, table generation, and status-last tentative-ticket
 promotion. The final connection must be no-0RTT PSK-DHE resumption with an
 independent genuine ML-KEM-768 + X25519 attempt, a real binder,

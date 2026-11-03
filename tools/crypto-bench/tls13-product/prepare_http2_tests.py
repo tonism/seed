@@ -23,7 +23,7 @@ def prepare(out: Path, work: Path, images: dict, slots: list, pack: bytes,
     for source in work.iterdir():
         if source.suffix in (".bin", ".lst", ".inc"):
             shutil.copyfile(source, components / source.name)
-    for name in ("h2_post.bin", "h2_post.lst", "bridge.lst", "request-aux.bin", "request-aux-sector.bin", "request-aux-abi.inc"):
+    for name in ("h2_post.bin", "h2_post.lst", "bridge.lst", "exchange.lst", "request-aux.bin", "request-aux-sector.bin", "request-aux-abi.inc"):
         shutil.copyfile(BUILD / "http2" / name, out / name)
     (out / "tls13-k14-product-pack.bin").write_bytes(pack)
     (out / "pack.bin").write_bytes(pack)

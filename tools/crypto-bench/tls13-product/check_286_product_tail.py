@@ -89,8 +89,8 @@ ROOT_ENTRY = ROOT_SERVICE_TABLE + 8 + ROOT_SERVICE_POINTERS * 2
 ROOT_LIMIT = 0x3C00
 
 PACK_MAGIC = b"S286PK02"
-PACK_BYTES = 44 * SECTOR_BYTES
-PACK_SECTORS = 44
+PACK_BYTES = 41 * SECTOR_BYTES
+PACK_SECTORS = 41
 PACK_HEADER_BYTES = 512
 PACK_DIRECTORY_OFF = 20
 PACK_ENTRY_BYTES = 24
@@ -600,7 +600,7 @@ def validate_module_pack(pack: bytes, entry: TailEntry) -> None:
     if entry != expected:
         fail("286 product-tail module-pack entry drifted")
     if len(pack) != PACK_BYTES:
-        fail("286 module pack is not exactly 44 sectors")
+        fail("286 module pack is not exactly 41 sectors")
     if pack[:8] != PACK_MAGIC:
         fail("286 module pack has no S286PK02 magic")
     abi, count, header_bytes, entry_bytes = struct.unpack_from("<HHHH", pack, 8)
@@ -2095,7 +2095,7 @@ def main() -> None:
         f"{layout.total_sectors} sectors; footer {layout.footer_sector} PASS"
     )
     print(
-        "  exact root4 + pack44 + entropy + aliased HELLO + flight/auth "
+        "  exact root4 + pack41 + entropy + aliased HELLO + flight/auth "
         "component graph PASS"
     )
     print("  footer/directory/CRC/bounds/canonical-padding matrix PASS")

@@ -1,0 +1,44 @@
+{
+  "schema": "seed-tls13-issuer-auth-live-vector-v1",
+  "captured_utc": "2026-11-02T18:46:20.541925+00:00",
+  "target": "api.openai.com:443",
+  "credential_sent": false,
+  "request": "authenticated TLS handshake only; no application data",
+  "wire_profile": {
+    "group": "X25519MLKEM768",
+    "cipher_suite": "TLS_CHACHA20_POLY1305_SHA256",
+    "client_hello_bytes": 1378,
+    "server_hello_bytes": 1210,
+    "server_handshake_message_bytes": [
+      19,
+      3434,
+      78,
+      36
+    ]
+  },
+  "leaf": {
+    "pem": "provider_auth_live_leaf.pem",
+    "der_bytes": 928,
+    "sha256_fingerprint": "2183dbfa00cf35f985ddac7c2fd171d60a94a4891eba41d65fb27b505bf86e40",
+    "spki_sha256": "6ea3c81fbd1ba27325dfa35f3d518bc1b66076d6e9e74a09a86f5cef92a6d6c2",
+    "tbs_sha256": "e8793644ff0286a93fd74744df433902e2ced465c8b818ff11b6d38d6f5ca727",
+    "tbs_sha384": "ecedf8136c18fa650595ffb05ae1106aa789b6bff5c8a0caf73cb0e5a80cf197640169db76a922fcfe9cc65bdff546be",
+    "subject": "CN=api.openai.com",
+    "issuer": "CN=YE2,O=Let's Encrypt,C=US",
+    "not_before": "2026-11-02 14:44:36+00:00",
+    "not_after": "2027-01-31 14:44:35+00:00"
+  },
+  "issuer": {
+    "subject": "CN=YE2,O=Let's Encrypt,C=US",
+    "spki_sha256": "b3fb5d00e994cddf2cc9a4eea9f806bc5727e83cc0e4299bf956f2d524fe5376",
+    "curve": "secp384r1",
+    "leaf_signature_hash": "sha384"
+  },
+  "certificate_verify": {
+    "signature_scheme": "ecdsa_secp256r1_sha256",
+    "transcript_sha256": "e06e0a200296833a117283fc7fa8ec5e6ca08bd8c057e88660873d07f66aa24e",
+    "signature_der": "304402207153fb1b85d54acf9fad0f8a5cc61e58a2b944912390e7390c99c2bbec89aef802203ae566d8b88edfe7bad7744ad8c4e034662c39cc9cd127e072146c3790a19996",
+    "signed_input_sha256": "022c5ebbb637b759b7e6a728a8af0b1a8cec4cdffea933713de62fae411ab93d"
+  },
+  "scope": "Independently system-CA/hostname/time/purpose-validated current provider fixture with verified issuer links and real CertificateVerify; no target timing, acceptance or runtime assistance."
+}

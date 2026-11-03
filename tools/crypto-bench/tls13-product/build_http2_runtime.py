@@ -103,11 +103,18 @@ def build(out: Path) -> dict:
         raise AssertionError("R/X's fixed request-helper calls must be rebound")
     if len(auxiliary) > 512:
         raise AssertionError("request helper escaped R's third sector")
+    export = out / "request-aux-export.asm"
+    export.write_text('%include "h2_request_aux.asm"\ndw aux_response_data_check\n')
+    exported = assemble(out, "request-aux-export", export)
+    if exported[:-2] != auxiliary:
+        raise AssertionError("response preflight export changed the request helper")
+    response_check_entry = int.from_bytes(exported[-2:], "little")
     (out / "request-aux-sector.bin").write_bytes(auxiliary.ljust(512, b"\0"))
     if probe_core(out, names) != symbols:
         raise AssertionError("application ABI changed during helper binding")
     definitions(out / "exchange-abi.inc", {
         **{name: symbols[name] for name in EXCHANGE_NAMES}, "request_aux_fail": entries[-1],
+        "request_aux_response_check": response_check_entry,
     })
     owner = assemble(out, "exchange", HTTP / "h2_exchange.asm")
     if len(owner) > 512:
