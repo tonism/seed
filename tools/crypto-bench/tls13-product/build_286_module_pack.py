@@ -290,6 +290,18 @@ def main() -> None:
         image_bytes,
     )
     header[PACK_DIRECTORY_OFFSET : PACK_DIRECTORY_OFFSET + len(entries)] = entries
+    # Reuse directory-sector padding for immutable affine points. The root's
+    # complete-pack CRC checks these bytes before any controller runs.
+    # The fixed object replaces duplicate controller literals, never runtime
+    # comb tables, and retains the exact 41-sector cache/loader geometry.
+    points_asm = BUILD / "tls13-286-auth-points.asm"
+    points_asm.write_text('bits 16\ncpu 8086\n%include "tls13/auth_points_286.inc"\n')
+    points_path = BUILD / "tls13-286-auth-points.bin"
+    points = assemble(points_asm, points_path)
+    if len(points) != 320 or PACK_DIRECTORY_OFFSET + len(entries) != 140:
+        raise AssertionError("fixed public point object or directory geometry drifted")
+    header[140:144] = b"IA02"
+    header[144:464] = points
     image = bytes(header) + b"".join(blocks)
     image += bytes(PACK_BYTES - len(image))
     PACK.write_bytes(image)
@@ -338,6 +350,14 @@ def main() -> None:
             "bytes": OVERLAY_BYTES,
         },
         "payloads": built,
+        "public_points": {
+            "format": "IA02",
+            "offset": 144,
+            "bytes": len(points),
+            "sha256": hashlib.sha256(points).hexdigest(),
+            "order": ["P-384 G", "YE2", "WE1", "P-256 G"],
+            "runtime_comb_tables": False,
+        },
         "width7_tables": {
             "on_disk": False,
             "bases_live_in_race": 2,

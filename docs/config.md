@@ -71,7 +71,7 @@ until their tier-specific capability is committed:
 - On the 286 conforming profile, acquisition may transmit only the immutable
   credential-free H2 preface/SETTINGS and retain an authenticated ticket as
   tentative state.
-  Full ML-KEM FO comparison and strict YE2/hostname/UTC/CV authentication must
+  Full ML-KEM FO comparison and strict issuer/hostname/UTC/CV authentication must
   promote that ticket before the final no-0RTT PSK-DHE connection can consume
   it. The final connection must use an independent full hybrid exchange, a
   valid binder with `selected_identity=0`, full decapsulation, and a verified
@@ -98,7 +98,7 @@ no dependency on writes succeeding
 ```
 
 TLS 1.3 trust is not stored in a mutable leaf file. `SEED/LEAF.DER` is absent:
-the 8088 exact-leaf object and the 286 YE2 issuer point are immutable program
+the 8088 exact-leaf object and the 286 WE1 and YE2 issuer points are immutable program
 assets in `SEED.SYS`; same-boot leaf objects and generated tables are volatile
 RAM state.
 

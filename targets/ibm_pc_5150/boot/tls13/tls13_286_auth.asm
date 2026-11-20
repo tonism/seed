@@ -7,13 +7,14 @@
 ;   * parse the exact ordinary TLS 1.3 Certificate handshake;
 ;   * apply the strict api.openai.com P-256 leaf profile;
 ;   * require a caller-published trusted UTC value and check validity;
-;   * verify the SHA-384 leaf signature under the immutable YE2 P-384 key;
+;   * verify the leaf under immutable WE1/P-256 or YE2/P-384 issuer keys;
 ;   * generate G and the authenticated P-256 leaf width-7 tables on this
 ;     target, then verify the captured TLS CertificateVerify; and
 ;   * publish AUTH only after every preceding operation succeeds.
 ;
-; No build host supplies a leaf key or runtime comb table.  The only baked
-; trust object is the YE2 P-384 affine point.  Read-only media is sufficient:
+; No build host supplies a leaf key or runtime comb table.  The baked trust
+; objects are exactly the WE1 P-256 and YE2 P-384 affine points. Read-only
+; media is sufficient:
 ; all certificate evidence, tables, and decisions live in the 64 KiB high
 ; reservation and are discarded on restart.
 
@@ -45,6 +46,9 @@ auth_entry:
     xor ax, ax
     mov ds, ax
     mov es, ax
+    mov di, 0x0c00
+    mov cx, 0x70 / 2
+    rep stosw
     cmp si, tls13_286_tail_footer_off
     jne auth_abort
     mov [cs:auth_crypto_seg], bx
@@ -78,6 +82,8 @@ auth_entry:
     mov word [es:tls13_286_ticket_status_inv_off], 0
     xor ax, ax
     mov es, ax
+    call auth_load_public_points
+    jc auth_abort
     call auth_verify_candidate_fo
     jc auth_abort
     call auth_parse_certificate_message
@@ -93,8 +99,21 @@ auth_entry:
     call auth_validate_time
     jc auth_abort
     call auth_verify_issuer
+    pushf
+    mov es, [auth_crypto_seg]
+    xor ax, ax
+    mov di, tls13_286_ticket_truncated_hash_off
+    mov cx, (tls13_286_ticket_meta_end - tls13_286_ticket_truncated_hash_off)/2
+    rep stosw
+    mov es, ax
+    popf
     jc auth_abort
+    cmp byte [x509_issuer_algorithm], 2
+    je .have_generator
     call auth_build_generator_table
+    jc auth_abort
+.have_generator:
+    call auth_copy_leaf_point
     jc auth_abort
 
     mov si, auth_leaf_point
@@ -130,6 +149,31 @@ auth_abort:
     mov es, ax
     jmp word [cs:tls13_286_abort_capsule_load + \
         tls13_286_abort_capsule_entry_ptr]
+
+; The existing pre-TCP pack CRC covers this immutable public point object.
+; Require its exact format tag before using any key; old zero-padding packs
+; cannot silently select an issuer. This is public program data, not a table.
+auth_load_public_points:
+    push ds
+    mov ds, [auth_crypto_seg]
+    cmp word [tls13_286_pack_points_tag_off], 'IA'
+    jne .bad
+    cmp word [tls13_286_pack_points_tag_off + 2], '02'
+    jne .bad
+    mov si, tls13_286_pack_points_off
+    mov di, pc_g
+    mov cx, 96
+    rep movsw
+    mov di, auth_we1_point
+    mov cx, 64
+    rep movsw
+    pop ds
+    clc
+    ret
+.bad:
+    pop ds
+    stc
+    ret
 
 ; Complete the FIPS 203 implicit-rejection path off-socket.  Acquisition used
 ; only decrypt-derived K' to meet the provider deadline; this operation
@@ -317,12 +361,13 @@ auth_extract_leaf:
     mov si, [x509_nb_ptr]
     mov di, auth_not_before
     call auth_normalize_time
-    jc .bad
+    jc auth_extract_leaf_bad
     mov al, [x509_na_tag]
     mov si, [x509_na_ptr]
     mov di, auth_not_after
     call auth_normalize_time
-    jc .bad
+    jc auth_extract_leaf_bad
+auth_copy_leaf_point:
     mov si, [x509_point_x_ptr]
     mov di, auth_leaf_point + 31
     mov cx, 32
@@ -333,7 +378,7 @@ auth_extract_leaf:
     call auth_reverse_32
     clc
     ret
-.bad:
+auth_extract_leaf_bad:
     stc
     ret
 
@@ -567,22 +612,102 @@ x509_check_ecdsa_signature:
 ; Reuse only the retired ML-KEM low overlay. No module executes here until
 ; this complete public scratch span is erased and its replacement decoded.
 auth_verify_issuer:
+    cmp byte [x509_issuer_algorithm], 2
+    je auth_verify_we1
     mov si,[x509_tbs_ptr]
     mov cx,[x509_tbs_len]
     call sha384_hash
-    jc .wipe
+    jc auth_wipe_issuer_scratch
     mov si,s_digest
     mov di,[x509_sig_ptr]
     mov cx,[x509_sig_len]
     mov bp,pc_issuer
     call p384_verify
-.wipe:
+auth_wipe_issuer_scratch:
     pushf
     xor ax,ax
     mov di,0x4230
     mov cx,(s_scratch_end-0x4230)/2
     rep stosw
     popf
+    ret
+
+; WE1 uses the same target-generated P-256 tables and strict ECDSA module
+; as CertificateVerify. The captured TBS digest belongs to the same immutable
+; Certificate quarantine as CV; require its span to match the strict parser.
+auth_verify_we1:
+    call auth_wipe_issuer_scratch
+    cmp word [x509_sig_len], tls13_286_cv_signature_max
+    ja .bad
+    mov es, [auth_crypto_seg]
+    mov ax, [x509_tbs_ptr]
+    cmp ax, [es:tls13_286_tbs_span_off]
+    jne .bad_es
+    mov ax, [x509_tbs_len]
+    cmp ax, [es:tls13_286_tbs_span_off + 2]
+    jne .bad_es
+    mov si, [x509_tbs_ptr]
+    mov dx, [x509_tbs_len]
+    call auth_tbs_crc16
+    cmp ax, [es:tls13_286_tbs_crc_off]
+    jne .bad_es
+    push ds
+    mov ds, [auth_crypto_seg]
+    xor ax, ax
+    mov es, ax
+    mov si, tls13_286_tbs_digest_off
+    mov di, 0x0c00
+    mov cx, 16
+    rep movsw
+    pop ds
+    call auth_build_generator_table
+    jc .bad
+    mov si, auth_we1_point
+    mov di, auth_leaf_point
+    mov cx, 32
+    rep movsw
+    mov si, auth_leaf_point
+    mov ax, tls13_286_leaf_table_off
+    call auth_build_table
+    jc .bad
+    mov si, [x509_sig_ptr]
+    mov di, 0x0c20
+    mov cx, [x509_sig_len]
+    rep movsb
+    call auth_clear_desc
+    mov word [auth_desc + tls13_286_desc_op], tls13_286_mod_op_ecdsa_verify
+    mov di, auth_desc + tls13_286_desc_input0
+    mov ax, 0x0c00
+    mov dx, 32
+    call auth_set_near_span
+    mov di, auth_desc + tls13_286_desc_input1
+    mov ax, 0x0c20
+    mov dx, [x509_sig_len]
+    call auth_set_near_span
+    jmp auth_verify_common
+.bad_es:
+    xor ax, ax
+    mov es, ax
+.bad:
+    stc
+    ret
+
+; Integrity guard for the public same-boot TBS capture; issuer authority
+; still requires the target-captured SHA-256 digest and full ECDSA equation.
+auth_tbs_crc16:
+    mov ax, 0xffff
+.byte:
+    xor ah, [si]
+    inc si
+    mov cx, 8
+.bit:
+    shl ax, 1
+    jnc .plain
+    xor ax, 0x1021
+.plain:
+    loop .bit
+    dec dx
+    jnz .byte
     ret
 
 auth_build_generator_table:
@@ -762,40 +887,43 @@ auth_set_high_span:
     pop ax
     ret
 
-; P-256 leaf/SPKI/CV with an exact P-384/SHA-384 issuer profile. The same
+; P-256 leaf/SPKI/CV with bounded WE1/SHA-256 and YE2/SHA-384 profiles.
+; The P-256 module rechecks its narrower scalar bound. The same
 ; strict scalar parser serves framing and the subsequent issuer equation.
 %define X509_ISSUER_P384 1
+%define X509_ISSUER_DUAL 1
 parser_x509_state_start equ auth_parser_state
 %include "cert_parser_p256.inc"
 
 %include "tls13/p384_verify_286.inc"
+%define P384_PACK_POINTS 1
 %include "tls13/p384_ye2_constants.inc"
 %include "tls13/sha384_286.inc"
 %include "tls13/sha384_constants.inc"
 
-align 2
-auth_generator_point:
-    dw 49814,55448,14661,62625,13216,11755,32129,30467
-    dw 16626,25508,59109,63676,16967,57644,53746,27415
-    dw 20981,14271,16488,52150,24270,27441,13143,11214
-    dw 40470,31759,60234,36583,32667,65050,17122,20451
-
 auth_month_days db 31,28,31,30,31,30,31,31,30,31,30,31
+; Fixed near work sits between normalized signature and parser state.
+; The Certificate occupies 0800..0bff and cannot overlap any of these slots.
+auth_leaf_point equ 0x0c70
+auth_not_before equ auth_leaf_point + 64
+auth_not_after equ auth_not_before + auth_normalized_time_bytes
+auth_now equ auth_not_after + auth_normalized_time_bytes
+auth_crypto_seg equ auth_now + auth_normalized_time_bytes
+auth_leaf_len equ auth_crypto_seg + 2
+auth_list_pos equ auth_leaf_len + 2
+auth_list_remaining equ auth_list_pos + 2
+auth_chain_count equ auth_list_remaining + 2
+auth_table_point equ auth_chain_count + 1
+auth_table_output equ auth_table_point + 2
+auth_near_work_end equ auth_table_output + 2
+%if auth_near_work_end > auth_parser_state
+%error "Auth work overlaps strict parser state"
+%endif
 
-align 2
-auth_crypto_seg dw 0
-auth_leaf_len dw 0
-auth_list_pos dw 0
-auth_list_remaining dw 0
-auth_chain_count db 0
-auth_table_point dw 0
-auth_table_output dw 0
+times 0x3340 - ($ - $$ + 0x1800) db 0
+auth_we1_point: times 64 db 0
+auth_generator_point: times 64 db 0
 auth_desc times tls13_286_desc_bytes db 0
-auth_leaf_point times 64 db 0
-
-auth_not_before times auth_normalized_time_bytes db 0
-auth_not_after times auth_normalized_time_bytes db 0
-auth_now times auth_normalized_time_bytes db 0
 
 auth_image_end:
 
@@ -814,9 +942,9 @@ auth_image_end:
 %if auth_leaf_buffer + auth_leaf_capacity > auth_parser_state
 %error "TLS 1.3 286 auth leaf buffer overlaps parser state"
 %endif
-%if auth_generator_point - $$ + 0x1800 != 0x3220
-%error "TLS 1.3 286 generator point moved from its bounded tablegen slot"
+%if auth_generator_point - $$ + 0x1800 != 0x3380
+%error "Generator moved from exact tablegen input slot"
 %endif
-%if auth_leaf_point - $$ + 0x1800 != 0x32ad
-%error "TLS 1.3 286 leaf point moved from its bounded tablegen slot"
+%if auth_leaf_point != 0x0c70
+%error "Leaf moved from exact tablegen input slot"
 %endif

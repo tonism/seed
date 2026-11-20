@@ -18,6 +18,18 @@ pc_one_p:
  dw 1,0,65535,65535,65535,65535,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
 pc_b_mont:
  dw 11724,40257,34929,2065,13036,31308,44504,63273,558,6432,8347,30706,35554,38035,19438,58167,8340,7938,8692,46635,49145,24655,4427,52488
+%ifdef P384_PACK_POINTS
+; Filled only from the immutable CRC-bound pack's fixed public point object.
+; The low public point band follows parser state and ends at the retired
+; floppy/record-buffer boundary. No module decode or arithmetic aliases it.
+pc_g equ 0x0d40
+pc_gy equ pc_g + 48
+pc_issuer equ pc_gy + 48
+pc_issuer_y equ pc_issuer + 48
+%if pc_issuer_y + 48 != 0x0e00
+%error "P-384 public point work exceeds its near band"
+%endif
+%else
 pc_g:
  dw 2743,29302,24120,14932,10604,48981,62045,21762,10808,33364,16864,23031,39832,35751,15202,28189,44404,62240,50974,36529,1335,48779,51746,43655
 pc_gy:
@@ -26,3 +38,4 @@ pc_issuer:
  dw 43026,31087,38846,7765,17835,9875,3991,39826,14031,16035,56915,51129,29748,44132,14573,46471,37933,30580,43387,48588,50192,37334,46131,29082
 pc_issuer_y:
  dw 38671,62979,15678,7437,22523,5359,53858,33690,58785,35925,541,48221,59346,62838,13566,59887,62979,43743,51208,47500,45345,37467,7672,60040
+%endif

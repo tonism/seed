@@ -681,7 +681,7 @@ def main() -> None:
             "unmeasured_current_path": [
                 "serialized X.509/hostname/UTC parsing and policy",
                 "exact table/module load transitions",
-                "bounded SHA-384/P-384 issuer authentication and scratch erasure",
+                "complete WE1/P-256 or YE2/P-384 issuer authentication and scratch erasure",
             ],
             "policy": (
                 "full FO and certificate/hostname/UTC/CV/table work complete "
@@ -788,7 +788,7 @@ def main() -> None:
                 "before publishing application keys and consumed sequences"
             ),
             "offline_authentication": (
-                "full ML-KEM FO, local chain/YE2, hostname, UTC validity, "
+                "full ML-KEM FO, immutable WE1/YE2 issuer proof, hostname, UTC validity, "
                 "CertificateVerify, and table work remain inside the security "
                 "boundary but outside either provider connection deadline; "
                 "only success promotes the tentative ticket"

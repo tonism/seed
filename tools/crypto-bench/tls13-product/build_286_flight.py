@@ -74,7 +74,7 @@ def compress_raw_lz4(raw: bytes) -> bytes:
         decoded = directory / "flight.roundtrip"
         source.write_bytes(raw)
         subprocess.run(
-            ["lz4", "-q", "-l", "-9", "-f", str(source), str(framed)],
+            ["lz4", "-q", "-l", "-12", "-f", str(source), str(framed)],
             cwd=ROOT,
             check=True,
         )
@@ -133,6 +133,12 @@ def main() -> None:
             raise AssertionError("286 H2 sealing ABI differs from the exact flight SYM")
         values.update({f"FLIGHT_{name.upper()}": value for name, value in
                        zip(names, struct.unpack("<4H", sym[-8:]), strict=True)})
+        # Hash the captured TBS with the exact symmetric code already in RAM.
+        # AUTH later binds its strict parser span to this capture.
+        for key in ["INIT", "UPDATE", "FINISH"]:
+            line = next(x for x in SYM_ABI.read_text().splitlines()
+                        if x.startswith("%define TLS13_286_FLIGHT_SYM_SHA256_" + key + " "))
+            values["FLIGHT_SHA256_" + key] = int(line.split()[-1], 0)
         (work / "h2-286-post-abi.inc").write_text("".join(
             f"{name} equ 0x{value:04x}\n" for name, value in values.items()))
 

@@ -23,8 +23,8 @@ table_projective_bytes equ table_points * table_point_bytes
 table_prefix_off equ table_projective_bytes
 tablegen_scratch_bytes equ \
     table_projective_bytes + table_points * table_prefix_bytes
-table_generator_phys equ 0x3220
-table_leaf_phys equ 0x32ad
+table_generator_phys equ 0x3380
+table_leaf_phys equ 0x0c70
 table_module_stack_bytes equ 512
 
 module_header:

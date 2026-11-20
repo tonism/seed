@@ -77,17 +77,20 @@ def vectors() -> list[tuple[int, int]]:
 def execute_cases(
     image: bytes, abi: dict[str, int], cases: list[tuple[int, int]],
     *, data_segment: int, stack_segment: int,
+    stack_budget: int | None = None, memory_bytes: int = 0x10000,
 ) -> int:
+    if stack_budget is None:
+        stack_budget = STACK_BUDGET
     machine = Uc(UC_ARCH_X86, UC_MODE_16)
-    machine.mem_map(0, 0x10000)
-    machine.mem_write(0, b"\xa5" * 0x10000)
+    machine.mem_map(0, memory_bytes)
+    machine.mem_write(0, b"\xa5" * memory_bytes)
     machine.mem_write(ram.sym.OVERLAY_BASE, image)
     data_base, stack_base = data_segment * 16, stack_segment * 16
     r_addr = data_base + abi["poly_r"]
     acc_addr = data_base + abi["poly_acc"]
     product_addr = data_base + abi["poly_product"]
     stack_end = stack_base + STACK_TOP
-    stack_start = stack_end - STACK_BUDGET
+    stack_start = stack_end - stack_budget
     counters = [(data_base + abi[name], data_base + abi[name] + 1) for name in ("poly_i", "poly_j")]
     writes = [(product_addr, product_addr + 36), (stack_start, stack_end), *counters]
     reads = [*writes, (r_addr, r_addr + 16), (acc_addr, acc_addr + 17)]
@@ -118,7 +121,7 @@ def execute_cases(
         machine.mem_write(r_addr, multiplier.to_bytes(16, "little"))
         machine.mem_write(acc_addr, accumulator.to_bytes(17, "little"))
         machine.mem_write(product_addr, b"\xa5" * 36)
-        machine.mem_write(stack_start, b"\xa5" * STACK_BUDGET)
+        machine.mem_write(stack_start, b"\xa5" * stack_budget)
         machine.mem_write(stack_end - 2, RETURN.to_bytes(2, "little"))
         for register, value in registers.items():
             machine.reg_write(register, value)
@@ -135,7 +138,7 @@ def execute_cases(
             raise AssertionError(f"incorrect product for {accumulator:#x} * {multiplier:#x}")
         # Fixed caller registers and the public return address must leave
         # identical stack bytes for every pair, including a nonzero high byte.
-        stack_frame = bytes(machine.mem_read(stack_start, STACK_BUDGET))
+        stack_frame = bytes(machine.mem_read(stack_start, stack_budget))
         if public_stack_frame is None:
             public_stack_frame = stack_frame
         elif stack_frame != public_stack_frame:

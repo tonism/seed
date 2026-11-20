@@ -25,7 +25,7 @@ ROOT = HERE.parents[2]
 SOURCE = HERE / "auth_p256_publication_adapter.asm"
 README = HERE / "auth_p256_publication_adapter_README.md"
 CHECKER = Path(__file__).resolve()
-LIVE_VECTOR = HERE.parent / "tls13-product/fixtures/provider_auth_live_vector.json"
+LIVE_VECTOR = A.LIVE_VECTOR
 
 ORIGIN = 0x3200
 MAX_BYTES = 512

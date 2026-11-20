@@ -17,6 +17,13 @@ evidence is captured, including failures and interrupted runs. A queued test
 waits for a free slot before opening a window. Keep an interactive demonstration
 open only when the maintainer asks to use it; do not kill unrelated VMs.
 
+Keep the host awake and online during live provider tests. Record host sleep
+or network outages with the capture and monitor timeline. An idle-sleep
+assertion does not prevent explicit lid sleep or loss of connectivity.
+Preserve failed or incomplete attempts and use a new case label for a full
+repeat. Never infer uninterrupted timing from a run that crossed a host
+suspension, or relabel the interrupted attempt as a pass.
+
 ## Two boot modes
 
 Seed boots two ways, and they exercise different memory sizes:
@@ -131,6 +138,14 @@ reviewed. Include every attempt belonging to the VM. Close completed test VMs;
 concurrent independent profiles are permitted. The final image must pass
 `make` (including the bound HTTP/2 composition) and `make inspect`.
 
+The existing 8088 controller opens and cleanly closes one TCP connection
+without payload before each acquisition, including the bounded reconnect.
+Account for those preparation connections separately from the four TLS
+connections in a complete idle-reconnect case. Bind every connection to the
+VM's PID and endpoint observations; require empty payloads, clean closes and
+the expected ordering for preparation. An unexplained extra attempt fails the
+case. The 286 route has no such preparation connection.
+
 If the native-program oracle misses a correct result because the model spells
 out the numbers, preserve the automatic result and record the format mismatch.
 Only after reviewing the complete result and returned input prompt may the
@@ -175,6 +190,23 @@ forgery isolation, every phase-swap failure, outbound credit, response completio
 native effects, compaction/retry and far-context serialization. Keep maximum
 record and torn-read cases: short successful replies do not cover those lifetimes.
 
+The application Poly1305 multiplier uses two fixed shift/add rounds per loop
+iteration. Its build gate checks the emitted K image against an independent
+integer oracle, including full-width operands, preserved registers, bounded
+reads/writes and the existing 24-byte stack frame. It also compares instruction
+and memory-address traces across operand patterns in a 16 KiB mapping. This
+checks fixed work without claiming physical side-channel characterization.
+Rerun it against the final runtime with:
+
+```sh
+python3 tools/crypto-bench/tls13-product/check_poly1305_app_multiply.py \
+  --core build/ibm_pc_5150/SEED.SYS \
+  --listing build/ibm_pc_5150/SEED.SYS.lst
+```
+
+K occupies its full 4,096-byte executable window. Further code growth requires
+recovering space within that window and repeating the layout/composition gates.
+
 The 286 product directory contains the module/controller KATs. Its aggregate
 serialized exact-floor timing gate is:
 
@@ -210,25 +242,29 @@ client Finished or application publication. Matrix payload corruption must
 take the full implicit-rejection path and then fail server Finished, never
 becoming a candidate-only shortcut.
 
-The issuer repair additionally requires the shipping SHA-384/P-384 gate,
-complete authentication controller and current-chain flight gate:
+The dual-issuer repair additionally requires the shipping SHA-384/P-384 gate,
+complete authentication controller, both captured issuer fixtures and flight gate:
 
 ```sh
 python3 tools/crypto-bench/tls13-product/check_issuer_p384.py
 python3 tools/crypto-bench/tls13-product/check_286_auth.py
+python3 tools/crypto-bench/tls13-product/check_286_dual_issuer.py
 python3 tools/crypto-bench/tls13-product/check_286_flight.py
 ```
 
 These cover independent arithmetic/hash oracles, strict signature scalars,
-changed issuer signatures, SHA-256 substitution, date/hostname failures,
-status-last ticket promotion and scratch retirement. The flight gate accepts
-a correctly framed 4,096-byte Certificate and refuses 4,097 bytes. Historical
-WE1 fixtures remain separate from the current public provider fixture.
+both real issuer signatures, inner/outer algorithm mismatches, altered TBS
+spans/digests/corruption guards, rehashed unsigned certificates, wrong issuer
+keys, date/hostname failures, status-last ticket promotion and scratch retirement. The flight gate accepts
+a correctly framed 4,096-byte Certificate and refuses 4,097 bytes. The retained
+YE2 fixture, current WE1 capture and earlier research fixtures remain separate.
+The wire analyzer accepts the exact dual certificate offer and rejects unknown,
+duplicate or reversed schemes and a changed CertificateVerify offer.
 
 The final 286 gate is a 6 MHz, 512 KiB pcap
 showing a provisional hybrid acquisition, verified protected flight, client
 Finished plus the immutable credential-free H2 preface/SETTINGS, peer SETTINGS/ACK and
-NewSessionTicket capture, offline full FO/X.509/hostname/UTC/YE2/CV
+NewSessionTicket capture, offline full FO/X.509/hostname/UTC/issuer/CV
 authentication, and a final no-0RTT PSK-DHE resumption. The final connection
 must use independent ML-KEM/X25519 keys, a correct binder,
 `selected_identity=0`, the three pre-TCP cache lifecycles, full FO after

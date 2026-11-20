@@ -206,7 +206,7 @@ class Live286PcapTests(unittest.TestCase):
         )
         self.assertEqual(result["relevant_connection_attempts"], 2)
 
-    def test_current_issuer_offer_keeps_cv_and_wire_length_fixed(self) -> None:
+    def test_historical_ye2_offer_keeps_cv_and_wire_length_fixed(self) -> None:
         for resumed in (False, True):
             order = (0, 43, 10, 13, 51, 16, 50, 21, 45) + ((41,) if resumed else ())
             wire = ANALYZER.fixture_client_hello(7, resumed=resumed, extension_order=order)
@@ -221,6 +221,26 @@ class Live286PcapTests(unittest.TestCase):
             self.assertNotEqual(wrong, wire)
             with self.assertRaises(ValueError):
                 ANALYZER.parse_client_hello(wrong)
+
+    def test_dual_issuer_offer_and_exact_lengths(self) -> None:
+        for resumed in (False, True):
+            order = (0, 43, 10, 13, 51, 16, 50, 45) + ((41,) if resumed else ())
+            wire = ANALYZER.fixture_client_hello(7, resumed=resumed, extension_order=order)
+            parsed = ANALYZER.parse_client_hello(wire)
+            self.assertTrue(ANALYZER.is_286_candidate(wire))
+            self.assertEqual(parsed["certificate_signature_schemes"],
+                             ["ecdsa_secp256r1_sha256", "ecdsa_secp384r1_sha384"])
+            self.assertEqual(parsed["record_bytes"], 1381 + (47 + 96 if resumed else 0))
+            self.assertNotIn(21, parsed["extension_order"])
+            for replacement in ("000404030403", "000405030403", "000404030603"):
+                wrong = wire.replace(bytes.fromhex("00320006000404030503"),
+                                     bytes.fromhex("00320006" + replacement))
+                with self.assertRaises(ValueError):
+                    ANALYZER.parse_client_hello(wrong)
+            wrong_cv = wire.replace(bytes.fromhex("000d000400020403"),
+                                    bytes.fromhex("000d000400020503"))
+            with self.assertRaises(ValueError):
+                ANALYZER.parse_client_hello(wrong_cv)
 
     def test_exact_client_hello_profile_and_forbidden_extension(self) -> None:
         hello = ANALYZER.fixture_client_hello(7)

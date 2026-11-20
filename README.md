@@ -52,7 +52,7 @@ reboot from known, preferably write-protected media is the recovery boundary.
 | Floor | Route | Honest claim |
 | --- | --- | --- |
 | 4.77 MHz 8088, 16 KiB | TLS 1.3 wire protocol, SHA-256, ChaCha20-Poly1305, genuine ML-KEM-768 contribution; fixed X25519 `u=9` | bounded Seed credential-release boundary; effective ML-KEM-only and deferred authentication, not standards-conforming hybrid TLS |
-| 6 MHz 286, 512 KiB | real ML-KEM-768 + real X25519, strict YE2 P-384/SHA-384 and leaf/time/CV authentication | fully standards-conforming TLS 1.3 `X25519MLKEM768` protocol path |
+| 6 MHz 286, 512 KiB | real ML-KEM-768 + real X25519, WE1 P-256/SHA-256 or YE2 P-384/SHA-384 issuer proof, plus leaf/time/CV authentication | fully standards-conforming TLS 1.3 `X25519MLKEM768` protocol path |
 
 The 8088 permits only TLS handshake completion, the compiled credential-free
 H2 preface/SETTINGS, and a bounded tentative ticket before full Fujisaki-Okamoto
@@ -68,7 +68,7 @@ access by itself.
 The 286 first authenticates a credential-free acquisition: candidate ML-KEM
 plus real X25519, protected-flight/Finished verification, client Finished, the
 literal H2 preface/SETTINGS, and an authenticated tentative ticket. It then
-completes full FO and strict YE2/hostname/UTC/CertificateVerify checks offline. Only a
+completes full FO and strict issuer/hostname/UTC/CertificateVerify checks offline. Only a
 promoted same-boot ticket can enter the final no-0RTT PSK-DHE connection,
 which uses independent hybrid keys, a real binder, full decapsulation, and a
 strict resumed Finished before credentials become reachable. The ticket and

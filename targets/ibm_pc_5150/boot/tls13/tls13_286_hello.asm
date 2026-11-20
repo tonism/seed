@@ -35,9 +35,9 @@ sha256_block_size             equ 64
 sha256_k_len                  equ 256
 
 hello_mss_max                 equ 384
-hello_message_len             equ 1384
+hello_message_len             equ 1376
 hello_body_len                equ hello_message_len - 4
-hello_extensions_len          equ 0x0519
+hello_extensions_len          equ 0x0511
 hello_resumption_delta        equ 47
 hello_prefix_fragment_len     equ 140
 hello_fragment_count          equ 6
@@ -1909,12 +1909,9 @@ hello_prefix_extensions_len equ $ - hello_prefix_extensions
 hello_tail_suffix:
     ; ALPN selects only h2; DATA flow control is independent of TLS records.
     db 0x00,0x10,0x00,0x05,0x00,0x03,0x02,'h2'
-    ; RFC 8446 4.2.3: YE2 signs certificates with P-384/SHA-384; the
+    ; RFC 8446 4.2.3: bounded WE1/P-256 and YE2/P-384 certificate signatures; the
     ; separate CertificateVerify offer remains P-256/SHA-256 only.
-    db 0x00,0x32,0x00,0x04,0x00,0x02,0x05,0x03
-    ; RFC 7685 padding; this is the final extension.
-    db 0x00,0x15,0x00,0x06
-    times 6 db 0
+    db 0x00,0x32,0x00,0x06,0x00,0x04,0x04,0x03,0x05,0x03
     ; Request same-boot PSK-DHE tickets without offering a PSK or 0-RTT.
     db 0x00,0x2d,0x00,0x02,0x01,0x01
 hello_tail_suffix_len equ $ - hello_tail_suffix

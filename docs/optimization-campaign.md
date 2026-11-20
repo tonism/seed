@@ -1,6 +1,131 @@
 # Seed Optimization Campaign
 
-## Current checkpoint: OPT-028 issuer repair and OPT-027 DATA fast path
+## Accepted product checkpoint: OPT-031 issuer repair and OPT-030 multiplication
+
+The fixed-work response multiplication unroll is integrated and functionally
+verified. Byte-identical native timing payloads retain the measured controlled
+4 KiB response-component gains of **3.30% unsplit and 3.27% fragmented** at
+4.77 MHz: 394 -> 381 and 397 -> 384 BIOS ticks, saving 0.7140 seconds per
+fixture. Synthetic external callbacks isolate that component; this is not a
+whole-turn or live-provider latency claim. K uses all 4,096 executable bytes.
+Measured RAM, stack, record/read counts and FAT allocation are unchanged.
+
+The compatibility repair retains independently authenticated WE1/P-256/SHA-256
+and YE2/P-384/SHA-384 issuer keys and refreshes the 8088 image-dated exact leaf.
+The public points occupy existing pack-header space. Target TBS hashing,
+strict span binding and full ECDSA verification preserve full FO, hostname,
+UTC validity on the 286, CertificateVerify, status-last authority and erasure.
+The CRC checks RAM corruption and grants no cryptographic authority. Both
+routes remain target-local, conventional-RAM-only and compatible with
+write-protected media.
+
+The accepted runtime is
+`bb0c1ce10d6e8f3096b6ebf60914f38f3ef33bc3994a233c6c100ac92737e6ba`,
+150,016 bytes / 293 sectors, using 308/309 FAT clusters. Build/inspection/BASIC,
+twenty final-image HTTP/2 gates, sixteen standalone guards, both issuer
+fixtures and hostile checks, 6,234 application multiplication executions and
+all eight serialized 286 timing components pass. The single stale optional
+padding expectation in an unused HELLO-checker helper is corrected; the active
+gate and fresh build pass with byte-identical artifacts.
+
+Nine reviewed original-speed live cases complete 27 prompted turns across
+16 KiB ROM BASIC, 32 KiB direct boot and 286/512 KiB, including all seven ISA
+NICs, reuse and bounded reconnect after a ten-minute idle. The three main
+cases each complete exactly one native write, execute and read, report AX 42
+and bytes `B8 2A 00 CB`, and return to the input prompt. Every owned TCP attempt
+is accounted for: four TLS connections per case, plus two payload-free
+preparation connections on the 8088. No unexplained attempt is excluded.
+
+The new uninstrumented `ne2k8-32k-repeat-4` passes the functional gate on the
+unchanged frozen candidate through the documented manual format-mismatch
+review. Its final answer correctly spells out AX and the hex bytes, but does
+not follow the request for digits. The original literal-42 detector miss,
+correct full answer and returned prompt are bound to the saved screenshot;
+completion was observed within the original budget. No numeric-format
+compliance is claimed. All five prior exclusions remain intact: the
+original 32 KiB repeated write, its outage-interrupted repeat, two repeats
+with a second execute, and the NE1000 failure spanning confirmed host sleep.
+NE1000's separate unchanged full repeat passes. The successful private serial
+diagnostic remains separate from product acceptance. It captured intact
+native journal, read output, context and prompt metadata. Synthetic comparisons
+and the two previously approved host probes are retained. **The cause of the
+earlier repeated native actions remains unproven**; no native-loop fix was
+made, and the later successful run does not establish broader reliability.
+
+`OPT-031/integration/final-audit.json` binds the accepted image, source,
+screenshots, wire/connection accounting, documentation and preserved evidence.
+The pause checkpoint and `integration/resume-2026-11-20/` retain the resume
+authorization, matching provider certificate, independent monitor history and
+cleanup. All VMs and owned monitors/idle guards are closed. The resumed run
+used one VM; the campaign maximum remains three. All 46,033 earlier campaign
+files, 592 historical build files and unrelated local changes are preserved.
+
+Product and target docs describe the dual-issuer capability, RAM lifetime,
+layout and validation. This is functional emulator acceptance; physical entropy
+characterization and broader provider-edge repetition remain separate, and
+86Box receives no entropy credit. The maintainer approved committing and
+pushing this checkpoint after reviewing the result. The validation audit
+retains pre-commit HEAD `3410dd7`; the commit containing this section records
+the accepted implementation. Overall rocks turned remains **50% (rough 40–60%)**.
+The next optimization is to recover K executable headroom before further
+code growth.
+
+### Preserved OPT-030 integration before the compatibility repair
+
+The following is chronological pre-repair history. OPT-031 completes
+the authorized compatibility repair and acceptance; original evidence
+and earlier limitations remain recorded.
+
+The retained fixed-work multiplication unroll reduces controlled 4 KiB response
+processing by **3.30% unsplit and 3.27% fragmented** at 4.77 MHz: 394 -> 381 and
+397 -> 384 BIOS ticks, respectively. All three repetitions of each image and
+shape agree, saving 0.7140 seconds per fixture. This is emitted response-code
+timing with synthetic disk, NIC, provider and display callbacks in a private
+64 KiB test rig; separate correctness gates enforce the product's 16 KiB
+bounds. It is not a whole-turn or live-provider speed claim.
+
+Arithmetic, fixed-work, full AEAD, credit and loader guards pass. K grows
+4,081 -> 4,096 bytes, consuming its last 15 bytes; measured RAM, stack,
+read/record counts and private runtime size are unchanged. The committed
+baseline is `3410dd7`. OPT-030 implementation and testing are now
+authorized and active; product acceptance is pending. OPT-029's measurement
+used at most one VM and closed all of them. Its frozen evidence is preserved.
+No new commit or push is authorized.
+Overall rocks turned is **50% (rough 40–60%)**.
+
+The local integration image is now
+`ca4c22dc18be4186e8b698ea199725dfe96e49d97ecf817dbaeee6bb9ddbda52`.
+Build/inspect/BASIC, twenty final-image HTTP/2 gates, sixteen standalone guards,
+the 6,234-execution application arithmetic gate and eight serialized 286
+components pass. Its ordinary response fixtures produce byte-identical native
+timing payloads to OPT-029, retaining the measured component gain. Cold
+controller sectors 162 and 165 have regenerated application references. All
+eight NIC driver files, boot/loader bytes and FAT allocation remain unchanged.
+One private replay assembly attempt omitted a copied `serial.inc`; its failed
+log is retained, the exact retained include was restored, and the preflight
+passed without product changes.
+
+Live acceptance stopped after setup failure `00/12` on 16 KiB BASIC, 32 KiB
+direct boot and 286/512 KiB. The unchanged committed baseline reproduces the
+failure on 32 KiB and 286. All five VMs closed, overlap never exceeded three,
+and no other NIC cases or prompted turns were launched. Credential-free,
+system-CA/hostname/time-verified probes on both observed provider addresses
+receive the same new leaf, issued November 3, 2026 under Google Trust Services
+WE1 (P-256/SHA-256), rather than the November 2 leaf and YE2 issuer supported
+by the current image. The current leaf fails verification under YE2.
+`OPT-030/provider-diagnostic/diagnosis.json` binds the probe evidence, baseline
+controls and visually reviewed failures. Encrypted VM captures do not identify
+the exact peer certificate or first rejected target check; the independent
+trust mismatch and baseline reproduction establish the compatibility blocker.
+
+The optimization and its successful offline evidence are preserved locally.
+No live-product acceptance is claimed. A scope decision is pending: retain
+both independently authenticated issuer keys in the 286 route, refresh the
+8088 exact leaf, and repeat full acceptance. That compatibility work has not
+started, and no trust asset or authentication rule has been changed. Overall
+rocks turned remains **50% (rough 40–60%)**.
+
+## Previous committed checkpoint: OPT-028 issuer repair and OPT-027 DATA fast path
 
 The issuer repair is integrated and functionally verified on the same checkout.
 The 8088 route uses the independently authenticated current exact leaf; the
@@ -32,12 +157,11 @@ credit or new whole-dialogue latency claim.
 
 The maintainer requested this repair and successful verification in this same
 chat before considering new work in a fresh chat. That verification is now
-complete. The maintainer has approved committing and pushing this checkpoint
-as `fix: restore provider trust and validate HTTP/2 fast path` on
-`codex/build-13-tls13-rearchitecture-spike`. The commit containing this entry
-is the implementation checkpoint; `b5402f6` is its predecessor and the audit's
-recorded pre-commit HEAD. The next selected measurement is OPT-029 below.
-Overall rocks turned remains **48% (rough 38–58%)**.
+complete. This checkpoint was committed and pushed as `3410dd7`,
+`fix: restore provider trust and validate HTTP/2 fast path`, on
+`codex/build-13-tls13-rearchitecture-spike`. Its predecessor `b5402f6` remains
+the audit's recorded pre-commit HEAD. Overall rocks turned was **48% (rough
+38–58%)** at that product checkpoint; OPT-029's later measurement is above.
 
 ## Previous committed checkpoint: OPT-026 response-credit batching
 
@@ -490,13 +614,13 @@ merely that one spike ran.
 | Wish | State | Best current result | Active/next spike |
 | --- | --- | --- | --- |
 | 1. 8088 handshake margin | partially solved | seven-NIC matrix worst 11.2196 s; matched 3c503 13.7220 -> 11.2317 s; under-12 target observed | OPT-002 committed as `de9cf53` |
-| 2. 8088 dialogue loop | partially solved | OPT-027 controlled unsplit 4 KiB response: 2.78% fewer instruction hooks and 76.71% fewer reads over OPT-026; no live latency gain established | DATA shortcut is functionally accepted through OPT-028 and approved for commit/push; OPT-029 measures the remaining fixed-work multiplication avenue |
+| 2. 8088 dialogue loop | partially solved | DATA shortcut accepted in `3410dd7`; OPT-030 integrates OPT-029's 3.30% / 3.27% controlled response-component gain with exact timing-payload identity | OPT-030/031 accepted locally across the required live paths; recover K executable space before further expansion; no whole-dialogue latency claim |
 | 3. 8088 offline proof | partially solved | OPT-022 FO: 415 -> 334 BIOS ticks; OPT-024 KeyGen: 417 -> 332 ticks, 22.9039 -> 18.2352 s, same sector/RAM/read budgets | OPT-022/024 committed as `29bca48`; P-256 and remaining Keccak costs remain open; no whole-route speed claim |
 | 4. Floppy capacity | backlog | 308/309 FAT sectors unchanged; OPT-015 shrinks K to 3,510 B / seven loaded sectors inside the same fixed fifteen-sector file slot | OPT-015 committed as `88175d7`; no FAT-sector saving |
-| 5. 16 KiB memory/executable space | partially solved | OPT-015 removes 1,801 B of uncalled application code; user arena/context remains 96/96 B. OPT-013 model-cache saving is consumed temporarily by reconstruction | OPT-015 committed as `88175d7`; receiver constructions already counted SHA removal |
+| 5. 16 KiB memory/executable space | partially solved | User arena/context remains 96/96 B; the accepted OPT-030/031 image uses all 4,096 executable bytes in K, with unchanged RAM and stack bounds | Product acceptance is complete; executable headroom recovery ranks next before further code expansion |
 | 6. Interactive floppy activity | partially solved | OPT-027 controlled responses reach 34 reads from 146 unsplit / 162 fragmented; same RAM/FAT allocation and outgoing-record count | Functional live acceptance complete through OPT-028; no whole-turn floppy-free or elapsed-time claim |
 | 8. Conforming hybrid TLS on 8088 | backlog | ~45.75 s X25519 blocker | — |
-| 9. 8088 freshness/rotation | backlog | image refresh restores the rotated leaf and YE2 issuer compatibility; general on-target freshness/rotation remains open | OPT-003 operational evidence and OPT-028 bounded compatibility repair |
+| 9. 8088 freshness/rotation | backlog | image refresh restores the exact leaf and bounded WE1/YE2 compatibility; general 8088 on-target freshness/rotation remains open | OPT-003 operational evidence and OPT-031 dual-issuer repair |
 | 10. Whole-system Pareto audit | partially solved | OPT-009/010 receiver/overlay bounds and OPT-011/012 codec work reconciled with OPT-013 cache reconstruction: 509 named preserved bytes, 414-B component, 8-B stack; existing loader schedule still exceeds 16 KiB | OPT-013 audit complete; broader audit remains open |
 
 ## Progress reporting
@@ -554,6 +678,12 @@ After OPT-027's selected DATA shortcut and OPT-028's issuer repair and full live
 verification, the estimate remains **48% explored (rough 38–58%)**. These close
 the selected implementation and compatibility checks, without closing general
 rotation, physical entropy or the remaining optimization search space.
+
+After OPT-029's matched original-speed response-component timings, the estimate
+is **50% explored (rough 40–60%)**. This closes the retained fixed-work
+multiplication timing question and establishes its complete affected-response
+cost on the current path. It does not count the unintegrated candidate as a
+product win or close the wider dialogue, code-space, proof or security wishes.
 
 ## Selection policy
 
@@ -4670,6 +4800,229 @@ Report overall rocks-turned completion at every pause. Do not commit or push.
   bounded negative result and rank the next remaining cost. This measurement
   does not authorize a new crypto design, relaxed verification, product change,
   commit or push. Keep at most three VMs open and close each when finished.
-- Status/owner: selected next in the campaign chat; not started. A fresh chat
-  is optional for this bounded measurement. Overall rocks turned remains
-  **48% (rough 38–58%)** until new evidence closes another question.
+- Status/disposition: **measurement complete; OPT-030 integration selected**.
+  HEAD remains `3410dd7`. `OPT-029/before.json` freezes the source/image and
+  preservation inventory; no other campaign process or VM was active at entry.
+  Product source and images remain unchanged. No commit or push was made.
+
+#### OPT-029 result and tradeoff
+
+The isolated baseline is byte-identical to the accepted runtime. The ordinary
+response candidate is
+`4e40733c4dc9d75e58de90ba210debd892a3b3546a500c5aeabe443d412da84c`.
+It repeats the same seven-instruction fixed-word body twice per public loop
+iteration, reducing sixteen iterations to eight. It introduces no hardware
+MUL premise, operand-dependent branch/address or new mutable scratch.
+
+| Identical 4 KiB response | Baseline | Candidate | Reduction |
+| --- | ---: | ---: | ---: |
+| Unsplit instruction hooks | 7,403,450 | 7,222,010 | 2.45% |
+| Fragmented instruction hooks | 7,464,013 | 7,280,845 | 2.45% |
+| Unsplit BIOS ticks, each of three samples | 394 | 381 | 3.30% |
+| Fragmented BIOS ticks, each of three samples | 397 | 384 | 3.27% |
+| Unsplit component seconds | 21.6406 | 20.9266 | 0.7140 s |
+| Fragmented component seconds | 21.8054 | 21.0914 | 0.7140 s |
+
+Both shapes retain 34 sector reads, eight outgoing records, 99 fixture
+callbacks and response stack low-water `0x3fc0`. The independent peer checks
+the same full response, credit and exact encrypted outgoing packets. Current
+baseline hook attribution is fixed-word multiplication 41.36%, all ChaCha
+routines 25.06%, pre-tag retention 19.55%, and other work 14.03%. Those shares
+are not elapsed-time shares. The measured candidate changes only the
+fixed-word group's hook count.
+
+K grows 4,081 -> 4,096 bytes. The helper remains 510 bytes, the owner 455, and
+the isolated runtime 150,016 bytes / 293 sectors. The exact multiplication
+frame remains 24 bytes, with no response RAM or stack growth. Shipping FAT use
+remains 308/309 because the shipping image is untouched. Full product rebinding
+and its final FAT/layout check belong to OPT-030: the measurement composition
+does not regenerate or accept its cold-pack and 286 references.
+
+For each exact image, 3,117 full-width operand pairs execute in two DS/SS
+layouts (6,234 executions), preserving registers, access bounds and
+operand-independent stack residue. Five arithmetic instruction/address traces
+match within each image. Fourteen credit scenarios, the full 28-case AEAD
+matrix, the focused 18-case hostile/trace matrix and twenty real-loader
+composition/failure cases pass in guarded 16 KiB RAM. Equal-geometry forged
+records retain identical pre-verification instruction/ACK schedules. The
+initial equate-lookup and inherited cold-worker stack-bound fixture failures
+are retained; the application frame is 24 bytes in both images.
+
+Original-speed timing executes the actual lower-16-KiB response and phase
+loader code. A private 64 KiB fixture stores the validated external transcript
+and dispatcher above product memory. BIOS disk, NIC, provider and display are
+substitutions; common dispatcher work is included, and UART/final CRC work is
+outside the measured interval. Every callback checks input registers/SP and
+outgoing packets, and the assembled fixture passes full lower-memory comparison
+against the independent peer before VM use. Target CRC32 and transcript
+exhaustion pass on every sample. This is component timing, not 16 KiB boot,
+physical I/O, full-turn, entropy or live-provider acceptance.
+
+Four accepted read-only VM runs provide twelve samples, with baseline-first
+order for unsplit and candidate-first for fragmented. The initial high-density
+drive attempt fell through to ROM BASIC and collected no timing; it remains
+failed and excluded. Two offline native-fixture misses (scroll callback and
+ordinary displayed prompt) also remain recorded. All VMs are closed, maximum
+overlap is one, and all media hashes match. `comparison.json` and
+`final-audit.json` under `OPT-029/` bind the results, ledger, unchanged 9,551
+protected files (excluding the allowed ledger edit) and 44,543 prior evidence
+files. Existing unrelated cfg/NVR, screenshot and pcap changes are preserved.
+
+The measured, repeatable saving justifies the narrow two-round implementation
+follow-up. Its zero remaining K headroom is an explicit cost: recover
+executable space before larger unrolls or other code-expanding response work.
+ChaCha is the next measured computation group to examine after that constraint;
+pre-tag retention has a higher verification risk. Do not trade fixed work for
+variable-time multiplication or weaken authentication to gain speed. Overall
+rocks turned is **50% (rough 40–60%)**.
+
+### OPT-030 — Integrate the measured fixed-work response multiplication
+
+- Wishes: 2, with 5, 6 and 10 as budget and compatibility checks.
+- Question: can the exact OPT-029 two-round unroll become a fully validated
+  product checkpoint while retaining the measured component gain and every
+  existing trust, RAM, stack, layout, read-only and reconnect boundary?
+- Baseline: committed `3410dd7`, runtime `9d83b0e2f3bf0293530cd344bb2e2a55144be19f380a5648d3d68e9567f04ea1`.
+  Reuse OPT-029's frozen images, oracle, response fixtures and native timings.
+- Allowed surface: `boot/core/poly1305_app.inc`, focused exact-image arithmetic
+  regression coverage and necessary build/test bindings, affected documentation,
+  this ledger and isolated `build/optimization-campaign/OPT-030/` evidence.
+  Preserve earlier evidence and all unrelated changes in this same checkout.
+- Required evidence: regenerate all dependent product/cold/286 bindings;
+  `make`, inspect and BASIC helpers; all current TLS/application offline gates,
+  exact arithmetic and fixed-work checks, bounds/erasure/hostile inputs;
+  unchanged FAT/RAM/stack/read/record budgets and K <=4,096 bytes. Reconcile
+  the rebuilt ordinary route with the timed candidate before retaining its gain.
+  Run relevant 16 KiB BASIC, 32 KiB direct and 286/512 KiB live gates, all seven
+  original-speed ISA NICs, reuse, bounded reconnect, and affected native/ENV,
+  cancellation, recovery and display lifetimes. Retain every failed attempt.
+- Exit: a working, fully validated product checkpoint, or revert only this
+  candidate's product edits and record why the integration cannot be accepted.
+  No new crypto design, trust assumption, module system or relaxed verification.
+  Keep at most three VMs open and close each when finished.
+- Status: **implemented and accepted through OPT-031**,
+  explicitly authorized in this campaign chat by the
+  maintainer for implementation and testing. `OPT-030/before.json` freezes
+  `3410dd7`, existing changes, canonical build hashes and all earlier evidence.
+  No other campaign process or VM was active at entry. Commit and push were not
+  authorized at entry. Overall rocks turned remains **50% (rough 40–60%)** during this
+  integration and its required acceptance work.
+
+The final-image offline checks and exact OPT-029 timing-payload reconciliation
+are complete. `integration/candidate-binding.json` binds the integration image and
+`integration/pre-live-invariants.json` confirms 699 unrelated protected inputs
+are unchanged. The private replay's missing-include failure and successful
+repair are preserved under `harness-repair/`.
+
+The three main CPU/RAM cases all fail before greeting at `00/12`; unchanged
+baseline controls on 32 KiB and 286 reproduce the failure. All five cases are
+retained under `integration/live/`, with failed results, reviewed screenshots,
+exact-PID ownership and raw pcaps. All VMs are closed and the maximum was three.
+No other NIC case or prompted turn ran. Public probes on both provider
+addresses verify a new November 3 WE1/P-256/SHA-256 leaf, whose SPKI SHA-256 is
+`ce0265df44be9bacfcf32d6c12a74ffb5b7222e4aec845e44f527a740744657c`.
+It differs from the frozen November 2 exact leaf and is refused under the
+immutable YE2 key. The host probes establish compatibility evidence only;
+their certificates and computations are not runtime helpers.
+
+Pre-repair disposition, retained for history and resolved by OPT-031:
+preserve the local implementation and completed checks while awaiting
+the maintainer's trust-scope decision. The proposed follow-up retains
+both independently authenticated WE1 and YE2 issuer keys, refreshes only the
+8088 image-dated exact leaf, and keeps hostname/time/CV/FO/publication/erasure
+and every RAM/media boundary intact. Its footprint must be measured: the 286
+auth controller currently has 233 raw bytes and 23 packed bytes of headroom.
+No compatibility implementation, trust-asset edit, commit or push has occurred.
+All seven NIC profiles, reuse, idle reconnect, native completion and visual/wire
+review remain required before accepting OPT-030. Overall rocks turned remains
+**50% (rough 40–60%)**.
+
+### OPT-031 — Restore both observed issuer routes and finish OPT-030 acceptance
+
+- Wishes: compatibility and verification prerequisites for OPT-030; this does
+  not count as another optimization avenue turned.
+- Authorization: the maintainer selected “Repair compatibility and finish
+  testing”: retain the independently authenticated WE1 and YE2 issuer keys,
+  refresh the 8088 image-dated exact leaf, and complete the live matrix.
+- Baseline: the preserved OPT-030 implementation on `3410dd7`, including its
+  successful offline checks and five failed live/control runs. `OPT-031/before.json`
+  freezes source, unrelated changes, boot artifacts and all earlier evidence.
+- Scope: bounded dual issuer selection, the current exact-leaf asset and public
+  provenance fixtures, necessary certificate/hash/wire-profile bindings, hostile
+  gates and documentation. Preserve strict hostname, UTC validity, issuer/CV,
+  full FO, status-last authority, erasure, conventional-RAM-only state and
+  write-protected media. Reuse the existing phase/module architecture.
+- Validation: measure emitted raw/packed/FAT/RAM budgets; prove both real issuer
+  paths and hostile/mismatched inputs; run all current offline gates, serialized
+  timing and the exact ordinary response implementation checks. Then complete
+  16 KiB BASIC, 32 KiB direct, 286/512 KiB, all seven ISA NICs, reuse, bounded
+  reconnect, native and affected lifetime gates, with actual screen/wire review.
+- Status: **accepted product checkpoint**. Nine reviewed cases and
+  27 prompted turns pass the exact frozen product image. The resumed
+  `ne2k8-32k-repeat-4` completes four text turns, ten-minute idle recovery and
+  exactly one native write/execute/read with AX 42, correct bytes and returned
+  prompt. The final values are expressed in words; a separate timed visual
+  review establishes functional completion while preserving the automatic
+  literal-match miss and numeric-format noncompliance. All five excluded
+  attempts and the separate instrumented diagnostic
+  are preserved. Earlier repeated-action cause remains unproven; no native-loop
+  fix was made. Product documentation is updated. All VMs are closed, with
+  resumed overlap one and campaign overlap at most three. The maintainer has
+  authorized this checkpoint's commit and push. Overall rocks turned remains
+  **50% (rough 40–60%)**.
+
+#### OPT-031 result and evidence
+
+The 320-byte public-point object fits the existing 41-sector pack header.
+Authentication occupies 7,156 raw / 6,143 stored bytes in twelve sectors;
+the H2 helper remains one sector. Matching inner/outer signature algorithms
+select WE1/SHA-256 or YE2/SHA-384. Exact encoded TBS capture follows acquisition
+Finished and credential-free liveness. Strict offline parsing binds its span
+and RAM-corruption guard before full issuer ECDSA verification. Temporary
+capture state is wiped before promotion and on abort. No additional private
+key, writable media or trusted runtime helper is introduced.
+
+Both real issuer paths pass target execution and hostile input checks,
+including altered algorithms, spans, digests, guards, points, signatures,
+CV and rehashed unsigned certificates. Initial over-budget attempts, a
+date-extraction sequencing failure and stale fixture assumptions are retained
+in `rejected-attempts.json`; none are relabeled as passes.
+
+Five excluded product attempts remain under their original case directories:
+`ne2k8-32k` repeated a write; `ne2k8-32k-repeat-1` was stopped incomplete for
+the planned outage; `ne2k8-32k-repeat-2` and `ne2k8-32k-repeat-3` repeated an
+execute; `ne1k-16k` failed across a confirmed 136-second clamshell sleep.
+The latter's unchanged full repeat passes. The three native-repeat captures
+account for all their connections, but do not establish the encrypted
+application's reason for repeating an action. No product fix was inferred
+from that wire evidence.
+
+Four synthetic cache/compaction/scrolling cases and two full lifecycle
+comparisons produce identical baseline/candidate requests and tool results.
+The two separately authorized host continuation probes returned the correct
+AX and bytes without another tool call. The approved private serial diagnostic
+then completed the full live scenario and showed intact journal, context,
+read result and original prompt metadata. These remain diagnostic evidence;
+they do not establish the earlier cause or count as canonical acceptance.
+The maintainer subsequently resumed testing, and the independently reviewed
+uninstrumented `ne2k8-32k-repeat-4` completed the missing functional product
+case. Its final answer is "AX is forty-two. Hex bytes: bee eight, two ay,
+zero zero, see bee." The saved pixels show one of each action and a returned
+input prompt. The unchanged detector still misses literal `42`, so its
+original automatic result is preserved and the documented numeric-format
+mismatch review supplies functional completion only. The owned observer was
+stopped after that review; its nonzero exit is not presented as an automatic
+pass. A conservative cleanup guard first rejected the relative script argument;
+the guard failure and exact-path resolution before scoped closure are retained.
+
+`integration/candidate-binding.json`, `dual-issuer.json`,
+`response-reconciliation.json`, `serialized-286.json`, each accepted case's
+`connection-accounting.json` and `h2-live-gate.json`, and `final-audit.json`
+bind this checkpoint. `integration/native-trace-pause-checkpoint.json`,
+`target-native-trace/conclusion.json` and `integration/resume-2026-11-20/`
+retain the pause, diagnostic and resumed verification separately. Monitor
+histories are preserved without rewriting old observations. All owned VMs,
+monitors and temporary idle guards closed. Current remaining limitations are
+physical entropy, wider provider repetition, unexplained historical native
+repeats and no executable headroom in K. The controlled 3.30% / 3.27% gain is
+not a whole-dialogue latency claim.

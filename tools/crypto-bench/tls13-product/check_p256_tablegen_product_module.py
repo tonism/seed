@@ -53,11 +53,11 @@ STATE_CACHE_CAPACITY = 2
 PACK_CACHE_BYTES = 20992
 CONTROLLER_START = 0x1800
 CONTROLLER_LIMIT = 0x3400
-DESC = 0x3279
+DESC = 0x33c0
 DESC_BYTES = 52
-GENERATOR = 0x3220
+GENERATOR = 0x3380
 OLD_ISSUER_SLOT = 0x2C9E
-LEAF = 0x32AD
+LEAF = 0x0C70
 RECORD_PLAIN_OFF = 0xBF10
 SCRATCH_BYTES = 16256
 G_TABLE_OFF = 0x5800
@@ -120,6 +120,10 @@ def build() -> None:
 
 def label_address(listing: Path, label: str, origin: int) -> int:
     lines = listing.read_text().splitlines()
+    for line in lines:
+        match = re.search(rf"\b{re.escape(label)}\s+equ\s+(0x[0-9a-fA-F]+)\b", line)
+        if match:
+            return int(match.group(1), 16)
     label_re = re.compile(
         rf"\b{re.escape(label)}(?::|\s+(?:db|dw|times)\b)"
     )
@@ -188,12 +192,10 @@ def new_machine(
     machine.mem_map(0, 0x100000)
     machine.mem_write(ORIGIN, image)
     auth = AUTH.read_bytes()
-    for physical in (GENERATOR,):
-        start = physical - CONTROLLER_START
-        machine.mem_write(physical, auth[start : start + 64])
-    # The parsed leaf is mutable in product, but a valid generator is enough
-    # for this boundary gate; retain a distinct on-curve value in its slot.
-    generator_bytes = auth[GENERATOR - CONTROLLER_START : GENERATOR - CONTROLLER_START + 64]
+    generator_bytes = (BUILD / "tls13-286-auth-points.bin").read_bytes()[-64:]
+    if len(generator_bytes) != 64:
+        raise AssertionError("immutable generator asset missing")
+    machine.mem_write(GENERATOR, generator_bytes)
     machine.mem_write(LEAF, generator_bytes)
     if point_corrupt:
         first = bytes(machine.mem_read(GENERATOR, 1))[0]

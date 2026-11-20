@@ -263,6 +263,7 @@ class AuthMachine:
         candidate_status: bytes = READY,
         candidate_secret: bytes | None = None,
         ticket_status: bytes = TICKET_TENTATIVE,
+        captured_tbs: bytes | None = None,
         real_modules: bool = True,
         stub_mlkem: bool = False,
     ) -> None:
@@ -310,7 +311,9 @@ class AuthMachine:
         self.machine.mem_write(BDA_CONVENTIONAL_KB, struct.pack("<H", 512))
 
         high = CRYPTO_BASE
-        self.pack_cache = pattern(PACK_CACHE_BYTES, 57, 19)
+        self.pack_cache = (CRYPTO_BUILD / "tls13-286-modules.bin").read_bytes()
+        if len(self.pack_cache) != PACK_CACHE_BYTES:
+            raise AssertionError("auth pack cache geometry drifted")
         self.machine.mem_write(high + PACK_CACHE_OFF, self.pack_cache)
         self.mlkem_dk = MLKEM_DK.read_bytes()
         self.mlkem_ciphertext = MLKEM_CIPHERTEXT.read_bytes()
@@ -339,6 +342,10 @@ class AuthMachine:
         self.machine.mem_write(
             high + CV_SIGNATURE_LEN_OFF, struct.pack("<H", len(cv_signature))
         )
+        if captured_tbs is not None:
+            if len(captured_tbs) != 38:
+                raise ValueError("captured TBS evidence must contain digest, exact span and integrity guard")
+            self.machine.mem_write(high + TICKET_META_OFF + 18, captured_tbs)
         self.machine.mem_write(high + CAPTURE_STATUS_OFF, capture_status)
         self.machine.mem_write(high + AUTH_STATUS_OFF, b"\x00\x00")
         self.machine.mem_write(high + ECDSA_RESULT_OFF, b"\x00")

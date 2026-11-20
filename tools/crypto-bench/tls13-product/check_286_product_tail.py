@@ -616,7 +616,12 @@ def validate_module_pack(pack: bytes, entry: TailEntry) -> None:
     directory_end = PACK_DIRECTORY_OFF + count * PACK_ENTRY_BYTES
     if directory_end > PACK_HEADER_BYTES:
         fail("286 S286PK02 directory exceeds its header sector")
-    if any(pack[directory_end:PACK_HEADER_BYTES]):
+    if directory_end != 140 or pack[140:144] != b"IA02":
+        fail("286 immutable issuer point object has wrong format")
+    points = (ROOT / "build/ibm_pc_5150/crypto-bench/tls13-286-auth-points.bin").read_bytes()
+    if len(points) != 320 or pack[144:464] != points:
+        fail("286 immutable issuer point object differs from shipping asset")
+    if any(pack[464:PACK_HEADER_BYTES]):
         fail("286 S286PK02 unused header bytes are not canonical zero")
 
     expected_payload = PACK_HEADER_BYTES

@@ -23,7 +23,7 @@ floppy-160k.img
 ```
 
 TLS 1.3 does not package `SEED/LEAF.DER`. The 8088 exact-leaf object and 286
-YE2 issuer point are immutable `SEED.SYS` assets; certificates, tables,
+WE1 and YE2 issuer points are immutable `SEED.SYS` assets; certificates, tables,
 tickets, keys, and attempt bundles are volatile RAM state.
 
 There are two entries into the same four-sector resident nucleus:
@@ -124,7 +124,7 @@ current split gives a 192 KiB executable arena and 192 KiB context.
 
 The route implements fully standards-conforming TLS 1.3
 `X25519MLKEM768`: real ML-KEM-768 and X25519, ChaCha20-Poly1305/SHA-256,
-strict ordinary Certificate parsing, YE2 P-384/SHA-384 issuer authentication, exact
+strict ordinary Certificate parsing, WE1 P-256/SHA-256 or YE2 P-384/SHA-384 issuer authentication, exact
 OpenAI hostname/purpose/key-use/time policy, and P-256 CertificateVerify over
 the acquisition transcript.
 
@@ -132,7 +132,7 @@ Acquisition verifies the protected flight and server Finished with a
 provisional candidate, sends client Finished plus the immutable
 credential-free H2 preface/SETTINGS, and authenticates peer SETTINGS/ACK and a tentative
 NewSessionTicket. Offline full FO comparison and strict
-YE2/hostname/UTC/CertificateVerify proof promote that volatile ticket. The
+issuer/hostname/UTC/CertificateVerify proof promote that volatile ticket. The
 final no-0RTT PSK-DHE resumption consumes it, uses independent full hybrid
 keys, a real binder, `selected_identity=0`, full decapsulation, and a strict
 EncryptedExtensions-to-Finished flight. It sends the credential-free H2 preface/SETTINGS,
@@ -158,7 +158,7 @@ recorded in
 [`../../docs/architecture.md`](../../docs/architecture.md#historical-exact-floor-activity-timelines)
 and [`../../docs/testing.md`](../../docs/testing.md).
 
-Both product routes pass current HTTP/2 and YE2 compatibility verification:
+Both product routes pass current HTTP/2 and dual-issuer compatibility verification:
 offline composition gates, read-only exact-floor reconnect runs, seven-NIC
 matrix, CGA/MDA display cases, dependent conversation and native-tool checks.
 Earlier HTTP/1 acceptance remains historical evidence. Physical-entropy

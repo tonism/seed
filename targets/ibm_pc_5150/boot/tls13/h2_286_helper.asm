@@ -2,7 +2,8 @@ bits 16
 cpu 8086
 org 0x5500
 %include "h2-helper-refs.inc"
-dw flight_h2_load, flight_post_h2_bytes, flight_h2_ready, flight_h2_publish
+%include "tls13/tls13_286_abi.inc"
+dw flight_h2_load, flight_post_h2_bytes, flight_h2_ready, flight_h2_publish, flight_hash_tbs
 ; Shared H2 parser in retired 286 module RAM. Its unchanged org-1800 image
 ; executes with CS=DS=ES=02a3; SS stays on the existing guarded low stack.
 %include "h2-286-post-abi.inc"
@@ -173,4 +174,89 @@ flight_h2_publish:
     mov di, 0x062e
     mov cx, 84/2
     rep movsw
+    ret
+
+; Called only after the acquisition's authenticated HEAD/ticket completes.
+; AX=crypto segment, ES=0. Copy the bounded leaf and capture its full TBS span;
+; AUTH independently requires that span to match its strict X.509 parser.
+; DER canonicality and policy remain AUTH's responsibility.
+flight_hash_tbs:
+    mov ds, ax
+    cmp byte [tls13_286_certificate_off + 8], 0
+    jne .bad
+    mov cx, [tls13_286_certificate_off + 9]
+    xchg cl, ch
+    cmp cx, 1024
+    ja .bad
+    mov ax, cx
+    add ax, 13
+    cmp ax, [tls13_286_certificate_len_off]
+    ja .bad
+    mov si, tls13_286_certificate_off + 11
+    mov di, 0x0800
+    push cx
+    rep movsb
+    xor ax, ax
+    mov ds, ax
+    mov si, 0x0800
+    pop cx
+    mov dx, si
+    add dx, cx
+    call .sequence
+    jc .bad
+    mov dx, si
+    add dx, cx
+    mov [0x0c20], si
+    call .sequence
+    jc .bad
+    add cx, si
+    sub cx, [0x0c20]
+    mov [0x0c22], cx
+    mov si, [0x0c20]
+    mov dx, cx
+    call flight_crc16
+    mov [0x0c24], ax
+    call FLIGHT_SHA256_INIT
+    mov si, [0x0c20]
+    mov cx, [0x0c22]
+    call FLIGHT_SHA256_UPDATE
+    mov di, 0x0c00
+    jmp FLIGHT_SHA256_FINISH
+.bad:
+    stc
+    ret
+.sequence:
+    cmp si, dx
+    jae .bad
+    lodsb
+    cmp al, 0x30
+    jne .bad
+    cmp si, dx
+    jae .bad
+    lodsb
+    xor cx, cx
+    mov cl, al
+    test al, 0x80
+    jz .length
+    sub al, 0x81
+    cmp al, 1
+    ja .bad
+    mov ah, al
+    cmp si, dx
+    jae .bad
+    lodsb
+    mov cl, al
+    or ah, ah
+    jz .length
+    cmp si, dx
+    jae .bad
+    lodsb
+    mov ch, cl
+    mov cl, al
+.length:
+    mov ax, si
+    add ax, cx
+    jc .bad
+    cmp dx, ax
+    jb .bad
     ret

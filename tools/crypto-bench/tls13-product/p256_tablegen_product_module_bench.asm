@@ -12,9 +12,9 @@ org 0x1000
 
 bench_crypto_seg equ BENCH_CRYPTO_SEG
 bench_stack_top equ 0x8000
-auth_generator_point equ 0x3220
-auth_desc equ 0x3279
-auth_leaf_point equ 0x32ad
+auth_generator_point equ 0x3380
+auth_desc equ 0x33c0
+auth_leaf_point equ 0x0c70
 tablegen_scratch_bytes equ 16256
 
 %define HIGH_SEG(object_off) (bench_crypto_seg + ((object_off) >> 4))
@@ -419,9 +419,7 @@ times (auth_desc - 0x1000) - ($ - $$) db 0
 operation_desc:
     times tls13_286_desc_bytes db 0
 
-; Product parser output slot.  The hostile host gate supplies an on-curve
-; value here when it exercises the leaf-to-Q mapping.
-times 64 db 0
+; The parser's leaf input is now the separate low slot at 0x0c70.
 
 times (tls13_286_root_state_loader - 0x1000) - ($ - $$) db 0
 root_state_loader:

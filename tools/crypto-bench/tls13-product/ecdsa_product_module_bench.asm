@@ -20,8 +20,8 @@ cv_digest_phys equ crypto_base + tls13_286_cv_digest_off
 result_phys equ crypto_base + tls13_286_ecdsa_result_off
 cert_digest_phys equ 0x0c00
 cert_signature_phys equ 0x0c20
-generator_phys equ 0x3220
-leaf_phys equ 0x32ad
+generator_phys equ 0x3380
+leaf_phys equ 0x0c70
 q_selected_entry_offset equ (13 - 1) * 64
 
 %macro span_phys 2
@@ -72,6 +72,11 @@ start:
     cmp word [tls13_286_module_load + tls13_286_mod_flags], \
         tls13_286_mod_flag_one_shot
     jne fail
+
+    mov si, leaf_x
+    mov di, leaf_phys
+    mov cx, 32
+    rep movsw
 
     call tick_start
     mov ax, tls13_286_mod_op_p256_tablegen
@@ -664,7 +669,6 @@ generator_y:
     dw 20981,14271,16488,52150,24270,27441,13143,11214
     dw 40470,31759,60234,36583,32667,65050,17122,20451
 
-times leaf_phys - ($ - $$ + 0x1000) db 0
 leaf_x:
     dw 55915,3498,56094,48973,9044,8703,11167,41356
     dw 31549,43999,29596,40542,5757,9490,20289,63970
@@ -688,6 +692,6 @@ image_end:
 %if generator_x - $$ + 0x1000 != generator_phys
 %error "ECDSA bench generator point moved"
 %endif
-%if leaf_x - $$ + 0x1000 != leaf_phys
-%error "ECDSA bench leaf point moved"
+%if leaf_phys != 0x0c70
+%error "ECDSA bench near leaf slot moved"
 %endif

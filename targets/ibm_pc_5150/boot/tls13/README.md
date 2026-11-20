@@ -64,7 +64,7 @@ acquisition
 
 offline authority
   complete ML-KEM FO decapsulation and constant-time candidate comparison
-  strict YE2 / api.openai.com / purpose / UTC-validity / CertificateVerify
+  strict issuer / api.openai.com / purpose / UTC-validity / CertificateVerify
   generate P-256 tables and promote the same-boot ticket status-last
 
 final credential connection

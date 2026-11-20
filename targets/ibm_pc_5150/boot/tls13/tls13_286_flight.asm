@@ -93,6 +93,8 @@ flight_main:
     jne .application_record
     call flight_export_tentative_ticket
     jc .abort
+    call flight_capture_tbs
+    jc .abort
     call flight_publish_capture
     call flight_close_socket
     jc .abort
@@ -1366,6 +1368,28 @@ flight_export_tentative_ticket:
         tls13_286_ticket_status_tentative
     xor ax, ax
     mov es, ax
+    ret
+
+; Reuse the retired near leaf/signature buffers and existing SHA-256 image.
+; This happens after Finished and credential-free liveness, before publishing
+; capture status. No new disk read or hash implementation is introduced.
+flight_capture_tbs:
+    mov ax, [cs:flight_crypto_seg]
+    call word [cs:0x5508]
+    jc .bad
+    mov es, [cs:flight_crypto_seg]
+    mov si, 0x0c00
+    mov di, tls13_286_tbs_digest_off
+    mov cx, 19
+    rep movsw
+    xor ax, ax
+    mov es, ax
+    ret
+.bad:
+    xor ax, ax
+    mov ds, ax
+    mov es, ax
+    stc
     ret
 
 flight_publish_capture:

@@ -16,7 +16,7 @@ This document is the authority for that distinction.
 | Profile | Product floor | Security claim |
 | --- | --- | --- |
 | 8088 | 4.77 MHz 8088, 16 KiB RAM | TLS 1.3 wire protocol with a bounded Seed credential-release boundary; effective ML-KEM-only key exchange, deferred authentication; not standards-conforming hybrid TLS |
-| 286 conforming | 6 MHz 286, 512 KiB RAM | fully standards-conforming TLS 1.3 `X25519MLKEM768`, with real ML-KEM-768 and X25519 contributions and P-256 certificate authentication |
+| 286 conforming | 6 MHz 286, 512 KiB RAM | fully standards-conforming TLS 1.3 `X25519MLKEM768`, with real ML-KEM-768 and X25519 contributions, WE1/P-256 or YE2/P-384 issuer authentication, and P-256 CertificateVerify |
 
 The 8088 route must not be described as FIPS-conforming, as a conforming
 `X25519MLKEM768` hybrid, or as equivalent to the 286 route. The 286 protocol
@@ -131,7 +131,8 @@ reports at least 512 KiB conventional RAM. It implements a real
 - the standard hybrid secret construction;
 - SHA-256 and ChaCha20-Poly1305 handshake and record protection;
 - strict ordinary Certificate parsing;
-- Let’s Encrypt YE2 P-384 issuer verification using SHA-384;
+- Google Trust Services WE1 P-256/SHA-256 or Let’s Encrypt YE2
+  P-384/SHA-384 issuer verification;
 - exact `api.openai.com` hostname, purpose, key-use, and validity policy; and
 - P-256 CertificateVerify over the acquisition transcript, followed by a
   standards-conforming authenticated PSK-DHE resumption.
@@ -154,7 +155,7 @@ it outside the security boundary:
    NewSessionTicket. That ticket is published only as tentative.
 2. With no provider connection timer running, the same machine performs full
    ML-KEM FO decapsulation and a constant-time comparison with the provisional
-   candidate, then strictly validates YE2, hostname, purpose, key use, UTC
+   candidate, then strictly validates the selected immutable issuer, hostname, purpose, key use, UTC
    validity, and the acquisition CertificateVerify. Only the complete proof
    promotes the volatile ticket.
 3. The final connection consumes the promoted ticket before reading its PSK
@@ -198,19 +199,34 @@ the live provider windows. CPU/RAM, RTC/time, entropy, certificate, CV,
 Finished, FO/cache, pack, and abort rejection gates pass. Physical RTC/PIT
 entropy characterization remains open.
 
-The immutable trust object is the YE2 P-384 affine point baked into
-`SEED.SYS`. The leaf, generated tables, private state, and same-boot pin live
+The immutable trust objects are the WE1 P-256 and YE2 P-384 affine points
+baked into `SEED.SYS`. The leaf, generated tables, private state, and same-boot pin live
 only in RAM and are discarded on restart. The ticket and PSK are also volatile
 and never become a disk cache. Read-only floppy media is sufficient.
 
 The bounded certificate profile accepts at most four entries in a 4 KiB
 ordinary Certificate message and authenticates the P-256 leaf directly under
-the immutable YE2 key. Additional chain entries do not introduce authority.
-The ClientHello advertises ECDSA/P-384/SHA-384 for certificate signatures
-separately from P-256/SHA-256 CertificateVerify. Both checks execute on the
-target. A future issuer change requires an authenticated image update; there
-is no fallback to the previous issuer or weaker validation. Public fixture
-provenance is recorded in the
+one of those two immutable keys. Additional chain entries introduce no
+authority. Inner and outer signature algorithms must agree: SHA-256 selects
+WE1; SHA-384 selects YE2. An invalid signature fails closed without trying a
+weaker profile. The ClientHello advertises both certificate signature schemes
+separately from its P-256/SHA-256-only CertificateVerify offer. A new issuer
+requires an authenticated image update.
+
+After acquisition Finished and credential-free liveness complete, the existing
+target SHA-256 code hashes the exact encoded leaf TBS. The digest, bounded
+span and CRC remain in the same-boot RAM quarantine until offline auth matches
+the strict parser's span and checks for RAM corruption. WE1 verification then
+requires the full ECDSA equation under its immutable key; the CRC supplies no
+cryptographic authority. YE2 hashes the parsed TBS with target SHA-384. Both
+routes require full FO, hostname, purpose, key use, UTC validity and live CV
+before publishing authority. The temporary TBS capture is wiped before
+promotion and on abort; later resumption reuses those metadata slots.
+
+The public points fit in the existing immutable pack header, with its normal
+whole-pack integrity check. P-256 tables for G, WE1 when selected, and the
+authenticated leaf are generated on target. Public fixture provenance is
+recorded in the
 [fixture notes](../tools/crypto-bench/tls13-product/fixtures/README.md).
 
 The acquisition candidate is not an authority boundary: it can enable only the
@@ -227,7 +243,7 @@ Pinning is part of the TLS architecture, not a packaging afterthought. The
 useful authority chain is:
 
 ```text
-durable issuer authority     YE2 point in the immutable image
+durable issuer authority     WE1 and YE2 points in the immutable image
 acquisition identity         authenticated api.openai.com leaf + live CV
 same-boot bridge             promoted ticket derived only after full offline proof
 credential-bearing channel  binder + independent hybrid KEX + resumed Finished

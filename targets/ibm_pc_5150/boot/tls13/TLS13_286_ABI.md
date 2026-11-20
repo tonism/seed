@@ -3,9 +3,9 @@
 This is the product-owned integration contract for the fully
 standards-conforming `X25519MLKEM768` TLS 1.3 tier. It fixes the memory, disk,
 call, and retry boundaries. The controller, cold tail, and dispatch are wired
-into the boot core; live original-speed provider validation is still in
-progress. The machine-readable constants are in
-`tls13_286_abi.inc`.
+into the boot core. Current validation status is recorded in
+[the testing guide](../../../../docs/testing.md). The machine-readable
+constants are in `tls13_286_abi.inc`.
 
 ## Dispatch and conventional RAM
 
@@ -117,14 +117,34 @@ operation lengths are:
 | X25519 keygen | 32-byte local scalar | 32-byte ClientHello share |
 | X25519 shared | scalar and 32-byte server share | 32-byte shared secret |
 | P-256 tablegen | 64-byte affine point and 16,256-byte temporary far span | 8,128-byte width-7 table |
-| ECDSA verify | 32-byte CV digest, strict DER signature, G and leaf tables | one-byte decision |
+| ECDSA verify | 32-byte issuer/CV digest, strict DER signature, G and selected public-point tables | one-byte decision |
 
-The offline auth controller contains the bounded SHA-384/P-384 verifier
-for the YE2-signed leaf. It uses public scratch at `0000:4230..58ff`, in the
-retired module window, and wipes that whole span on either issuer result
-before decoding the next P-256 module. The leaf remains P-256; target table
-generation covers only G and the authenticated leaf. No host table or runtime
-helper participates.
+The offline auth controller selects WE1/P-256/SHA-256 or YE2/P-384/SHA-384
+from the matching inner/outer signature algorithm. The immutable `IA02` object
+uses pack-header bytes 140..463: a four-byte tag, followed by P-384 G (96),
+YE2 (96), WE1 (64) and P-256 G (64), with little-endian affine coordinates.
+The existing whole-pack CRC covers it. Remaining header bytes are zero and
+the pack stays 41 sectors. No generated comb table is stored on disk.
+
+Offline auth copies P-384 G and YE2 into public near space `0d40..0dff`, below
+the FAT buffer. WE1 and P-256 G use `3340..337f` and `3380..33bf`; the module
+descriptor starts at `33c0`. Parsed leaf coordinates use `0c70..0caf`, outside
+the bounded `0800..0bff` leaf. The auth image is 7,156 raw / 6,143 stored bytes
+in twelve sectors. Its public SHA-384/P-384 scratch is `4230..58ff`; that span
+is wiped before the next P-256 module. The WE1 route generates G and issuer
+tables, verifies the issuer signature, then replaces the issuer table with
+the authenticated leaf table for CertificateVerify.
+
+After acquisition Finished and credential-free liveness, the existing
+one-sector H2 helper calls the relocated symmetric SHA-256 entries to capture
+the exact encoded TBS. It uses the retired `0800..0bff` leaf window; the normal
+TCP-close phase is reloaded before close. The 32-byte digest at high offset
+`bd22`, near-span pair at `bd42`, and CRC at `bd46` temporarily reuse later
+resumption metadata. Strict offline parsing must match that span and its RAM
+corruption guard before full WE1 ECDSA verification. These fields grant no
+authority by themselves. Auth clears all 64 bytes from `bd22` before promotion;
+abort wipes the reservation. No additional disk read, private key, host table
+or runtime helper is introduced.
 
 The entropy seed is gathered on the target. It is not supplied by a build
 machine or persisted as a private key.
@@ -217,10 +237,11 @@ tables, ticket, PSK, and attempts live in RAM, and a restart repeats the whole
 route. There is no 0-RTT, compressed certificate, persisted ticket, mutable
 leaf, or persisted private key.
 
-The immutable trust object in `SEED.SYS` is the Let’s Encrypt YE2 P-384
-public point. The strict leaf signature algorithm is ECDSA/SHA-384, advertised
-in `signature_algorithms_cert` separately from the P-256/SHA-256
-CertificateVerify offer. No leaf file is shipped or refreshed. Certificate
+The immutable trust objects in `SEED.SYS` are the WE1 P-256 and YE2 P-384
+public points. `signature_algorithms_cert` advertises P-256/SHA-256 then
+P-384/SHA-384, separately from the P-256/SHA-256-only CertificateVerify offer.
+The acquisition handshake is 1,376 bytes (1,381 with the record header),
+without an optional padding extension. No leaf file is shipped or refreshed. Certificate
 validity uses the coherent BIOS RTC as the platform UTC clock after Seed obtains a valid BCD
 Gregorian value in the supported date range. There is no interactive clock
 question; invalid time fails closed. Unauthenticated network time is not a

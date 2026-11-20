@@ -195,12 +195,20 @@ poly1305_mul_acc_r:
 ; AX * [DI] -> DX:AX with a fixed sixteen-round shift/add multiplication.
 ; A hardware MUL is deliberately not used as a timing premise on the 8088.
 ; Preserve the caller's row pointers and carry. No operand goes on the stack.
+; Two rounds per iteration remove half the public loop branches.
 poly1305_mul_word_fixed:
     push bx
     push cx
     xor dx, dx
-    mov cx, 16
+    mov cx, 8
 .bit:
+    mov bx, ax
+    and bx, 1
+    neg bx
+    and bx, [di]
+    add dx, bx
+    rcr dx, 1
+    rcr ax, 1
     mov bx, ax
     and bx, 1
     neg bx

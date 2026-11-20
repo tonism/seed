@@ -289,13 +289,13 @@ def hs(kind: int, body: bytes) -> bytes:
     return bytes([kind]) + len(body).to_bytes(3, "big") + body
 
 
-def build_fixture(certificate_bytes: int | None = None) -> dict[str, object]:
+def build_fixture(certificate_bytes: int | None = None, *, fixture_prefix: str = "provider_auth_live") -> dict[str, object]:
     integrated = ORACLE.build_integrated_fixture()
     hello = integrated.client_hello + integrated.server_hello
     hybrid = integrated.candidate_mlkem_secret + integrated.server_x25519_public
     handshake = CHECK.derive_handshake(hybrid, hello)
     ee = hs(8, H2_EE)
-    chain_pem = (HERE / "fixtures/provider_auth_live_chain.pem").read_bytes()
+    chain_pem = (HERE / f"fixtures/{fixture_prefix}_chain.pem").read_bytes()
     chain = [base64.b64decode(value) for value in re.findall(
         rb"-----BEGIN CERTIFICATE-----\s*(.*?)\s*-----END CERTIFICATE-----",
         chain_pem, re.S,
@@ -311,7 +311,7 @@ def build_fixture(certificate_bytes: int | None = None) -> dict[str, object]:
     )
     certificate_list = len(certificate_entry).to_bytes(3, "big") + certificate_entry
     certificate = hs(11, b"\x00" + certificate_list)
-    vector = json.loads((HERE / "fixtures/provider_auth_live_vector.json").read_text())
+    vector = json.loads((HERE / f"fixtures/{fixture_prefix}_vector.json").read_text())
     signature = bytes.fromhex(vector["certificate_verify"]["signature_der"])
     cv = hs(15, b"\x04\x03" + len(signature).to_bytes(2, "big") + signature)
     before_finished = hello + ee + certificate + cv
@@ -1147,6 +1147,19 @@ class FlightMachine:
         elif address == LOAD_CORE:
             key = machine.reg_read(UC_X86_REG_AX) & 0xFFFF
             dest = machine.reg_read(UC_X86_REG_BX)
+            if key == RUNTIME["TLS13_286_LINK_TCP_CLOSE_PHASE_KEY"]:
+                # The captured leaf now uses this retired low code window.
+                # Model the real close-phase reload before the existing
+                # network-close stub executes; a stale RET at 094e is no
+                # longer a faithful fixture after that lifetime transition.
+                assert dest == RUNTIME["TLS13_286_LINK_TCP_CLOSE_DESTINATION"]
+                core = CORE.read_bytes()
+                start, size = (key & 255) * 512, (key >> 8) * 512
+                machine.mem_write(dest, core[start:start + size])
+                machine.mem_write(RUNTIME["TLS13_286_LINK_TCP_CLOSE_ENTRY"], b"\xc3")
+                machine.ctl_remove_cache(dest, dest + size)
+                clear_cf(machine)
+                return
             if (key,dest) in ((0x01a4,0x5500),(0x070c,0x4230),(0x01d2,0x5230)):
                 assert len(self.sent)>=2, 'parser disk I/O delayed Finished/preface'
                 core = CORE.read_bytes()

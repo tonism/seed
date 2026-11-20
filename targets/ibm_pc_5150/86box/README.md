@@ -251,7 +251,7 @@ profile      6 MHz 286, 512 KiB conventional RAM
 wire 1       candidate-hybrid acquisition, verified protected flight/server
              Finished, client Finished + credential-free H2 preface/SETTINGS,
              authenticated peer SETTINGS/ACK and tentative NewSessionTicket
-offline      full FO compare, platform-UTC date, YE2/hostname/purpose/leaf/CV,
+offline      full FO compare, platform-UTC date, issuer/hostname/purpose/leaf/CV,
              target tables, and status-last ticket promotion
 wire 2       no-0RTT PSK-DHE resumption with independent X25519MLKEM768 keys,
              real binder, selected_identity=0, full decap, strict EE->Finished

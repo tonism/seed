@@ -47,6 +47,12 @@ tls13_286_record_plain_off         equ \
     tls13_286_high_reserve_bytes - tls13_286_record_plain_bytes
 tls13_286_pack_cache_off           equ 0x0000
 tls13_286_pack_cache_bytes         equ 20992
+; The pack's first sector holds its five-entry directory followed by one
+; immutable IA02 point object; all remaining header padding is canonical zero.
+tls13_286_pack_points_tag_off      equ 140
+tls13_286_pack_points_off          equ 144
+tls13_286_pack_points_bytes        equ 320
+
 tls13_286_g_table_off              equ 0x5800
 tls13_286_w7_table_bytes           equ 8128
 ; Before table generation this public table window is the raw, unconditioned
@@ -234,6 +240,12 @@ tls13_286_ticket_binder_off          equ \
     tls13_286_ticket_truncated_hash_off + \
     tls13_286_ticket_truncated_hash_bytes
 tls13_286_ticket_binder_bytes        equ 32
+; Before resumption these same-boot slots hold the SHA-256 TBS digest and
+; exact near TBS span captured from the protected Certificate flight. AUTH
+; consumes and erases them before HELLO assigns their binder lifetime.
+tls13_286_tbs_digest_off            equ tls13_286_ticket_truncated_hash_off
+tls13_286_tbs_span_off              equ tls13_286_ticket_binder_off
+tls13_286_tbs_crc_off               equ tls13_286_tbs_span_off + 4
 tls13_286_ticket_meta_end            equ \
     tls13_286_ticket_binder_off + tls13_286_ticket_binder_bytes
 ; The immutable K14 symmetric image is read from SEED.SYS into the otherwise

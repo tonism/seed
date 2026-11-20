@@ -203,19 +203,21 @@ init_base:
 ; Deterministic BIOS-media leaf: copy the exact embedded helper/parser sectors.
 ; Their normal CRC checks and the full parser execute inside the timed route.
 callback_load:
-    cmp ax, TLS13_286_LINK_TCP_CLOSE_PHASE_KEY
-    jne .media
-    cmp bx, TLS13_286_LINK_TCP_CLOSE_DESTINATION
-    jne bench_fail
-    ; The memory transport's close leaf was installed as RET above.
-    clc
-    ret
-.media:
     push ax
     push cx
     push si
     push di
     push es
+    cmp ax, TLS13_286_LINK_TCP_CLOSE_PHASE_KEY
+    jne .media
+    cmp bx, TLS13_286_LINK_TCP_CLOSE_DESTINATION
+    jne bench_fail
+    ; TBS capture retires the initial close stub in the low leaf window.
+    ; Model the product reload before restoring the memory transport leaf.
+    mov si, tcp_close_source
+    mov cx, (TLS13_286_LINK_TCP_CLOSE_PHASE_KEY >> 8) * 512
+    jmp .copy
+.media:
     cmp ax, 0x01a4
     jne .post
     cmp bx, 0x5500
@@ -248,6 +250,10 @@ callback_load:
     pop si
     pop cx
     pop ax
+    cmp ax, TLS13_286_LINK_TCP_CLOSE_PHASE_KEY
+    jne .done
+    mov byte [TLS13_286_LINK_TCP_CLOSE_ENTRY], 0xc3
+.done:
     clc
     ret
 
@@ -756,6 +762,11 @@ tag_fail db 'FAIL', 0
 str_n db ' N=', 0
 str_dt db ' dt=', 0
 str_check db ' N=1 dt=0 ck=', 0
+
+tcp_close_source:
+incbin "build/ibm_pc_5150/SEED.SYS", \
+    (TLS13_286_LINK_TCP_CLOSE_PHASE_KEY & 0xff) * 512, \
+    (TLS13_286_LINK_TCP_CLOSE_PHASE_KEY >> 8) * 512
 
 %if ($ - $$ + 0x1000) > 0xe000
 %error "flight timing support escaped its reserved benchmark region"

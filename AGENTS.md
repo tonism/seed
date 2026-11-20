@@ -48,8 +48,8 @@ configuration and prompt files are shipped under the root `SEED/` directory.
 TLS 1.3 trust objects are immutable program assets or same-boot RAM state:
 the 8088 profile uses an exact image-dated leaf point (with no
 trusted runtime clock at that floor) and the 286
-conforming route uses the baked YE2 P-384 issuer point with SHA-384
-certificate verification. Do not package
+conforming route verifies certificates under the baked WE1 P-256/SHA-256
+and YE2 P-384/SHA-384 issuer points. Do not package
 `SEED/LEAF.DER` or make writable media part of either trust path. The tracked
 `AGENTS.CFG` file is shipped as `SEED/AGENTS.CFG` when present; OpenAI at
 `api.openai.com` is the only current provider route. Optional `USER.CFG`
@@ -207,7 +207,7 @@ device operations.
 For the conforming floor, use a 6 MHz 286 with 512 KiB conventional RAM. The
 gate is CPU286+ AND BDA memory >=512 KiB. Acceptance needs a live pcap of the
 acquisition/offline-auth/independent-fresh-connection sequence, genuine
-ML-KEM-768 and X25519, YE2/hostname/UTC-validity/CV checks, client Finished
+ML-KEM-768 and X25519, issuer/hostname/UTC-validity/CV checks, client Finished
 before the provider close, authenticated OpenAI application data, reuse, and
 bounded reconnect. Exercise wrong CPU/RAM, RTC refusal/bad time, certificate,
 CV, Finished, FO, pack, and entropy failures with no downgrade.

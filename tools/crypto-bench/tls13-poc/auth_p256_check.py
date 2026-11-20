@@ -46,9 +46,9 @@ ORACLE_SOURCE = (
 )
 LIVE_CHAIN = ROOT / "tools/x509/certs/ecdsa_live_chain.pem"
 PRODUCT_FIXTURES = HERE.parent / "tls13-product/fixtures"
-PRODUCT_CHAIN = PRODUCT_FIXTURES / "provider_auth_live_chain.pem"
-LIVE_LEAF = PRODUCT_FIXTURES / "provider_auth_live_leaf.pem"
-LIVE_VECTOR = PRODUCT_FIXTURES / "provider_auth_live_vector.json"
+PRODUCT_CHAIN = PRODUCT_FIXTURES / "provider_we1_live_chain.pem"
+LIVE_LEAF = PRODUCT_FIXTURES / "provider_we1_live_leaf.pem"
+LIVE_VECTOR = PRODUCT_FIXTURES / "provider_we1_live_vector.json"
 
 ORIGIN = 0x1800
 K_END = 0x3600
@@ -990,7 +990,7 @@ def live_compact_gate(
         text=True,
     ).stdout
     for required in (
-        "Signature Algorithm: ecdsa-with-SHA384",
+        "Signature Algorithm: ecdsa-with-SHA256",
         "Public Key Algorithm: id-ecPublicKey",
         "ASN1 OID: prime256v1",
         "TLS Web Server Authentication",

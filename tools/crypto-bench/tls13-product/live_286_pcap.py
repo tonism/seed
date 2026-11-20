@@ -417,8 +417,10 @@ def parse_client_hello(stream: bytes) -> dict[str, object]:
     acquisition_order = tuple(16 if k == 28 else k for k in
                               ACQUISITION_CLIENT_EXTENSION_ORDER) if alpn_h2 else ACQUISITION_CLIENT_EXTENSION_ORDER
     issuer_p384 = alpn_h2 and 50 in kinds
+    issuer_dual = issuer_p384 and 21 not in kinds
     if issuer_p384:
-        acquisition_order = (0, 43, 10, 13, 51, 16, 50, 21, 45)
+        acquisition_order = ((0, 43, 10, 13, 51, 16, 50, 45) if issuer_dual
+                             else (0, 43, 10, 13, 51, 16, 50, 21, 45))
     if kinds == acquisition_order:
         hello_profile = "acquisition"
     elif kinds == acquisition_order + (41,):
@@ -446,8 +448,12 @@ def parse_client_hello(stream: bytes) -> dict[str, object]:
         del expected_values[28]
         expected_values[16] = b"\x00\x03\x02h2"
     if issuer_p384:
-        expected_values[50] = b"\x00\x02\x05\x03"
-        expected_values[21] = bytes(6)
+        if issuer_dual:
+            expected_values[50] = b"\x00\x04\x04\x03\x05\x03"
+            del expected_values[21]
+        else:
+            expected_values[50] = b"\x00\x02\x05\x03"
+            expected_values[21] = bytes(6)
     for kind, expected in expected_values.items():
         if values.get(kind) != expected:
             raise ValueError(f"wrong ClientHello extension {kind}")
@@ -455,12 +461,13 @@ def parse_client_hello(stream: bytes) -> dict[str, object]:
     ticket_identity = b""
     binder = b""
     obfuscated_ticket_age: int | None = None
+    profile_delta = (3 if alpn_h2 else 0) - (8 if issuer_dual else 0)
     if hello_profile == "acquisition":
-        if len(message) != ACQUISITION_CLIENT_HELLO_HANDSHAKE_BYTES + (3 if alpn_h2 else 0):
+        if len(message) != ACQUISITION_CLIENT_HELLO_HANDSHAKE_BYTES + profile_delta:
             raise ValueError(
                 f"wrong acquisition ClientHello length {len(message)}"
             )
-        if 5 + record_length != ACQUISITION_CLIENT_HELLO_RECORD_BYTES + (3 if alpn_h2 else 0):
+        if 5 + record_length != ACQUISITION_CLIENT_HELLO_RECORD_BYTES + profile_delta:
             raise ValueError(
                 "wrong acquisition ClientHello record length "
                 f"{5 + record_length}"
@@ -498,7 +505,7 @@ def parse_client_hello(stream: bytes) -> dict[str, object]:
         expected_handshake_bytes = (
             RESUMPTION_CLIENT_HELLO_FIXED_HANDSHAKE_BYTES
             + identity_length
-            + (3 if alpn_h2 else 0)
+            + profile_delta
         )
         if len(message) != expected_handshake_bytes:
             raise ValueError(
@@ -548,7 +555,12 @@ def parse_client_hello(stream: bytes) -> dict[str, object]:
         "record_size_limit": None if alpn_h2 else 2048,
         "alpn": "h2" if alpn_h2 else None,
         "certificate_signature_scheme": (
+            None if issuer_dual else
             "ecdsa_secp384r1_sha384" if issuer_p384 else "ecdsa_secp256r1_sha256"
+        ),
+        "certificate_signature_schemes": (
+            ["ecdsa_secp256r1_sha256", "ecdsa_secp384r1_sha384"] if issuer_dual else
+            ["ecdsa_secp384r1_sha384" if issuer_p384 else "ecdsa_secp256r1_sha256"]
         ),
         "psk_dhe_ke_offered": True,
         "pre_shared_key_offered": hello_profile == "resumption",
@@ -665,7 +677,7 @@ def is_286_candidate(stream: bytes) -> bool:
     return (
         record_type == 22
         and version == TLS10_RECORD_VERSION
-        and ACQUISITION_CLIENT_HELLO_RECORD_BYTES
+        and ACQUISITION_CLIENT_HELLO_RECORD_BYTES - 5  # dual issuer, no padding
         <= 5 + length
         <= (
             RESUMPTION_CLIENT_HELLO_FIXED_HANDSHAKE_BYTES
@@ -1397,7 +1409,10 @@ def fixture_client_hello(
             else ACQUISITION_CLIENT_EXTENSION_ORDER
         )
     if 50 in extension_order:
-        values[21] = bytes(6)
+        if 21 in extension_order:
+            values[21] = bytes(6)
+        else:
+            values[50] = b"\x00\x04\x04\x03\x05\x03"
     extensions = b"".join(
         _fixture_extension(kind, values[kind])
         for kind in extension_order

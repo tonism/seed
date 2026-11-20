@@ -39,6 +39,9 @@ x509_parse_leaf:
     mov     bp, sp                  ; any reject just restores SP to here -- no per-site SP counting
     mov     [x509_buf_end], si
     add     [x509_buf_end], cx      ; absolute end of the cert buffer (the no-trailing bound)
+%ifdef X509_ISSUER_DUAL
+    mov     byte [x509_issuer_algorithm], 0
+%endif
     mov     byte [x509_san_count], 0
     mov     byte [x509_host_found], 0
     mov     byte [x509_bc_count], 0
@@ -232,9 +235,28 @@ x509_parse_leaf:
     jne     .alg_bad
     cmp     cx, 10
     jne     .alg_bad
+%ifdef X509_ISSUER_DUAL
+    dec     cx                      ; exact common OID prefix, absent parameters
     mov     bx, x509_sigalg_content
     call    der_memeq
     jne     .alg_bad
+    mov     al, [si - 1]             ; der_read left SI at content end
+    cmp     al, 2                   ; ecdsa-with-SHA256 (WE1)
+    je      .known_issuer
+    cmp     al, 3                   ; ecdsa-with-SHA384 (YE2)
+    jne     .alg_bad
+.known_issuer:
+    cmp     byte [x509_issuer_algorithm], 0
+    je      .first_issuer
+    cmp     al, [x509_issuer_algorithm]
+    jne     .alg_bad                ; inner and outer must agree
+.first_issuer:
+    mov     [x509_issuer_algorithm], al
+%else
+    mov     bx, x509_sigalg_content
+    call    der_memeq
+    jne     .alg_bad
+%endif
     clc
     ret
 .alg_bad:
@@ -785,4 +807,9 @@ x509_eku_count      equ x509_ku_count + 1
 x509_ext_kind       equ x509_eku_count + 1
 x509_ext_critical   equ x509_ext_kind + 1
 x509_time_tag_tmp   equ x509_ext_critical + 1
+%ifdef X509_ISSUER_DUAL
+x509_issuer_algorithm equ x509_time_tag_tmp + 1
+parser_x509_state_end equ x509_issuer_algorithm + 1
+%else
 parser_x509_state_end equ x509_time_tag_tmp + 1
+%endif

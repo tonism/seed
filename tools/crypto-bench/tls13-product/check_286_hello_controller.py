@@ -1547,12 +1547,10 @@ def client_oracle(
         + ek
         + client_x
         + bytes.fromhex("001000050003026832")
-        + bytes.fromhex("0032000400020503")
-        + bytes.fromhex("00150006")
-        + bytes(6)
+        + bytes.fromhex("00320006000404030503")
         + bytes.fromhex("002d00020101")
     )
-    if len(extensions) != 0x519:
+    if len(extensions) != 0x511:
         raise AssertionError("host ClientHello extension accounting drifted")
     body = (
         b"\x03\x03"
@@ -1629,8 +1627,8 @@ def resume_client_oracle(
     )
     base_handshake = base[5:]
     base_body = base_handshake[4:]
-    fixed_prefix = base_body[: -(0x519 + 2)]
-    base_extensions = base_body[-0x519:]
+    fixed_prefix = base_body[: -(0x511 + 2)]
+    base_extensions = base_body[-0x511:]
     psk_body = (
         (len(identity) + 6).to_bytes(2, "big")
         + len(identity).to_bytes(2, "big")
@@ -1851,10 +1849,10 @@ def assert_begin(built: Built) -> bytes:
     expected_record = client_oracle(expected_ek, expected_x)
     if record != expected_record:
         raise AssertionError("target ClientHello differs from host oracle")
-    if lengths != [140, 384, 384, 384, 32, 65]:
+    if lengths != [140, 384, 384, 384, 32, 57]:
         raise AssertionError(f"ClientHello fragmentation drifted: {lengths!r}")
     extension_types = parse_client_extensions(record)
-    if extension_types != [0, 43, 10, 13, 51, 16, 50, 21, 45]:
+    if extension_types != [0, 43, 10, 13, 51, 16, 50, 45]:
         raise AssertionError(
             f"ClientHello extension surface drifted: {extension_types!r}"
         )
@@ -2566,7 +2564,7 @@ def assert_live_transport(built: Built) -> bytes:
         384,
         384,
         32,
-        65,
+        57,
     ]:
         raise AssertionError("live TCP ClientHello fragmentation drifted")
 
@@ -2678,7 +2676,7 @@ def assert_psk_extension(
 ) -> None:
     items = parse_client_extension_items(record)
     kinds = [kind for kind, _value in items]
-    if kinds != [0, 43, 10, 13, 51, 16, 50, 21, 45, 41]:
+    if kinds != [0, 43, 10, 13, 51, 16, 50, 45, 41]:
         raise AssertionError(
             f"resumed ClientHello extension surface drifted: {kinds!r}"
         )
@@ -2715,7 +2713,7 @@ def assert_resumed_client_hello(
         384,
         384,
         32,
-        112 + len(TICKET_IDENTITY),
+        104 + len(TICKET_IDENTITY),
     ]
     actual_record = b"".join(machine.sent_payloads)
     if actual_record != expected_record:

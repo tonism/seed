@@ -1,0 +1,44 @@
+{
+  "schema": "seed-tls13-issuer-auth-live-vector-v1",
+  "captured_utc": "2026-11-08T16:13:27.717297+00:00",
+  "target": "api.openai.com:443",
+  "credential_sent": false,
+  "request": "authenticated TLS handshake only; no application data",
+  "wire_profile": {
+    "group": "X25519MLKEM768",
+    "cipher_suite": "TLS_CHACHA20_POLY1305_SHA256",
+    "client_hello_bytes": 1378,
+    "server_hello_bytes": 1210,
+    "server_handshake_message_bytes": [
+      19,
+      2504,
+      79,
+      36
+    ]
+  },
+  "leaf": {
+    "pem": "provider_we1_live_leaf.pem",
+    "der_bytes": 912,
+    "sha256_fingerprint": "2270f63dd2b8877cc70781a9744b5da61fd5eacd1f44f00790764a9908249173",
+    "spki_sha256": "ce0265df44be9bacfcf32d6c12a74ffb5b7222e4aec845e44f527a740744657c",
+    "tbs_sha256": "699d77e8f764a415219aa0611f340de0f2078d53ee22b539ea9b886d99d073c1",
+    "tbs_sha384": "922f4b9123761dfe2e2a8d5d4bb733001dc04301209e072b6bf4ba54575f5bfcb5d82ad3547dda14c4fc94ad38b93b62",
+    "subject": "CN=api.openai.com",
+    "issuer": "CN=WE1,O=Google Trust Services,C=US",
+    "not_before": "2026-11-03 03:44:41+00:00",
+    "not_after": "2027-02-01 04:43:49+00:00"
+  },
+  "issuer": {
+    "subject": "CN=WE1,O=Google Trust Services,C=US",
+    "spki_sha256": "908769e8d34477cc2cba0632c88605b22d7294c0840f78596d247c645b1afc0e",
+    "curve": "secp256r1",
+    "leaf_signature_hash": "sha256"
+  },
+  "certificate_verify": {
+    "signature_scheme": "ecdsa_secp256r1_sha256",
+    "transcript_sha256": "791d408a7a4e904ada90ed16d721d143065088ceb9cba02a8e7a5dd257cb2e5d",
+    "signature_der": "3045022100b5b5a9120458ec850ebada94953c7fd5f469e969ef7f2dc258c17ee29616cd6d02207e5ac8870110f673aabbf2ff7a4f6e6e8fa306a652bebf99523e6d8525f69eda",
+    "signed_input_sha256": "b0bb61cb942791e4330f21f16781b000541d658fab550fbd2c8bd84a033d167e"
+  },
+  "scope": "Independently system-CA/hostname/time/purpose-validated current provider fixture with verified issuer links and real CertificateVerify; no target timing, acceptance or runtime assistance."
+}

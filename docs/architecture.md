@@ -131,7 +131,7 @@ SEED.SYS total bytes:        150016
 SEED.SYS total sectors:      293
 resident nucleus sectors:    4   (2048 B; 1536 nonzero B)
 ordinary phase entries:      29
-application K executable:    5310 B / 11 sectors (inside its 15-sector slot)
+application K executable:    4096 B / 8 sectors (inside its 15-sector file slot)
 8088 TLS 1.3 cold pack:      130 sectors, file sectors 45..174
 286 TLS 1.3 tail:            82 sectors, file sectors 212..293
   module cache:              41 sectors / 20992 bytes
@@ -141,9 +141,10 @@ application K executable:    5310 B / 11 sectors (inside its 15-sector slot)
 
 The resident nucleus is still fixed at four sectors; current growth is cold
 phases and high-memory modules, not a larger always-resident Seed. The
-15-sector K slot retains 2,370 padding bytes, or four complete sectors of load
-geometry headroom; those padded file sectors are not executable arena. The
-current 160 KiB composition uses 308 of
+15-sector K file slot holds the eight-sector executable and seven sectors of
+HTTP/2 parser code. K has no executable headroom; the parser tail is loaded
+separately and is not spare application space. The current 160 KiB composition
+uses 308 of
 309 FAT data sectors: 293 runtime sectors plus 15 auxiliary sectors. One FAT
 data cluster (one sector on this image) remains free as a required packaging
 guard. Consequently, the current universal `SEED.SYS` has zero usable
@@ -179,8 +180,8 @@ fundamentally different ISA — an ARM/RISC port where binary reuse is literally
 impossible. Compile-time multi-build per tier is out.
 
 TLS trust state is part of `SEED.SYS` or volatile RAM: the 8088 route uses an
-immutable exact-leaf object, while the 286 route bakes the YE2 P-384 issuer
-point and generates the leaf tables on the target. No `LEAF.DER` file is
+immutable exact-leaf object, while the 286 route bakes the WE1 P-256 and YE2 P-384 issuer
+points and generates the leaf tables on the target. No `LEAF.DER` file is
 packaged and no writable-medium trust cache is required.
 
 `IDENTITY`, `COMPACT`, and `TOOLS` are static prompt/schema assets: the agent's
@@ -454,7 +455,7 @@ agent phase "o"
          -> stage the immutable symmetric image before opening acquisition TCP
          -> provisional hybrid proof, client Finished, credential-free
             H2 preface/SETTINGS, and authenticated tentative NewSessionTicket
-         -> offline full FO comparison plus YE2/leaf/time/CV validation and
+         -> offline full FO comparison plus issuer/leaf/time/CV validation and
             table generation; promote the same-boot ticket
          -> no-0RTT PSK-DHE resumption with independent X25519MLKEM768 keys,
             a real binder, selected_identity=0, and pre-TCP symmetric-image,
@@ -510,7 +511,7 @@ Current 29-phase layout (regenerate with `make inspect` / `tools/core-sys-info.p
 
 ```text
 id  sectors  load addr  responsibility
-K   8/15     0x1800     4081-byte TLS application executable; H2 parser uses slot tail
+K   8/15     0x1800     4096-byte TLS application executable; H2 parser uses slot tail
 F   2        0x0700     failure action UI
 H   4        0x0700     hardware/display/NIC discovery
 2   2        0x0700     scan/load suitable NIC driver from SEED/DRIVERS/*.DRV
@@ -534,7 +535,7 @@ T   2        0x0900     agent response parse and function_call capture
 B   1        0x0700     boot splash/banner display
 Y   1        0x0700     Default Prompt Interface chat loop
 M   3        0x0700     native tool calling: parse function_call and dispatch helper
-1   1        0x0700     previous function_call replay helper
+1   1        0x2c00     previous function_call replay helper
 O   4        0x0700     memory tools: read_mem/write_mem/exec backends
 S   2        0x0700     best-effort SEED/USER.CFG save
 P   3        0x0700     restore ENV.DAT into conversation/arena/screen
@@ -699,7 +700,7 @@ acquisition connection
 
 offline, no provider timer
   perform complete ML-KEM FO decapsulation and constant-time candidate compare
-  validate platform-UTC certificate dates, api.openai.com, purpose, and YE2
+  validate platform-UTC certificate dates, api.openai.com, purpose, and the selected WE1 or YE2 issuer
   verify acquisition CertificateVerify and generate P-256 G/leaf tables
   promote the same-boot ticket only after every proof succeeds
 
@@ -723,10 +724,16 @@ The final route is no-0RTT PSK-DHE resumption: the PSK authenticates the
 same-boot ticket, while the independent genuine `X25519MLKEM768` exchange
 provides fresh hybrid key agreement. There is no compressed certificate,
 persisted ticket, persisted leaf, mutable trust file, early data, or no-time
-bypass. The immutable trust object is the YE2 P-384 point. A coherent BIOS RTC
+bypass. The immutable trust objects are the WE1 P-256 and YE2 P-384 points. A coherent BIOS RTC
 is used silently as the machine's configured platform UTC clock, as on a
 conventional TLS client. Invalid, incoherent, or out-of-range values fail
 closed. Unauthenticated NTP and user confirmation are not trust inputs.
+
+The bounded dual-issuer profile and TBS capture lifetime are specified in
+[the security contract](security.md#the-286-conforming-profile) and
+[the target ABI](../targets/ibm_pc_5150/boot/tls13/TLS13_286_ABI.md). The
+immutable public points occupy existing pack-header space; disk sectors,
+conventional-RAM reservation and the required free FAT cluster are unchanged.
 
 The three pre-TCP caches are scheduling devices, not deferred security checks.
 The symmetric image is published only after all twelve read-only floppy reads
@@ -752,7 +759,7 @@ The target completes four dependent replies and native write/execute/read,
 then returns the correct result and a clean DPI prompt.
 
 The candidate ML-KEM path is deliberately not an authority boundary. The
-offline full FO comparison, X.509/hostname/time/YE2/CV checks, and
+offline full FO comparison, X.509/hostname/time/issuer/CV checks, and
 status-last ticket promotion all precede the final credential connection.
 Offline component and serialized timing gates remain structural evidence, not
 a substitute for the live pcap. The integrated 6 MHz / 512 KiB single-profile
@@ -881,8 +888,9 @@ bounded fresh route recovered. The nominal 186.7-second line removes that
 observed `X` span and uses the successful pair's measured phases; it is a normalized
 activity view, not a claim that every cold boot completes in that time.
 
-The current YE2 issuer component takes 1,572 BIOS ticks (86.3427 s) on the
-6 MHz 286. This measures SHA-384, P-384 signature verification and public
+The earlier YE2-only controller measured 1,572 BIOS ticks (86.3427 s) on the
+6 MHz 286. This is historical component evidence, not a timing claim for the
+current dual-issuer controller. This measures SHA-384, P-384 signature verification and public
 scratch erasure, separately from full FO, parsing/time checks, P-256 table
 generation, CertificateVerify, disk and network work. It runs outside the
 provider deadline. It is not a replacement whole-route latency measurement.
@@ -1118,7 +1126,7 @@ mid-session revert that discards the current arena/context pool, restores the sa
 redisplays.
 
 **TLS trust is not persisted.** TLS 1.3 ships no mutable leaf file. The 8088
-exact-leaf point and the 286 YE2 issuer point are immutable program assets.
+exact-leaf point and the 286 WE1 and YE2 issuer points are immutable program assets.
 Captured certificates, generated P-256 tables, tentative tickets, attempt
 bundles, and traffic keys are same-boot RAM state and are scrubbed or lost on
 restart. A restored environment therefore repeats a complete cold tier route

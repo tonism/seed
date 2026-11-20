@@ -243,7 +243,7 @@ dispatches by CPU/RAM capability. Pre-286 uses the 8088 cold K14 route;
 CPU286+ with BDA conventional memory >=512 KiB uses the fully conforming
 `X25519MLKEM768` acquisition/offline-auth/no-0RTT-resumption route. Its
 tentative same-boot ticket is promoted only after full FO and
-YE2/hostname/UTC/CV proof; the final connection uses independent hybrid keys
+issuer/hostname/UTC/CV proof; the final connection uses independent hybrid keys
 and publishes credentials only after resumed Finished verification. There is
 no TLS 1.2 fallback and no downgrade between profiles after admission.
 
