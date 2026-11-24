@@ -313,12 +313,29 @@ twenty HTTP/2 gates, sixteen standalone guards, dual-issuer hostile checks,
 6,234 application multiplication executions, serialized 286 timing and nine
 reviewed live cases with 27 prompted turns pass.
 
-The fixed-work response multiplication unroll is integrated. Byte-identical
-native timing payloads retain its measured 3.30% / 3.27% component reductions
-for unsplit / fragmented 4 KiB synthetic responses at 4.77 MHz. This is not a
-whole-turn or provider latency claim. K occupies its full 4,096-byte budget.
-Prior failed attempts and exact evidence remain in
-[the campaign ledger](optimization-campaign.md#opt-031--restore-both-observed-issuer-routes-and-finish-opt-030-acceptance).
+The fixed-work response multiplication unroll remains integrated. Its
+previously accepted layout measured 3.30% / 3.27% component reductions for
+unsplit / fragmented 4 KiB synthetic responses at 4.77 MHz. These remain
+component measurements, without a whole-turn or provider latency claim.
+
+The application now omits an uncalled legacy TLS 1.2 Finished wrapper,
+recovering 77 executable bytes: K uses 4,019 of its 4,096-byte budget. Every
+surviving instruction and external reference is equivalent under relocation.
+Both response fixtures retain their output, instruction counts, reads, records
+and stack use. Runtime size, FAT allocation, user memory and phase loads are
+unchanged. Build/offline checks and the nine-case original-speed live matrix
+pass; all eight serialized 286 timing payloads remain byte-identical. This
+checkpoint recovers code space and introduces no new elapsed-time claim.
+The 32 KiB native answer requires the documented functional visual review:
+it reports the correct values in words, so numeric-format compliance fails.
+The first 16 KiB attempt repeated native actions and is excluded; its unchanged
+full repeat passes with the requested numeric answer. No native-loop fix or
+broader reliability improvement is claimed. A test-supervisor shutdown race
+interrupted that completed repeat's reporting and the first WD8003EB startup.
+The audit preserves the original records, reconstructed reports and complete
+NIC repeat.
+Measurements, validation and prior failed attempts remain in
+[the campaign ledger](optimization-campaign.md#opt-032--recover-k-space-from-an-unreachable-legacy-finished-wrapper).
 The runtime splash number is unchanged.
 
 ## Forward-looking ideas

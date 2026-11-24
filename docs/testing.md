@@ -204,8 +204,13 @@ python3 tools/crypto-bench/tls13-product/check_poly1305_app_multiply.py \
   --listing build/ibm_pc_5150/SEED.SYS.lst
 ```
 
-K occupies its full 4,096-byte executable window. Further code growth requires
-recovering space within that window and repeating the layout/composition gates.
+K uses 4,019 of its 4,096 executable bytes, leaving 77 bytes for code growth.
+The product application omits the uncalled legacy TLS 1.2 Finished wrapper;
+historical/non-product assembly retains it. The eight-sector load and fixed
+file slot are unchanged. After any layout change, regenerate the cold and
+ordinary application references and repeat the layout/composition and affected
+live gates. The [campaign ledger](optimization-campaign.md#opt-032--recover-k-space-from-an-unreachable-legacy-finished-wrapper)
+records the complete instruction/reference audit and matched response fixtures.
 
 The 286 product directory contains the module/controller KATs. Its aggregate
 serialized exact-floor timing gate is:

@@ -1,6 +1,73 @@
 # Seed Optimization Campaign
 
-## Accepted product checkpoint: OPT-031 issuer repair and OPT-030 multiplication
+## Accepted product checkpoint: OPT-032 application executable headroom
+
+The product application omits its unreachable legacy TLS 1.2 Finished wrapper,
+recovering **77 executable bytes**: K uses **4,019 of 4,096 bytes**. All 1,689
+surviving instructions and external references remain equivalent under
+relocation. Runtime size, the eight-sector K load, its fixed file slot,
+308/309 FAT allocation, user memory and stack budgets are unchanged. This is
+code-space recovery, without a new elapsed-time or RAM-capacity claim.
+
+The runtime is `5f068397521319be6ebe20f4427e03f7436f3d754a495bb031af56de34beac55`.
+Build/inspection/BASIC, twenty final-image HTTP/2 gates, sixteen standalone
+guards, both issuer fixtures and hostile checks, and 6,234 multiplication
+executions pass. Both 4 KiB response fixtures retain their output, instruction
+counts, 34 reads, eight outgoing records and 64-byte peak stack. All eight
+serialized 286 payloads remain byte-identical to the accepted timing payloads.
+
+Nine reviewed original-speed cases complete 27 prompted turns across 16 KiB
+ROM BASIC, 32 KiB direct boot, 286/512 KiB and all seven ISA NIC profiles.
+Each accepted main case performs exactly one native write, execute and read,
+reports AX 42 and bytes `B8 2A 00 CB`, and returns to the prompt. Every owned
+connection is accounted for, including the two payload-free preparation opens
+on each 8088 case. All 36 TLS windows pass the deadline gate; the largest is
+11.255 seconds. This is functional emulator acceptance, with no physical
+entropy credit or broader provider-edge claim.
+
+The 32 KiB native answer uses the documented format-mismatch review:
+the values are correct but spelled out. The original detector miss and timed,
+screenshot-bound review remain intact; numeric-format compliance is false.
+The first 16 KiB attempt repeated execute and read and is excluded. Its one
+unchanged full repeat passes the required functional scenario. The cause of
+native repeats remains unproven; this change introduces no native-loop fix or
+broader reliability claim.
+
+A separate test-supervisor exit race interrupted the completed 16 KiB repeat's
+reporting and the first WD8003EB startup. The native repeat's five original
+automatic answer/prompt events, numeric result and complete capture pass; its
+missing report is explicitly reconstructed from preserved evidence. WD8003EB's
+interrupted startup is excluded, and one unchanged full repeat passes. Original
+logs, events and supervisor records remain intact under the recovery audit.
+
+The first final-audit pass rejected WD8003EB's 599.996709-second span between
+UTC idle markers. The unchanged runner requests 600 seconds; the next prompt
+is submitted 603.985832 seconds after idle start and the first client payload
+follows at 610.779107 seconds. `integration/idle-window-audit.json` proves a
+full 600-second quiet interval before each next prompt and payload in all nine
+cases (minimum wire interval 604.763343 seconds). The original audit source,
+failure and marker discrepancy remain preserved; no test interval is shortened.
+
+`OPT-032/integration/final-audit.json` binds the image, source, offline checks,
+live reviews, connection accounting, documentation and preservation. All VMs,
+owned monitors and sleep guards are closed; overlap never exceeded three.
+The same checkout, unrelated local changes, 49,957 earlier campaign files and
+592 historical build files are preserved. Product capacity/testing docs and
+this ledger are updated. The maintainer approved committing and pushing this
+checkpoint after reviewing the result. The validation audit retains pre-commit
+HEAD `f0ca175` and the validated documentation snapshot; `OPT-032/publication/`
+binds the approval/status update and the commit that records this implementation.
+Overall rocks turned remains **50% (rough 40–60%)**.
+
+The next selected investigation is ChaCha20 response computation. OPT-029
+attributed 25.06% of its baseline instruction hooks to the ChaCha routines;
+that historical share is neither current elapsed time nor a promised gain.
+Reprofile the accepted response path, then compare bounded fixed-work variants
+within K's 77-byte headroom and unchanged RAM, stack and authentication bounds.
+Use matched split/unsplit fixtures and original-speed component timing before
+selecting a product change. This next investigation has not started.
+
+## Previous committed checkpoint: OPT-031 issuer repair and OPT-030 multiplication
 
 The fixed-work response multiplication unroll is integrated and functionally
 verified. Byte-identical native timing payloads retain the measured controlled
@@ -614,10 +681,10 @@ merely that one spike ran.
 | Wish | State | Best current result | Active/next spike |
 | --- | --- | --- | --- |
 | 1. 8088 handshake margin | partially solved | seven-NIC matrix worst 11.2196 s; matched 3c503 13.7220 -> 11.2317 s; under-12 target observed | OPT-002 committed as `de9cf53` |
-| 2. 8088 dialogue loop | partially solved | DATA shortcut accepted in `3410dd7`; OPT-030 integrates OPT-029's 3.30% / 3.27% controlled response-component gain with exact timing-payload identity | OPT-030/031 accepted locally across the required live paths; recover K executable space before further expansion; no whole-dialogue latency claim |
+| 2. 8088 dialogue loop | partially solved | The prior accepted OPT-030/031 layout measured 3.30% / 3.27% controlled response-component gains; OPT-032 retains equivalent surviving instructions and matched response work | OPT-032 recovers K code space and passes functional live gates; no new whole-dialogue latency claim |
 | 3. 8088 offline proof | partially solved | OPT-022 FO: 415 -> 334 BIOS ticks; OPT-024 KeyGen: 417 -> 332 ticks, 22.9039 -> 18.2352 s, same sector/RAM/read budgets | OPT-022/024 committed as `29bca48`; P-256 and remaining Keccak costs remain open; no whole-route speed claim |
-| 4. Floppy capacity | backlog | 308/309 FAT sectors unchanged; OPT-015 shrinks K to 3,510 B / seven loaded sectors inside the same fixed fifteen-sector file slot | OPT-015 committed as `88175d7`; no FAT-sector saving |
-| 5. 16 KiB memory/executable space | partially solved | User arena/context remains 96/96 B; the accepted OPT-030/031 image uses all 4,096 executable bytes in K, with unchanged RAM and stack bounds | Product acceptance is complete; executable headroom recovery ranks next before further code expansion |
+| 4. Floppy capacity | backlog | 308/309 FAT sectors remain allocated; K uses 4,019 bytes but retains eight loaded sectors inside its fixed fifteen-sector file slot | OPT-032 recovers executable headroom only; no FAT-sector saving |
+| 5. 16 KiB memory/executable space | partially solved | OPT-032 recovers 77 K executable bytes, 4,096 -> 4,019; user arena/context remains 96/96 B and RAM/stack/load bounds are unchanged | OPT-032 integrated and validated; next measure bounded ChaCha work within the recovered headroom |
 | 6. Interactive floppy activity | partially solved | OPT-027 controlled responses reach 34 reads from 146 unsplit / 162 fragmented; same RAM/FAT allocation and outgoing-record count | Functional live acceptance complete through OPT-028; no whole-turn floppy-free or elapsed-time claim |
 | 8. Conforming hybrid TLS on 8088 | backlog | ~45.75 s X25519 blocker | — |
 | 9. 8088 freshness/rotation | backlog | image refresh restores the exact leaf and bounded WE1/YE2 compatibility; general 8088 on-target freshness/rotation remains open | OPT-003 operational evidence and OPT-031 dual-issuer repair |
@@ -5026,3 +5093,137 @@ monitors and temporary idle guards closed. Current remaining limitations are
 physical entropy, wider provider repetition, unexplained historical native
 repeats and no executable headroom in K. The controlled 3.30% / 3.27% gain is
 not a whole-dialogue latency claim.
+
+### OPT-032 — Recover K space from an unreachable legacy Finished wrapper
+
+- Wishes: 5, with 2, 4, 6 and 10 for full-route and layout accounting.
+- Question: can omitting only the uncalled TLS 1.2 Finished-message wrapper
+  from product application K recover at least 64 executable bytes while keeping
+  every reachable operation, load count, RAM/stack budget and trust boundary?
+- Baseline: committed and pushed `f0ca175`, runtime
+  `bb0c1ce10d6e8f3096b6ebf60914f38f3ef33bc3994a233c6c100ac92737e6ba`.
+  K is exactly 4,096 bytes in eight loaded sectors; its fifteen-sector file
+  slot also contains the separately loaded HTTP/2 parser. Runtime is 293
+  sectors, FAT use 308/309, and the 16 KiB arena/context remains 96/96 bytes.
+- Allowed surface: this ledger and isolated evidence under
+  `build/optimization-campaign/OPT-032/` first. After proving absence of callers,
+  narrowly gate the legacy wrapper in `boot/core/poly1305_app.inc`; change
+  existing check/binding code only if an emitted-address assumption needs a
+  documented update. Update directly affected capacity/testing docs after
+  acceptance. Keep legacy `poly1305.inc`, live arithmetic, phase geometry,
+  trust assets, networking, driver selection and runtime interfaces unchanged.
+- Required evidence: preserve source/artifacts/unrelated state and all prior
+  evidence; exact product and non-product reference inventory; emitted size
+  and instruction/relocation equivalence for all surviving code; private
+  ordinary-route request/response, hostile/retirement/native/reconnect gates;
+  unchanged RAM, stack, record/read counts, FAT and parser placement. If the
+  result is worthwhile, integrate it and run fresh make/inspect/BASIC, current
+  TLS/application gates and affected original-speed 16 KiB, 32 KiB and 286
+  live acceptance across all seven ISA NICs. Preserve every failed attempt.
+- Exit: a fully validated space-recovery checkpoint, or preserve the bounded
+  negative finding and select another in-scope headroom hypothesis. Do not
+  claim faster execution, extra arena/context, fewer reads or FAT savings
+  without evidence. No commit or push without new maintainer approval.
+- Status/owner: **complete; maintainer approved commit and push**. The same
+  checkout and all earlier evidence are preserved.
+  All VMs and owned monitors are closed; maximum overlap was three. Overall
+  rocks turned remains **50% (rough 40–60%)**.
+
+The private omission measures **4,096 -> 4,019 bytes**, recovering 77 bytes
+without changing the eight-sector K load or its fixed file allocation.
+`private-audit.json` accounts for all 1,689 surviving K instructions, relocated
+references and three unchanged data bytes. The preceding instruction is a
+return, and the only named callers belong to the historical TLS 1.2 source
+with its separate `poly1305.inc`. Historical/non-product Poly1305 assembly
+remains byte-identical. The first preprocessing comparator rejected two added
+blank lines; that failure remains in `private-build.log`, and the emitted
+comparison passes without changing any product code.
+
+The private ordinary-route images were not live candidates: cold/286 references
+required complete product regeneration after the narrow source edit.
+`private-checks.json` passes arithmetic, AEAD, phase-bridge and complete
+unsplit/fragmented response checks. `parser-range-correction.json` corrects
+the original audit's misplaced range assertion; the original report remains
+preserved. All 3,584 parser bytes at file offset 6,144 are unchanged.
+
+The canonical runtime is now
+`5f068397521319be6ebe20f4427e03f7436f3d754a495bb031af56de34beac55`.
+`integration/composition-audit.json` binds the private K proof to that image
+and accounts for all 37 changed bytes outside K: twenty-four near-call
+operands and two keepalive-state addresses. Every surviving operation,
+parser placement, boot/loader/BASIC helper, driver and non-runtime floppy byte
+is unchanged under that relocation. Runtime is still 293 sectors with
+308/309 FAT clusters; user arena/context and stack budgets are unchanged.
+
+Build/inspection/BASIC, twenty final-image HTTP/2 gates, sixteen standalone
+guards, both issuer fixtures and hostile checks, and 6,234 final multiplication
+executions pass. Both 4 KiB response shapes match the accepted baseline in
+instruction counts, output, 34 reads, eight outgoing records and 64-byte peak
+stack use. All eight current serialized 286 payloads match their previously
+measured bytes, retaining those timings without a new timing claim.
+`integration/candidate-binding.json` freezes the checked images and 610
+source/configuration hashes. Credential-free TLS checks matched the accepted
+leaf on both resolved IPv4 provider edges before live testing.
+
+Nine accepted cases complete 27 prompted turns: 286/512 KiB, 32 KiB NE2000,
+the full 16 KiB NE2000 repeat, 3c503/MDA, NE1000, WD8003E, 3c501, Novell
+NE1000 and WD8003EB. Each includes session reuse and one bounded reconnect
+after a full ten-minute idle. Each accepted main native test performs exactly
+one write, execute and read, reports the expected AX and bytes, and returns to
+the prompt. All four TLS connections and, on the 8088, both empty preparation
+opens are bound to each VM's socket ownership and capture. No unexplained
+attempt is excluded. The largest accepted TLS window is 11.255 seconds.
+
+The 32 KiB native answer spells out the correct AX and hexadecimal
+bytes instead of following the request for digits. The documented functional
+review retains the automatic literal-42 miss, observed returned prompt,
+original time budget and exact screenshot hashes. Numeric-format compliance
+is explicitly false. This does not waive any runtime error or repeated action.
+
+The original 16 KiB attempt is excluded: its saved screen shows one write,
+two executes and two reads. Only that invalid case's observer was interrupted;
+its VM closed and its automatic result, capture and `nonacceptance.json` are
+retained. The first stop helper refused an absolute-versus-relative process
+path mismatch before sending any signal. Its failed source and result, the
+corrected exact-path check and all failure screenshots remain intact.
+
+`integration/repeat-decision.json` records the single unchanged complete
+16 KiB repeat, from cold boot through the same prompts, idle and native gate.
+That repeat passes. The cause of the earlier repeats remains unproven; neither
+a native-loop fix nor a broader reliability improvement is claimed.
+
+The 16 KiB repeat passes all five original automatic observations, including
+its numeric native answer and returned prompt. During its subsequent shutdown,
+the supervisor asserted a stale PID between inventory and identity lookup,
+then sent duplicate interrupts in its cleanup path. This interrupted the
+native runner's reporting and WD8003EB's first startup before its greeting.
+The original supervisor records and logs remain unchanged. The recovery audit
+reconstructs the two missing reports from unchanged events and captures;
+WD8003EB's interrupted attempt is excluded without a target verdict. Its
+orphaned read-only VM was closed by the normal SIGTERM/SIGKILL fallback.
+
+The final one-case monitor tolerates a PID that retired after inventory and
+sends only one cleanup interrupt. One unchanged complete WD8003EB repeat
+passes. `integration/final-nic-decision.json` binds this bounded repeat; no
+accepted native scenario is repeated for the reporting repair.
+
+All four queues keep their separate original histories.
+`integration/queue-audit.json` reconciles eleven distinct case claims, two
+exclusions, report reconstruction, global VM counts, monitor ownership and
+sleep guards. Earlier snapshots may contain another queue's VM, or the
+explicitly recovered orphan. Final global VM count is zero. Maximum overlap
+is three and no gap occurs during accepted case observations. The interval
+between the failed supervisor and its replacement is documented separately;
+no accepted case spans it. The same frozen image is used throughout.
+
+Architecture, testing and build-history documentation describe the current
+capacity and qualifications. `integration/final-audit.json` binds those docs,
+all accepted gates and both excluded attempts, while the preservation audit
+retains all 49,957 prior campaign files, 592 historical build files, original
+artifacts and unrelated local changes. No physical entropy credit, extra
+user memory, reduced read count, FAT-sector saving or new elapsed-time gain
+is claimed. The maintainer approved commit and push after reviewing this
+working checkpoint. The preserved validation snapshot and publication record
+bind the status-only documentation update to the tested source and images.
+Overall rocks turned remains **50% (rough 40–60%)**. The next selected
+investigation is bounded ChaCha20 response work; it has not started.

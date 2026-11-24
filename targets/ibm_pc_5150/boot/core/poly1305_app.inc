@@ -1,3 +1,6 @@
+; Product application records never call the legacy TLS 1.2 Finished wrapper.
+; Keep it available to historical/non-product compositions.
+%ifndef TLS13_PRODUCT_TLS13
 poly1305_mac_finished:
     call poly1305_clear_acc
 
@@ -29,6 +32,8 @@ poly1305_mac_finished:
     call poly1305_emit_tag
     clc
     ret
+
+%endif
 
 poly1305_load_key:
     push ax
