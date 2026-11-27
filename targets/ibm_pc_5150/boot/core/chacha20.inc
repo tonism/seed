@@ -170,7 +170,21 @@ chacha_rotl8_axdx:
     ret
 
 chacha_rotl7_axdx:
+%ifdef CHACHA_APP_BYTE_ROTL7
+    ; ROL7 = ROL8 then ROR1. Seed carry from the unmodified low word;
+    ; restore the round loop's CX=0 invariant after using it as scratch.
+    xchg al, dh
+    xchg ah, dl
+    xchg ah, dh
+    mov cx, ax
+    shr cx, 1
+    rcr dx, 1
+    rcr ax, 1
+    xor cx, cx
+    ret
+%else
     mov cl, 7
+%endif
 
 chacha_rotl32_axdx:
 .rotate:

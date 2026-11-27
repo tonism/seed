@@ -90,6 +90,7 @@ def check(core: bytes, listing: str) -> dict[str, object]:
     digest = hashlib.sha256()
     counts = []
     low_stack = RAM_BYTES - 2
+    reference_trace = None
 
     def inside(address: int, size: int, spans: list[tuple[int, int]]) -> bool:
         return any(begin <= address and address + size <= finish for begin, finish in spans)
@@ -120,6 +121,7 @@ def check(core: bytes, listing: str) -> dict[str, object]:
         machine.mem_write(RAM_BYTES - 2, struct.pack("<H", RETURN))
         before = bytes(machine.mem_read(0, RAM_BYTES))
         count = 0
+        trace = []
 
         def on_code(uc: Uc, address: int, _size: int, _data: object) -> None:
             nonlocal count
@@ -129,10 +131,12 @@ def check(core: bytes, listing: str) -> dict[str, object]:
             if not start <= address < end:
                 raise AssertionError(f"block executed outside K: {address:#x}")
             count += 1
+            trace.append((0, address, _size))
 
         def on_read(_uc: Uc, _access: int, address: int, size: int, _value: int, _data: object) -> None:
             if not inside(address, size, owned + inputs + [stack]):
                 raise AssertionError(f"block read outside declared inputs/work/stack: {address:#x}")
+            trace.append((1, address, size))
 
         def on_write(_uc: Uc, _access: int, address: int, size: int, _value: int, _data: object) -> None:
             nonlocal low_stack
@@ -140,6 +144,7 @@ def check(core: bytes, listing: str) -> dict[str, object]:
                 low_stack = min(low_stack, address)
             elif not inside(address, size, owned):
                 raise AssertionError(f"block wrote outside work/stack: {address:#x}")
+            trace.append((2, address, size))
 
         machine.hook_add(UC_HOOK_CODE, on_code)
         machine.hook_add(UC_HOOK_MEM_READ, on_read)
@@ -161,12 +166,19 @@ def check(core: bytes, listing: str) -> dict[str, object]:
         if any(a != b and not inside(offset, 1, owned + [stack])
                for offset, (a, b) in enumerate(zip(before, after))):
             raise AssertionError("memory guard changed")
+        if reference_trace is None:
+            reference_trace = trace
+        elif trace != reference_trace:
+            raise AssertionError(f"instruction or data-address trace changed in vector {index}")
         digest.update(actual)
         counts.append(count)
     return dict(passed=True, vectors=len(cases), core_sha256=hashlib.sha256(core).hexdigest(),
                 block_outputs_sha256=digest.hexdigest(), K_bytes=end - start,
                 K_sectors=sector_bytes // 512, conventional_ram_bytes=RAM_BYTES,
                 stack_bytes=RAM_BYTES - low_stack, instruction_range=[min(counts), max(counts)],
+                fixed_instruction_and_address_trace=True,
+                trace_events=len(reference_trace),
+                trace_sha256=hashlib.sha256(json.dumps(reference_trace).encode()).hexdigest(),
                 all_caller_registers_preserved=True, arbitrary_caller_CX=True,
                 guarded_inputs_work_and_stack=True, physical_IRQ_BIOS_stack_included=False)
 

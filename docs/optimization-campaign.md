@@ -1,6 +1,69 @@
 # Seed Optimization Campaign
 
-## Accepted product checkpoint: OPT-032 application executable headroom
+## Accepted product checkpoint: OPT-034 application ChaCha ROL7
+
+The selected fixed-work ROL7 specialization is integrated into application K.
+Byte-identical timing payloads retain OPT-033's measured **2.10% unsplit and
+2.08% fragmented** reduction in a controlled 4 KiB response component:
+381 -> 373 and 384 -> 376 BIOS ticks, saving 0.4394 seconds. The helper costs
+15 executable bytes: K uses **4,034 of 4,096 bytes**, leaving **62 bytes**.
+All twenty ChaCha rounds, RAM/stack limits, 34 response reads, eight outgoing
+records, eight K load sectors, 293 runtime sectors and FAT 308/309 are retained.
+No whole-turn, provider-latency or user-memory gain is claimed.
+
+The canonical runtime is `ce71504affef5f2e4f60bf1d198e3b643c2615aabaaa8ec4ad94f6ce166af227`.
+Build/inspection/BASIC, twenty final-image HTTP/2 gates, nineteen standalone
+guards, both issuer fixtures and hostile checks, 6,234 multiplication executions,
+431 fixed-trace ChaCha blocks and 25,164 direct rotations pass. All eight
+serialized 286 timing payloads and both selected response timing payloads are
+byte-identical to their measured versions. The larger ROL12 unroll remains a
+measured, unselected alternative rather than a pending implementation promise.
+
+Nine reviewed original-speed live cases complete **27 prompted turns** across
+16 KiB ROM BASIC, 32 KiB direct boot, 286/512 KiB and all seven ISA NIC profiles.
+All owned connections, reuse, ten-minute quiet intervals and bounded reconnects
+pass; all **36 TLS deadline windows** pass, with a maximum of **11.272922 seconds**.
+
+The 32 KiB native answer (`ne2k8-32k-ui1`) spells out the correct values.
+Timed screenshot-bound review preserves the original detector miss: values
+and one write/execute/read pass, while numeric-format compliance remains false.
+
+The documented OCR-omission review covers `286-512k-ui1`.
+Its correct numeric answer, exact bytes, single write/execute/read and returned
+prompt are preserved with the unchanged detector omission. Observed numeric
+compliance passes; automatic detection remains a miss.
+
+Three initial launches stopped at the copied-VM dialog before greetings.
+Original reports, captures and blank-disk diagnostics are preserved as
+non-acceptance. The maintainer reported a laptop lock; the unchanged harness
+succeeds after the reported unlock. No product or accessibility workaround
+is included. This supports a host UI
+availability diagnosis without claiming a controlled lock/unlock experiment.
+
+A later brief screen lock held only the final two UI controllers during idle.
+The VMs, packet captures and independent supervisor continued; explicit unlock
+preceded UI resumption. The hold audit retains the longer Novell idle interval
+and requires the full wire-quiet and reconnect proofs for both cases.
+
+`OPT-034/integration/final-audit.json` binds the current source/image, offline
+and live evidence, docs and preservation. All VMs, owned monitors and sleep
+guards are closed; no more than three VMs overlapped. The same checkout,
+unrelated changes, 53,555 earlier campaign files, 8,850 preserved earlier
+shipping-build files and 592 current historical-build files remain intact.
+Functional emulator acceptance gives no physical entropy credit or broader
+provider-edge guarantee; earlier native-repeat limitations remain open.
+Overall rocks turned is **52% (rough 42–62%)**. The maintainer approved this
+checkpoint's commit and push after reviewing its validation. The audit retains
+pre-commit HEAD `973d4a6` and the validated documentation snapshot;
+`OPT-034/publication/` binds that snapshot, this approval/status update and the
+resulting commit and push.
+
+Next: a bounded investigation of the historical repeated native actions,
+starting with the saved traces and offline continuation/replay evidence.
+Distinguish repeated model requests from repeated runtime execution before
+selecting a fix or another live probe. The cause remains unproven.
+
+## Previous committed checkpoint: OPT-032 application executable headroom
 
 The product application omits its unreachable legacy TLS 1.2 Finished wrapper,
 recovering **77 executable bytes**: K uses **4,019 of 4,096 bytes**. All 1,689
@@ -59,13 +122,16 @@ HEAD `f0ca175` and the validated documentation snapshot; `OPT-032/publication/`
 binds the approval/status update and the commit that records this implementation.
 Overall rocks turned remains **50% (rough 40–60%)**.
 
-The next selected investigation is ChaCha20 response computation. OPT-029
-attributed 25.06% of its baseline instruction hooks to the ChaCha routines;
-that historical share is neither current elapsed time nor a promised gain.
-Reprofile the accepted response path, then compare bounded fixed-work variants
-within K's 77-byte headroom and unchanged RAM, stack and authentication bounds.
-Use matched split/unsplit fixtures and original-speed component timing before
-selecting a product change. This next investigation has not started.
+OPT-033's private measurement is complete. The selected fixed-work ROL7
+specialization saves **2.10% unsplit and 2.08% fragmented** in the controlled
+4 KiB response component, at a cost of 15 executable bytes. All eighteen
+original-speed samples and the arithmetic, authentication and composition
+checks pass. The larger unroll is not selected: another 25 bytes buys only two
+more ticks per response. Shipping code remains unchanged at this measurement
+boundary. OPT-034 subsequently integrates and validates the selected helper;
+see its current accepted checkpoint above and detailed ledger below. Overall
+rocks turned is **52% (rough 42–62%)**. No new commit or push was authorized
+at that measurement boundary.
 
 ## Previous committed checkpoint: OPT-031 issuer repair and OPT-030 multiplication
 
@@ -681,10 +747,10 @@ merely that one spike ran.
 | Wish | State | Best current result | Active/next spike |
 | --- | --- | --- | --- |
 | 1. 8088 handshake margin | partially solved | seven-NIC matrix worst 11.2196 s; matched 3c503 13.7220 -> 11.2317 s; under-12 target observed | OPT-002 committed as `de9cf53` |
-| 2. 8088 dialogue loop | partially solved | The prior accepted OPT-030/031 layout measured 3.30% / 3.27% controlled response-component gains; OPT-032 retains equivalent surviving instructions and matched response work | OPT-032 recovers K code space and passes functional live gates; no new whole-dialogue latency claim |
+| 2. 8088 dialogue loop | partially solved | The prior accepted OPT-030/031 layout measured 3.30% / 3.27% controlled response-component gains; OPT-032 retains equivalent surviving instructions and matched response work | OPT-034 integrates and validates OPT-033's further 2.10% / 2.08% component saving; no whole-dialogue latency claim |
 | 3. 8088 offline proof | partially solved | OPT-022 FO: 415 -> 334 BIOS ticks; OPT-024 KeyGen: 417 -> 332 ticks, 22.9039 -> 18.2352 s, same sector/RAM/read budgets | OPT-022/024 committed as `29bca48`; P-256 and remaining Keccak costs remain open; no whole-route speed claim |
-| 4. Floppy capacity | backlog | 308/309 FAT sectors remain allocated; K uses 4,019 bytes but retains eight loaded sectors inside its fixed fifteen-sector file slot | OPT-032 recovers executable headroom only; no FAT-sector saving |
-| 5. 16 KiB memory/executable space | partially solved | OPT-032 recovers 77 K executable bytes, 4,096 -> 4,019; user arena/context remains 96/96 B and RAM/stack/load bounds are unchanged | OPT-032 integrated and validated; next measure bounded ChaCha work within the recovered headroom |
+| 4. Floppy capacity | backlog | 308/309 FAT sectors remain allocated; K uses 4,034 bytes but retains eight loaded sectors inside its fixed fifteen-sector file slot | OPT-032 recovers executable headroom only; no FAT-sector saving |
+| 5. 16 KiB memory/executable space | partially solved | OPT-032 recovers 77 K executable bytes, 4,096 -> 4,019; user arena/context remains 96/96 B and RAM/stack/load bounds are unchanged | OPT-034 validates the selected 15-byte ROL7 change, leaving 62 bytes; the additional 25-byte unroll is not selected |
 | 6. Interactive floppy activity | partially solved | OPT-027 controlled responses reach 34 reads from 146 unsplit / 162 fragmented; same RAM/FAT allocation and outgoing-record count | Functional live acceptance complete through OPT-028; no whole-turn floppy-free or elapsed-time claim |
 | 8. Conforming hybrid TLS on 8088 | backlog | ~45.75 s X25519 blocker | — |
 | 9. 8088 freshness/rotation | backlog | image refresh restores the exact leaf and bounded WE1/YE2 compatibility; general 8088 on-target freshness/rotation remains open | OPT-003 operational evidence and OPT-031 dual-issuer repair |
@@ -751,6 +817,13 @@ is **50% explored (rough 40–60%)**. This closes the retained fixed-work
 multiplication timing question and establishes its complete affected-response
 cost on the current path. It does not count the unintegrated candidate as a
 product win or close the wider dialogue, code-space, proof or security wishes.
+
+After OPT-033's current ChaCha attribution, equivalence and matched original-
+speed comparisons, the estimate is **52% explored (rough 42–62%)**. This closes
+the bounded application-rotation question and measures its marginal time/space
+tradeoff. OPT-034 validates the selected product implementation without
+counting that investigation again. Wider dialogue, memory, offline-proof,
+freshness and conforming-8088 questions remain open.
 
 ## Selection policy
 
@@ -5227,3 +5300,262 @@ working checkpoint. The preserved validation snapshot and publication record
 bind the status-only documentation update to the tested source and images.
 Overall rocks turned remains **50% (rough 40–60%)**. The next selected
 investigation is bounded ChaCha20 response work; it has not started.
+
+### OPT-033 — Measure bounded fixed-work ChaCha rotations
+
+- Wishes: 2 and 6, with 5 and 10 for code/RAM and whole-route accounting.
+- Question: can specializing the existing fixed ChaCha rotations reduce the
+  matched original-speed response component by at least 1% within K's 77-byte
+  headroom, retaining identical output, fixed work, RAM/stack, reads and records?
+- Baseline: committed and pushed `973d4a6`, runtime
+  `5f068397521319be6ebe20f4427e03f7436f3d754a495bb031af56de34beac55`.
+  K is 4,019/4,096 bytes; runtime 293 sectors, FAT 308/309, arena/context 96/96 B.
+  The retained 4 KiB unsplit/split fixtures use 7,222,010 / 7,280,845 hooks,
+  34 reads, eight outgoing records and a 64-byte peak stack. Reprofile the
+  current path; OPT-029's older 25.06% ChaCha hook share is not elapsed time.
+- Mechanism: compare ROL7 as the existing ROL8 byte permutation followed by a
+  fixed ROR1 register sequence; separately measure bounded unrolling of the
+  remaining public four-bit rotation. Keep the cold/286 and legacy variants
+  byte-identical, and retain all twenty ChaCha rounds and authentication checks.
+- Allowed surface: this ledger and isolated copies under
+  `build/optimization-campaign/OPT-033/`. Private overrides of `core.asm` and
+  `core/chacha20.inc` select only application K. Shipping source, artifacts,
+  trust/configuration, networking, previous evidence and unrelated files remain
+  read-only during measurement. No live calls or trust repair are part of this
+  measurement; timing fixtures have synthetic external leaves.
+- Required evidence: frozen baseline and preservation inventory; current
+  routine attribution; independent block/rotation equivalence including carry
+  boundaries, exact caller state, 16 KiB access/stack guards and fixed traces;
+  full AEAD/hostile, response-credit and loader composition checks; matched
+  split/unsplit response fixtures and repeated 4.77 MHz component timing.
+  Report code/RAM/stack/read/record/FAT tradeoffs and all failed attempts.
+- Exit: select a measured narrow integration follow-up, or preserve a bounded
+  negative result and select another worthwhile avenue. A private win is not
+  product acceptance; integration requires fresh product binding and the
+  affected original-speed live matrix. No commit or push without new approval.
+- Status/owner: **measurement complete; OPT-034 integration selected**. OPT-022 is complete/inactive,
+  no other campaign worker or VM was active at entry, and the same checkout
+  remains in use. At most three VMs may be open; close every owned VM when
+  finished. Overall rocks turned starts at **50% (rough 40–60%)**.
+
+#### OPT-033 result — select the compact ROL7 specialization
+
+Fresh attribution of the accepted response assigns 1,855,636 of 7,222,010
+instruction hooks (25.69%) to ChaCha. The selected ROL7 helper expresses ROL8
+as the existing byte permutation, then performs ROR1 through a carry seeded
+from the unchanged low word. It restores the existing CX-zero internal
+invariant, uses no additional stack or mutable storage, and retains all twenty
+rounds. The independently checked construction and flag contract are recorded
+in `OPT-033/mechanism.md`.
+
+| Private variant | K bytes / remaining headroom | Unsplit ticks | Fragmented ticks |
+| --- | --- | --- | --- |
+| Accepted baseline | 4,019 / 77 | 381, 381, 381 | 384, 384, 384 |
+| Byte-permutation ROL7, selected | 4,034 / 62 | 373, 373, 373 | 376, 376, 376 |
+| ROL7 plus four-step unroll, not selected | 4,059 / 37 | 371, 371, 371 | 374, 374, 374 |
+
+The selected change saves eight BIOS ticks, **0.439403 seconds**, or **2.0997%
+unsplit / 2.0833% fragmented**, at 4.77 MHz. The additional unroll is correct
+and faster, but its extra 25 bytes save only two more ticks (0.109851 seconds)
+per fixture. Retain the larger 62-byte headroom for subsequent application
+work. Both candidates remain measured alternatives; no general unrolling or
+ChaCha opportunity is declared closed.
+
+The complete response instruction counts are 7,222,010 -> 7,043,930 unsplit
+and 7,280,845 -> 7,101,085 fragmented. Output and encrypted outgoing records
+match. Both shapes retain 34 reads, eight outgoing records and a 64-byte peak
+stack. The private runtime stays 150,016 bytes / 293 sectors, with eight K
+load sectors inside its fixed fifteen-sector slot. Shipping FAT allocation
+remains 308/309 and arena/context remains 96/96 bytes; no RAM, sector or read
+saving is claimed.
+
+All three images pass 25,164 direct rotation executions and 431 independent
+full-block vectors each, including both incoming carry states, caller state,
+fixed helper instruction/address traces, 16 KiB guards and the unchanged
+30-byte block stack. Each also passes 28 AEAD/hostile cases, fourteen response-
+credit cases and twenty phase-bridge cases. All pre-existing non-application
+ChaCha selections emit identical bytes with the same external addresses.
+The six native fixtures pass three full-memory preflight comparisons each,
+then three target CRC/packet/ABI-checked timing repetitions each.
+
+These are emitted response-code component timings in a private 64 KiB rig,
+with code/state/stack below 16 KiB and synthetic external callbacks. Common
+transcript overhead is included. They establish no whole-turn/provider-
+latency, physical-entropy or product-acceptance claim. Primitive stack guards
+do not model physical IRQ/BIOS stack behavior. Full product regeneration and
+the affected original-speed live matrix remain required.
+
+`OPT-033/comparison.json`, `native-sequence.json` and `final-audit.json` bind
+the candidates, every test and all eighteen timing samples. There are no
+failed native attempts. At most one VM was open; all six VMs and the owned
+sleep guard are closed. Shipping sources/artifacts, unrelated local changes,
+52,496 earlier campaign files and 8,850 shipping-build files remain preserved.
+The same checkout remains in use. No commit or push. Overall rocks turned is
+**52% (rough 42–62%)**. Next: integrate the selected ROL7 helper as OPT-034,
+retaining its exact emitted behavior and every product acceptance boundary.
+
+### OPT-034 — Integrate the measured application ROL7 specialization
+
+- Wishes: 2 and 6, with 5 and 10 for the executable-space tradeoff.
+- Question: can the selected OPT-033 byte-rotation helper become a validated
+  product checkpoint with its measured 2.10% / 2.08% response-component saving,
+  unchanged RAM/stack/read/record/FAT bounds and all existing TLS authority checks?
+- Baseline: committed/pushed `973d4a6`, runtime
+  `5f068397521319be6ebe20f4427e03f7436f3d754a495bb031af56de34beac55`.
+  The selected private image is
+  `fdc8c0feb4249f69c2e3947d0a1855106fcc878ee04f955d75a3895a26b5ad0f`;
+  K grows 4,019 -> 4,034 bytes, leaving 62 bytes. The additional four-step
+  unroll is not selected. OPT-033's completed evidence remains immutable.
+- Allowed surface: the K-only selection in `core.asm`, the selected helper in
+  `core/chacha20.inc`, focused fixed-trace coverage in the existing application
+  ChaCha checker, directly affected product/testing/campaign docs, and isolated
+  tools/evidence under `build/optimization-campaign/OPT-034/`. No trust asset,
+  provider configuration, native-tool behavior, packet logic or unrelated
+  source change is included. Regenerate ordinary, cold and 286 references from
+  the canonical build; retain all existing non-application ChaCha selections.
+- Required evidence: fresh `make`, `make inspect` and BASIC helpers; complete
+  final-image HTTP/2 gates and TLS offline guards; rotation/block fixed work,
+  full FO, status-last, hostile input, lifetime and erasure checks; exact private
+  K and response/timing-payload binding; both issuer fixtures and eight 286
+  serialized components, retaining timing only for byte-identical payloads.
+  Then run the exact 16 KiB BASIC, 32 KiB direct and 286/512 KiB live scenarios
+  and all seven original-speed ISA NICs, including reuse, ten-minute idle,
+  bounded reconnect, native write/execute/read and connection accounting.
+- Exit: a working, fully validated product checkpoint, or retain the candidate
+  and evidence with a concrete blocker. No product claim from the private
+  timing result alone. Commit and push require new explicit maintainer approval.
+- Status/owner: **validated product checkpoint; commit and push approved**
+  in this campaign chat. Work continued on the same checkout with
+  no other campaign worker or VM active at entry. All VMs are closed; overlap
+  never exceeded three. Overall rocks turned remains **52% (rough 42–62%)**.
+
+#### OPT-034 integration — offline verification complete, live matrix pending
+
+The canonical candidate is
+`ce71504affef5f2e4f60bf1d198e3b643c2615aabaaa8ec4ad94f6ce166af227`.
+`make all inspect basic-bootstrap`, twenty final-image HTTP/2 gates, nineteen
+standalone guards, both issuer fixtures/hostile checks, 6,234 multiplication
+executions, 431 ChaCha blocks and 25,164 direct rotations pass. The existing
+block checker now requires an identical instruction/data-address trace across
+its independent key, nonce and counter vectors, retaining the same 16 KiB
+bounds, caller state and 30-byte stack.
+
+K is byte-identical to OPT-033's selected measured image. Both canonical
+response fixtures and native timing payloads match that image exactly, retaining
+the 2.10% / 2.08% component gain. All eight current serialized 286 payloads are
+byte-identical to their accepted timing payloads. Outside K, every changed word
+is one of 24 near-call references or two keepalive-state references moved by
+15 bytes: 28 changed bytes total, including regenerated cold references.
+Boot/BASIC bytes, all eight drivers, parser bytes, non-runtime floppy bytes,
+eight K load sectors, 293 runtime sectors and FAT 308/309 are unchanged.
+
+Credential-free, hostname/chain/time-verified TLS preflights receive the existing
+November 3 WE1 leaf from both currently resolved IPv4 edges. No credential,
+HTTP request or trust-asset change is involved. The live supervisor keeps the
+existing test scenarios and gates, but tolerates a VM retiring between its PID
+snapshot and read-only socket observation and sends at most one cleanup
+interrupt per runner. This addresses the previous reporting race without
+changing product behavior or accepting an incomplete test.
+
+`OPT-034/integration/candidate-binding.json` binds the checked image and 610
+source/configuration hashes. All 53,555 earlier campaign files and unrelated
+local changes are preserved; all 8,850 earlier shipping-build files also have
+an independently hashed copy-on-write snapshot under `OPT-034/shipping-before/`.
+The required nine-case live matrix is next. No product acceptance or new
+whole-turn latency claim yet; no commit or push. Overall rocks turned remains
+**52% (rough 42–62%)**.
+
+
+The first three live launches stopped at 86Box's copied-machine identity dialog
+before a greeting or submitted prompt. Their original reports and captures are
+preserved as non-acceptance. Blank-disk diagnostics reproduced an on-screen
+dialog with no accessible windows; the maintainer then reported a 30–60 minute
+laptop lock and confirmed it was unlocked. The unchanged named-button handler
+subsequently accepted the dialog and exposed the main VM menu. This supports a
+host UI availability diagnosis; no controlled lock/unlock experiment or product
+failure is claimed. All diagnostic VMs closed and made no provider requests.
+
+`integration/launcher-diagnosis.json` binds that evidence. The full nine-case
+matrix resumes under `integration/unlocked-recovery/`, using new names for the
+three startup attempts and the unchanged runner, source, image and acceptance
+contract. No activation workaround enters product or test source. At most three
+VMs remain open; each closes at completion. Live acceptance is still pending;
+overall rocks turned remains **52% (rough 42–62%)**.
+
+
+The 286 unlocked case has passed its five-turn visual/wire gate, including
+reconnect and exactly one native write/execute/read. Its saved image reports
+AX 42 and `B8 2A 00 CB` and returns the prompt; the unchanged OCR omits that
+result. The existing documented `ocr-omission` review retains the detector
+output and original interrupted observer report, with observed numeric-format
+compliance true. The VM closed normally. This is not a runtime failure or a
+numeric-format mismatch.
+
+The recovery queue had already launched 3c503/MDA as that VM retired, then
+stopped new launches on the retained automatic miss. Its other active cases
+continue. `integration/nic-continuation/` owns only the five unclaimed NICs,
+verifies the existing exact-PID ownership, and shares the global three-VM launch
+lock. Final cleanup must account explicitly for any other queue's still-live
+VMs at a supervisor's retirement, and require all owned VMs/monitors/guards
+closed and the global VM set empty. No existing report is rewritten to hide
+that overlap. The full matrix remains pending; rocks turned is **52%**.
+
+
+The unlocked 32 KiB case also passes its five-turn visual/wire gate and closes.
+Its native result spells out forty-two and the correct hexadecimal program
+bytes, with exactly one write/execute/read and a returned prompt. The documented
+numeric-format-mismatch review preserves the automatic miss; numeric-format
+compliance is false. This is separate from the 286's correct numeric output
+omitted by OCR. NE1000 starts in the freed slot; the 16 KiB native test,
+3c503/MDA reconnect and remaining NIC queue continue. No product source changes
+or extra provider probes were needed. Overall rocks turned remains **52%**.
+
+
+All three main entry/floor cases now pass their five-turn visual/wire gates.
+The 16 KiB BASIC case returns the requested numeric native result and prompt
+automatically, with exactly one write/execute/read. All three main VMs are
+closed. The six additional ISA NIC regressions continue under the same image,
+source and three-VM limit; the 3c503/MDA reconnect is active and NE1000 and
+WD8003E have started. Full product acceptance and the final preservation/docs
+audit remain pending. Overall rocks turned remains **52% (rough 42–62%)**.
+
+
+#### OPT-034 temporary screen-lock hold
+
+Seven reviewed cases now pass, covering 23 of the 27 required prompted turns.
+Only Novell NE1000 and WD8003EB remain; both have passed their first answer and
+entered the configured 600-second idle. Before the maintainer's brief screen
+lock could reach another UI step, only their exact owned runner processes were
+held with SIGSTOP. Both VMs, their packet-capture children, the independent
+socket/VM supervisor and caffeinate guard remain running; two VMs are open.
+`integration/screen-lock-hold-01/` records ownership, prior event hashes and
+health. No product source, image or test scenario is changed. Resume these
+exact runners with SIGCONT only after the maintainer confirms unlock; preserve
+any longer idle interval and require the complete 600-second wire-quiet proof.
+Full acceptance and the final documentation/preservation audit remain pending.
+No commit or push. Overall rocks turned remains **52% (rough 42–62%)**.
+
+
+The maintainer confirmed unlock, and both exact runners resumed after a
+151-second controller-only hold. Their prior event/source hashes and protected
+inputs still match, both VMs and packet captures remained running, and the
+independent supervisor recorded no host gap. Novell NE1000's idle marker spans
+647.95 seconds; WD8003EB resumed before its original 600-second sleep expired.
+`integration/screen-lock-hold-01/resumed.json` binds the authorization and PIDs.
+Both final reconnect questions remain required; the final audit will bind this
+intervention and the full wire-quiet proof without changing the test contract.
+Overall rocks turned remains **52% (rough 42–62%)**.
+
+
+#### OPT-034 result — validated working checkpoint
+
+The current accepted checkpoint at the top of this ledger records the complete
+result. `integration/final-audit.json` binds all nine reviewed cases and the
+three excluded startup attempts to the canonical candidate, full offline
+matrix, unchanged measured timing payloads, quiet-window audit, queue cleanup,
+product documentation and preservation. No native-loop, trust, endpoint,
+configuration or packet-logic change was needed. All owned VMs are closed.
+Overall rocks turned remains **52% (rough 42–62%)**; implementation acceptance
+does not count the same measured opportunity again. The maintainer approved
+this checkpoint's commit and push. `publication/` preserves the validated
+snapshot and binds the approval update, resulting commit and remote ref.

@@ -318,13 +318,14 @@ previously accepted layout measured 3.30% / 3.27% component reductions for
 unsplit / fragmented 4 KiB synthetic responses at 4.77 MHz. These remain
 component measurements, without a whole-turn or provider latency claim.
 
-The application now omits an uncalled legacy TLS 1.2 Finished wrapper,
-recovering 77 executable bytes: K uses 4,019 of its 4,096-byte budget. Every
-surviving instruction and external reference is equivalent under relocation.
-Both response fixtures retain their output, instruction counts, reads, records
-and stack use. Runtime size, FAT allocation, user memory and phase loads are
-unchanged. Build/offline checks and the nine-case original-speed live matrix
-pass; all eight serialized 286 timing payloads remain byte-identical. This
+The preceding space-recovery checkpoint omitted an uncalled legacy TLS 1.2
+Finished wrapper, recovering 77 executable bytes: K then used 4,019 of its
+4,096-byte budget. Every surviving instruction and external reference remained
+equivalent under relocation. Both response fixtures retained their output,
+instruction counts, reads, records and stack use. Runtime size, FAT allocation,
+user memory and phase loads were unchanged. Build/offline checks and the
+nine-case original-speed live matrix passed; all eight serialized 286 timing
+payloads remained byte-identical. This
 checkpoint recovers code space and introduces no new elapsed-time claim.
 The 32 KiB native answer requires the documented functional visual review:
 it reports the correct values in words, so numeric-format compliance fails.
@@ -336,7 +337,39 @@ The audit preserves the original records, reconstructed reports and complete
 NIC repeat.
 Measurements, validation and prior failed attempts remain in
 [the campaign ledger](optimization-campaign.md#opt-032--recover-k-space-from-an-unreachable-legacy-finished-wrapper).
-The runtime splash number is unchanged.
+
+The application now specializes ChaCha ROL7 as a byte permutation plus one
+fixed right rotation. K uses 4,034 bytes, leaving 62 bytes; the extra four-step
+unroll was not selected. Byte-identical native timing payloads retain the
+measured 4 KiB response-component savings: 381 -> 373 ticks unsplit and
+384 -> 376 fragmented, or 0.4394 seconds / 2.10% and 2.08%. This is a controlled
+component measurement, without a whole-turn or provider-latency claim.
+
+Build/inspection/BASIC, twenty final-image HTTP/2 gates, nineteen standalone
+guards, both issuer fixtures, 6,234 multiplication executions, 431 fixed-trace
+ChaCha blocks and 25,164 direct rotations pass. All eight serialized 286 timing
+payloads remain byte-identical. Nine reviewed live cases complete 27 prompted
+turns, covering both entry floors, the conforming 286 floor, all seven ISA NICs,
+reuse, a full ten-minute quiet interval, bounded reconnect and native
+write/execute/read. RAM, stack, phase loads, runtime sectors and FAT allocation
+remain unchanged.
+
+Three initial launches stopped before greetings. The original reports and
+blank-disk UI diagnostics remain preserved. The maintainer reported a laptop
+lock; the unchanged harness passes after the reported unlock. No product or
+accessibility workaround was added. The 32 KiB native answer passes the
+documented timed visual review with correct values in words and exactly one
+write/execute/read; numeric-format compliance remains false. The 286's
+documented OCR-omission review retains the correctly displayed numeric result
+and returned prompt alongside the unchanged detector miss.
+
+A later short screen lock held only the two UI controllers during their
+existing idle sleeps. VMs, packet captures and independent supervision
+continued; both cases retain the full quiet interval and reconnect acceptance.
+Earlier native-repeat limitations remain open; this change does not claim a
+native-loop repair. The
+[ROL7 campaign record](optimization-campaign.md#opt-034--integrate-the-measured-application-rol7-specialization)
+binds the complete evidence. The runtime splash number is unchanged.
 
 ## Forward-looking ideas
 

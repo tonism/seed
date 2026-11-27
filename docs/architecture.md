@@ -131,7 +131,7 @@ SEED.SYS total bytes:        150016
 SEED.SYS total sectors:      293
 resident nucleus sectors:    4   (2048 B; 1536 nonzero B)
 ordinary phase entries:      29
-application K executable:    4019 B / 8 sectors (inside its 15-sector file slot)
+application K executable:    4034 B / 8 sectors (inside its 15-sector file slot)
 8088 TLS 1.3 cold pack:      130 sectors, file sectors 45..174
 286 TLS 1.3 tail:            82 sectors, file sectors 212..293
   module cache:              41 sectors / 20992 bytes
@@ -142,7 +142,7 @@ application K executable:    4019 B / 8 sectors (inside its 15-sector file slot)
 The resident nucleus is still fixed at four sectors; current growth is cold
 phases and high-memory modules, not a larger always-resident Seed. The
 15-sector K file slot holds the eight-sector executable and seven sectors of
-HTTP/2 parser code. K has 77 bytes of executable headroom; the parser tail
+HTTP/2 parser code. K has 62 bytes of executable headroom; the parser tail
 is loaded separately and is not spare application space. The current 160 KiB
 composition uses 308 of 309 FAT data sectors: 293 runtime sectors plus 15 auxiliary sectors. One FAT
 data cluster (one sector on this image) remains free as a required packaging
@@ -510,7 +510,7 @@ Current 29-phase layout (regenerate with `make inspect` / `tools/core-sys-info.p
 
 ```text
 id  sectors  load addr  responsibility
-K   8/15     0x1800     4019-byte TLS application executable; H2 parser uses slot tail
+K   8/15     0x1800     4034-byte TLS application executable; H2 parser uses slot tail
 F   2        0x0700     failure action UI
 H   4        0x0700     hardware/display/NIC discovery
 2   2        0x0700     scan/load suitable NIC driver from SEED/DRIVERS/*.DRV

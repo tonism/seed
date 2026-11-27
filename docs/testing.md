@@ -204,13 +204,30 @@ python3 tools/crypto-bench/tls13-product/check_poly1305_app_multiply.py \
   --listing build/ibm_pc_5150/SEED.SYS.lst
 ```
 
-K uses 4,019 of its 4,096 executable bytes, leaving 77 bytes for code growth.
+The application ChaCha ROL7 uses a byte permutation followed by one fixed
+right rotation, retaining all twenty rounds and the caller/stack contract.
+Its emitted-block gate compares 431 independent key, nonce and counter vectors,
+requires the same instruction and data-address trace for every vector, and
+checks arbitrary caller CX, preserved registers and a 30-byte stack in a
+16 KiB mapping. Run it against the final runtime with:
+
+```sh
+python3 tools/crypto-bench/tls13-product/check_chacha_app_rotations.py \
+  --core build/ibm_pc_5150/SEED.SYS \
+  --listing build/ibm_pc_5150/SEED.SYS.lst
+```
+
+K uses 4,034 of its 4,096 executable bytes, leaving 62 bytes for code growth.
 The product application omits the uncalled legacy TLS 1.2 Finished wrapper;
 historical/non-product assembly retains it. The eight-sector load and fixed
 file slot are unchanged. After any layout change, regenerate the cold and
 ordinary application references and repeat the layout/composition and affected
 live gates. The [campaign ledger](optimization-campaign.md#opt-032--recover-k-space-from-an-unreachable-legacy-finished-wrapper)
-records the complete instruction/reference audit and matched response fixtures.
+records the wrapper-removal instruction/reference audit. The
+[ROL7 integration record](optimization-campaign.md#opt-034--integrate-the-measured-application-rol7-specialization)
+binds the current emitted helper, matched response/timing payloads and full
+exact-floor live matrix. The controlled component gain does not establish
+whole-turn or provider latency.
 
 The 286 product directory contains the module/controller KATs. Its aggregate
 serialized exact-floor timing gate is:

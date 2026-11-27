@@ -159,9 +159,12 @@ core_link_window_start:
 %endif
 ; The block entry clears CX before its rounds. Use byte rotations in product
 ; application K, inlining ROL8 inside ROL12 to retain the existing stack peak.
+; ROL7 uses the same byte permutation followed by a fixed one-bit right rotate.
 %define CHACHA_COMPACT_FAST_ROTATES 1
 %define CHACHA_INLINE_ROTL12 1
+%define CHACHA_APP_BYTE_ROTL7 1
 %include "core/chacha20.inc"
+%undef CHACHA_APP_BYTE_ROTL7
 %undef CHACHA_INLINE_ROTL12
 %undef CHACHA_COMPACT_FAST_ROTATES
 %include "core/poly1305_app.inc"
